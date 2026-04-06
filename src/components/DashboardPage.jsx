@@ -44,13 +44,32 @@ export function DashboardPage() {
             }
           }
           months[e.id] = [...monthSet];
-          // Total members = members object keys or memberUids
-          const memberCount = e.members ? Object.keys(e.members).length : (e.memberUids?.length || 1);
-          const votedCount = voterUids.size;
+          // Count voting groups: members with plusOneOf are grouped with their host
+          // Each group counts as 1 voting unit
+          const members = e.members || {};
+          const memberUids = Object.keys(members);
+          // Find independent voters (not a plusOne of someone else)
+          const independentVoters = new Set();
+          const plusOnes = new Set();
+          for (const uid of memberUids) {
+            const m = members[uid];
+            if (m?.plusOneOf && memberUids.includes(m.plusOneOf)) {
+              plusOnes.add(uid);
+            } else if (!m?.skipVote) {
+              independentVoters.add(uid);
+            }
+          }
+          // Total voting units = independent voters only (plus-ones are assumed yes)
+          const totalUnits = independentVoters.size || 1;
+          // Voted units = independent voters who have voted
+          let votedUnits = 0;
+          for (const uid of independentVoters) {
+            if (voterUids.has(uid)) votedUnits++;
+          }
           progress[e.id] = {
-            voted: votedCount,
-            total: Math.max(memberCount, votedCount),
-            pct: Math.max(memberCount, votedCount) > 0 ? Math.round((votedCount / Math.max(memberCount, votedCount)) * 100) : 0,
+            voted: votedUnits,
+            total: totalUnits,
+            pct: totalUnits > 0 ? Math.round((votedUnits / totalUnits) * 100) : 0,
           };
         } catch {
           counts[e.id] = 0;
