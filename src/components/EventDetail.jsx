@@ -51,13 +51,17 @@ export function EventDetail() {
 
   // Load date option voters to include poll participants in members list + track vote stats
   const [voteStats, setVoteStats] = useState({}); // { visitorId: { total, yes, maybe, no } }
+  const [allDateOptions, setAllDateOptions] = useState([]); // [{ id, startDate, endDate, note, votes }]
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'events', eventId, 'dateOptions'), (snap) => {
       const voters = {};
       const stats = {};
       const totalOptions = snap.docs.length;
+      const options = [];
       for (const d of snap.docs) {
-        for (const [voterId, v] of Object.entries(d.data().votes || {})) {
+        const data = d.data();
+        options.push({ id: d.id, ...data });
+        for (const [voterId, v] of Object.entries(data.votes || {})) {
           if (!voters[voterId]) voters[voterId] = { name: v.name || voterId, rsvp: 'pending', role: 'viewer', fromVotes: true };
           if (!stats[voterId]) stats[voterId] = { total: 0, yes: 0, maybe: 0, no: 0, totalOptions };
           if (v.vote && v.vote !== 'none') {
@@ -68,6 +72,8 @@ export function EventDetail() {
           }
         }
       }
+      options.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+      setAllDateOptions(options);
       setDateOptionsVoters(voters);
       setVoteStats(stats);
     });
@@ -1020,6 +1026,40 @@ export function EventDetail() {
                   </div>
                 )}
               </div>
+
+              {/* Date Option Votes */}
+              {allDateOptions.length > 0 && (
+                <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                    Date Votes ({voteStats[editMember?.uid]?.total || 0}/{allDateOptions.length} voted)
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '200px', overflowY: 'auto' }}>
+                    {allDateOptions.map(opt => {
+                      const vote = opt.votes?.[editMember?.uid];
+                      const voteValue = vote?.vote || 'none';
+                      const dateLabel = (() => {
+                        try {
+                          const d = new Date(opt.startDate + 'T12:00:00');
+                          const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                          if (opt.endDate && opt.endDate !== opt.startDate) {
+                            const d2 = new Date(opt.endDate + 'T12:00:00');
+                            return label + ' – ' + d2.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                          }
+                          return label;
+                        } catch { return opt.startDate; }
+                      })();
+                      const colors = { yes: { bg: 'var(--color-success-light, #dcfce7)', color: 'var(--color-success, #16a34a)', label: 'Yes' }, maybe: { bg: '#FEF3C7', color: '#D97706', label: 'Maybe' }, no: { bg: '#FEE2E2', color: '#DC2626', label: 'No' }, none: { bg: 'var(--color-surface-alt, #f3f4f6)', color: 'var(--color-text-muted)', label: '—' } };
+                      const c = colors[voteValue] || colors.none;
+                      return (
+                        <div key={opt.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.4rem 0.6rem', background: 'var(--color-surface)', border: '1px solid var(--color-border-light, #e5e7eb)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem' }}>
+                          <span style={{ fontWeight: 500, color: 'var(--color-text)' }}>{dateLabel}</span>
+                          <span style={{ padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-full, 999px)', background: c.bg, color: c.color, fontSize: '0.72rem', fontWeight: 600 }}>{c.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
                 <button onClick={async () => {
