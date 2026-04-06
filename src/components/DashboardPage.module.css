@@ -15,8 +15,103 @@
 .section { margin-bottom: 2rem; }
 .sectionTitle { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); margin: 0 0 0.75rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
-.monthGroup { margin-bottom: 1.25rem; }
-.monthLabel { font-size: 0.95rem; font-weight: 700; color: var(--color-text); margin: 0 0 0.5rem; padding-bottom: 0.35rem; border-bottom: 2px solid var(--color-border-light, #e5e7eb); letter-spacing: -0.01em; }
+
+/* Vertical Timeline */
+.timeline {
+  position: relative;
+  padding-left: 28px;
+  margin-left: 8px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-border, #e5e7eb);
+  border-radius: 1px;
+}
+
+.timelineMonth {
+  position: relative;
+  margin: 1.25rem 0 0.5rem -28px;
+  padding-left: 28px;
+}
+
+.timelineMonth:first-child {
+  margin-top: 0;
+}
+
+.timelineMonthLabel {
+  display: inline-block;
+  position: relative;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+  background: var(--color-bg, #f9fafb);
+  padding: 0.2rem 0.6rem 0.2rem 0;
+  z-index: 1;
+}
+
+.timelineItem {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 0.75rem;
+  margin-left: -28px;
+  padding-left: 28px;
+}
+
+.timelineDot {
+  position: absolute;
+  left: 2px;
+  top: 18px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--color-bg, #f9fafb);
+  box-shadow: 0 0 0 2px var(--color-border, #e5e7eb);
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.timelineCard {
+  flex: 1;
+  min-width: 0;
+  max-width: 500px;
+}
+
+@media (max-width: 600px) {
+  .timeline {
+    padding-left: 20px;
+    margin-left: 4px;
+  }
+  .timeline::before {
+    left: 5px;
+  }
+  .timelineItem {
+    margin-left: -20px;
+    padding-left: 20px;
+  }
+  .timelineDot {
+    left: 0;
+    width: 10px;
+    height: 10px;
+    top: 16px;
+  }
+  .timelineMonth {
+    margin-left: -20px;
+    padding-left: 20px;
+  }
+  .timelineCard {
+    max-width: 100%;
+  }
+}
 .modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
 .modal { background: var(--color-surface); border-radius: var(--radius-lg); padding: 2rem; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); position: relative; }
 .modalClose { position: absolute; top: 0.75rem; right: 0.75rem; background: none; border: none; font-size: 1.5rem; color: var(--color-text-muted); cursor: pointer; line-height: 1; padding: 0.25rem; }

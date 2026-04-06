@@ -208,6 +208,8 @@ export function DashboardPage() {
               return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
             };
 
+            const dotColor = (pct) => pct >= 75 ? '#16a34a' : pct >= 40 ? '#D97706' : '#DC2626';
+
             return (
               <section className={styles.section}>
                 <h2 className={styles.sectionTitle}>
@@ -216,22 +218,44 @@ export function DashboardPage() {
                     Voting ({votingEvents.length})
                   </span>
                 </h2>
-                {sortedMonths.map(ym => (
-                  <div key={ym} className={styles.monthGroup}>
-                    <h3 className={styles.monthLabel}>{monthLabel(ym)}</h3>
-                    <div className={styles.grid}>
-                      {monthBuckets[ym].map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={votingProgress[e.id]?.pct} />)}
+                <div className={styles.timeline}>
+                  {sortedMonths.map(ym => (
+                    <div key={ym}>
+                      <div className={styles.timelineMonth}>
+                        <span className={styles.timelineMonthLabel}>{monthLabel(ym)}</span>
+                      </div>
+                      {monthBuckets[ym].map(e => {
+                        const pct = votingProgress[e.id]?.pct ?? 0;
+                        return (
+                          <div key={e.id} className={styles.timelineItem}>
+                            <div className={styles.timelineDot} style={{ background: dotColor(pct) }} />
+                            <div className={styles.timelineCard}>
+                              <EventCard event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={pct} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                ))}
-                {noMonth.length > 0 && (
-                  <div className={styles.monthGroup}>
-                    <h3 className={styles.monthLabel}>No Dates Yet</h3>
-                    <div className={styles.grid}>
-                      {noMonth.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={votingProgress[e.id]?.pct} />)}
+                  ))}
+                  {noMonth.length > 0 && (
+                    <div>
+                      <div className={styles.timelineMonth}>
+                        <span className={styles.timelineMonthLabel}>No Dates Yet</span>
+                      </div>
+                      {noMonth.map(e => {
+                        const pct = votingProgress[e.id]?.pct ?? 0;
+                        return (
+                          <div key={e.id} className={styles.timelineItem}>
+                            <div className={styles.timelineDot} style={{ background: '#9CA3AF' }} />
+                            <div className={styles.timelineCard}>
+                              <EventCard event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={pct} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </section>
             );
           })()}
