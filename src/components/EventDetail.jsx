@@ -271,15 +271,9 @@ export function EventDetail() {
 
   async function toggleStage() {
     if (stage === 'voting') {
-      // Show date picker instead of immediately finalizing
-      // Pre-fill with the most-voted date option
-      const topOption = [...allDateOptions].sort((a, b) => {
-        const aYes = Object.values(a.votes || {}).filter(v => v.vote === 'yes').length;
-        const bYes = Object.values(b.votes || {}).filter(v => v.vote === 'yes').length;
-        return bYes - aYes;
-      })[0];
-      setFinalizeDate(topOption?.startDate || '');
-      setFinalizeEndDate(topOption?.endDate || topOption?.startDate || '');
+      // Open modal with empty dates — user must manually pick
+      setFinalizeDate('');
+      setFinalizeEndDate('');
       setShowFinalize(true);
     } else {
       await updateEvent(eventId, { stage: 'voting' });
@@ -792,6 +786,17 @@ export function EventDetail() {
               <button className={styles.editBtn} onClick={toggleStage} style={{ background: stage === 'voting' ? 'var(--color-success-light)' : 'var(--color-warning-light)', borderColor: stage === 'voting' ? 'var(--color-success)' : 'var(--color-warning)', color: stage === 'voting' ? 'var(--color-success)' : 'var(--color-warning)' }}>
                 {stage === 'voting' ? '✓ Finalize Dates' : '↩ Reopen Voting'}
               </button>
+              {stage === 'finalized' && (
+                <button className={styles.editBtn} onClick={() => {
+                  const d = event.date?.toDate?.() || new Date(event.date);
+                  const ed = event.endDate?.toDate?.() || (event.endDate ? new Date(event.endDate) : null);
+                  setFinalizeDate(d instanceof Date && !isNaN(d) ? d.toISOString().split('T')[0] : '');
+                  setFinalizeEndDate(ed instanceof Date && !isNaN(ed) ? ed.toISOString().split('T')[0] : '');
+                  setShowFinalize(true);
+                }}>
+                  Edit Date
+                </button>
+              )}
               {stage === 'voting' && (() => {
                 const nonResponders = members.filter(([uid, m]) => uid !== user?.uid && !['yes', 'maybe', 'no'].includes(m.rsvp) && m.email);
                 if (nonResponders.length === 0) return null;
