@@ -39,6 +39,9 @@ export function EventDetail() {
   const [dateOptionsVoters, setDateOptionsVoters] = useState({});
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [friendSearch, setFriendSearch] = useState('');
+  const [showFinalize, setShowFinalize] = useState(false);
+  const [finalizeDate, setFinalizeDate] = useState('');
+  const [finalizeEndDate, setFinalizeEndDate] = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'events', eventId), (snap) => {
@@ -265,9 +268,6 @@ export function EventDetail() {
     } catch {}
   }
 
-  const [showFinalize, setShowFinalize] = useState(false);
-  const [finalizeDate, setFinalizeDate] = useState('');
-  const [finalizeEndDate, setFinalizeEndDate] = useState('');
 
   async function toggleStage() {
     if (stage === 'voting') {
