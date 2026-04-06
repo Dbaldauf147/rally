@@ -32,7 +32,6 @@ export function EventCard({ event, onClick }) {
         <div className={styles.rsvpRow}>
           {isPast && <span className={styles.rsvpNone}>Completed</span>}
           {!isPast && stage === 'finalized' && <span className={styles.rsvpYes}>Dates Finalized</span>}
-          {!isPast && stage === 'voting' && <span className={styles.rsvpMaybe}>Voting Open</span>}
           {memberCount > 1 && <span className={styles.rsvpNone}>{memberCount} invited</span>}
         </div>
       </div>
