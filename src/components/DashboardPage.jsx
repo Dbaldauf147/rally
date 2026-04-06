@@ -17,33 +17,50 @@ export function DashboardPage() {
 
   const [dateOptionCounts, setDateOptionCounts] = useState({});
   const [dateOptionMonths, setDateOptionMonths] = useState({}); // eventId -> Set of "YYYY-MM"
+  const [votingProgress, setVotingProgress] = useState({}); // eventId -> { voted, total, pct }
 
   useEffect(() => {
     if (events.length === 0) return;
     (async () => {
       const counts = {};
       const months = {};
+      const progress = {};
       for (const e of events) {
         try {
           const snap = await getDocs(collection(db, 'events', e.id, 'dateOptions'));
           counts[e.id] = snap.docs.length;
           const monthSet = new Set();
-          for (const doc of snap.docs) {
-            const d = doc.data();
-            if (d.startDate) {
-              // startDate is "YYYY-MM-DD"
-              const ym = d.startDate.substring(0, 7); // "YYYY-MM"
+          const voterUids = new Set();
+          for (const d of snap.docs) {
+            const data = d.data();
+            if (data.startDate) {
+              const ym = data.startDate.substring(0, 7);
               monthSet.add(ym);
+            }
+            if (data.votes) {
+              for (const uid of Object.keys(data.votes)) {
+                voterUids.add(uid);
+              }
             }
           }
           months[e.id] = [...monthSet];
+          // Total members = members object keys or memberUids
+          const memberCount = e.members ? Object.keys(e.members).length : (e.memberUids?.length || 1);
+          const votedCount = voterUids.size;
+          progress[e.id] = {
+            voted: votedCount,
+            total: Math.max(memberCount, votedCount),
+            pct: Math.max(memberCount, votedCount) > 0 ? Math.round((votedCount / Math.max(memberCount, votedCount)) * 100) : 0,
+          };
         } catch {
           counts[e.id] = 0;
           months[e.id] = [];
+          progress[e.id] = { voted: 0, total: 0, pct: 0 };
         }
       }
       setDateOptionCounts(counts);
       setDateOptionMonths(months);
+      setVotingProgress(progress);
     })();
   }, [events]);
 
@@ -184,7 +201,7 @@ export function DashboardPage() {
                   <div key={ym} className={styles.monthGroup}>
                     <h3 className={styles.monthLabel}>{monthLabel(ym)}</h3>
                     <div className={styles.grid}>
-                      {monthBuckets[ym].map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
+                      {monthBuckets[ym].map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={votingProgress[e.id]?.pct} />)}
                     </div>
                   </div>
                 ))}
@@ -192,7 +209,7 @@ export function DashboardPage() {
                   <div className={styles.monthGroup}>
                     <h3 className={styles.monthLabel}>No Dates Yet</h3>
                     <div className={styles.grid}>
-                      {noMonth.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
+                      {noMonth.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={votingProgress[e.id]?.pct} />)}
                     </div>
                   </div>
                 )}

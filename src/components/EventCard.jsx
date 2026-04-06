@@ -1,7 +1,7 @@
 import { format } from 'date-fns';
 import styles from './EventCard.module.css';
 
-export function EventCard({ event, onClick }) {
+export function EventCard({ event, onClick, votePct }) {
   const date = event.date?.toDate ? event.date.toDate() : new Date(event.date);
   const members = event.members ? Object.values(event.members).filter(Boolean) : [];
   const memberCount = members.length;
@@ -32,6 +32,14 @@ export function EventCard({ event, onClick }) {
         <div className={styles.rsvpRow}>
           {isPast && <span className={styles.rsvpNone}>Completed</span>}
           {!isPast && stage === 'finalized' && <span className={styles.rsvpYes}>Dates Finalized</span>}
+          {!isPast && stage === 'voting' && votePct != null && (
+            <div className={styles.votePct}>
+              <div className={styles.votePctBar}>
+                <div className={styles.votePctFill} style={{ width: `${votePct}%` }} />
+              </div>
+              <span className={styles.votePctLabel}>{votePct}% voted</span>
+            </div>
+          )}
         </div>
       </div>
     </button>
