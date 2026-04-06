@@ -16,6 +16,17 @@
 .sectionTitle { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); margin: 0 0 0.75rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
 
+/* Two-column dashboard layout */
+.dashColumns { display: grid; grid-template-columns: 1fr 320px; gap: 2rem; align-items: start; }
+.dashLeft { min-width: 0; }
+.dashRight { position: sticky; top: 5rem; }
+.upcomingList { display: flex; flex-direction: column; gap: 0.75rem; }
+
+@media (max-width: 900px) {
+  .dashColumns { grid-template-columns: 1fr; }
+  .dashRight { position: static; }
+}
+
 /* Vertical Timeline */
 .timeline {
   position: relative;

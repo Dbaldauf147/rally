@@ -182,6 +182,8 @@ export function DashboardPage() {
         </div>
       ) : (
         <>
+          <div className={styles.dashColumns}>
+          <div className={styles.dashLeft}>
           {votingEvents.length > 0 && (() => {
             // Group voting events by month of their date options
             const monthBuckets = {};
@@ -272,19 +274,29 @@ export function DashboardPage() {
               </div>
             </section>
           )}
+          </div>{/* end dashLeft */}
+          <div className={styles.dashRight}>
           {finalizedEvents.length > 0 && (
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#16a34a' }} />
-                  Finalized ({finalizedEvents.length})
+                  Upcoming ({finalizedEvents.length})
                 </span>
               </h2>
-              <div className={styles.grid}>
-                {finalizedEvents.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
+              <div className={styles.upcomingList}>
+                {finalizedEvents
+                  .sort((a, b) => {
+                    const da = a.date?.toDate?.() || new Date(a.date);
+                    const db2 = b.date?.toDate?.() || new Date(b.date);
+                    return da - db2;
+                  })
+                  .map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
               </div>
             </section>
           )}
+          </div>{/* end dashRight */}
+          </div>{/* end dashColumns */}
           {pastFinalizedEvents.length > 0 && (
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>
