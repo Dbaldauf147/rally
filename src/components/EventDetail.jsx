@@ -954,15 +954,16 @@ export function EventDetail() {
               </label>
 
 
-              {/* Date Option Votes */}
+              {/* Date Option Votes — editable */}
               {allDateOptions.length > 0 && (
                 <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
                   <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                     Date Votes ({voteStats[editMember?.uid]?.total || 0}/{allDateOptions.length} voted)
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '200px', overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '250px', overflowY: 'auto' }}>
                     {allDateOptions.map(opt => {
-                      const vote = opt.votes?.[editMember?.uid];
+                      const memberUid = editMember?.uid;
+                      const vote = opt.votes?.[memberUid];
                       const voteValue = vote?.vote || 'none';
                       const dateLabel = (() => {
                         try {
@@ -975,12 +976,48 @@ export function EventDetail() {
                           return label;
                         } catch { return opt.startDate; }
                       })();
-                      const colors = { yes: { bg: 'var(--color-success-light, #dcfce7)', color: 'var(--color-success, #16a34a)', label: 'Yes' }, maybe: { bg: '#FEF3C7', color: '#D97706', label: 'Maybe' }, no: { bg: '#FEE2E2', color: '#DC2626', label: 'No' }, none: { bg: 'var(--color-surface-alt, #f3f4f6)', color: 'var(--color-text-muted)', label: '—' } };
-                      const c = colors[voteValue] || colors.none;
+                      const voteOptions = [
+                        { key: 'yes', bg: 'var(--color-success-light, #dcfce7)', color: 'var(--color-success, #16a34a)', label: 'Yes' },
+                        { key: 'maybe', bg: '#FEF3C7', color: '#D97706', label: 'Maybe' },
+                        { key: 'no', bg: '#FEE2E2', color: '#DC2626', label: 'No' },
+                        { key: 'none', bg: 'var(--color-surface-alt, #f3f4f6)', color: 'var(--color-text-muted)', label: '—' },
+                      ];
+                      const setVote = async (newVote) => {
+                        try {
+                          if (newVote === 'none') {
+                            await updateDoc(doc(db, 'events', eventId, 'dateOptions', opt.id), { [`votes.${memberUid}`]: deleteField() });
+                          } else {
+                            await updateDoc(doc(db, 'events', eventId, 'dateOptions', opt.id), {
+                              [`votes.${memberUid}`]: { vote: newVote, name: editMemberFields.name || editMember?.name || '' }
+                            });
+                          }
+                        } catch (err) { console.error('Failed to update vote:', err); }
+                      };
                       return (
                         <div key={opt.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.4rem 0.6rem', background: 'var(--color-surface)', border: '1px solid var(--color-border-light, #e5e7eb)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem' }}>
-                          <span style={{ fontWeight: 500, color: 'var(--color-text)' }}>{dateLabel}</span>
-                          <span style={{ padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-full, 999px)', background: c.bg, color: c.color, fontSize: '0.72rem', fontWeight: 600 }}>{c.label}</span>
+                          <span style={{ fontWeight: 500, color: 'var(--color-text)', flex: 1, minWidth: 0 }}>{dateLabel}</span>
+                          <div style={{ display: 'flex', gap: '0.2rem' }}>
+                            {voteOptions.map(v => (
+                              <button
+                                key={v.key}
+                                type="button"
+                                onClick={() => setVote(v.key)}
+                                style={{
+                                  padding: '0.15rem 0.45rem',
+                                  borderRadius: 'var(--radius-full, 999px)',
+                                  background: voteValue === v.key ? v.bg : 'transparent',
+                                  color: voteValue === v.key ? v.color : 'var(--color-text-muted)',
+                                  fontSize: '0.68rem',
+                                  fontWeight: 600,
+                                  border: voteValue === v.key ? `1px solid ${v.color}` : '1px solid transparent',
+                                  cursor: 'pointer',
+                                  fontFamily: 'inherit',
+                                  opacity: voteValue === v.key ? 1 : 0.5,
+                                  transition: 'all 0.15s ease',
+                                }}
+                              >{v.label}</button>
+                            ))}
+                          </div>
                         </div>
                       );
                     })}
