@@ -32,14 +32,17 @@ export function EventCard({ event, onClick, votePct }) {
         <div className={styles.rsvpRow}>
           {isPast && <span className={styles.rsvpNone}>Completed</span>}
           {!isPast && stage === 'finalized' && <span className={styles.rsvpYes}>Dates Finalized</span>}
-          {!isPast && stage === 'voting' && votePct != null && (
-            <div className={styles.votePct}>
-              <div className={styles.votePctBar}>
-                <div className={styles.votePctFill} style={{ width: `${votePct}%` }} />
+          {!isPast && stage === 'voting' && votePct != null && (() => {
+            const color = votePct >= 75 ? '#16a34a' : votePct >= 40 ? '#D97706' : '#DC2626';
+            return (
+              <div className={styles.votePct}>
+                <div className={styles.votePctBar}>
+                  <div className={styles.votePctFill} style={{ width: `${votePct}%`, background: color }} />
+                </div>
+                <span className={styles.votePctLabel} style={{ color }}>{votePct}% voted</span>
               </div>
-              <span className={styles.votePctLabel}>{votePct}% voted</span>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
     </button>
