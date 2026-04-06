@@ -26,13 +26,12 @@ export function EventCard({ event, onClick }) {
       <div className={styles.info}>
         <h3 className={styles.title}>{event.title}</h3>
         <p className={styles.meta}>
-          {showDate ? format(date, 'EEEE, MMM d · h:mm a') : 'Dates being voted on'}
-          {event.location && <span className={styles.location}> · {event.location}</span>}
+          {showDate ? format(date, 'EEEE, MMM d · h:mm a') : ''}
+          {event.location && <span className={styles.location}>{showDate ? ' · ' : ''}{event.location}</span>}
         </p>
         <div className={styles.rsvpRow}>
           {isPast && <span className={styles.rsvpNone}>Completed</span>}
           {!isPast && stage === 'finalized' && <span className={styles.rsvpYes}>Dates Finalized</span>}
-          {memberCount > 1 && <span className={styles.rsvpNone}>{memberCount} invited</span>}
         </div>
       </div>
     </button>
