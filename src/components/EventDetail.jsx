@@ -265,9 +265,36 @@ export function EventDetail() {
     } catch {}
   }
 
+  const [showFinalize, setShowFinalize] = useState(false);
+  const [finalizeDate, setFinalizeDate] = useState('');
+  const [finalizeEndDate, setFinalizeEndDate] = useState('');
+
   async function toggleStage() {
-    const newStage = stage === 'voting' ? 'finalized' : 'voting';
-    await updateEvent(eventId, { stage: newStage });
+    if (stage === 'voting') {
+      // Show date picker instead of immediately finalizing
+      // Pre-fill with the most-voted date option
+      const topOption = [...allDateOptions].sort((a, b) => {
+        const aYes = Object.values(a.votes || {}).filter(v => v.vote === 'yes').length;
+        const bYes = Object.values(b.votes || {}).filter(v => v.vote === 'yes').length;
+        return bYes - aYes;
+      })[0];
+      setFinalizeDate(topOption?.startDate || '');
+      setFinalizeEndDate(topOption?.endDate || topOption?.startDate || '');
+      setShowFinalize(true);
+    } else {
+      await updateEvent(eventId, { stage: 'voting' });
+    }
+  }
+
+  async function confirmFinalize() {
+    if (!finalizeDate) return;
+    const d = new Date(finalizeDate + 'T12:00:00');
+    const updates = { stage: 'finalized', date: d };
+    if (finalizeEndDate && finalizeEndDate !== finalizeDate) {
+      updates.endDate = new Date(finalizeEndDate + 'T12:00:00');
+    }
+    await updateEvent(eventId, updates);
+    setShowFinalize(false);
   }
 
   async function handleDelete() {
@@ -901,6 +928,77 @@ export function EventDetail() {
         );
       })()}
       {/* Edit member modal */}
+      {showFinalize && (
+        <div className={styles.modalOverlay} onClick={() => setShowFinalize(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '420px' }}>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem' }}>Finalize Event Date</h2>
+            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 1rem' }}>Select the confirmed date for this event.</p>
+
+            {allDateOptions.length > 0 && (
+              <div style={{ marginBottom: '1rem' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Pick from voted dates</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '180px', overflowY: 'auto' }}>
+                  {[...allDateOptions].sort((a, b) => {
+                    const aYes = Object.values(a.votes || {}).filter(v => v.vote === 'yes').length;
+                    const bYes = Object.values(b.votes || {}).filter(v => v.vote === 'yes').length;
+                    return bYes - aYes;
+                  }).map(opt => {
+                    const yesCount = Object.values(opt.votes || {}).filter(v => v.vote === 'yes').length;
+                    const maybeCount = Object.values(opt.votes || {}).filter(v => v.vote === 'maybe').length;
+                    const isSelected = finalizeDate === opt.startDate;
+                    const dateLabel = (() => {
+                      try {
+                        const d = new Date(opt.startDate + 'T12:00:00');
+                        const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                        if (opt.endDate && opt.endDate !== opt.startDate) {
+                          const d2 = new Date(opt.endDate + 'T12:00:00');
+                          return label + ' – ' + d2.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                        }
+                        return label;
+                      } catch { return opt.startDate; }
+                    })();
+                    return (
+                      <button key={opt.id} type="button" onClick={() => { setFinalizeDate(opt.startDate); setFinalizeEndDate(opt.endDate || opt.startDate); }}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', border: isSelected ? '2px solid var(--color-accent)' : '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: isSelected ? 'var(--color-accent-light)' : 'var(--color-surface)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', fontSize: '0.85rem' }}>
+                        <span style={{ fontWeight: isSelected ? 700 : 500, color: 'var(--color-text)' }}>{dateLabel}</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                          {yesCount > 0 && <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>{yesCount} yes</span>}
+                          {maybeCount > 0 && <span style={{ marginLeft: '0.35rem', color: '#D97706', fontWeight: 600 }}>{maybeCount} maybe</span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <label style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                Start Date
+                <input type="date" value={finalizeDate} onChange={e => setFinalizeDate(e.target.value)}
+                  style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', fontFamily: 'inherit' }} />
+              </label>
+              <label style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                End Date
+                <input type="date" value={finalizeEndDate} onChange={e => setFinalizeEndDate(e.target.value)}
+                  style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', fontFamily: 'inherit' }} />
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button onClick={confirmFinalize} disabled={!finalizeDate}
+                style={{ flex: 1, padding: '0.6rem', border: 'none', borderRadius: 'var(--radius-md)', background: finalizeDate ? 'var(--color-accent)' : 'var(--color-border)', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: finalizeDate ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}>
+                Confirm Date
+              </button>
+              <button onClick={() => setShowFinalize(false)}
+                style={{ padding: '0.6rem 1.25rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.9rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editMember && (
         <div className={styles.modalOverlay} onClick={() => setEditMember(null)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
