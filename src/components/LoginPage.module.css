@@ -1,0 +1,17 @@
+.page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; background: linear-gradient(135deg, #eef2ff 0%, #faf9f7 50%, #dcfce7 100%); }
+.card { background: var(--color-surface); border-radius: var(--radius-xl); padding: 2.5rem; max-width: 400px; width: 100%; box-shadow: var(--shadow-lg); text-align: center; }
+.logo { font-size: 2.2rem; font-weight: 700; color: var(--color-accent); letter-spacing: -0.03em; margin: 0 0 0.25rem; }
+.tagline { font-size: 0.9rem; color: var(--color-text-muted); margin: 0 0 2rem; }
+.googleBtn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.9rem; font-weight: 500; color: var(--color-text); cursor: pointer; transition: all 0.15s; }
+.googleBtn:hover { background: var(--color-surface-alt); border-color: var(--color-text-muted); }
+.divider { display: flex; align-items: center; gap: 1rem; margin: 1.5rem 0; color: var(--color-text-muted); font-size: 0.78rem; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--color-border); }
+.form { display: flex; flex-direction: column; gap: 0.75rem; }
+.input { padding: 0.7rem 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.9rem; color: var(--color-text); background: var(--color-bg); outline: none; transition: border-color 0.15s; }
+.input:focus { border-color: var(--color-accent); }
+.error { color: var(--color-danger); font-size: 0.82rem; text-align: left; margin: 0; }
+.submitBtn { padding: 0.75rem; border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.submitBtn:hover { background: var(--color-accent-hover); }
+.submitBtn:disabled { opacity: 0.5; }
+.switch { margin-top: 1.25rem; font-size: 0.82rem; color: var(--color-text-muted); }
+.switchBtn { background: none; border: none; color: var(--color-accent); font-weight: 600; cursor: pointer; font-size: 0.82rem; }

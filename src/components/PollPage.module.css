@@ -1,0 +1,52 @@
+.page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; background: linear-gradient(135deg, #eef2ff 0%, #faf9f7 50%, #dcfce7 100%); }
+.card { background: #fff; border-radius: 16px; padding: 2rem; max-width: 500px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
+.inviteLabel { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-accent, #4f46e5); font-weight: 600; margin: 0 0 0.35rem; text-align: center; }
+.title { font-size: 1.5rem; font-weight: 700; margin: 0 0 0.35rem; text-align: center; letter-spacing: -0.02em; }
+.date { font-size: 0.88rem; color: #525252; margin: 0 0 0.2rem; text-align: center; }
+.location { font-size: 0.82rem; color: #9ca3af; margin: 0 0 1.5rem; text-align: center; }
+
+.section { margin-bottom: 1.5rem; }
+.sectionTitle { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.5rem; color: #1a1a1a; }
+.sectionDesc { font-size: 0.82rem; color: #9ca3af; margin: 0 0 0.75rem; }
+
+.rsvpRow { display: flex; gap: 0.5rem; }
+.rsvpBtn { flex: 1; padding: 0.65rem; border: 2px solid; border-radius: 10px; font-size: 0.88rem; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.rsvpBtn:hover { opacity: 0.85; }
+.savedMsg { font-size: 0.78rem; color: #16a34a; font-weight: 500; margin: 0.5rem 0 0; text-align: center; }
+
+.dateList { display: flex; flex-direction: column; gap: 0.5rem; }
+.dateOption { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border: 1px solid #e5e5e5; border-radius: 10px; }
+.dateInfo { flex: 1; min-width: 0; }
+.dateLabel { font-size: 0.88rem; font-weight: 600; color: #1a1a1a; }
+.dateNote { font-size: 0.75rem; color: #9ca3af; font-style: italic; margin-top: 0.15rem; }
+.voteCounts { display: flex; gap: 0.5rem; margin-top: 0.25rem; font-size: 0.68rem; font-weight: 500; }
+.voteButtons { display: flex; gap: 0.3rem; flex-shrink: 0; }
+.voteBtn { width: 36px; height: 36px; border: 2px solid; border-radius: 50%; font-size: 0.88rem; cursor: pointer; font-family: inherit; transition: all 0.15s; display: flex; align-items: center; justify-content: center; }
+.voteBtn:hover { opacity: 0.8; }
+
+/* Invite others */
+.inviteToggle { width: 100%; padding: 0.75rem; border: 2px dashed #c7d2fe; border-radius: 10px; background: none; color: #4f46e5; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.inviteToggle:hover { background: #eef2ff; border-color: #a5b4fc; }
+
+.inviteBox { border: 1px solid #e5e5e5; border-radius: 12px; padding: 1.25rem; background: #fafafa; }
+
+.phoneList { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.5rem; }
+.phoneRow { display: flex; gap: 0.35rem; align-items: center; }
+.phoneInput { flex: 1; padding: 0.55rem 0.75rem; border: 1px solid #e5e5e5; border-radius: 8px; font-size: 0.88rem; font-family: inherit; box-sizing: border-box; }
+.phoneInput:focus { outline: none; border-color: #a5b4fc; box-shadow: 0 0 0 2px rgba(79,70,229,0.1); }
+.phoneRemove { width: 30px; height: 30px; border: none; background: none; color: #d1d5db; font-size: 1.2rem; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+.phoneRemove:hover { color: #dc2626; background: #fee2e2; }
+
+.addPhoneBtn { background: none; border: none; color: #6b7280; font-size: 0.78rem; font-weight: 500; cursor: pointer; font-family: inherit; padding: 0.25rem 0; margin-bottom: 0.75rem; }
+.addPhoneBtn:hover { color: #4f46e5; }
+
+.inviteActions { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+.sendTextBtn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.65rem; border: none; border-radius: 8px; background: #4f46e5; color: #fff; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit; text-decoration: none; transition: background 0.15s; }
+.sendTextBtn:hover { background: #4338ca; }
+.copyLinkBtn { flex: 1; padding: 0.65rem; border: 1px solid #e5e5e5; border-radius: 8px; background: #fff; color: #374151; font-size: 0.88rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.copyLinkBtn:hover { border-color: #c7d2fe; background: #eef2ff; }
+
+.inviteCancel { width: 100%; padding: 0.4rem; border: none; background: none; color: #9ca3af; font-size: 0.78rem; cursor: pointer; font-family: inherit; }
+.inviteCancel:hover { color: #6b7280; }
+
+.footer { font-size: 0.68rem; color: #9ca3af; text-align: center; margin: 1.5rem 0 0; }

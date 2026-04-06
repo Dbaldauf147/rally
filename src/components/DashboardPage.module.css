@@ -1,0 +1,22 @@
+.page { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+.header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
+.greeting { font-size: 0.88rem; color: var(--color-text-muted); margin: 0 0 0.15rem; }
+.title { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.03em; margin: 0; color: var(--color-text); }
+.headerActions { display: flex; gap: 0.5rem; }
+.createBtn { padding: 0.6rem 1.25rem; border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.createBtn:hover { background: var(--color-accent-hover); }
+.createBtnAlt { background: var(--color-surface); color: var(--color-accent); border: 1px solid var(--color-accent); }
+.createBtnAlt:hover { background: var(--color-accent-light); }
+.loading { text-align: center; padding: 4rem 0; color: var(--color-text-muted); }
+.empty { text-align: center; padding: 4rem 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); }
+.emptyIcon { font-size: 3rem; margin-bottom: 0.75rem; }
+.emptyTitle { font-size: 1.2rem; font-weight: 600; margin: 0 0 0.35rem; }
+.emptyDesc { font-size: 0.88rem; color: var(--color-text-muted); margin: 0 0 1.5rem; max-width: 360px; margin-left: auto; margin-right: auto; }
+.section { margin-bottom: 2rem; }
+.sectionTitle { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); margin: 0 0 0.75rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+.monthGroup { margin-bottom: 1.25rem; }
+.monthLabel { font-size: 0.95rem; font-weight: 700; color: var(--color-text); margin: 0 0 0.5rem; padding-bottom: 0.35rem; border-bottom: 2px solid var(--color-border-light, #e5e7eb); letter-spacing: -0.01em; }
+.modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
+.modal { background: var(--color-surface); border-radius: var(--radius-lg); padding: 2rem; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); position: relative; }
+.modalClose { position: absolute; top: 0.75rem; right: 0.75rem; background: none; border: none; font-size: 1.5rem; color: var(--color-text-muted); cursor: pointer; line-height: 1; padding: 0.25rem; }

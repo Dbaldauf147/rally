@@ -1,0 +1,85 @@
+.container { }
+.title { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin: 0 0 1rem; }
+
+/* Calendar */
+.calendarCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.75rem; max-width: 340px; }
+.modeToggle { display: flex; gap: 0; margin-bottom: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); overflow: hidden; }
+.modeBtn, .modeActive { flex: 1; padding: 0.3rem 0; border: none; font-size: 0.72rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.modeBtn { background: var(--color-surface); color: var(--color-text-muted); }
+.modeBtn:hover { background: var(--color-surface-alt); }
+.modeActive { background: var(--color-accent); color: #fff; font-weight: 600; }
+.calHeader { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+.calNav { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--color-border); background: var(--color-surface); font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--color-text-secondary); transition: all 0.15s; }
+.calNav:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.calMonthLabel { font-size: 0.85rem; font-weight: 600; min-width: 130px; text-align: center; }
+.calGrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.calDayLabel { text-align: center; font-size: 0.6rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; padding: 0.2rem 0; }
+.calDay { width: 100%; aspect-ratio: 1; border: none; border-radius: var(--radius-sm); background: none; font-size: 0.75rem; font-weight: 500; color: var(--color-text); cursor: pointer; font-family: inherit; transition: all 0.1s; display: flex; align-items: center; justify-content: center; position: relative; }
+.calDay:hover:not(:disabled) { background: var(--color-accent-light); color: var(--color-accent); }
+.calDayOtherMonth { color: var(--color-text-muted); opacity: 0.4; }
+.calDayBusy { box-shadow: inset 0 0 0 2px #4285F4; border-radius: 50%; }
+.calDayViewing { box-shadow: inset 0 0 0 2px #4285F4, 0 0 0 2px #4285F4; border-radius: 50%; }
+.calDay:hover:not(:disabled) { background: var(--color-accent-light); color: var(--color-accent); }
+.calDayPast { color: var(--color-text-muted); opacity: 0.35; cursor: default; }
+.calDayToday { font-weight: 700; box-shadow: inset 0 0 0 2px var(--color-accent); color: var(--color-accent); border-radius: 50%; }
+.calDaySuggested { background: #dcfce7; }
+.calDaySelected { background: var(--color-accent) !important; color: #fff !important; font-weight: 700; border-radius: 50%; }
+.calDaySuggested.calDaySelected { background: var(--color-accent) !important; }
+
+.selectionBar { display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; padding: 0.35rem 0.6rem; background: var(--color-accent-light); border-radius: var(--radius-md); }
+.selectionText { font-size: 0.78rem; font-weight: 600; color: var(--color-accent); }
+.selClear { background: none; border: none; color: var(--color-text-muted); font-size: 0.75rem; cursor: pointer; font-family: inherit; }
+.selClear:hover { color: var(--color-danger); }
+
+.submitRow { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+.noteInput { flex: 1; padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.75rem; outline: none; font-family: inherit; }
+.noteInput:focus { border-color: var(--color-accent); }
+.submitBtn { padding: 0.35rem 0.75rem; border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font-size: 0.75rem; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.submitBtn:disabled { opacity: 0.4; }
+
+.calLegend { display: flex; gap: 0.75rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--color-border-light); }
+.legendItem { display: flex; align-items: center; gap: 0.3rem; font-size: 0.68rem; color: var(--color-text-muted); }
+.legendDot { width: 10px; height: 10px; border-radius: 50%; }
+
+/* Calendar + side panel layout */
+.calendarRow { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 1.25rem; }
+
+/* Side panel */
+.sidePanel { flex: 0 0 200px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.75rem; }
+.sidePanelHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.sidePanelTitle { font-size: 0.78rem; font-weight: 600; color: var(--color-text); margin: 0; }
+.sidePanelClose { background: none; border: none; color: var(--color-text-muted); font-size: 1rem; cursor: pointer; line-height: 1; padding: 0; }
+.sidePanelEvents { display: flex; flex-direction: column; gap: 0.5rem; }
+.sidePanelEvent { padding: 0.4rem 0.5rem; background: #EEF3FF; border-left: 3px solid #4285F4; border-radius: 0 4px 4px 0; }
+.sidePanelTime { font-size: 0.65rem; font-weight: 600; color: #4285F4; text-transform: uppercase; }
+.sidePanelEventTitle { font-size: 0.78rem; font-weight: 500; color: var(--color-text); }
+.sidePanelLocation { font-size: 0.65rem; color: var(--color-text-muted); margin-top: 0.15rem; }
+
+/* Options list */
+.optionsList { display: flex; flex-direction: column; gap: 0.75rem; }
+.option { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem; position: relative; }
+.optionBest { border-color: var(--color-success); background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-success-light) 100%); }
+.bestBadge { position: absolute; top: -0.5rem; right: 0.75rem; background: var(--color-success); color: #fff; font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: var(--radius-full); text-transform: uppercase; letter-spacing: 0.03em; }
+.optionHeader { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.25rem; }
+.optionDates { flex: 1; }
+.dateRange { font-size: 1rem; font-weight: 600; color: var(--color-text); }
+.dayCount { margin-left: 0.5rem; font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted); }
+.singleDate { font-size: 1rem; font-weight: 600; color: var(--color-text); }
+.deleteBtn { background: none; border: none; color: var(--color-text-muted); font-size: 1.2rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; }
+.deleteBtn:hover { color: var(--color-danger); }
+.note { font-size: 0.82rem; color: var(--color-text-secondary); margin: 0.25rem 0; font-style: italic; }
+.suggestedBy { font-size: 0.72rem; color: var(--color-text-muted); margin: 0 0 0.5rem; }
+
+.voteRow { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+.voteBtn { padding: 0.35rem 0.65rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface); font-size: 0.75rem; font-weight: 500; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.voteBtn:hover { border-color: var(--color-text-muted); }
+.voteYesActive { composes: voteBtn; background: var(--color-success-light); border-color: var(--color-success); color: var(--color-success); font-weight: 600; }
+.voteMaybeActive { composes: voteBtn; background: var(--color-warning-light); border-color: var(--color-warning); color: var(--color-warning); font-weight: 600; }
+.voteNoActive { composes: voteBtn; background: var(--color-danger-light); border-color: var(--color-danger); color: var(--color-danger); font-weight: 600; }
+
+.voterList { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.voter_yes { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: var(--radius-full); background: var(--color-success-light); color: var(--color-success); font-weight: 500; }
+.voter_maybe { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: var(--radius-full); background: var(--color-warning-light); color: var(--color-warning); font-weight: 500; }
+.voter_no { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: var(--radius-full); background: var(--color-danger-light); color: var(--color-danger); font-weight: 500; }
+
+.empty { text-align: center; color: var(--color-text-muted); font-size: 0.88rem; padding: 1rem 0; }

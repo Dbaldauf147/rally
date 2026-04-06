@@ -1,0 +1,14 @@
+.card { display: flex; gap: 1rem; padding: 1rem 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); cursor: pointer; transition: all 0.15s; text-align: left; width: 100%; font-family: inherit; }
+.card:hover { border-color: var(--color-accent); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.dateChip { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 52px; height: 52px; background: var(--color-accent-light); border-radius: var(--radius-md); flex-shrink: 0; }
+.dateMonth { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: var(--color-accent); letter-spacing: 0.05em; }
+.dateDay { font-size: 1.2rem; font-weight: 700; color: var(--color-accent); line-height: 1; }
+.info { flex: 1; min-width: 0; }
+.title { font-size: 1rem; font-weight: 600; margin: 0 0 0.2rem; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta { font-size: 0.78rem; color: var(--color-text-muted); margin: 0 0 0.35rem; }
+.location { color: var(--color-text-secondary); }
+.rsvpRow { display: flex; gap: 0.5rem; }
+.rsvpYes, .rsvpMaybe, .rsvpNone { font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: var(--radius-full); font-weight: 500; }
+.rsvpYes { background: var(--color-success-light); color: var(--color-success); }
+.rsvpMaybe { background: var(--color-warning-light); color: var(--color-warning); }
+.rsvpNone { background: var(--color-surface-alt); color: var(--color-text-muted); }

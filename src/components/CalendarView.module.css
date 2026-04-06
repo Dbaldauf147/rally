@@ -1,0 +1,19 @@
+.page { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+.topBar { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
+.header { display: flex; align-items: center; justify-content: center; gap: 1.5rem; }
+.googleBar { display: flex; justify-content: center; }
+.navBtn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--color-border); background: var(--color-surface); font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--color-text-secondary); transition: all 0.15s; }
+.navBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.monthTitle { font-size: 1.3rem; font-weight: 600; margin: 0; min-width: 200px; text-align: center; }
+.grid { display: grid; grid-template-columns: repeat(7, 1fr); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-border); gap: 1px; }
+.dayLabel { background: var(--color-surface-alt); padding: 0.5rem; text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.cell { background: var(--color-surface); min-height: 80px; padding: 0.35rem; display: flex; flex-direction: column; gap: 0.2rem; }
+.cellToday { background: var(--color-accent-light); }
+.cellOther { background: var(--color-surface-alt); }
+.cellOther .dayNum { color: var(--color-text-muted); opacity: 0.5; }
+.dayNum { font-size: 0.78rem; font-weight: 500; color: var(--color-text-secondary); padding: 0.1rem 0.3rem; }
+.eventChip { display: block; width: 100%; text-align: left; padding: 0.15rem 0.35rem; border-radius: 4px; background: var(--color-accent); color: #fff; font-size: 0.68rem; font-weight: 500; border: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: inherit; }
+.eventChip:hover { opacity: 0.85; }
+.googleChip { display: block; width: 100%; text-align: left; padding: 0.15rem 0.35rem; border-radius: 4px; background: #4285F4; color: #fff; font-size: 0.68rem; font-weight: 500; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.googleChip:hover { opacity: 0.85; text-decoration: none; }
+.moreCount { font-size: 0.65rem; color: var(--color-text-muted); padding: 0 0.35rem; }

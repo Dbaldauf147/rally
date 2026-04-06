@@ -1,0 +1,58 @@
+.page { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+.header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+.title { font-size: 1.6rem; font-weight: 700; margin: 0 0 0.15rem; letter-spacing: -0.02em; }
+.desc { font-size: 0.85rem; color: var(--color-text-muted); margin: 0; }
+.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.addBtn { padding: 0.5rem 1rem; border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font-size: 0.85rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.addBtn:hover { background: var(--color-accent-hover); }
+.uploadBtn { padding: 0.5rem 1rem; border: 1px solid var(--color-accent); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-accent); font-size: 0.85rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.uploadBtn:hover { background: var(--color-accent-light); }
+.templateBtn { padding: 0.5rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 500; cursor: pointer; font-family: inherit; }
+
+.result { padding: 0.6rem 1rem; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 500; margin-bottom: 1rem; }
+.result_success { background: var(--color-success-light); color: var(--color-success); }
+.result_error { background: var(--color-danger-light); color: var(--color-danger); }
+
+.search { width: 100%; padding: 0.6rem 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.9rem; color: var(--color-text); outline: none; margin-bottom: 0.75rem; font-family: inherit; }
+.search:focus { border-color: var(--color-accent); }
+
+.groupRow { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.groupChip, .groupChipActive { padding: 0.3rem 0.75rem; border-radius: var(--radius-full); font-size: 0.78rem; font-weight: 500; cursor: pointer; font-family: inherit; border: none; transition: all 0.15s; }
+.groupChip { background: var(--color-surface-alt); color: var(--color-text-secondary); }
+.groupChip:hover { background: var(--color-accent-light); color: var(--color-accent); }
+.groupChipActive { background: var(--color-accent); color: #fff; }
+
+.loading { text-align: center; padding: 3rem; color: var(--color-text-muted); }
+.empty { text-align: center; padding: 3rem 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); }
+.emptyIcon { font-size: 3rem; margin-bottom: 0.5rem; }
+.emptyTitle { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.3rem; }
+.emptyDesc { font-size: 0.85rem; color: var(--color-text-muted); margin: 0; max-width: 320px; margin: 0 auto; }
+
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem; grid-column: 1 / -1; border: 2px solid var(--color-accent); border-radius: calc(var(--radius-md) + 2px); padding: 0.2rem; background: var(--color-accent-light); }
+.pair .card { min-width: 0; }
+.single { min-width: 0; }
+.card { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); position: relative; transition: border-color 0.15s; min-height: 52px; box-sizing: border-box; }
+.card:hover { border-color: var(--color-accent); }
+.cardAvatar { width: 30px; height: 30px; border-radius: 50%; background: var(--color-accent-light); color: var(--color-accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.75rem; flex-shrink: 0; }
+.cardInfo { flex: 1; min-width: 0; }
+.cardName { font-size: 0.75rem; font-weight: 600; color: var(--color-text); word-wrap: break-word; overflow-wrap: break-word; line-height: 1.25; }
+.cardEmail { font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cardPhone { font-size: 0.72rem; color: var(--color-text-muted); }
+.cardGroup { padding: 0.15rem 0.5rem; border-radius: var(--radius-full); font-size: 0.68rem; font-weight: 500; background: var(--color-accent-light); color: var(--color-accent); white-space: nowrap; flex-shrink: 0; }
+.cardDelete { position: absolute; top: 0.4rem; right: 0.4rem; background: none; border: none; color: var(--color-text-muted); font-size: 1rem; cursor: pointer; opacity: 0; transition: opacity 0.15s; line-height: 1; padding: 0.15rem; }
+.card:hover .cardDelete { opacity: 1; }
+.cardDelete:hover { color: var(--color-danger); }
+
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
+.modal { background: var(--color-surface); border-radius: var(--radius-lg); padding: 2rem; max-width: 440px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+.modalTitle { font-size: 1.2rem; font-weight: 700; margin: 0 0 1rem; }
+.form { display: flex; flex-direction: column; gap: 0.75rem; }
+.label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+.input { padding: 0.6rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.9rem; color: var(--color-text); outline: none; font-family: inherit; }
+.input:focus { border-color: var(--color-accent); }
+.formActions { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+.saveBtn { flex: 1; padding: 0.65rem; border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font-size: 0.9rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.saveBtn:hover { background: var(--color-accent-hover); }
+.saveBtn:disabled { opacity: 0.4; }
+.cancelBtn { padding: 0.65rem 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.9rem; cursor: pointer; font-family: inherit; }

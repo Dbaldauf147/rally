@@ -1,0 +1,37 @@
+.page { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
+.loading { text-align: center; padding: 4rem; color: var(--color-text-muted); }
+.backBtn { background: none; border: none; color: var(--color-accent); font-size: 0.88rem; font-weight: 600; cursor: pointer; margin-bottom: 1rem; padding: 0; font-family: inherit; }
+.hero { display: flex; gap: 1.25rem; align-items: flex-start; margin-bottom: 1.5rem; }
+.dateBadge { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 72px; height: 72px; background: var(--color-accent-light); border-radius: var(--radius-lg); flex-shrink: 0; }
+.dateMonth { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--color-accent); letter-spacing: 0.05em; }
+.dateDay { font-size: 1.8rem; font-weight: 700; color: var(--color-accent); line-height: 1; }
+.heroInfo { flex: 1; }
+.title { font-size: 1.6rem; font-weight: 700; margin: 0 0 0.3rem; letter-spacing: -0.02em; }
+.datetime { font-size: 0.88rem; color: var(--color-text-secondary); margin: 0 0 0.2rem; }
+.location { font-size: 0.88rem; color: var(--color-text-muted); margin: 0; }
+.rsvpSection { display: flex; align-items: center; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--color-border-light); border-bottom: 1px solid var(--color-border-light); margin-bottom: 1rem; flex-wrap: wrap; }
+.shareBtn { background: none; border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.4rem 1rem; font-size: 0.82rem; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.shareBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; }
+.tab, .tabActive { padding: 0.5rem 1rem; border: none; border-radius: var(--radius-md); font-size: 0.88rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; background: none; color: var(--color-text-muted); }
+.tab:hover { background: var(--color-surface-alt); color: var(--color-text); }
+.tabActive { background: var(--color-accent-light); color: var(--color-accent); font-weight: 600; }
+.content { }
+.sectionTitle { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin: 0 0 0.6rem; }
+.descSection { margin-bottom: 1.5rem; }
+.description { font-size: 0.92rem; color: var(--color-text); line-height: 1.6; }
+.membersSection { margin-bottom: 1.5rem; }
+.memberList { display: flex; flex-direction: column; gap: 0.4rem; }
+.member { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); flex: 1 1 140px; min-width: 0; max-width: 280px; box-sizing: border-box; }
+.memberAvatar { width: 28px; height: 28px; border-radius: 50%; background: var(--color-accent-light); color: var(--color-accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.75rem; flex-shrink: 0; }
+.memberName { flex: 1; font-size: 0.82rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rsvpBadge { font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: var(--radius-full); font-weight: 600; text-transform: capitalize; }
+.rsvp_yes { background: var(--color-success-light); color: var(--color-success); }
+.rsvp_maybe { background: var(--color-warning-light); color: var(--color-warning); }
+.rsvp_no { background: var(--color-danger-light); color: var(--color-danger); }
+.rsvp_pending { background: var(--color-surface-alt); color: var(--color-text-muted); }
+.ownerActions { display: flex; gap: 0.75rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-border-light); }
+.editBtn { padding: 0.5rem 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; font-weight: 500; color: var(--color-text-secondary); cursor: pointer; }
+.deleteBtn { padding: 0.5rem 1.25rem; border: 1px solid var(--color-danger-light); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; font-weight: 500; color: var(--color-danger); cursor: pointer; }
+.modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
+.modal { background: var(--color-surface); border-radius: var(--radius-lg); padding: 2rem; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); }

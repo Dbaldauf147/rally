@@ -1,0 +1,13 @@
+.page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; background: linear-gradient(135deg, #eef2ff 0%, #faf9f7 50%, #dcfce7 100%); }
+.loading { color: var(--color-text-muted); font-size: 0.92rem; }
+.card { background: var(--color-surface); border-radius: var(--radius-xl); padding: 2.5rem; max-width: 480px; width: 100%; box-shadow: var(--shadow-lg); text-align: center; }
+.inviteLabel { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-accent); font-weight: 600; margin: 0 0 0.5rem; }
+.title { font-size: 1.6rem; font-weight: 700; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+.date { font-size: 0.92rem; color: var(--color-text-secondary); margin: 0 0 0.25rem; }
+.location { font-size: 0.88rem; color: var(--color-text-muted); margin: 0 0 1rem; }
+.desc { font-size: 0.88rem; color: var(--color-text); line-height: 1.5; margin: 0 0 1.5rem; }
+.actions { padding-top: 0.5rem; }
+.joinBtn { width: 100%; padding: 0.75rem; border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.joinBtn:hover { background: var(--color-accent-hover); }
+.joinBtn:disabled { opacity: 0.5; }
+.joinedMsg { color: var(--color-success); font-weight: 600; font-size: 0.92rem; }
