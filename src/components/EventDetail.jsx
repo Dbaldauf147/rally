@@ -10,6 +10,7 @@ import { ChatPanel } from './ChatPanel';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
+import { Notes } from './Notes';
 import styles from './EventDetail.module.css';
 
 export function EventDetail() {
@@ -347,6 +348,7 @@ export function EventDetail() {
   const tabs = [
     { key: 'details', label: 'Details' },
     { key: 'itinerary', label: 'Itinerary' },
+    { key: 'notes', label: 'Notes' },
     { key: 'chat', label: 'Chat' },
   ];
 
@@ -852,6 +854,15 @@ export function EventDetail() {
         <Itinerary
           event={event}
           canEdit={isOwner || event.members?.[user?.uid]?.role === 'editor'}
+          onSave={async (data) => { await updateEvent(eventId, data); }}
+        />
+      )}
+
+      {activeTab === 'notes' && (
+        <Notes
+          event={event}
+          currentUser={user}
+          canManageAll={isOwner || event.members?.[user?.uid]?.role === 'editor'}
           onSave={async (data) => { await updateEvent(eventId, data); }}
         />
       )}
