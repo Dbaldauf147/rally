@@ -480,7 +480,7 @@ export function EventDetail() {
               const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
               const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
               const defaultMsg = event.stage === 'finalized'
-                ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!`
+                ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails & RSVP: ${pollLink}`
                 : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
               setTextAllMessage(defaultMsg);
               setShowTextAll(true);
