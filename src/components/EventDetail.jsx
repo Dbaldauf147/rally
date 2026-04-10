@@ -936,36 +936,31 @@ export function EventDetail() {
                   Cancel
                 </button>
                 <button
-                  disabled={textAllSending || !textAllMessage.trim() || phones.length === 0}
-                  onClick={async () => {
-                    setTextAllSending(true);
-                    setResult({ type: 'info', message: `Sending ${phones.length} text${phones.length !== 1 ? 's' : ''}...` });
-                    try {
-                      const res = await fetch('/api/send-sms', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ to: phones, message: textAllMessage }),
-                      });
-                      const data = await res.json();
-                      if (data.sent > 0) {
-                        setResult({ type: 'success', message: `${data.sent} of ${data.total} text${data.total !== 1 ? 's' : ''} sent!` });
-                        const updates = {};
-                        recipients.forEach(([uid]) => {
-                          updates[`members.${uid}.texted`] = new Date().toISOString();
-                        });
-                        if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
-                        setShowTextAll(false);
-                        setTextAllMessage('');
-                      } else {
-                        const err = data.results?.[0]?.error || data.error || 'Failed to send';
-                        setResult({ type: 'error', message: err });
-                      }
-                    } catch (err) {
-                      setResult({ type: 'error', message: err.message });
-                    } finally {
-                      setTextAllSending(false);
-                      setTimeout(() => setResult(null), 5000);
-                    }
+                  disabled={!textAllMessage.trim() || phones.length === 0}
+                  onClick={() => {
+                    const cleanedPhones = phones
+                      .map(p => {
+                        let c = String(p).replace(/[^+\d]/g, '');
+                        if (!c.startsWith('+')) {
+                          c = c.startsWith('1') ? `+${c}` : `+1${c}`;
+                        }
+                        return c;
+                      })
+                      .join(',');
+                    const body = encodeURIComponent(textAllMessage);
+                    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                    const smsUrl = isIOS
+                      ? `sms:/open?addresses=${cleanedPhones}&body=${body}`
+                      : `sms:${cleanedPhones}?body=${body}`;
+                    // Mark recipients as texted optimistically
+                    const updates = {};
+                    recipients.forEach(([uid]) => {
+                      updates[`members.${uid}.texted`] = new Date().toISOString();
+                    });
+                    if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
+                    window.location.href = smsUrl;
+                    setShowTextAll(false);
+                    setTextAllMessage('');
                   }}
                   style={{
                     padding: '0.55rem 1.25rem',
@@ -976,11 +971,11 @@ export function EventDetail() {
                     fontSize: '0.9rem',
                     fontWeight: 600,
                     fontFamily: 'inherit',
-                    cursor: textAllSending || !textAllMessage.trim() ? 'not-allowed' : 'pointer',
-                    opacity: textAllSending || !textAllMessage.trim() ? 0.5 : 1,
+                    cursor: !textAllMessage.trim() ? 'not-allowed' : 'pointer',
+                    opacity: !textAllMessage.trim() ? 0.5 : 1,
                   }}
                 >
-                  {textAllSending ? 'Sending…' : `Send to ${phones.length}`}
+                  Open in Messages ({phones.length})
                 </button>
               </div>
             </div>
