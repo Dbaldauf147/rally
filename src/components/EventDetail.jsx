@@ -44,6 +44,9 @@ export function EventDetail() {
   const [showFinalize, setShowFinalize] = useState(false);
   const [finalizeDate, setFinalizeDate] = useState('');
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
+  const [showTextAll, setShowTextAll] = useState(false);
+  const [textAllMessage, setTextAllMessage] = useState('');
+  const [textAllSending, setTextAllSending] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'events', eventId), (snap) => {
@@ -473,34 +476,14 @@ export function EventDetail() {
             .filter(([uid, m]) => uid !== user?.uid && m.phone)
             .map(([, m]) => m.phone);
           return phones.length > 0 ? (
-            <button className={styles.shareBtn} onClick={async () => {
+            <button className={styles.shareBtn} onClick={() => {
               const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
               const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
-              const msg = `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
-              setResult({ type: 'info', message: `Sending ${phones.length} text${phones.length !== 1 ? 's' : ''}...` });
-              try {
-                const res = await fetch('/api/send-sms', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ to: phones, message: msg }),
-                });
-                const data = await res.json();
-                if (data.sent > 0) {
-                  setResult({ type: 'success', message: `${data.sent} of ${data.total} text${data.total !== 1 ? 's' : ''} sent!` });
-                  // Mark texted members
-                  const updates = {};
-                  members.filter(([uid, m]) => uid !== user?.uid && m.phone).forEach(([uid]) => {
-                    updates[`members.${uid}.texted`] = new Date().toISOString();
-                  });
-                  if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
-                } else {
-                  const err = data.results?.[0]?.error || 'Failed to send';
-                  setResult({ type: 'error', message: err });
-                }
-              } catch (err) {
-                setResult({ type: 'error', message: err.message });
-              }
-              setTimeout(() => setResult(null), 5000);
+              const defaultMsg = event.stage === 'finalized'
+                ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!`
+                : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
+              setTextAllMessage(defaultMsg);
+              setShowTextAll(true);
             }}>
               💬 Text All ({phones.length})
             </button>
@@ -878,6 +861,132 @@ export function EventDetail() {
           </div>
         </div>
       )}
+
+      {showTextAll && (() => {
+        const recipients = members.filter(([uid, m]) => uid !== user?.uid && m.phone);
+        const phones = recipients.map(([, m]) => m.phone);
+        const closeModal = () => { if (!textAllSending) { setShowTextAll(false); setTextAllMessage(''); } };
+        return (
+          <div className={styles.modalOverlay} onClick={closeModal}>
+            <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 0.25rem' }}>Text Everyone</h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 1rem' }}>
+                Send a text to {recipients.length} member{recipients.length !== 1 ? 's' : ''} with a phone number on file.
+              </p>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.85rem', maxHeight: '80px', overflowY: 'auto' }}>
+                {recipients.map(([uid, m]) => (
+                  <span key={uid} style={{
+                    fontSize: '0.75rem',
+                    padding: '0.2rem 0.55rem',
+                    background: 'var(--color-surface-alt)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-full)',
+                    color: 'var(--color-text-secondary)',
+                  }}>
+                    {m.name || 'Unnamed'}
+                  </span>
+                ))}
+              </div>
+
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.4rem' }}>
+                Message
+              </label>
+              <textarea
+                value={textAllMessage}
+                onChange={e => setTextAllMessage(e.target.value)}
+                rows={6}
+                disabled={textAllSending}
+                placeholder="Write a message to send to the group..."
+                autoFocus
+                style={{
+                  width: '100%',
+                  padding: '0.65rem 0.85rem',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '0.92rem',
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  background: 'var(--color-surface)',
+                  color: 'var(--color-text)',
+                }}
+              />
+              <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: '0.3rem', textAlign: 'right' }}>
+                {textAllMessage.length} character{textAllMessage.length !== 1 ? 's' : ''}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+                <button
+                  onClick={closeModal}
+                  disabled={textAllSending}
+                  style={{
+                    padding: '0.55rem 1.25rem',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'none',
+                    color: 'var(--color-text-muted)',
+                    fontSize: '0.9rem',
+                    fontWeight: 500,
+                    fontFamily: 'inherit',
+                    cursor: textAllSending ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={textAllSending || !textAllMessage.trim() || phones.length === 0}
+                  onClick={async () => {
+                    setTextAllSending(true);
+                    setResult({ type: 'info', message: `Sending ${phones.length} text${phones.length !== 1 ? 's' : ''}...` });
+                    try {
+                      const res = await fetch('/api/send-sms', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ to: phones, message: textAllMessage }),
+                      });
+                      const data = await res.json();
+                      if (data.sent > 0) {
+                        setResult({ type: 'success', message: `${data.sent} of ${data.total} text${data.total !== 1 ? 's' : ''} sent!` });
+                        const updates = {};
+                        recipients.forEach(([uid]) => {
+                          updates[`members.${uid}.texted`] = new Date().toISOString();
+                        });
+                        if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
+                        setShowTextAll(false);
+                        setTextAllMessage('');
+                      } else {
+                        const err = data.results?.[0]?.error || data.error || 'Failed to send';
+                        setResult({ type: 'error', message: err });
+                      }
+                    } catch (err) {
+                      setResult({ type: 'error', message: err.message });
+                    } finally {
+                      setTextAllSending(false);
+                      setTimeout(() => setResult(null), 5000);
+                    }
+                  }}
+                  style={{
+                    padding: '0.55rem 1.25rem',
+                    border: 'none',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--color-accent)',
+                    color: '#fff',
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: textAllSending || !textAllMessage.trim() ? 'not-allowed' : 'pointer',
+                    opacity: textAllSending || !textAllMessage.trim() ? 0.5 : 1,
+                  }}
+                >
+                  {textAllSending ? 'Sending…' : `Send to ${phones.length}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showInvite && (() => {
         const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
