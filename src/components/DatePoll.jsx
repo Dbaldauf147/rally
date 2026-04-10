@@ -9,7 +9,7 @@ function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function DatePoll({ entityType, entityId, stage = 'voting' }) {
+export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false }) {
   const isFinalized = stage === 'finalized';
   const { user } = useAuth();
   const [options, setOptions] = useState([]);
@@ -153,6 +153,14 @@ export function DatePoll({ entityType, entityId, stage = 'voting' }) {
     await deleteDoc(doc(db, entityType, entityId, 'dateOptions', optionId));
   }
 
+  async function handleToggleClosed(optionId, closed) {
+    await updateDoc(doc(db, entityType, entityId, 'dateOptions', optionId), {
+      closed,
+      closedBy: closed ? (user?.displayName || user?.email || user?.uid || '') : '',
+      closedAt: closed ? new Date().toISOString() : '',
+    });
+  }
+
   // Calendar — include overlap days from prev/next month
   const monthStart = startOfMonth(calMonth);
   const monthEnd = endOfMonth(calMonth);
@@ -187,15 +195,21 @@ export function DatePoll({ entityType, entityId, stage = 'voting' }) {
     return day >= selStartDate && day <= selEndDate;
   }
 
-  // Ranked options
+  // Ranked options — closed options sink to the bottom and don't compete for "Most Popular"
   const ranked = [...options].map(opt => {
     const votes = Object.values(opt.votes || {});
     const yesCount = votes.filter(v => v.vote === 'yes').length;
     const maybeCount = votes.filter(v => v.vote === 'maybe').length;
     return { ...opt, yesCount, maybeCount, score: yesCount * 2 + maybeCount };
-  }).sort((a, b) => b.score - a.score);
+  }).sort((a, b) => {
+    if (!!a.closed !== !!b.closed) return a.closed ? 1 : -1;
+    return b.score - a.score;
+  });
 
-  const bestId = ranked.length > 0 && ranked[0].score > 0 ? ranked[0].id : null;
+  const bestId = (() => {
+    const openOpts = ranked.filter(o => !o.closed);
+    return openOpts.length > 0 && openOpts[0].score > 0 ? openOpts[0].id : null;
+  })();
 
   return (
     <div className={styles.container}>
@@ -322,30 +336,49 @@ export function DatePoll({ entityType, entityId, stage = 'voting' }) {
             const myVote = user ? opt.votes?.[user.uid]?.vote : null;
             const isBest = opt.id === bestId;
 
+            const isClosed = !!opt.closed;
+            const canCloseThis = canManage || opt.suggestedBy === user?.uid;
+            const votesDisabled = isFinalized || isClosed;
             return (
-              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''}`}>
+              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''} ${isClosed ? styles.optionClosed : ''}`}>
                 {isBest && <div className={styles.bestBadge}>Most Popular</div>}
+                {isClosed && <div className={styles.closedBadge}>Closed</div>}
                 <div className={styles.optionHeader}>
                   <div className={styles.optionDates}>
                     {isRange
                       ? <span className={styles.dateRange}>{format(start, 'MMM d')} – {format(end, 'MMM d, yyyy')} <span className={styles.dayCount}>{dayCount} days</span></span>
                       : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
                   </div>
-                  {opt.suggestedBy === user?.uid && (
-                    <button className={styles.deleteBtn} onClick={() => handleDelete(opt.id)} title="Remove">×</button>
-                  )}
+                  <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                    {!isFinalized && canCloseThis && (
+                      <button
+                        className={styles.deleteBtn}
+                        onClick={() => handleToggleClosed(opt.id, !isClosed)}
+                        title={isClosed ? 'Reopen for voting' : 'Close — no longer available'}
+                        style={{ fontSize: '0.95rem' }}
+                      >
+                        {isClosed ? '↻' : '🚫'}
+                      </button>
+                    )}
+                    {opt.suggestedBy === user?.uid && (
+                      <button className={styles.deleteBtn} onClick={() => handleDelete(opt.id)} title="Remove">×</button>
+                    )}
+                  </div>
                 </div>
                 {opt.note && <p className={styles.note}>{opt.note}</p>}
-                <p className={styles.suggestedBy}>Suggested by {opt.suggestedByName}</p>
+                <p className={styles.suggestedBy}>
+                  Suggested by {opt.suggestedByName}
+                  {isClosed && opt.closedBy && <> · closed by {opt.closedBy}</>}
+                </p>
 
                 <div className={styles.voteRow}>
-                  <button className={myVote === 'yes' ? styles.voteYesActive : styles.voteBtn} onClick={() => !isFinalized && handleVote(opt.id, myVote === 'yes' ? 'none' : 'yes')} disabled={isFinalized}>
+                  <button className={myVote === 'yes' ? styles.voteYesActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'yes' ? 'none' : 'yes')} disabled={votesDisabled}>
                     ✓ Works ({opt.yesCount})
                   </button>
-                  <button className={myVote === 'maybe' ? styles.voteMaybeActive : styles.voteBtn} onClick={() => !isFinalized && handleVote(opt.id, myVote === 'maybe' ? 'none' : 'maybe')} disabled={isFinalized}>
+                  <button className={myVote === 'maybe' ? styles.voteMaybeActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'maybe' ? 'none' : 'maybe')} disabled={votesDisabled}>
                     ? Maybe ({opt.maybeCount})
                   </button>
-                  <button className={myVote === 'no' ? styles.voteNoActive : styles.voteBtn} onClick={() => !isFinalized && handleVote(opt.id, myVote === 'no' ? 'none' : 'no')} disabled={isFinalized}>
+                  <button className={myVote === 'no' ? styles.voteNoActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'no' ? 'none' : 'no')} disabled={votesDisabled}>
                     ✗ No ({votes.filter(([,v]) => v.vote === 'no').length})
                   </button>
                 </div>
