@@ -38,8 +38,12 @@ function PollPageInner() {
   const isGenericName = nameParam === 'Friend' || nameParam === 'Guest';
   const [editedName, setEditedName] = useState(isGenericName ? '' : nameParam);
   const [nameConfirmed, setNameConfirmed] = useState(!isGenericName);
+  const [selectedMemberUid, setSelectedMemberUid] = useState(null);
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const voterName = nameConfirmed ? editedName : nameParam;
-  const visitorId = searchParams.get('vid') || voterName.replace(/\s+/g, '_').toLowerCase();
+  const visitorId = searchParams.get('vid')
+    || selectedMemberUid
+    || voterName.replace(/\s+/g, '_').toLowerCase();
   const [event, setEvent] = useState(null);
   const [dateOptions, setDateOptions] = useState([]);
   const [rsvp, setRsvp] = useState(null); // 'yes' | 'maybe' | 'no'
@@ -229,46 +233,132 @@ function PollPageInner() {
         <h1 className={styles.title}>{event.title}</h1>
 
         {/* Name entry */}
-        {!nameConfirmed ? (
+        {!nameConfirmed ? (() => {
+          const query = editedName.trim().toLowerCase();
+          const allMembers = Object.entries(event?.members || {});
+          const matchingMembers = query.length > 0
+            ? allMembers
+                .filter(([, m]) => m?.name && m.name.toLowerCase().includes(query))
+                .filter(([, m]) => m.name.toLowerCase() !== query || !selectedMemberUid)
+                .slice(0, 6)
+            : [];
+
+          function confirmName(name, memberUid) {
+            const finalName = name.trim();
+            if (!finalName) return;
+            setEditedName(finalName);
+            if (memberUid) setSelectedMemberUid(memberUid);
+            setNameConfirmed(true);
+            setShowNameSuggestions(false);
+            const id = memberUid || finalName.replace(/\s+/g, '_').toLowerCase();
+            updateDoc(doc(db, 'events', eventId), {
+              [`members.${id}`]: { role: 'viewer', rsvp: 'pending', name: finalName },
+              memberUids: arrayUnion(id),
+            }).catch(() => {});
+          }
+
+          return (
           <div className={styles.section}>
             <h3 className={styles.sectionTitle}>What's your name?</h3>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input
-                type="text"
-                value={editedName}
-                onChange={e => setEditedName(e.target.value)}
-                placeholder="Enter your name"
-                autoFocus
-                style={{ flex: 1, padding: '0.6rem 0.75rem', border: '2px solid #e5e5e5', borderRadius: '10px', fontSize: '0.92rem', fontFamily: 'inherit' }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && editedName.trim()) {
-                    setNameConfirmed(true);
-                    const id = editedName.trim().replace(/\s+/g, '_').toLowerCase();
-                    updateDoc(doc(db, 'events', eventId), {
-                      [`members.${id}`]: { role: 'viewer', rsvp: 'pending', name: editedName.trim() },
-                      memberUids: arrayUnion(id),
-                    }).catch(() => {});
-                  }
-                }}
-              />
-              <button
-                onClick={() => {
-                  if (!editedName.trim()) return;
-                  setNameConfirmed(true);
-                  const id = editedName.trim().replace(/\s+/g, '_').toLowerCase();
-                  updateDoc(doc(db, 'events', eventId), {
-                    [`members.${id}`]: { role: 'viewer', rsvp: 'pending', name: editedName.trim() },
-                    memberUids: arrayUnion(id),
-                  }).catch(() => {});
-                }}
-                disabled={!editedName.trim()}
-                style={{ padding: '0.6rem 1.2rem', border: 'none', borderRadius: '10px', background: editedName.trim() ? '#4f46e5' : '#e5e5e5', color: '#fff', fontSize: '0.88rem', fontWeight: 600, cursor: editedName.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}
-              >
-                Continue
-              </button>
+            <div style={{ position: 'relative' }}>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  type="text"
+                  value={editedName}
+                  onChange={e => {
+                    setEditedName(e.target.value);
+                    setSelectedMemberUid(null);
+                    setShowNameSuggestions(true);
+                  }}
+                  onFocus={() => setShowNameSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowNameSuggestions(false), 150)}
+                  placeholder="Start typing your name…"
+                  autoFocus
+                  autoComplete="off"
+                  style={{ flex: 1, padding: '0.6rem 0.75rem', border: '2px solid #e5e5e5', borderRadius: '10px', fontSize: '0.92rem', fontFamily: 'inherit' }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && editedName.trim()) {
+                      confirmName(editedName, selectedMemberUid);
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => confirmName(editedName, selectedMemberUid)}
+                  disabled={!editedName.trim()}
+                  style={{ padding: '0.6rem 1.2rem', border: 'none', borderRadius: '10px', background: editedName.trim() ? '#4f46e5' : '#e5e5e5', color: '#fff', fontSize: '0.88rem', fontWeight: 600, cursor: editedName.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                >
+                  Continue
+                </button>
+              </div>
+
+              {showNameSuggestions && matchingMembers.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  background: '#fff',
+                  border: '1px solid #e5e5e5',
+                  borderRadius: '10px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                  zIndex: 10,
+                  overflow: 'hidden',
+                }}>
+                  {matchingMembers.map(([uid, m]) => {
+                    const name = m.name;
+                    const lowerName = name.toLowerCase();
+                    const idx = lowerName.indexOf(query);
+                    return (
+                      <button
+                        key={uid}
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          setEditedName(name);
+                          setSelectedMemberUid(uid);
+                          setShowNameSuggestions(false);
+                        }}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '0.55rem 0.85rem',
+                          border: 'none',
+                          borderBottom: '1px solid #f3f4f6',
+                          background: '#fff',
+                          fontSize: '0.9rem',
+                          fontFamily: 'inherit',
+                          cursor: 'pointer',
+                          color: '#1a1a1a',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#f9fafb'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}
+                      >
+                        {idx >= 0 ? (
+                          <>
+                            {name.slice(0, idx)}
+                            <strong>{name.slice(idx, idx + query.length)}</strong>
+                            {name.slice(idx + query.length)}
+                          </>
+                        ) : name}
+                        {m.rsvp && m.rsvp !== 'pending' && (
+                          <span style={{ marginLeft: '0.5rem', fontSize: '0.72rem', color: '#6b7280' }}>
+                            · {m.rsvp}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+            {query.length > 0 && matchingMembers.length === 0 && (
+              <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: '0.5rem 0 0' }}>
+                New here? Press Continue to add yourself.
+              </p>
+            )}
           </div>
-        ) : (
+          );
+        })() : (
           <p style={{ fontSize: '0.82rem', color: '#6b7280', textAlign: 'center', margin: '0 0 1rem' }}>
             Voting as <strong style={{ color: '#1a1a1a' }}>{voterName}</strong>
           </p>
