@@ -9,6 +9,7 @@ import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
+import { Itinerary } from './Itinerary';
 import styles from './EventDetail.module.css';
 
 export function EventDetail() {
@@ -345,6 +346,7 @@ export function EventDetail() {
 
   const tabs = [
     { key: 'details', label: 'Details' },
+    { key: 'itinerary', label: 'Itinerary' },
     { key: 'chat', label: 'Chat' },
   ];
 
@@ -844,6 +846,14 @@ export function EventDetail() {
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === 'itinerary' && (
+        <Itinerary
+          event={event}
+          canEdit={isOwner || event.members?.[user?.uid]?.role === 'editor'}
+          onSave={async (data) => { await updateEvent(eventId, data); }}
+        />
       )}
 
       {activeTab === 'chat' && (
