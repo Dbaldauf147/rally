@@ -324,10 +324,10 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
       )}
       </div>}
 
-      {/* Suggested date options with voting */}
-      {ranked.length > 0 && (
+      {/* Suggested date options with voting — available at the top */}
+      {ranked.filter(o => !o.closed).length > 0 && (
         <div className={styles.optionsList}>
-          {ranked.map(opt => {
+          {ranked.filter(o => !o.closed).map(opt => {
             const start = new Date(opt.startDate + 'T00:00:00');
             const end = new Date((opt.endDate || opt.startDate) + 'T00:00:00');
             const isRange = opt.endDate && opt.endDate !== opt.startDate;
@@ -335,14 +335,11 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const votes = Object.entries(opt.votes || {});
             const myVote = user ? opt.votes?.[user.uid]?.vote : null;
             const isBest = opt.id === bestId;
+            const votesDisabled = isFinalized;
 
-            const isClosed = !!opt.closed;
-            const canCloseThis = canManage;
-            const votesDisabled = isFinalized || isClosed;
             return (
-              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''} ${isClosed ? styles.optionClosed : ''}`}>
+              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''}`}>
                 {isBest && <div className={styles.bestBadge}>Most Popular</div>}
-                {isClosed && <div className={styles.closedBadge}>Closed</div>}
                 <div className={styles.optionHeader}>
                   <div className={styles.optionDates}>
                     {isRange
@@ -350,14 +347,14 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                       : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                    {!isFinalized && canCloseThis && (
+                    {!isFinalized && canManage && (
                       <button
                         className={styles.deleteBtn}
-                        onClick={() => handleToggleClosed(opt.id, !isClosed)}
-                        title={isClosed ? 'Reopen for voting' : 'Close — no longer available'}
+                        onClick={() => handleToggleClosed(opt.id, true)}
+                        title="Close — no longer available"
                         style={{ fontSize: '0.95rem' }}
                       >
-                        {isClosed ? '↻' : '🚫'}
+                        🚫
                       </button>
                     )}
                     {opt.suggestedBy === user?.uid && (
@@ -366,10 +363,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                   </div>
                 </div>
                 {opt.note && <p className={styles.note}>{opt.note}</p>}
-                <p className={styles.suggestedBy}>
-                  Suggested by {opt.suggestedByName}
-                  {isClosed && opt.closedBy && <> · closed by {opt.closedBy}</>}
-                </p>
+                <p className={styles.suggestedBy}>Suggested by {opt.suggestedByName}</p>
 
                 <div className={styles.voteRow}>
                   <button className={myVote === 'yes' ? styles.voteYesActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'yes' ? 'none' : 'yes')} disabled={votesDisabled}>
@@ -393,6 +387,41 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Closed dates summary — compact list at the bottom */}
+      {ranked.filter(o => o.closed).length > 0 && (
+        <div className={styles.closedSection}>
+          <div className={styles.closedSectionHeader}>
+            Closed dates ({ranked.filter(o => o.closed).length})
+          </div>
+          <div className={styles.closedList}>
+            {ranked.filter(o => o.closed).map(opt => {
+              const start = new Date(opt.startDate + 'T00:00:00');
+              const end = new Date((opt.endDate || opt.startDate) + 'T00:00:00');
+              const isRange = opt.endDate && opt.endDate !== opt.startDate;
+              const label = isRange
+                ? `${format(start, 'MMM d')} – ${format(end, 'MMM d, yyyy')}`
+                : format(start, 'EEE, MMM d, yyyy');
+              return (
+                <div key={opt.id} className={styles.closedItem}>
+                  <span className={styles.closedItemDate}>{label}</span>
+                  {opt.note && <span className={styles.closedItemNote}> — {opt.note}</span>}
+                  {opt.closedBy && <span className={styles.closedItemBy}> · closed by {opt.closedBy}</span>}
+                  {!isFinalized && canManage && (
+                    <button
+                      className={styles.closedItemReopen}
+                      onClick={() => handleToggleClosed(opt.id, false)}
+                      title="Reopen for voting"
+                    >
+                      ↻ Reopen
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
