@@ -337,7 +337,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const isBest = opt.id === bestId;
 
             const isClosed = !!opt.closed;
-            const canCloseThis = canManage || opt.suggestedBy === user?.uid;
+            const canCloseThis = canManage;
             const votesDisabled = isFinalized || isClosed;
             return (
               <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''} ${isClosed ? styles.optionClosed : ''}`}>
