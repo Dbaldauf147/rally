@@ -28,10 +28,12 @@ export function DashboardPage() {
       for (const e of events) {
         try {
           const snap = await getDocs(collection(db, 'events', e.id, 'dateOptions'));
-          counts[e.id] = snap.docs.length;
+          // Exclude closed/cancelled date options from counts and month buckets
+          const openDocs = snap.docs.filter(d => !d.data().closed);
+          counts[e.id] = openDocs.length;
           const monthSet = new Set();
           const voterUids = new Set();
-          for (const d of snap.docs) {
+          for (const d of openDocs) {
             const data = d.data();
             if (data.startDate) {
               const ym = data.startDate.substring(0, 7);
