@@ -64,13 +64,24 @@ export function EventDetail() {
     const unsub = onSnapshot(collection(db, 'events', eventId, 'dateOptions'), (snap) => {
       const voters = {};
       const stats = {};
-      const totalOptions = snap.docs.length;
       const options = [];
+      // Only open (non-closed) options count toward the "has voted" tally
+      const openOptionDocs = snap.docs.filter(d => !d.data().closed);
+      const totalOptions = openOptionDocs.length;
       for (const d of snap.docs) {
         const data = d.data();
         options.push({ id: d.id, ...data });
+        // Still surface closed-date voters in the members list, but don't count their votes
+        for (const voterId of Object.keys(data.votes || {})) {
+          if (!voters[voterId]) {
+            const v = data.votes[voterId];
+            voters[voterId] = { name: v.name || voterId, rsvp: 'pending', role: 'viewer', fromVotes: true };
+          }
+        }
+      }
+      for (const d of openOptionDocs) {
+        const data = d.data();
         for (const [voterId, v] of Object.entries(data.votes || {})) {
-          if (!voters[voterId]) voters[voterId] = { name: v.name || voterId, rsvp: 'pending', role: 'viewer', fromVotes: true };
           if (!stats[voterId]) stats[voterId] = { total: 0, yes: 0, maybe: 0, no: 0, totalOptions };
           if (v.vote && v.vote !== 'none') {
             stats[voterId].total++;
@@ -611,9 +622,20 @@ export function EventDetail() {
                             {m.name || 'Guest'}
                             {isDupe && <span style={{ fontSize: '0.62rem', fontWeight: 600, color: '#D97706', marginLeft: '0.35rem' }}>⚠ Possible duplicate ({dupeReason})</span>}
                           </span>
-                          <div style={{ display: 'flex', gap: '0.3rem', marginTop: '1px' }}>
+                          <div style={{ display: 'flex', gap: '0.3rem', marginTop: '1px', alignItems: 'center' }}>
                             {(m.email || uid.includes('@')) && <span title={m.email || uid} style={{ fontSize: '0.7rem' }}>✉️</span>}
                             {m.phone && <span title={m.phone} style={{ fontSize: '0.7rem' }}>💬</span>}
+                            {(() => {
+                              const vs = voteStats[uid];
+                              if (!vs || !vs.totalOptions || vs.total === 0) return null;
+                              if (vs.total >= vs.totalOptions) return null;
+                              const pct = Math.round((vs.total / vs.totalOptions) * 100);
+                              return (
+                                <span title={`Voted on ${vs.total} of ${vs.totalOptions} open dates`} style={{ fontSize: '0.6rem', fontWeight: 600, padding: '0 5px', borderRadius: '999px', background: '#FEF3C7', color: '#D97706' }}>
+                                  {pct}% voted
+                                </span>
+                              );
+                            })()}
                           </div>
                           {(() => {
                             if (m.skipVote) {

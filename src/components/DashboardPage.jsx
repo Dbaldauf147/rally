@@ -32,7 +32,8 @@ export function DashboardPage() {
           const openDocs = snap.docs.filter(d => !d.data().closed);
           counts[e.id] = openDocs.length;
           const monthSet = new Set();
-          const voterUids = new Set();
+          // Per-user count of how many OPEN options they've actually voted on (not 'none')
+          const userOpenVoteCount = {};
           for (const d of openDocs) {
             const data = d.data();
             if (data.startDate) {
@@ -40,39 +41,42 @@ export function DashboardPage() {
               monthSet.add(ym);
             }
             if (data.votes) {
-              for (const uid of Object.keys(data.votes)) {
-                voterUids.add(uid);
+              for (const [uid, v] of Object.entries(data.votes)) {
+                if (v && v.vote && v.vote !== 'none') {
+                  userOpenVoteCount[uid] = (userOpenVoteCount[uid] || 0) + 1;
+                }
               }
             }
           }
           months[e.id] = [...monthSet];
           // Count voting groups: members with plusOneOf are grouped with their host
-          // Each group counts as 1 voting unit
           const members = e.members || {};
           const memberUids = Object.keys(members);
-          // Find independent voters (not a plusOne of someone else)
           const independentVoters = new Set();
-          const plusOnes = new Set();
           for (const uid of memberUids) {
             const m = members[uid];
             if (m?.plusOneOf && memberUids.includes(m.plusOneOf)) {
-              plusOnes.add(uid);
+              // plus-ones vote with their host
             } else if (!m?.skipVote) {
               independentVoters.add(uid);
             }
           }
-          // Total voting units = independent voters only (plus-ones are assumed yes)
           const totalUnits = independentVoters.size || 1;
-          // Voted units = independent voters who have voted
-          let votedUnits = 0;
+          const totalOpenOptions = openDocs.length;
+          // Fractional progress: sum of (open votes per user / total open options),
+          // averaged over voting units. A user who voted on 3 of 5 open dates contributes 0.6.
+          // Users who only voted on closed dates contribute 0.
+          let fractionSum = 0;
+          let anyVoted = 0;
           for (const uid of independentVoters) {
-            if (voterUids.has(uid)) votedUnits++;
+            const voted = userOpenVoteCount[uid] || 0;
+            if (voted > 0) anyVoted++;
+            if (totalOpenOptions > 0) fractionSum += voted / totalOpenOptions;
           }
-          progress[e.id] = {
-            voted: votedUnits,
-            total: totalUnits,
-            pct: totalUnits > 0 ? Math.round((votedUnits / totalUnits) * 100) : 0,
-          };
+          const pct = totalUnits > 0 && totalOpenOptions > 0
+            ? Math.round((fractionSum / totalUnits) * 100)
+            : 0;
+          progress[e.id] = { voted: anyVoted, total: totalUnits, pct };
         } catch {
           counts[e.id] = 0;
           months[e.id] = [];
