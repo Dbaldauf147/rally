@@ -437,6 +437,15 @@ export function EventDetail() {
         }}>
           📊 Copy Poll Link
         </button>
+        <a
+          className={styles.shareBtn}
+          href={`/poll/${eventId}?name=Friend`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: 'none' }}
+        >
+          👁 Preview Poll
+        </a>
         <button className={styles.shareBtn} onClick={() => setShowInvite(true)}>
           ✉ Share invite
         </button>

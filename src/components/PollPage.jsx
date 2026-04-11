@@ -85,7 +85,10 @@ function PollPageInner() {
     const unsub2 = onSnapshot(
       collection(db, 'events', eventId, 'dateOptions'),
       (dSnap) => {
-        const opts = dSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Hide closed/cancelled dates from the public poll
+        const opts = dSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(o => !o.closed);
         setDateOptions(opts);
         // Initialize localVotes from existing votes if user already voted
         setLocalVotes(prev => {
