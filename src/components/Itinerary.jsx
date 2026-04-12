@@ -50,6 +50,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         notes: it.notes || '',
         type: it.type || 'activity',
         url: it.url || '',
+        imageQuery: it.imageQuery || '',
       }));
 
       let next;
@@ -247,6 +248,54 @@ export function Itinerary({ event, onSave, canEdit }) {
           </div>
         </div>
       )}
+
+      {/* Trip highlights — key activities with images */}
+      {(() => {
+        const highlights = items
+          .filter(i => (i.type || 'activity') === 'activity' && i.title)
+          .slice(0, 6);
+        const lodgingHighlight = items.find(i => i.type === 'lodging' && i.title);
+        if (highlights.length === 0) return null;
+        return (
+          <div className={styles.highlightsSection}>
+            <h4 className={styles.highlightsTitle}>Trip Highlights</h4>
+            <div className={styles.highlightsImages}>
+              {highlights.slice(0, 4).map(item => {
+                const query = encodeURIComponent(item.imageQuery || item.title);
+                return (
+                  <div key={item.id} className={styles.highlightCard}>
+                    <img
+                      className={styles.highlightImg}
+                      src={`https://source.unsplash.com/400x250/?${query}`}
+                      alt={item.title}
+                      loading="lazy"
+                    />
+                    <div className={styles.highlightLabel}>{item.title}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <ul className={styles.highlightsList}>
+              {highlights.map(item => (
+                <li key={item.id}>
+                  {item.url ? (
+                    <a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
+                  ) : item.title}
+                  {item.location && <span className={styles.highlightMeta}> — {item.location}</span>}
+                </li>
+              ))}
+              {lodgingHighlight && (
+                <li>
+                  🏨 {lodgingHighlight.url ? (
+                    <a href={lodgingHighlight.url} target="_blank" rel="noopener noreferrer">{lodgingHighlight.title}</a>
+                  ) : lodgingHighlight.title}
+                  {lodgingHighlight.location && <span className={styles.highlightMeta}> — {lodgingHighlight.location}</span>}
+                </li>
+              )}
+            </ul>
+          </div>
+        );
+      })()}
 
       {items.length === 0 && !adding ? (
         <div className={styles.empty}>

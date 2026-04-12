@@ -10,6 +10,7 @@ const itemSchema = z.object({
   notes: z.string().describe('Empty string if none'),
   type: z.enum(['activity', 'travel', 'lodging']).describe('Category: "activity" for sightseeing, dining, tours; "travel" for flights, drives, transfers; "lodging" for hotels, Airbnb, accommodations'),
   url: z.string().describe('Link to the activity, restaurant, hotel, or booking page. Use the official website URL or Google Maps link. Empty string if unknown.'),
+  imageQuery: z.string().describe('A short 2-4 word image search query for this item that would return a good photo, e.g. "sagrada familia barcelona", "paella restaurant spain", "barcelona hotel rooftop". Empty string for flights/transfers.'),
 });
 
 const responseSchema = z.object({
