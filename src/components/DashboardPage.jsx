@@ -187,7 +187,7 @@ export function DashboardPage() {
           {[
             { key: 'created', label: 'Created', color: '#9CA3AF', events: createdEvents },
             { key: 'voting', label: 'Voting', color: '#F59E0B', events: votingEvents },
-            { key: 'finalized', label: 'Finalized', color: '#6366F1', events: unbookedFinalizedEvents },
+            { key: 'finalized', label: 'Date Finalized', color: '#6366F1', events: unbookedFinalizedEvents },
             { key: 'booked', label: 'Travel & Lodging', color: '#16a34a', events: bookedEvents },
           ].map(col => (
             <div key={col.key} className={styles.kanbanCol}>

@@ -375,7 +375,7 @@ export function EventDetail() {
         {[
           { key: 'created', label: 'Created' },
           { key: 'voting', label: 'Voting' },
-          { key: 'finalized', label: 'Finalized' },
+          { key: 'finalized', label: 'Date Finalized' },
           { key: 'booked', label: 'Travel Booked' },
         ].map((step, i, arr) => {
           const isFinalized = stage === 'finalized';
