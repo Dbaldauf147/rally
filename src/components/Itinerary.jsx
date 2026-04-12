@@ -266,10 +266,14 @@ export function Itinerary({ event, onSave, canEdit }) {
                   <div key={item.id} className={styles.highlightCard}>
                     <img
                       className={styles.highlightImg}
-                      src={`https://image.pollinations.ai/prompt/${query}%20travel%20photo?width=400&height=250&nologo=true`}
+                      src={`https://image.pollinations.ai/prompt/${query}%20travel%20photo?width=400&height=250&nologo=true&seed=${item.id.slice(0, 8)}`}
                       alt={item.title}
                       loading="lazy"
+                      onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
                     />
+                    <div className={styles.highlightImgFallback} style={{ display: 'none' }}>
+                      {(item.type || 'activity') === 'activity' ? '🎯' : item.type === 'lodging' ? '🏨' : '✈️'}
+                    </div>
                     <div className={styles.highlightLabel}>{item.title}</div>
                   </div>
                 );
