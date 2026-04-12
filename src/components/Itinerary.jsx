@@ -254,39 +254,46 @@ export function Itinerary({ event, onSave, canEdit }) {
             return (
               <div key={dateKey} className={styles.dateGroup}>
                 <div className={styles.dateLabel}>{dateLabel}</div>
-                {[
-                  { key: 'activity', label: 'Activities', icon: '🎯', color: '#6366F1' },
-                  { key: 'travel', label: 'Travel', icon: '✈️', color: '#0891b2' },
-                  { key: 'lodging', label: 'Lodging', icon: '🏨', color: '#d97706' },
-                ].map(section => {
-                  const sectionItems = dateItems.filter(i => (i.type || 'activity') === section.key);
-                  if (sectionItems.length === 0) return null;
-                  return (
-                    <div key={section.key} className={styles.typeSection}>
-                      <div className={styles.typeSectionLabel} style={{ color: section.color }}>
-                        <span>{section.icon}</span> {section.label}
-                      </div>
-                      {sectionItems.map(item => (
-                        <div key={item.id} className={styles.item} style={{ borderLeftColor: section.color }}>
-                          <div className={styles.itemContent}>
-                            <div className={styles.itemHeader}>
-                              <span className={styles.itemTitle}>{item.title}</span>
-                              {item.time && <span className={styles.itemTime}>{new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
-                            </div>
-                            {item.location && <div className={styles.itemLocation}>📍 {item.location}</div>}
-                            {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
-                          </div>
-                          {canEdit && (
-                            <div className={styles.itemActions}>
-                              <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit">✎</button>
-                              <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete">×</button>
-                            </div>
+                <div className={styles.scheduleGrid}>
+                  {[
+                    { key: 'travel', label: 'Travel', icon: '✈️', color: '#0891b2' },
+                    { key: 'activity', label: 'Activities', icon: '🎯', color: '#6366F1' },
+                    { key: 'lodging', label: 'Lodging', icon: '🏨', color: '#d97706' },
+                  ].map(col => {
+                    const colItems = dateItems.filter(i => (i.type || 'activity') === col.key);
+                    return (
+                      <div key={col.key} className={styles.scheduleCol}>
+                        <div className={styles.scheduleColHeader} style={{ borderBottomColor: col.color, color: col.color }}>
+                          <span>{col.icon}</span> {col.label}
+                        </div>
+                        <div className={styles.scheduleColItems}>
+                          {colItems.length === 0 ? (
+                            <div className={styles.scheduleEmpty}>—</div>
+                          ) : (
+                            colItems.map(item => (
+                              <div key={item.id} className={styles.scheduleItem} style={{ borderLeftColor: col.color }}>
+                                <div className={styles.itemContent}>
+                                  <div className={styles.itemHeader}>
+                                    <span className={styles.itemTitle}>{item.title}</span>
+                                  </div>
+                                  {item.time && <div className={styles.itemTime}>{new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>}
+                                  {item.location && <div className={styles.itemLocation}>📍 {item.location}</div>}
+                                  {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
+                                </div>
+                                {canEdit && (
+                                  <div className={styles.itemActions}>
+                                    <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit">✎</button>
+                                    <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete">×</button>
+                                  </div>
+                                )}
+                              </div>
+                            ))
                           )}
                         </div>
-                      ))}
-                    </div>
-                  );
-                })}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}
