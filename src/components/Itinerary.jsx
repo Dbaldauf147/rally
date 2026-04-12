@@ -25,10 +25,17 @@ export function Itinerary({ event, onSave, canEdit }) {
     setAiError('');
     setAiMessage('');
     try {
+      // Convert Firestore Timestamps to YYYY-MM-DD strings for the AI
+      const toDateStr = (d) => {
+        if (!d) return '';
+        const date = d?.toDate ? d.toDate() : new Date(d);
+        if (isNaN(date)) return '';
+        return date.toISOString().split('T')[0];
+      };
       const eventContext = {
         title: event?.title || '',
-        startDate: event?.startDate || event?.date || '',
-        endDate: event?.endDate || '',
+        startDate: toDateStr(event?.startDate || event?.date),
+        endDate: toDateStr(event?.endDate),
         location: event?.location || '',
         description: event?.description || '',
       };
