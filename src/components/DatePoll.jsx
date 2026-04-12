@@ -24,6 +24,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   const [googleEventMap, setGoogleEventMap] = useState({}); // { dateStr: [{ title, start, end }] }
   const [googleFullEvents, setGoogleFullEvents] = useState({}); // { dateStr: [full event objects] }
   const [viewingDay, setViewingDay] = useState(null); // dateStr of day being viewed
+  const [topPick, setTopPick] = useState(null); // optionId of user's top choice
 
   // Fetch Google Calendar events for the visible month
   const fetchGoogleBusy = useCallback(async () => {
@@ -68,10 +69,21 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   useEffect(() => {
     const q = query(collection(db, entityType, entityId, 'dateOptions'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
-      setOptions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const opts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setOptions(opts);
+      // Initialize top pick from existing data
+      if (user) {
+        setTopPick(prev => {
+          if (prev) return prev;
+          for (const opt of opts) {
+            if (opt.votes?.[user.uid]?.topPick) return opt.id;
+          }
+          return null;
+        });
+      }
     }, () => {});
     return unsub;
-  }, [entityType, entityId]);
+  }, [entityType, entityId, user]);
 
   // Build set of all suggested dates for highlighting
   const suggestedDates = new Set();
@@ -151,6 +163,40 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
 
   async function handleDelete(optionId) {
     await deleteDoc(doc(db, entityType, entityId, 'dateOptions', optionId));
+  }
+
+  async function handleTopPick(optionId) {
+    if (!user) return;
+    const prevTopPick = topPick;
+    const isToggleOff = prevTopPick === optionId;
+    setTopPick(isToggleOff ? null : optionId);
+    const userName = user.displayName || user.email || '';
+
+    // Clear topPick from previous option
+    if (prevTopPick && prevTopPick !== optionId) {
+      const prevOpt = options.find(o => o.id === prevTopPick);
+      const prevVote = prevOpt?.votes?.[user.uid];
+      if (prevVote) {
+        const { topPick: _, ...rest } = prevVote;
+        await updateDoc(doc(db, entityType, entityId, 'dateOptions', prevTopPick), {
+          [`votes.${user.uid}`]: rest,
+        }).catch(() => {});
+      }
+    }
+
+    // Set or clear topPick on this option
+    const currentOpt = options.find(o => o.id === optionId);
+    const currentVote = currentOpt?.votes?.[user.uid] || { vote: 'none', name: userName };
+    if (isToggleOff) {
+      const { topPick: _, ...rest } = currentVote;
+      await updateDoc(doc(db, entityType, entityId, 'dateOptions', optionId), {
+        [`votes.${user.uid}`]: rest,
+      }).catch(() => {});
+    } else {
+      await updateDoc(doc(db, entityType, entityId, 'dateOptions', optionId), {
+        [`votes.${user.uid}`]: { ...currentVote, topPick: true },
+      }).catch(() => {});
+    }
   }
 
   async function handleToggleClosed(optionId, closed) {
@@ -336,9 +382,11 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const myVote = user ? opt.votes?.[user.uid]?.vote : null;
             const isBest = opt.id === bestId;
             const votesDisabled = isFinalized;
+            const topPickCount = Object.values(opt.votes || {}).filter(v => v.topPick).length;
+            const isMyTopPick = topPick === opt.id;
 
             return (
-              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''}`}>
+              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''}`} style={isMyTopPick ? { borderColor: '#f59e0b' } : {}}>
                 {isBest && <div className={styles.bestBadge}>Most Popular</div>}
                 <div className={styles.optionHeader}>
                   <div className={styles.optionDates}>
@@ -375,12 +423,36 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                   <button className={myVote === 'no' ? styles.voteNoActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'no' ? 'none' : 'no')} disabled={votesDisabled}>
                     ✗ No ({votes.filter(([,v]) => v.vote === 'no').length})
                   </button>
+                  {!isFinalized && user && (
+                    <button
+                      className={styles.voteBtn}
+                      onClick={() => handleTopPick(opt.id)}
+                      title={isMyTopPick ? 'Remove top pick' : 'Mark as your top choice'}
+                      style={{
+                        background: isMyTopPick ? '#fef3c7' : undefined,
+                        borderColor: isMyTopPick ? '#f59e0b' : undefined,
+                        color: isMyTopPick ? '#d97706' : '#d1d5db',
+                        fontSize: '0.85rem',
+                        minWidth: 'auto',
+                        padding: '0.35rem 0.5rem',
+                      }}
+                    >
+                      {isMyTopPick ? '⭐' : '☆'}
+                    </button>
+                  )}
+                  {topPickCount > 0 && (
+                    <span style={{ fontSize: '0.72rem', color: '#d97706', fontWeight: 600, marginLeft: '0.25rem' }}>
+                      ⭐ {topPickCount}
+                    </span>
+                  )}
                 </div>
 
                 {votes.length > 0 && (
                   <div className={styles.voterList}>
                     {votes.filter(([,v]) => v.vote !== 'none').map(([uid, v]) => (
-                      <span key={uid} className={styles[`voter_${v.vote}`]}>{v.name?.split(' ')[0] || 'Guest'}</span>
+                      <span key={uid} className={styles[`voter_${v.vote}`]}>
+                        {v.name?.split(' ')[0] || 'Guest'}{v.topPick ? ' ⭐' : ''}
+                      </span>
                     ))}
                   </div>
                 )}
