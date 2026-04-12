@@ -58,6 +58,7 @@ function PollPageInner() {
   const [suggesting, setSuggesting] = useState(false);
   const [expandedOption, setExpandedOption] = useState(null);
   const [localVotes, setLocalVotes] = useState({}); // { optionId: 'yes'|'maybe'|'no' }
+  const [topPick, setTopPick] = useState(null); // optionId of user's top choice
   // Votes auto-save on each click — no submit button needed
 
   const [loadError, setLoadError] = useState(null);
@@ -97,8 +98,15 @@ function PollPageInner() {
             const myVote = opt.votes?.[visitorId]?.vote;
             if (myVote && myVote !== 'none') existing[opt.id] = myVote;
           }
-          // Votes auto-save, no submitted lock needed
           return existing;
+        });
+        // Initialize top pick from existing data
+        setTopPick(prev => {
+          if (prev) return prev;
+          for (const opt of opts) {
+            if (opt.votes?.[visitorId]?.topPick) return opt.id;
+          }
+          return null;
         });
       },
       () => {}
@@ -169,9 +177,10 @@ function PollPageInner() {
       }
       return { ...prev, [optionId]: newVote };
     });
-    // Auto-save to Firestore immediately
+    // Auto-save to Firestore immediately (preserve topPick flag)
+    const isTopPick = topPick === optionId;
     await updateDoc(doc(db, 'events', eventId, 'dateOptions', optionId), {
-      [`votes.${visitorId}`]: { vote: newVote, name: voterName },
+      [`votes.${visitorId}`]: { vote: newVote, name: voterName, ...(isTopPick ? { topPick: true } : {}) },
     }).catch(() => {});
     // Register as event member
     updateDoc(doc(db, 'events', eventId), {
@@ -179,6 +188,38 @@ function PollPageInner() {
       memberUids: arrayUnion(visitorId),
     }).catch(() => {});
     // Show saved toast
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleTopPick(optionId) {
+    const prevTopPick = topPick;
+    const isToggleOff = prevTopPick === optionId;
+    const newTopPick = isToggleOff ? null : optionId;
+    setTopPick(newTopPick);
+
+    // Clear topPick from previous option
+    if (prevTopPick && prevTopPick !== optionId) {
+      const prevOpt = dateOptions.find(o => o.id === prevTopPick);
+      const prevVote = prevOpt?.votes?.[visitorId];
+      if (prevVote) {
+        await updateDoc(doc(db, 'events', eventId, 'dateOptions', prevTopPick), {
+          [`votes.${visitorId}`]: { vote: prevVote.vote || 'none', name: voterName },
+        }).catch(() => {});
+      }
+    }
+
+    // Set topPick on new option (or clear it)
+    const currentOpt = dateOptions.find(o => o.id === optionId);
+    const currentVote = localVotes[optionId] || currentOpt?.votes?.[visitorId]?.vote || 'none';
+    await updateDoc(doc(db, 'events', eventId, 'dateOptions', optionId), {
+      [`votes.${visitorId}`]: {
+        vote: currentVote,
+        name: voterName,
+        ...(isToggleOff ? {} : { topPick: true }),
+      },
+    }).catch(() => {});
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -368,17 +409,21 @@ function PollPageInner() {
                 const yesCount = votes.filter(v => v.vote === 'yes').length;
                 const maybeCount = votes.filter(v => v.vote === 'maybe').length;
                 const noCount = votes.filter(v => v.vote === 'no').length;
+                const topPickCount = votes.filter(v => v.topPick).length;
+                const isMyTopPick = topPick === opt.id;
 
                 return (
-                  <div key={opt.id} className={styles.dateOption}>
+                  <div key={opt.id} className={styles.dateOption} style={isMyTopPick ? { borderColor: '#f59e0b', background: '#fffbeb' } : {}}>
                     <div className={styles.dateInfo}>
                       <div className={styles.dateLabel}>
+                        {isMyTopPick && <span style={{ marginRight: '0.3rem' }}>⭐</span>}
                         {isRange
                           ? `${format(start, 'MMM d')} – ${format(end, 'MMM d, yyyy')} (${dayCount} days)`
                           : format(start, 'EEE, MMM d, yyyy')}
                       </div>
                       {opt.note && <div className={styles.dateNote}>{opt.note}</div>}
                       <div className={styles.voteCounts} onClick={() => setExpandedOption(expandedOption === opt.id ? null : opt.id)} style={{ cursor: votes.length > 0 ? 'pointer' : 'default' }}>
+                        {topPickCount > 0 && <span style={{ color: '#d97706' }}>⭐ {topPickCount}</span>}
                         {yesCount > 0 && <span style={{ color: '#16a34a' }}>{yesCount} yes</span>}
                         {maybeCount > 0 && <span style={{ color: '#f59e0b' }}>{maybeCount} maybe</span>}
                         {noCount > 0 && <span style={{ color: '#dc2626' }}>{noCount} no</span>}
@@ -399,6 +444,7 @@ function PollPageInner() {
                               }}>
                                 {v.vote === 'yes' ? 'Going' : v.vote === 'maybe' ? 'Maybe' : "Can't go"}
                               </span>
+                              {v.topPick && <span style={{ fontSize: '0.68rem' }} title="Top pick">⭐</span>}
                             </div>
                           ))}
                         </div>
@@ -426,6 +472,21 @@ function PollPageInner() {
                         </button>
                       ))}
                       </div>
+                      {!isFinalized && (
+                        <button
+                          onClick={() => handleTopPick(opt.id)}
+                          title={isMyTopPick ? 'Remove top pick' : 'Mark as your top choice'}
+                          className={styles.voteBtn}
+                          style={{
+                            background: isMyTopPick ? '#fef3c7' : '#fff',
+                            borderColor: isMyTopPick ? '#f59e0b' : '#e5e5e5',
+                            color: isMyTopPick ? '#d97706' : '#d1d5db',
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          {isMyTopPick ? '⭐' : '☆'}
+                        </button>
+                      )}
                       {!isFinalized && opt.suggestedBy === visitorId && (
                         <button
                           onClick={() => handleRemoveSuggestion(opt.id)}
