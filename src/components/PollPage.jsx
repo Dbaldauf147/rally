@@ -58,8 +58,7 @@ function PollPageInner() {
   const [suggesting, setSuggesting] = useState(false);
   const [expandedOption, setExpandedOption] = useState(null);
   const [localVotes, setLocalVotes] = useState({}); // { optionId: 'yes'|'maybe'|'no' }
-  const [submitted, setSubmitted] = useState(false);
-  const [submitError, setSubmitError] = useState('');
+  // Votes auto-save on each click — no submit button needed
 
   const [loadError, setLoadError] = useState(null);
 
@@ -98,7 +97,7 @@ function PollPageInner() {
             const myVote = opt.votes?.[visitorId]?.vote;
             if (myVote && myVote !== 'none') existing[opt.id] = myVote;
           }
-          if (Object.keys(existing).length > 0) setSubmitted(true); // already voted before
+          // Votes auto-save, no submitted lock needed
           return existing;
         });
       },
@@ -158,47 +157,30 @@ function PollPageInner() {
     setSuggesting(false);
   }
 
-  function handleVote(optionId, vote) {
-    setSubmitError('');
+  async function handleVote(optionId, vote) {
+    // Toggle: if same vote, clear it
+    const current = localVotes[optionId];
+    const newVote = current === vote ? 'none' : vote;
     setLocalVotes(prev => {
-      const current = prev[optionId];
-      if (current === vote) {
+      if (newVote === 'none') {
         const next = { ...prev };
         delete next[optionId];
         return next;
       }
-      return { ...prev, [optionId]: vote };
+      return { ...prev, [optionId]: newVote };
     });
-  }
-
-  async function handleSubmitVotes() {
-    // Validate all dates have a response
-    const unanswered = dateOptions.filter(opt => !localVotes[opt.id]);
-    if (unanswered.length > 0) {
-      setSubmitError(`Please respond to all ${dateOptions.length} dates before submitting. You have ${unanswered.length} unanswered.`);
-      return;
-    }
-    setSubmitError('');
-    // Save all votes to Firestore
-    for (const opt of dateOptions) {
-      const vote = localVotes[opt.id];
-      if (vote) {
-        await updateDoc(doc(db, 'events', eventId, 'dateOptions', opt.id), {
-          [`votes.${visitorId}`]: { vote, name: voterName },
-        }).catch(() => {});
-      }
-    }
+    // Auto-save to Firestore immediately
+    await updateDoc(doc(db, 'events', eventId, 'dateOptions', optionId), {
+      [`votes.${visitorId}`]: { vote: newVote, name: voterName },
+    }).catch(() => {});
     // Register as event member
     updateDoc(doc(db, 'events', eventId), {
       [`members.${visitorId}`]: { role: 'viewer', rsvp: 'pending', name: voterName },
       memberUids: arrayUnion(visitorId),
     }).catch(() => {});
-    // Update local dateOptions state
-    setDateOptions(prev => prev.map(o => ({
-      ...o,
-      votes: { ...o.votes, [visitorId]: { vote: localVotes[o.id] || 'none', name: voterName } }
-    })));
-    setSubmitted(true);
+    // Show saved toast
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   }
 
   async function handleRemoveSuggestion(optionId) {
@@ -431,8 +413,8 @@ function PollPageInner() {
                         ].map(v => (
                           <button
                             key={v.key}
-                            onClick={() => !isFinalized && !submitted && handleVote(opt.id, v.key)}
-                            disabled={isFinalized || submitted}
+                            onClick={() => !isFinalized && handleVote(opt.id, v.key)}
+                            disabled={isFinalized}
                             className={styles.voteBtn}
                             style={{
                               background: myVote === v.key ? v.bg : '#fff',
@@ -461,35 +443,10 @@ function PollPageInner() {
               })}
             </div>
 
-            {/* Submit votes button */}
-            {!isFinalized && !submitted && (
-              <div style={{ marginTop: '0.75rem' }}>
-                {submitError && (
-                  <div style={{ padding: '0.6rem 0.75rem', background: '#FEE2E2', border: '1px solid #FECACA', borderRadius: '8px', fontSize: '0.82rem', color: '#DC2626', fontWeight: 500, marginBottom: '0.5rem' }}>
-                    ⚠ {submitError}
-                  </div>
-                )}
-                <button
-                  onClick={handleSubmitVotes}
-                  style={{
-                    width: '100%', padding: '0.75rem', border: 'none', borderRadius: '10px',
-                    background: Object.keys(localVotes).length === dateOptions.length ? '#4f46e5' : '#9ca3af',
-                    color: '#fff', fontSize: '0.92rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-                  }}
-                >
-                  Submit Votes ({Object.keys(localVotes).length}/{dateOptions.length})
-                </button>
-              </div>
-            )}
-            {submitted && !isFinalized && (
-              <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', background: '#DCFCE7', border: '1px solid #BBF7D0', borderRadius: '8px', textAlign: 'center' }}>
-                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#166534' }}>✓ Your votes have been submitted!</span>
-                <button
-                  onClick={() => { setSubmitted(false); setSubmitError(''); }}
-                  style={{ display: 'block', margin: '0.4rem auto 0', background: 'none', border: 'none', color: '#4f46e5', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-                >
-                  Change my votes
-                </button>
+            {/* Auto-save hint */}
+            {!isFinalized && Object.keys(localVotes).length > 0 && (
+              <div style={{ marginTop: '0.5rem', textAlign: 'center', fontSize: '0.75rem', color: '#6b7280' }}>
+                Votes save automatically as you select
               </div>
             )}
           </div>
@@ -670,6 +627,32 @@ function PollPageInner() {
 
         <p className={styles.footer}>Powered by Rally</p>
       </div>
+
+      {/* Saved toast */}
+      {saved && (
+        <div style={{
+          position: 'fixed',
+          bottom: '1.5rem',
+          right: '1.5rem',
+          background: '#16a34a',
+          color: '#fff',
+          padding: '0.65rem 1.25rem',
+          borderRadius: '10px',
+          fontSize: '0.88rem',
+          fontWeight: 700,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          zIndex: 1000,
+          animation: 'fadeInUp 0.25s ease',
+        }}>
+          ✓ Saved!
+        </div>
+      )}
+      <style>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }
