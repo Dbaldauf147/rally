@@ -367,7 +367,7 @@ export function EventDetail() {
   ];
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} ${activeTab === 'itinerary' ? styles.pageWide : ''}`}>
       <button className={styles.backBtn} onClick={() => navigate('/')}>← Back</button>
 
       {/* Event progress bar */}
