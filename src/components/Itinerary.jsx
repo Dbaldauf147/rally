@@ -375,23 +375,19 @@ export function Itinerary({ event, onSave, canEdit }) {
                                   {!hasRoute && item.location && <div className={styles.itemLocation}>📍 {item.location}</div>}
                                   {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
                                   {hasRoute && (
-                                    <div className={styles.travelMapWrap}>
-                                      <iframe
-                                        className={styles.travelMapInline}
-                                        src={`https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(dest)}&output=embed`}
-                                        loading="lazy"
-                                        referrerPolicy="no-referrer-when-downgrade"
-                                        allowFullScreen
-                                      />
-                                      <a
-                                        href={`https://www.google.com/maps/dir/${encodeURIComponent(origin)}/${encodeURIComponent(dest)}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className={styles.travelMapLink}
-                                      >
-                                        Open in Google Maps
-                                      </a>
-                                    </div>
+                                    <a
+                                      href={`https://www.google.com/maps/dir/${encodeURIComponent(origin)}/${encodeURIComponent(dest)}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={styles.travelRouteCard}
+                                    >
+                                      <div className={styles.travelRouteIcon}>🗺️</div>
+                                      <div className={styles.travelRouteCardText}>
+                                        <span className={styles.travelRouteCardTitle}>View Route & Travel Time</span>
+                                        <span className={styles.travelRouteCardSub}>{origin} → {dest}</span>
+                                      </div>
+                                      <span className={styles.travelRouteCardArrow}>↗</span>
+                                    </a>
                                   )}
                                   {item.url && !hasRoute && <div className={styles.itemUrl}><a href={item.url} target="_blank" rel="noopener noreferrer">🔗 View details</a></div>}
                                 </div>
