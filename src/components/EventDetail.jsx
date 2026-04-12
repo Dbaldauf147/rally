@@ -885,6 +885,99 @@ export function EventDetail() {
               <button className={styles.deleteBtn} onClick={handleDelete}>Delete Event</button>
             </div>
           )}
+
+          {/* Auto-reminder schedule — owner only, voting stage */}
+          {isOwner && stage === 'voting' && (() => {
+            const ar = event.autoReminders || {};
+            const enabled = !!ar.enabled;
+            const intervals = ar.intervals || [3, 5, 7];
+            const nonVoterCount = members.filter(([uid, m]) => uid !== user?.uid && !voteStats[uid]?.total && !m.skipVote && m.email).length;
+
+            return (
+              <div style={{
+                marginTop: '1rem',
+                padding: '1rem',
+                background: enabled ? '#EEF2FF' : 'var(--color-surface)',
+                border: `1px solid ${enabled ? '#6366F1' : 'var(--color-border)'}`,
+                borderRadius: 'var(--radius-lg)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: enabled ? '0.75rem' : 0 }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                      📧 Automatic Email Reminders
+                    </div>
+                    {!enabled && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.15rem' }}>
+                      Send scheduled reminders to {nonVoterCount} non-voter{nonVoterCount !== 1 ? 's' : ''} with emails
+                    </div>}
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (enabled) {
+                        updateEvent(eventId, { autoReminders: { enabled: false, intervals, startedAt: ar.startedAt || '' } });
+                      } else {
+                        updateEvent(eventId, { autoReminders: { enabled: true, intervals, startedAt: new Date().toISOString() } });
+                      }
+                    }}
+                    style={{
+                      padding: '0.4rem 1rem',
+                      border: 'none',
+                      borderRadius: 'var(--radius-full)',
+                      background: enabled ? '#DC2626' : '#6366F1',
+                      color: '#fff',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {enabled ? 'Stop Reminders' : 'Enable'}
+                  </button>
+                </div>
+
+                {enabled && (
+                  <>
+                    <div style={{ fontSize: '0.72rem', color: '#6366F1', fontWeight: 500, marginBottom: '0.65rem' }}>
+                      Active since {new Date(ar.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {nonVoterCount} non-voter{nonVoterCount !== 1 ? 's' : ''} pending · checked daily
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {[0, 1, 2].map(i => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                            {i === 0 ? '1st' : i === 1 ? '2nd' : '3rd'}:
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={90}
+                            value={intervals[i] || ''}
+                            onChange={e => {
+                              const next = [...intervals];
+                              next[i] = parseInt(e.target.value) || 0;
+                              updateEvent(eventId, { 'autoReminders.intervals': next });
+                            }}
+                            style={{
+                              width: '50px',
+                              padding: '0.3rem 0.4rem',
+                              border: '1px solid var(--color-border)',
+                              borderRadius: 'var(--radius-md)',
+                              fontSize: '0.82rem',
+                              fontFamily: 'inherit',
+                              textAlign: 'center',
+                              outline: 'none',
+                            }}
+                          />
+                          <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>days</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+                      Reminders sent to non-voters X days after enabling. Members who vote are automatically skipped.
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
