@@ -9,6 +9,7 @@ const itemSchema = z.object({
   location: z.string().describe('Empty string if none'),
   notes: z.string().describe('Empty string if none'),
   type: z.enum(['activity', 'travel', 'lodging']).describe('Category: "activity" for sightseeing, dining, tours; "travel" for flights, drives, transfers; "lodging" for hotels, Airbnb, accommodations'),
+  url: z.string().describe('Link to the activity, restaurant, hotel, or booking page. Use the official website URL or Google Maps link. Empty string if unknown.'),
 });
 
 const responseSchema = z.object({
@@ -36,7 +37,8 @@ Rules:
 - Never invent ids for new items — leave id as empty string "".
 - Prefer specific, actionable items (e.g., "Breakfast at Cafe Madeleine" over "Morning activity").
 - Categorize each item with the right type: "activity" for sightseeing, dining, tours, entertainment; "travel" for flights, drives, trains, transfers, car rentals; "lodging" for hotels, Airbnb, resorts, accommodations.
-- When planning a full day or trip, always include travel and lodging items where appropriate (e.g., check-in/check-out times, flight arrivals/departures).`;
+- When planning a full day or trip, always include travel and lodging items where appropriate (e.g., check-in/check-out times, flight arrivals/departures).
+- For every activity, restaurant, attraction, and hotel, include a url to the official website or Google Maps page. Use real, well-known URLs (e.g., "https://www.sagradafamilia.org" for Sagrada Familia, "https://maps.google.com/?q=La+Boqueria+Barcelona" for a market). For flights or generic transfers, leave url as empty string.`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });

@@ -13,7 +13,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const items = Array.isArray(event?.itinerary) ? event.itinerary : [];
   const [editingId, setEditingId] = useState(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ title: '', date: '', time: '', location: '', notes: '', type: 'activity' });
+  const [form, setForm] = useState({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '' });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
@@ -49,6 +49,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         location: it.location || '',
         notes: it.notes || '',
         type: it.type || 'activity',
+        url: it.url || '',
       }));
 
       let next;
@@ -78,7 +79,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   }
 
   function startAdd() {
-    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity' });
+    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '' });
     setAdding(true);
     setEditingId(null);
   }
@@ -91,6 +92,7 @@ export function Itinerary({ event, onSave, canEdit }) {
       location: item.location || '',
       notes: item.notes || '',
       type: item.type || 'activity',
+      url: item.url || '',
     });
     setEditingId(item.id);
     setAdding(false);
@@ -223,6 +225,13 @@ export function Itinerary({ event, onSave, canEdit }) {
             value={form.location}
             onChange={e => setForm({ ...form, location: e.target.value })}
           />
+          <input
+            className={styles.input}
+            type="url"
+            placeholder="Link (optional — website or booking URL)"
+            value={form.url}
+            onChange={e => setForm({ ...form, url: e.target.value })}
+          />
           <textarea
             className={styles.textarea}
             placeholder="Notes (optional)"
@@ -274,10 +283,15 @@ export function Itinerary({ event, onSave, canEdit }) {
                               <div key={item.id} className={styles.scheduleItem} style={{ borderLeftColor: col.color }}>
                                 <div className={styles.itemContent}>
                                   <div className={styles.itemHeader}>
-                                    <span className={styles.itemTitle}>{item.title}</span>
+                                    {item.url ? (
+                                      <a href={item.url} target="_blank" rel="noopener noreferrer" className={styles.itemTitleLink}>{item.title}</a>
+                                    ) : (
+                                      <span className={styles.itemTitle}>{item.title}</span>
+                                    )}
                                   </div>
                                   {item.time && <div className={styles.itemTime}>{new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>}
                                   {item.location && <div className={styles.itemLocation}>📍 {item.location}</div>}
+                                  {item.url && <div className={styles.itemUrl}><a href={item.url} target="_blank" rel="noopener noreferrer">🔗 View details</a></div>}
                                   {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
                                 </div>
                                 {canEdit && (

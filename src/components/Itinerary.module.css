@@ -330,6 +330,18 @@
   color: var(--color-text);
 }
 
+.itemTitleLink {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.itemTitleLink:hover { text-decoration: underline; }
+
+.itemUrl { font-size: 0.78rem; margin-bottom: 0.2rem; }
+.itemUrl a { color: var(--color-accent); text-decoration: none; font-weight: 500; }
+.itemUrl a:hover { text-decoration: underline; }
+
 .itemTime {
   font-size: 0.82rem;
   color: var(--color-text-muted);
