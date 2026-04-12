@@ -8,6 +8,7 @@ const itemSchema = z.object({
   time: z.string().describe('HH:MM 24-hour format, or empty string if no specific time'),
   location: z.string().describe('Empty string if none'),
   notes: z.string().describe('Empty string if none'),
+  type: z.enum(['activity', 'travel', 'lodging']).describe('Category: "activity" for sightseeing, dining, tours; "travel" for flights, drives, transfers; "lodging" for hotels, Airbnb, accommodations'),
 });
 
 const responseSchema = z.object({
@@ -33,7 +34,9 @@ Rules:
 - If adding a few new items without touching existing ones, use action "add" with no ids.
 - If the user asks you to redo the whole itinerary, use action "replace".
 - Never invent ids for new items — leave id as empty string "".
-- Prefer specific, actionable items (e.g., "Breakfast at Cafe Madeleine" over "Morning activity").`;
+- Prefer specific, actionable items (e.g., "Breakfast at Cafe Madeleine" over "Morning activity").
+- Categorize each item with the right type: "activity" for sightseeing, dining, tours, entertainment; "travel" for flights, drives, trains, transfers, car rentals; "lodging" for hotels, Airbnb, resorts, accommodations.
+- When planning a full day or trip, always include travel and lodging items where appropriate (e.g., check-in/check-out times, flight arrivals/departures).`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });

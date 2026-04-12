@@ -13,7 +13,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const items = Array.isArray(event?.itinerary) ? event.itinerary : [];
   const [editingId, setEditingId] = useState(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ title: '', date: '', time: '', location: '', notes: '' });
+  const [form, setForm] = useState({ title: '', date: '', time: '', location: '', notes: '', type: 'activity' });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
@@ -48,6 +48,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         time: it.time || '',
         location: it.location || '',
         notes: it.notes || '',
+        type: it.type || 'activity',
       }));
 
       let next;
@@ -77,7 +78,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   }
 
   function startAdd() {
-    setForm({ title: '', date: '', time: '', location: '', notes: '' });
+    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity' });
     setAdding(true);
     setEditingId(null);
   }
@@ -89,6 +90,7 @@ export function Itinerary({ event, onSave, canEdit }) {
       time: item.time || '',
       location: item.location || '',
       notes: item.notes || '',
+      type: item.type || 'activity',
     });
     setEditingId(item.id);
     setAdding(false);
@@ -176,10 +178,26 @@ export function Itinerary({ event, onSave, canEdit }) {
 
       {(adding || editingId) && (
         <div className={styles.form}>
+          <div className={styles.typeRow}>
+            {[
+              { key: 'activity', label: 'Activity', icon: '🎯' },
+              { key: 'travel', label: 'Travel', icon: '✈️' },
+              { key: 'lodging', label: 'Lodging', icon: '🏨' },
+            ].map(t => (
+              <button
+                key={t.key}
+                type="button"
+                className={form.type === t.key ? styles.typeBtnActive : styles.typeBtn}
+                onClick={() => setForm({ ...form, type: t.key })}
+              >
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
           <input
             className={styles.input}
             type="text"
-            placeholder="Title (e.g., Dinner at Le Bernardin)"
+            placeholder={form.type === 'travel' ? 'Title (e.g., Flight to Barcelona)' : form.type === 'lodging' ? 'Title (e.g., Hotel Montecarlo)' : 'Title (e.g., Dinner at Le Bernardin)'}
             value={form.title}
             onChange={e => setForm({ ...form, title: e.target.value })}
             autoFocus
@@ -236,24 +254,39 @@ export function Itinerary({ event, onSave, canEdit }) {
             return (
               <div key={dateKey} className={styles.dateGroup}>
                 <div className={styles.dateLabel}>{dateLabel}</div>
-                {dateItems.map(item => (
-                  <div key={item.id} className={styles.item}>
-                    <div className={styles.itemContent}>
-                      <div className={styles.itemHeader}>
-                        <span className={styles.itemTitle}>{item.title}</span>
-                        {item.time && <span className={styles.itemTime}>{new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
+                {[
+                  { key: 'activity', label: 'Activities', icon: '🎯', color: '#6366F1' },
+                  { key: 'travel', label: 'Travel', icon: '✈️', color: '#0891b2' },
+                  { key: 'lodging', label: 'Lodging', icon: '🏨', color: '#d97706' },
+                ].map(section => {
+                  const sectionItems = dateItems.filter(i => (i.type || 'activity') === section.key);
+                  if (sectionItems.length === 0) return null;
+                  return (
+                    <div key={section.key} className={styles.typeSection}>
+                      <div className={styles.typeSectionLabel} style={{ color: section.color }}>
+                        <span>{section.icon}</span> {section.label}
                       </div>
-                      {item.location && <div className={styles.itemLocation}>📍 {item.location}</div>}
-                      {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
+                      {sectionItems.map(item => (
+                        <div key={item.id} className={styles.item} style={{ borderLeftColor: section.color }}>
+                          <div className={styles.itemContent}>
+                            <div className={styles.itemHeader}>
+                              <span className={styles.itemTitle}>{item.title}</span>
+                              {item.time && <span className={styles.itemTime}>{new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
+                            </div>
+                            {item.location && <div className={styles.itemLocation}>📍 {item.location}</div>}
+                            {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
+                          </div>
+                          {canEdit && (
+                            <div className={styles.itemActions}>
+                              <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit">✎</button>
+                              <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete">×</button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    {canEdit && (
-                      <div className={styles.itemActions}>
-                        <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit">✎</button>
-                        <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete">×</button>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })}
