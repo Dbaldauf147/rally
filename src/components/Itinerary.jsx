@@ -266,7 +266,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                   <div key={item.id} className={styles.highlightCard}>
                     <img
                       className={styles.highlightImg}
-                      src={`https://source.unsplash.com/400x250/?${query}`}
+                      src={`https://image.pollinations.ai/prompt/${query}%20travel%20photo?width=400&height=250&nologo=true`}
                       alt={item.title}
                       loading="lazy"
                     />
