@@ -376,6 +376,25 @@
   .scheduleColHeader { margin-top: 0.5rem; }
 }
 
+/* Maps */
+.dayMapSection { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.travelRoute, .dayMap { border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
+.travelRouteLabel, .dayMapLabel {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.78rem; font-weight: 600; color: var(--color-text);
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+}
+.travelRouteLink {
+  font-size: 0.72rem; font-weight: 500; color: var(--color-accent);
+  text-decoration: none;
+}
+.travelRouteLink:hover { text-decoration: underline; }
+.mapFrame {
+  width: 100%; height: 250px; border: none; display: block;
+}
+
 /* Legacy .item kept for form preview if needed */
 .item {
   display: flex;

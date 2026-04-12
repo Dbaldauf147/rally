@@ -39,7 +39,8 @@ Rules:
 - Prefer specific, actionable items (e.g., "Breakfast at Cafe Madeleine" over "Morning activity").
 - Categorize each item with the right type: "activity" for sightseeing, dining, tours, entertainment; "travel" for flights, drives, trains, transfers, car rentals; "lodging" for hotels, Airbnb, resorts, accommodations.
 - When planning a full day or trip, always include travel and lodging items where appropriate (e.g., check-in/check-out times, flight arrivals/departures).
-- For every activity, restaurant, attraction, and hotel, include a url to the official website or Google Maps page. Use real, well-known URLs (e.g., "https://www.sagradafamilia.org" for Sagrada Familia, "https://maps.google.com/?q=La+Boqueria+Barcelona" for a market). For flights or generic transfers, leave url as empty string.`;
+- For every activity, restaurant, attraction, and hotel, include a url to the official website or Google Maps page. Use real, well-known URLs (e.g., "https://www.sagradafamilia.org" for Sagrada Familia, "https://maps.google.com/?q=La+Boqueria+Barcelona" for a market). For flights or generic transfers, leave url as empty string.
+- For travel items, format the location field as "Origin → Destination" (e.g., "JFK Airport → Barcelona Airport", "Barcelona → Girona"). This enables route mapping. For activities and lodging, use just the place name and city.`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });

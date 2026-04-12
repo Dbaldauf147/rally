@@ -368,6 +368,80 @@ export function Itinerary({ event, onSave, canEdit }) {
                     );
                   })}
                 </div>
+
+                {/* Day map — shows all locations + travel routes */}
+                {(() => {
+                  const allLocations = dateItems.filter(i => i.location);
+                  const travelItems = dateItems.filter(i => (i.type || 'activity') === 'travel' && i.location);
+                  if (allLocations.length === 0) return null;
+
+                  // Build a map showing all day's locations
+                  const locationPins = allLocations.map(i => encodeURIComponent(i.location)).join('|');
+                  // For the day overview map, use the first location as center with all as waypoints
+                  const dayMapQuery = allLocations.length === 1
+                    ? encodeURIComponent(allLocations[0].location)
+                    : allLocations.map(i => encodeURIComponent(i.location)).join('/');
+
+                  return (
+                    <div className={styles.dayMapSection}>
+                      {/* Travel route maps */}
+                      {travelItems.map(item => {
+                        // Parse origin → destination from location field (e.g., "JFK → Barcelona" or "New York to Barcelona")
+                        const loc = item.location || '';
+                        const parts = loc.split(/\s*[→➜➡>]\s*|\s+to\s+/i);
+                        if (parts.length >= 2) {
+                          const origin = encodeURIComponent(parts[0].trim());
+                          const dest = encodeURIComponent(parts[parts.length - 1].trim());
+                          return (
+                            <div key={item.id} className={styles.travelRoute}>
+                              <div className={styles.travelRouteLabel}>
+                                ✈️ {item.title}
+                                <a
+                                  href={`https://www.google.com/maps/dir/${origin}/${dest}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={styles.travelRouteLink}
+                                >
+                                  Open in Google Maps
+                                </a>
+                              </div>
+                              <iframe
+                                className={styles.mapFrame}
+                                src={`https://maps.google.com/maps?saddr=${origin}&daddr=${dest}&output=embed`}
+                                loading="lazy"
+                                referrerPolicy="no-referrer-when-downgrade"
+                                allowFullScreen
+                              />
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+
+                      {/* Day overview map with all locations */}
+                      <div className={styles.dayMap}>
+                        <div className={styles.dayMapLabel}>
+                          📍 Day locations
+                          <a
+                            href={`https://www.google.com/maps/dir/${dayMapQuery}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.travelRouteLink}
+                          >
+                            Open in Google Maps
+                          </a>
+                        </div>
+                        <iframe
+                          className={styles.mapFrame}
+                          src={`https://maps.google.com/maps?q=${encodeURIComponent(allLocations[0].location)}&output=embed`}
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          allowFullScreen
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
