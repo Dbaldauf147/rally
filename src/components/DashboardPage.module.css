@@ -123,6 +123,26 @@
     max-width: 100%;
   }
 }
+/* Kanban Board */
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 2rem; }
+.kanbanCol { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0; min-height: 80px; display: flex; flex-direction: column; }
+.kanbanColHeader { padding: 0.6rem 0.75rem; border-bottom: 2px solid; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; display: flex; justify-content: space-between; align-items: center; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.kanbanColCount { font-size: 0.65rem; font-weight: 600; padding: 0.1rem 0.45rem; border-radius: var(--radius-full); background: rgba(0,0,0,0.06); }
+.kanbanItems { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
+.kanbanItem { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.6rem; background: var(--color-bg, #f9fafb); border: 1px solid var(--color-border-light, #f0f0f0); border-radius: var(--radius-md); cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; }
+.kanbanItem:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); transform: translateY(-1px); }
+.kanbanItemDot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.kanbanItemTitle { font-size: 0.78rem; font-weight: 600; color: var(--color-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kanbanItemMeta { font-size: 0.62rem; color: var(--color-text-muted); white-space: nowrap; }
+.kanbanEmpty { padding: 0.75rem 0.5rem; text-align: center; font-size: 0.72rem; color: var(--color-text-muted); font-style: italic; }
+
+@media (max-width: 900px) {
+  .kanban { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 500px) {
+  .kanban { grid-template-columns: 1fr; }
+}
+
 .modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
 .modal { background: var(--color-surface); border-radius: var(--radius-lg); padding: 2rem; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); position: relative; }
 .modalClose { position: absolute; top: 0.75rem; right: 0.75rem; background: none; border: none; font-size: 1.5rem; color: var(--color-text-muted); cursor: pointer; line-height: 1; padding: 0.25rem; }

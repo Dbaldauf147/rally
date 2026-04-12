@@ -376,16 +376,27 @@ export function EventDetail() {
           { key: 'created', label: 'Created' },
           { key: 'voting', label: 'Voting' },
           { key: 'finalized', label: 'Finalized' },
-        ].map((step, i) => {
-          const isActive = step.key === 'created' || (step.key === 'voting' && (stage === 'voting' || stage === 'finalized')) || (step.key === 'finalized' && stage === 'finalized');
-          const isCurrent = (step.key === 'voting' && stage === 'voting') || (step.key === 'finalized' && stage === 'finalized') || (step.key === 'created' && stage !== 'voting' && stage !== 'finalized');
+          { key: 'booked', label: 'Travel Booked' },
+        ].map((step, i, arr) => {
+          const isFinalized = stage === 'finalized';
+          const isBooked = isFinalized && event.travelBooked;
+          const isActive =
+            step.key === 'created' ||
+            (step.key === 'voting' && (stage === 'voting' || isFinalized)) ||
+            (step.key === 'finalized' && isFinalized) ||
+            (step.key === 'booked' && isBooked);
+          const isCurrent =
+            (step.key === 'voting' && stage === 'voting') ||
+            (step.key === 'finalized' && isFinalized && !isBooked) ||
+            (step.key === 'booked' && isBooked) ||
+            (step.key === 'created' && stage !== 'voting' && !isFinalized);
           return (
             <div key={step.key} style={{
               flex: 1, padding: '0.45rem 0', textAlign: 'center',
-              fontSize: '0.75rem', fontWeight: isCurrent ? 700 : 500,
+              fontSize: '0.72rem', fontWeight: isCurrent ? 700 : 500,
               background: isActive ? 'var(--color-accent)' : 'var(--color-surface)',
               color: isActive ? '#fff' : 'var(--color-text-muted)',
-              borderRight: i < 2 ? '1px solid var(--color-border)' : 'none',
+              borderRight: i < arr.length - 1 ? '1px solid var(--color-border)' : 'none',
             }}>
               {isActive && step.key !== 'created' ? '✓ ' : ''}{step.label}
             </div>
@@ -813,6 +824,19 @@ export function EventDetail() {
                   setShowFinalize(true);
                 }}>
                   Edit Date
+                </button>
+              )}
+              {stage === 'finalized' && (
+                <button
+                  className={styles.editBtn}
+                  onClick={() => updateEvent(eventId, { travelBooked: !event.travelBooked })}
+                  style={{
+                    background: event.travelBooked ? 'var(--color-success-light)' : 'var(--color-surface-alt)',
+                    borderColor: event.travelBooked ? 'var(--color-success)' : 'var(--color-border)',
+                    color: event.travelBooked ? 'var(--color-success)' : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {event.travelBooked ? '✓ Travel & Lodging Booked' : '✈ Mark Travel Booked'}
                 </button>
               )}
               {stage === 'voting' && (() => {

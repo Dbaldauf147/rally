@@ -138,6 +138,8 @@ export function DashboardPage() {
     const d = e.date?.toDate?.() || new Date(e.date);
     return d < today;
   });
+  const bookedEvents = finalizedEvents.filter(e => e.travelBooked);
+  const unbookedFinalizedEvents = finalizedEvents.filter(e => !e.travelBooked);
 
   async function handleCreateEvent(data) {
     setShowCreate(false);
@@ -178,6 +180,49 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* Kanban Board */}
+      {allEvents.length > 0 && (
+        <div className={styles.kanban}>
+          {[
+            { key: 'created', label: 'Created', color: '#9CA3AF', events: createdEvents },
+            { key: 'voting', label: 'Voting', color: '#F59E0B', events: votingEvents },
+            { key: 'finalized', label: 'Finalized', color: '#6366F1', events: unbookedFinalizedEvents },
+            { key: 'booked', label: 'Travel & Lodging', color: '#16a34a', events: bookedEvents },
+          ].map(col => (
+            <div key={col.key} className={styles.kanbanCol}>
+              <div className={styles.kanbanColHeader} style={{ borderBottomColor: col.color, color: col.color, background: `${col.color}08` }}>
+                {col.label}
+                <span className={styles.kanbanColCount}>{col.events.length}</span>
+              </div>
+              <div className={styles.kanbanItems}>
+                {col.events.length === 0 ? (
+                  <div className={styles.kanbanEmpty}>No events</div>
+                ) : (
+                  col.events.map(e => {
+                    const pct = votingProgress[e.id]?.pct;
+                    return (
+                      <div key={e.id} className={styles.kanbanItem} onClick={() => navigate(`/event/${e.id}`)}>
+                        <div className={styles.kanbanItemDot} style={{ background: col.color }} />
+                        <span className={styles.kanbanItemTitle}>{e.title}</span>
+                        {col.key === 'voting' && pct != null && (
+                          <span className={styles.kanbanItemMeta}>{pct}%</span>
+                        )}
+                        {col.key === 'finalized' && e.location && (
+                          <span className={styles.kanbanItemMeta}>{e.location}</span>
+                        )}
+                        {col.key === 'booked' && (
+                          <span className={styles.kanbanItemMeta}>✓</span>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {allEvents.length === 0 ? (
         <div className={styles.empty}>
