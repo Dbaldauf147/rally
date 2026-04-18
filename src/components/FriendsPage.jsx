@@ -137,14 +137,54 @@ export function FriendsPage() {
   async function handleSaveEdit(e) {
     e.preventDefault();
     if (!user || !editFriend) return;
-    await setDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), {
+    const nextFields = {
       ...editFields,
       email: (editFields.email || '').trim().toLowerCase(),
       workEmail: (editFields.workEmail || '').trim().toLowerCase(),
       createdAt: editFriend.createdAt || new Date().toISOString(),
-    });
+    };
+    await setDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), nextFields);
+
+    // Propagate name/email/phone to any event where this person is a member.
+    // Match by the PREVIOUS identity (what the event record currently stores) —
+    // email, phone digits, or full/first name — so renames still find them.
+    try {
+      const prevEmail = (editFriend.email || '').toLowerCase();
+      const prevDigits = (editFriend.phone || '').replace(/[^\d]/g, '');
+      const prevName = (editFriend.name || '').toLowerCase();
+      const prevFirst = prevName.split(/\s+/)[0] || '';
+      const newName = (nextFields.name || '').trim();
+      const newEmail = nextFields.email;
+      const newPhone = (nextFields.phone || '').trim();
+
+      const allEvents = await getDocs(collection(db, 'events'));
+      for (const eventDoc of allEvents.docs) {
+        const members = eventDoc.data().members || {};
+        const updates = {};
+        for (const [key, m] of Object.entries(members)) {
+          if (!m || typeof m !== 'object') continue;
+          const mEmail = (m.email || '').toLowerCase();
+          const mDigits = (m.phone || '').replace(/[^\d]/g, '');
+          const mName = (m.name || '').toLowerCase();
+          const mFirst = mName.split(/\s+/)[0] || '';
+          const hit =
+            (prevEmail && mEmail === prevEmail) ||
+            (prevDigits && prevDigits.length >= 7 && mDigits === prevDigits) ||
+            (prevName && mName === prevName) ||
+            (prevFirst && mFirst && mFirst === prevFirst && mName.length <= prevName.length + 1);
+          if (!hit) continue;
+          if (newName && m.name !== newName) updates[`members.${key}.name`] = newName;
+          if (newEmail && m.email !== newEmail) updates[`members.${key}.email`] = newEmail;
+          if (newPhone && m.phone !== newPhone) updates[`members.${key}.phone`] = newPhone;
+        }
+        if (Object.keys(updates).length > 0) {
+          updateDoc(doc(db, 'events', eventDoc.id), updates).catch(() => {});
+        }
+      }
+    } catch {}
+
     setEditFriend(null);
-    setResult({ type: 'success', message: 'Contact updated!' });
+    setResult({ type: 'success', message: 'Contact updated — synced to events' });
     setTimeout(() => setResult(null), 3000);
   }
 

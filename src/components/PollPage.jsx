@@ -36,8 +36,12 @@ function PollPageInner() {
   const [searchParams] = useSearchParams();
   const nameParam = decodeURIComponent(searchParams.get('name') || 'Guest');
   const isGenericName = nameParam === 'Friend' || nameParam === 'Guest';
+  const hasVid = !!searchParams.get('vid');
   const [editedName, setEditedName] = useState(isGenericName ? '' : nameParam);
-  const [nameConfirmed, setNameConfirmed] = useState(!isGenericName);
+  // Always require picking from the attendee list on arrival, unless a vid
+  // (returning voter) is present — prevents accidentally voting under someone
+  // else's name from a forwarded/pre-filled link.
+  const [nameConfirmed, setNameConfirmed] = useState(hasVid && !isGenericName);
   const [selectedMemberUid, setSelectedMemberUid] = useState(null);
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const voterName = nameConfirmed ? editedName : nameParam;
@@ -260,14 +264,19 @@ function PollPageInner() {
 
         {/* Name entry */}
         {!nameConfirmed ? (() => {
-          const query = editedName.trim().toLowerCase();
-          const allMembers = Object.entries(event?.members || {});
-          const matchingMembers = query.length > 0
-            ? allMembers
-                .filter(([, m]) => m?.name && m.name.toLowerCase().includes(query))
-                .filter(([, m]) => m.name.toLowerCase() !== query || !selectedMemberUid)
-                .slice(0, 6)
-            : [];
+          const allMembers = Object.entries(event?.members || {})
+            .filter(([, m]) => m && typeof m === 'object' && m.name);
+          // Merge in anyone who has voted on a date but isn't in members
+          const memberUidSet = new Set(allMembers.map(([uid]) => uid));
+          for (const opt of dateOptions) {
+            for (const [voterId, v] of Object.entries(opt.votes || {})) {
+              if (!memberUidSet.has(voterId) && v?.name) {
+                allMembers.push([voterId, { name: v.name, rsvp: 'pending', role: 'viewer' }]);
+                memberUidSet.add(voterId);
+              }
+            }
+          }
+          allMembers.sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
 
           function confirmName(name, memberUid) {
             const finalName = name.trim();
@@ -285,108 +294,86 @@ function PollPageInner() {
 
           return (
           <div className={styles.section}>
-            <h3 className={styles.sectionTitle}>What's your name?</h3>
-            <div style={{ position: 'relative' }}>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  type="text"
-                  value={editedName}
-                  onChange={e => {
-                    setEditedName(e.target.value);
-                    setSelectedMemberUid(null);
-                    setShowNameSuggestions(true);
-                  }}
-                  onFocus={() => setShowNameSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowNameSuggestions(false), 150)}
-                  placeholder="Start typing your name…"
-                  autoFocus
-                  autoComplete="off"
-                  style={{ flex: 1, padding: '0.6rem 0.75rem', border: '2px solid #e5e5e5', borderRadius: '10px', fontSize: '0.92rem', fontFamily: 'inherit' }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && editedName.trim()) {
-                      confirmName(editedName, selectedMemberUid);
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => confirmName(editedName, selectedMemberUid)}
-                  disabled={!editedName.trim()}
-                  style={{ padding: '0.6rem 1.2rem', border: 'none', borderRadius: '10px', background: editedName.trim() ? '#4f46e5' : '#e5e5e5', color: '#fff', fontSize: '0.88rem', fontWeight: 600, cursor: editedName.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}
-                >
-                  Continue
-                </button>
-              </div>
+            <h3 className={styles.sectionTitle}>Who are you?</h3>
+            <p className={styles.sectionDesc}>Tap your name to vote.</p>
 
-              {showNameSuggestions && matchingMembers.length > 0 && (
-                <div style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 4px)',
-                  left: 0,
-                  right: 0,
-                  background: '#fff',
-                  border: '1px solid #e5e5e5',
-                  borderRadius: '10px',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
-                  zIndex: 10,
-                  overflow: 'hidden',
-                }}>
-                  {matchingMembers.map(([uid, m]) => {
-                    const name = m.name;
-                    const lowerName = name.toLowerCase();
-                    const idx = lowerName.indexOf(query);
-                    return (
-                      <button
-                        key={uid}
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => {
-                          setEditedName(name);
-                          setSelectedMemberUid(uid);
-                          setShowNameSuggestions(false);
-                        }}
-                        style={{
-                          display: 'block',
-                          width: '100%',
-                          textAlign: 'left',
-                          padding: '0.55rem 0.85rem',
-                          border: 'none',
-                          borderBottom: '1px solid #f3f4f6',
-                          background: '#fff',
-                          fontSize: '0.9rem',
-                          fontFamily: 'inherit',
-                          cursor: 'pointer',
-                          color: '#1a1a1a',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = '#f9fafb'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}
-                      >
-                        {idx >= 0 ? (
-                          <>
-                            {name.slice(0, idx)}
-                            <strong>{name.slice(idx, idx + query.length)}</strong>
-                            {name.slice(idx + query.length)}
-                          </>
-                        ) : name}
-                        {m.rsvp && m.rsvp !== 'pending' && (
-                          <span style={{ marginLeft: '0.5rem', fontSize: '0.72rem', color: '#6b7280' }}>
-                            · {m.rsvp}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            {query.length > 0 && matchingMembers.length === 0 && (
-              <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: '0.5rem 0 0' }}>
-                New here? Press Continue to add yourself.
-              </p>
+            {allMembers.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                {allMembers.map(([uid, m]) => {
+                  const name = m.name;
+                  return (
+                    <button
+                      key={uid}
+                      onClick={() => confirmName(name, uid)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        padding: '0.55rem 0.7rem',
+                        border: '2px solid #e5e5e5',
+                        borderRadius: '10px',
+                        background: '#fff',
+                        fontSize: '0.88rem',
+                        fontWeight: 600,
+                        color: '#1a1a1a',
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#4f46e5'; e.currentTarget.style.background = '#eef2ff'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#e5e5e5'; e.currentTarget.style.background = '#fff'; }}
+                    >
+                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#4f46e5', flexShrink: 0 }}>
+                        {(name || '?')[0].toUpperCase()}
+                      </div>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
+
+            <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: '0 0 0.4rem', fontWeight: 500 }}>
+              {allMembers.length > 0 ? 'Not on the list?' : 'Enter your name to vote'}
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                type="text"
+                value={editedName}
+                onChange={e => {
+                  setEditedName(e.target.value);
+                  setSelectedMemberUid(null);
+                }}
+                placeholder="Type your name…"
+                autoComplete="off"
+                style={{ flex: 1, padding: '0.6rem 0.75rem', border: '2px solid #e5e5e5', borderRadius: '10px', fontSize: '0.92rem', fontFamily: 'inherit' }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && editedName.trim()) {
+                    confirmName(editedName, selectedMemberUid);
+                  }
+                }}
+              />
+              <button
+                onClick={() => confirmName(editedName, selectedMemberUid)}
+                disabled={!editedName.trim()}
+                style={{ padding: '0.6rem 1.2rem', border: 'none', borderRadius: '10px', background: editedName.trim() ? '#4f46e5' : '#e5e5e5', color: '#fff', fontSize: '0.88rem', fontWeight: 600, cursor: editedName.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}
+              >
+                Continue
+              </button>
+            </div>
           </div>
           );
         })() : (
           <p style={{ fontSize: '0.82rem', color: '#6b7280', textAlign: 'center', margin: '0 0 1rem' }}>
             Voting as <strong style={{ color: '#1a1a1a' }}>{voterName}</strong>
+            {' · '}
+            <button
+              onClick={() => { setNameConfirmed(false); setSelectedMemberUid(null); setEditedName(''); }}
+              style={{ background: 'none', border: 'none', color: '#4f46e5', fontSize: '0.82rem', cursor: 'pointer', padding: 0, fontFamily: 'inherit', textDecoration: 'underline' }}
+            >
+              not you?
+            </button>
           </p>
         )}
 
@@ -396,7 +383,15 @@ function PollPageInner() {
             <h3 className={styles.sectionTitle}>{isFinalized ? 'Finalized Dates' : 'Vote on dates'}</h3>
             {isFinalized
               ? <p className={styles.sectionDesc} style={{ color: '#16a34a' }}>Dates have been finalized. Voting is closed.</p>
-              : <p className={styles.sectionDesc}>Select which dates work for you.</p>
+              : (
+                <>
+                  <p className={styles.sectionDesc} style={{ marginBottom: '0.4rem' }}>Select which dates work for you.</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.65rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', fontSize: '0.75rem', color: '#92400e', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.9rem' }}>⭐</span>
+                    <span>Tap the star to mark your <strong>favorite</strong> choice.</span>
+                  </div>
+                </>
+              )
             }
             <div className={styles.dateList}>
               {dateOptions.map(opt => {
@@ -645,8 +640,8 @@ function PollPageInner() {
               {entries.map(([uid, m]) => {
                 const name = m.name || uid;
                 const rsvpStatus = m.rsvp || null;
-                const rsvpColors = { yes: { bg: '#dcfce7', color: '#16a34a', label: 'Going' }, maybe: { bg: '#fef3c7', color: '#f59e0b', label: 'Maybe' }, no: { bg: '#fee2e2', color: '#dc2626', label: "Can't go" }, pending: { bg: '#f3f4f6', color: '#6b7280', label: 'Pending' } };
-                const rs = rsvpColors[rsvpStatus] || rsvpColors.pending;
+                const rsvpColors = { yes: { bg: '#dcfce7', color: '#16a34a', label: 'Going' }, no: { bg: '#fee2e2', color: '#dc2626', label: "Can't go" } };
+                const rs = rsvpColors[rsvpStatus];
                 return (
                   <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem', background: '#fff', border: '1px solid #e5e5e5', borderRadius: '8px' }}>
                     <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#e5e5e5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#525252', flexShrink: 0 }}>
@@ -654,13 +649,9 @@ function PollPageInner() {
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-                      {typeof m === 'object' && m.phone && <div style={{ fontSize: '0.65rem', color: '#9ca3af' }}>{m.phone}</div>}
-                      {typeof m === 'object' && m.email && <div style={{ fontSize: '0.65rem', color: '#9ca3af' }}>{m.email}</div>}
                     </div>
                     <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <span style={{ padding: '1px 8px', borderRadius: '999px', fontSize: '0.62rem', fontWeight: 700, background: rs.bg, color: rs.color }}>{rs.label}</span>
-                      {typeof m === 'object' && m.emailed && <span style={{ padding: '1px 6px', borderRadius: '999px', fontSize: '0.58rem', fontWeight: 700, background: '#EDE9FE', color: '#7C3AED' }}>✉ Emailed</span>}
-                      {typeof m === 'object' && m.texted && <span style={{ padding: '1px 6px', borderRadius: '999px', fontSize: '0.58rem', fontWeight: 700, background: '#DCFCE7', color: '#166534' }}>✓ Texted</span>}
+                      {rs && <span style={{ padding: '1px 8px', borderRadius: '999px', fontSize: '0.62rem', fontWeight: 700, background: rs.bg, color: rs.color }}>{rs.label}</span>}
                     </div>
                     <button
                       onClick={async () => {

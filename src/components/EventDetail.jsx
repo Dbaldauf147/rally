@@ -140,14 +140,48 @@ export function EventDetail() {
         for (const f of friends) {
           if (f.linkedTo) friendLinks[f.id] = f.linkedTo;
         }
-        // Build friend name/email/phone -> friendId lookup
+        // Build friend name/email/phone -> friendId lookup (+ unique first-name fallback)
         const friendIdByName = {};
         const friendIdByEmail = {};
         const friendIdByPhone = {};
+        const friendIdByFirstName = {};
+        const firstCount = {};
         for (const f of friends) {
-          if (f.name) friendIdByName[f.name.toLowerCase()] = f.id;
+          if (f.name) {
+            friendIdByName[f.name.toLowerCase()] = f.id;
+            const first = f.name.trim().split(/\s+/)[0]?.toLowerCase();
+            if (first) {
+              firstCount[first] = (firstCount[first] || 0) + 1;
+              friendIdByFirstName[first] = f.id;
+            }
+          }
           if (f.email) friendIdByEmail[f.email.toLowerCase()] = f.id;
-          if (f.phone) friendIdByPhone[f.phone.replace(/[^\d]/g, '')] = f.id;
+          if (f.phone) {
+            const digits = f.phone.replace(/[^\d]/g, '');
+            if (digits.length >= 7) friendIdByPhone[digits] = f.id;
+          }
+        }
+        function lookupFid(m) {
+          if (m.email && friendIdByEmail[m.email.toLowerCase()]) return friendIdByEmail[m.email.toLowerCase()];
+          if (m.phone) {
+            const d = m.phone.replace(/[^\d]/g, '');
+            if (d.length >= 7 && friendIdByPhone[d]) return friendIdByPhone[d];
+          }
+          if (m.name && friendIdByName[m.name.toLowerCase()]) return friendIdByName[m.name.toLowerCase()];
+          if (m.name) {
+            const first = m.name.trim().split(/\s+/)[0]?.toLowerCase();
+            if (first && firstCount[first] === 1) return friendIdByFirstName[first];
+          }
+          return null;
+        }
+        function lookupMaster(m) {
+          if (m.email && master[m.email.toLowerCase()]) return master[m.email.toLowerCase()];
+          if (m.phone) {
+            const d = m.phone.replace(/[^\d]/g, '');
+            if (d.length >= 7 && master[d]) return master[d];
+          }
+          if (m.name && master[m.name.toLowerCase()]) return master[m.name.toLowerCase()];
+          return null;
         }
 
         // Sync all events
@@ -160,13 +194,11 @@ export function EventDetail() {
           const memberToFriendId = {};
           for (const [uid, m] of Object.entries(otherMembers)) {
             if (!m || typeof m !== 'object') continue;
-            const fid = (m.email && friendIdByEmail[m.email.toLowerCase()]) ||
-                        (m.name && friendIdByName[m.name.toLowerCase()]) ||
-                        (m.phone && friendIdByPhone[m.phone.replace(/[^\d]/g, '')]) || null;
+            const fid = lookupFid(m);
             if (fid) memberToFriendId[uid] = fid;
 
-            // Sync contact info
-            const match = (m.email && master[m.email.toLowerCase()]) || (m.name && master[m.name.toLowerCase()]) || (m.phone && master[m.phone.replace(/[^\d]/g, '')]) || null;
+            // Sync contact info (backfill only — don't overwrite existing)
+            const match = lookupMaster(m);
             if (match) {
               if (!m.phone && match.phone) updates[`members.${uid}.phone`] = match.phone;
               if (!m.email && match.email) updates[`members.${uid}.email`] = match.email;
@@ -208,20 +240,51 @@ export function EventDetail() {
     if (!mergedMembers[voterId]) mergedMembers[voterId] = voter;
   }
   const rawMembers = Object.entries(mergedMembers);
-  // Build a lookup from friends by email and name for merging
+  // Build a lookup from friends by email, phone, full name, and first name.
+  // First-name only resolves when a single friend has that first name (otherwise
+  // we'd match the wrong person — e.g., two "Joannes").
   const friendsByEmail = {};
+  const friendsByPhone = {};
   const friendsByName = {};
+  const firstNameCounts = {};
+  const friendsByFirstName = {};
   for (const f of friends) {
     if (f.email) friendsByEmail[f.email.toLowerCase()] = f;
-    if (f.name) friendsByName[f.name.toLowerCase()] = f;
+    if (f.phone) {
+      const digits = f.phone.replace(/[^\d]/g, '');
+      if (digits.length >= 7) friendsByPhone[digits] = f;
+    }
+    if (f.name) {
+      friendsByName[f.name.toLowerCase()] = f;
+      const first = f.name.trim().split(/\s+/)[0]?.toLowerCase();
+      if (first) {
+        firstNameCounts[first] = (firstNameCounts[first] || 0) + 1;
+        friendsByFirstName[first] = f;
+      }
+    }
+  }
+  function matchFriend(m) {
+    if (!m || typeof m !== 'object') return null;
+    if (m.email && friendsByEmail[m.email.toLowerCase()]) return friendsByEmail[m.email.toLowerCase()];
+    if (m.phone) {
+      const digits = m.phone.replace(/[^\d]/g, '');
+      if (digits.length >= 7 && friendsByPhone[digits]) return friendsByPhone[digits];
+    }
+    if (m.name && friendsByName[m.name.toLowerCase()]) return friendsByName[m.name.toLowerCase()];
+    if (m.name) {
+      const first = m.name.trim().split(/\s+/)[0]?.toLowerCase();
+      if (first && firstNameCounts[first] === 1) return friendsByFirstName[first];
+    }
+    return null;
   }
   const members = rawMembers.filter(([, m]) => m != null).map(([uid, m]) => {
     if (typeof m === 'string') return [uid, { name: m, rsvp: 'pending', email: '' }];
     if (typeof m !== 'object') return [uid, { name: String(m), rsvp: 'pending', email: '' }];
-    const friendMatch = (m.email && friendsByEmail[m.email.toLowerCase()]) || (m.name && friendsByName[m.name.toLowerCase()]) || null;
+    const friendMatch = matchFriend(m);
     if (friendMatch) {
       return [uid, {
         ...m,
+        name: m.name || friendMatch.name || '',
         phone: m.phone || friendMatch.phone || '',
         email: m.email || friendMatch.email || '',
       }];
