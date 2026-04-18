@@ -277,9 +277,29 @@ export function EventDetail() {
     }
     return null;
   }
+  // When no definitive match, surface up to 3 ranked suggestions so the
+  // organizer can one-tap link a member to the right Friend record.
+  function suggestFriends(m) {
+    if (!m || typeof m !== 'object' || !m.name) return [];
+    const name = m.name.trim().toLowerCase();
+    const first = name.split(/\s+/)[0] || '';
+    const scored = [];
+    for (const f of friends) {
+      if (!f.name) continue;
+      const fn = f.name.toLowerCase();
+      const fFirst = fn.split(/\s+/)[0] || '';
+      let score = 0;
+      if (fFirst && first && fFirst === first) score = 3;
+      else if (fn.includes(name) || name.includes(fn)) score = 2;
+      else if (fFirst && first && (fFirst.startsWith(first) || first.startsWith(fFirst))) score = 1;
+      if (score > 0) scored.push({ f, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 3).map(s => s.f);
+  }
   const members = rawMembers.filter(([, m]) => m != null).map(([uid, m]) => {
-    if (typeof m === 'string') return [uid, { name: m, rsvp: 'pending', email: '' }];
-    if (typeof m !== 'object') return [uid, { name: String(m), rsvp: 'pending', email: '' }];
+    if (typeof m === 'string') return [uid, { name: m, rsvp: 'pending', email: '', _friendMatch: null, _friendSuggestions: [] }];
+    if (typeof m !== 'object') return [uid, { name: String(m), rsvp: 'pending', email: '', _friendMatch: null, _friendSuggestions: [] }];
     const friendMatch = matchFriend(m);
     if (friendMatch) {
       return [uid, {
@@ -287,10 +307,23 @@ export function EventDetail() {
         name: m.name || friendMatch.name || '',
         phone: m.phone || friendMatch.phone || '',
         email: m.email || friendMatch.email || '',
+        _friendMatch: friendMatch,
+        _friendSuggestions: [],
       }];
     }
-    return [uid, m];
+    return [uid, { ...m, _friendMatch: null, _friendSuggestions: suggestFriends(m) }];
   });
+
+  async function linkMemberToFriend(uid, friend) {
+    if (!friend) return;
+    const updates = {};
+    if (friend.name) updates[`members.${uid}.name`] = friend.name;
+    if (friend.email) updates[`members.${uid}.email`] = friend.email;
+    if (friend.phone) updates[`members.${uid}.phone`] = friend.phone;
+    if (Object.keys(updates).length > 0) {
+      await updateDoc(doc(db, 'events', eventId), updates).catch(() => {});
+    }
+  }
   const isOwner = event.members?.[user?.uid]?.role === 'owner';
   const myRsvp = event.members?.[user?.uid]?.rsvp || 'pending';
 
@@ -696,9 +729,41 @@ export function EventDetail() {
                             {m.name || 'Guest'}
                             {isDupe && <span style={{ fontSize: '0.62rem', fontWeight: 600, color: '#D97706', marginLeft: '0.35rem' }}>⚠ Possible duplicate ({dupeReason})</span>}
                           </span>
-                          <div style={{ display: 'flex', gap: '0.3rem', marginTop: '1px', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', gap: '0.3rem', marginTop: '1px', alignItems: 'center', flexWrap: 'wrap' }}>
                             {(m.email || uid.includes('@')) && <span title={m.email || uid} style={{ fontSize: '0.7rem' }}>✉️</span>}
                             {m.phone && <span title={m.phone} style={{ fontSize: '0.7rem' }}>💬</span>}
+                            {isOwner && uid !== user?.uid && (() => {
+                              if (m._friendMatch) {
+                                return (
+                                  <span title={`Linked to Friend: ${m._friendMatch.name}`} style={{ fontSize: '0.58rem', fontWeight: 600, padding: '1px 6px', borderRadius: '999px', background: '#DCFCE7', color: '#166534' }}>
+                                    ✓ Linked
+                                  </span>
+                                );
+                              }
+                              const suggestions = m._friendSuggestions || [];
+                              if (suggestions.length > 0) {
+                                const top = suggestions[0];
+                                return (
+                                  <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      if (window.confirm(`Link ${m.name || 'this member'} to Friend "${top.name}"?\n\nThis will copy ${top.name}'s name, email, and phone onto this attendee.`)) {
+                                        linkMemberToFriend(uid, top);
+                                      }
+                                    }}
+                                    title={`Click to link to ${top.name}`}
+                                    style={{ fontSize: '0.58rem', fontWeight: 600, padding: '1px 6px', borderRadius: '999px', background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', cursor: 'pointer', fontFamily: 'inherit' }}
+                                  >
+                                    💡 {top.name}?
+                                  </button>
+                                );
+                              }
+                              return (
+                                <span title="No matching Friend — add this person from the Friends page" style={{ fontSize: '0.58rem', fontWeight: 600, padding: '1px 6px', borderRadius: '999px', background: '#F3F4F6', color: '#6B7280' }}>
+                                  No Friend found
+                                </span>
+                              );
+                            })()}
                             {(() => {
                               const vs = voteStats[uid];
                               if (!vs || !vs.totalOptions || vs.total === 0) return null;
