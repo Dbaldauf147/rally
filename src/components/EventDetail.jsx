@@ -464,7 +464,10 @@ export function EventDetail() {
     return '\n\nItinerary:\n' + sections.join('\n').trimEnd();
   })();
 
-  const icsDescription = (event.description || '') + itineraryText + '\n\nRSVP: ' + inviteLink;
+  const icsDescription = (event.description || '')
+    + itineraryText
+    + '\n\nFor more details around travel, please visit this website to view the itinerary: ' + inviteLink
+    + '\n\nRSVP: ' + inviteLink;
 
   const icsUrl = `/api/calendar-invite?title=${encodeURIComponent(event.title)}&start=${encodeURIComponent(date.toISOString())}&end=${encodeURIComponent((endDate || new Date(date.getTime() + 3600000)).toISOString())}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(icsDescription)}&url=${encodeURIComponent(inviteLink)}`;
 
