@@ -1185,9 +1185,41 @@ export function Itinerary({ event, onSave, canEdit }) {
               ? 'minmax(0, 1fr) minmax(0, 1.2fr)'
               : 'minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 0.9fr)';
 
+            // Sum route durations for this day (skip routes still loading or errored).
+            let totalSeconds = 0;
+            let hasAnySeconds = false;
+            let pending = 0;
+            for (const t of alignedTransitions) {
+              const tt = travelTimes[travelTimeKey(t.from, t.to, t.mode)];
+              if (tt?.durationSeconds) {
+                totalSeconds += tt.durationSeconds;
+                hasAnySeconds = true;
+              } else if (!tt?.error) {
+                pending += 1;
+              }
+            }
+            const formatTotal = (secs) => {
+              const mins = Math.round(secs / 60);
+              const h = Math.floor(mins / 60);
+              const m = mins % 60;
+              if (h === 0) return `${m} min`;
+              if (m === 0) return `${h} hr`;
+              return `${h} hr ${m} min`;
+            };
+            const totalLabel = hasAnySeconds
+              ? `${formatTotal(totalSeconds)} travel${pending > 0 ? ' (+ pending)' : ''}`
+              : (alignedTransitions.length > 0 ? '… calculating travel' : null);
+
             return (
               <div key={dateKey} className={styles.dateGroup}>
-                <div className={styles.dateLabel}>{dateLabel}</div>
+                <div className={styles.dateLabel}>
+                  {dateLabel}
+                  {totalLabel && (
+                    <span style={{ marginLeft: '0.6rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 'normal' }}>
+                      🚗 {totalLabel}
+                    </span>
+                  )}
+                </div>
                 <div
                   className={styles.scheduleGrid}
                   style={{
