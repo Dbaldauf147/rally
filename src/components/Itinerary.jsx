@@ -967,14 +967,43 @@ export function Itinerary({ event, onSave, canEdit }) {
           .slice(0, 6);
         const lodgingHighlight = items.find(i => i.type === 'lodging' && i.title);
         if (highlights.length === 0) return null;
+        const votingEnabled = !!event?.highlightsVotingEnabled;
+        const isMember = !!(user && event?.members?.[user.uid]);
+        const canToggle = canEdit;
+        const toggleVoting = async () => {
+          await onSave({ highlightsVotingEnabled: !votingEnabled });
+        };
+        const toggleLike = async (itemId) => {
+          if (!user || !isMember) return;
+          const next = itemsRef.current.map(i => {
+            if (i.id !== itemId) return i;
+            const likes = { ...(i.likes || {}) };
+            if (likes[user.uid]) delete likes[user.uid];
+            else likes[user.uid] = true;
+            return { ...i, likes };
+          });
+          await onSave({ itinerary: next });
+        };
+        const voteCount = (item) => Object.keys(item.likes || {}).length;
+        const userLiked = (item) => !!(user && item.likes && item.likes[user.uid]);
         return (
           <div className={styles.highlightsSection}>
-            <h4 className={styles.highlightsTitle}>Trip Highlights</h4>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h4 className={styles.highlightsTitle} style={{ margin: 0 }}>Trip Highlights</h4>
+              {canToggle && (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', fontWeight: 500, color: 'var(--color-text-secondary)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={votingEnabled} onChange={toggleVoting} />
+                  Let members vote on highlights
+                </label>
+              )}
+            </div>
             <div className={styles.highlightsImages}>
               {highlights.slice(0, 4).map(item => {
                 const query = encodeURIComponent(item.imageQuery || item.title);
+                const count = voteCount(item);
+                const liked = userLiked(item);
                 return (
-                  <div key={item.id} className={styles.highlightCard}>
+                  <div key={item.id} className={styles.highlightCard} style={{ position: 'relative' }}>
                     <img
                       className={styles.highlightImg}
                       src={`https://image.pollinations.ai/prompt/${query}%20travel%20photo?width=400&height=250&nologo=true&seed=${item.id.slice(0, 8)}`}
@@ -986,19 +1015,72 @@ export function Itinerary({ event, onSave, canEdit }) {
                       {(item.type || 'activity') === 'activity' ? '🎯' : item.type === 'lodging' ? '🏨' : '✈️'}
                     </div>
                     <div className={styles.highlightLabel}>{item.title}</div>
+                    {votingEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => toggleLike(item.id)}
+                        disabled={!isMember}
+                        title={isMember ? (liked ? 'Remove your vote' : 'Vote for this highlight') : 'Members only'}
+                        style={{
+                          position: 'absolute',
+                          top: '0.4rem',
+                          right: '0.4rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.2rem',
+                          padding: '0.2rem 0.5rem',
+                          borderRadius: 'var(--radius-full)',
+                          border: 'none',
+                          background: liked ? 'rgba(239, 68, 68, 0.95)' : 'rgba(255, 255, 255, 0.9)',
+                          color: liked ? '#fff' : '#111',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: isMember ? 'pointer' : 'not-allowed',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        {liked ? '❤' : '🤍'} {count}
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
             <ul className={styles.highlightsList}>
-              {highlights.map(item => (
-                <li key={item.id}>
-                  {item.url ? (
-                    <a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
-                  ) : item.title}
-                  {item.location && <span className={styles.highlightMeta}> — {item.location}</span>}
-                </li>
-              ))}
+              {highlights.map(item => {
+                const count = voteCount(item);
+                const liked = userLiked(item);
+                return (
+                  <li key={item.id}>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
+                    ) : item.title}
+                    {item.location && <span className={styles.highlightMeta}> — {item.location}</span>}
+                    {votingEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => toggleLike(item.id)}
+                        disabled={!isMember}
+                        title={isMember ? (liked ? 'Remove your vote' : 'Vote for this highlight') : 'Members only'}
+                        style={{
+                          marginLeft: '0.5rem',
+                          padding: '0.1rem 0.45rem',
+                          borderRadius: 'var(--radius-full)',
+                          border: '1px solid var(--color-border)',
+                          background: liked ? 'rgba(239, 68, 68, 0.12)' : 'var(--color-surface)',
+                          color: liked ? '#dc2626' : 'var(--color-text-secondary)',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          cursor: isMember ? 'pointer' : 'not-allowed',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        {liked ? '❤' : '🤍'} {count}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
               {lodgingHighlight && (
                 <li>
                   🏨 {lodgingHighlight.url ? (
