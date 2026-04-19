@@ -51,7 +51,7 @@ export function EventDetail() {
   const [showTextAll, setShowTextAll] = useState(false);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
-  const [showMissingContact, setShowMissingContact] = useState(false);
+  const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'events', eventId), (snap) => {
@@ -789,26 +789,44 @@ export function EventDetail() {
                 {members.filter(([uid]) => voteStats[uid]?.total > 0).length} voted · {members.filter(([, m]) => m.skipVote).length} skip · {members.filter(([uid, m]) => !voteStats[uid]?.total && !m.skipVote).length} waiting
               </span>
               {(() => {
-                const missingCount = members.filter(([uid, m]) => !m.email && !m.phone && !uid.includes('@')).length;
+                const hasEmail = (uid, m) => !!m.email || uid.includes('@');
+                const hasPhone = (uid, m) => !!m.phone;
+                const counts = {
+                  phone: members.filter(([uid, m]) => !hasPhone(uid, m)).length,
+                  email: members.filter(([uid, m]) => !hasEmail(uid, m)).length,
+                  both: members.filter(([uid, m]) => !hasPhone(uid, m) && !hasEmail(uid, m)).length,
+                };
+                const chips = [
+                  { key: 'phone', label: 'Missing phone' },
+                  { key: 'email', label: 'Missing email' },
+                  { key: 'both', label: 'Missing both' },
+                ];
                 return (
-                  <button
-                    onClick={() => setShowMissingContact(v => !v)}
-                    style={{
-                      marginLeft: '0.6rem',
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                      padding: '0.2rem 0.6rem',
-                      borderRadius: 'var(--radius-full)',
-                      border: '1px solid var(--color-border)',
-                      background: showMissingContact ? 'var(--color-accent)' : 'var(--color-surface)',
-                      color: showMissingContact ? '#fff' : 'var(--color-text-secondary)',
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                    }}
-                    title="Show only attendees missing both phone and email"
-                  >
-                    {showMissingContact ? '✓ ' : ''}Missing contact ({missingCount})
-                  </button>
+                  <span style={{ display: 'inline-flex', gap: '0.3rem', marginLeft: '0.6rem', flexWrap: 'wrap' }}>
+                    {chips.map(c => {
+                      const active = missingFilter === c.key;
+                      return (
+                        <button
+                          key={c.key}
+                          onClick={() => setMissingFilter(active ? 'none' : c.key)}
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            padding: '0.2rem 0.6rem',
+                            borderRadius: 'var(--radius-full)',
+                            border: '1px solid var(--color-border)',
+                            background: active ? 'var(--color-accent)' : 'var(--color-surface)',
+                            color: active ? '#fff' : 'var(--color-text-secondary)',
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                          }}
+                          title={`Show only attendees ${c.label.toLowerCase()}`}
+                        >
+                          {active ? '✓ ' : ''}{c.label} ({counts[c.key]})
+                        </button>
+                      );
+                    })}
+                  </span>
                 );
               })()}
             </h3>
@@ -837,7 +855,11 @@ export function EventDetail() {
               ].map(group => {
                 const groupMembers = members.filter(([uid, m]) => {
                   if (getGroup(uid, m) !== group.key) return false;
-                  if (showMissingContact && (m.email || m.phone || uid.includes('@'))) return false;
+                  const hasEmail = !!m.email || uid.includes('@');
+                  const hasPhone = !!m.phone;
+                  if (missingFilter === 'phone' && hasPhone) return false;
+                  if (missingFilter === 'email' && hasEmail) return false;
+                  if (missingFilter === 'both' && (hasEmail || hasPhone)) return false;
                   return true;
                 });
               if (groupMembers.length === 0) return null;
