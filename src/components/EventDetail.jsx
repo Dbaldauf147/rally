@@ -51,6 +51,7 @@ export function EventDetail() {
   const [showTextAll, setShowTextAll] = useState(false);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
+  const [showMissingContact, setShowMissingContact] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'events', eventId), (snap) => {
@@ -787,6 +788,29 @@ export function EventDetail() {
               <span style={{ fontSize: '0.68rem', fontWeight: 400, color: 'var(--color-text-muted)', marginLeft: '0.5rem' }}>
                 {members.filter(([uid]) => voteStats[uid]?.total > 0).length} voted · {members.filter(([, m]) => m.skipVote).length} skip · {members.filter(([uid, m]) => !voteStats[uid]?.total && !m.skipVote).length} waiting
               </span>
+              {(() => {
+                const missingCount = members.filter(([uid, m]) => !m.email && !m.phone && !uid.includes('@')).length;
+                return (
+                  <button
+                    onClick={() => setShowMissingContact(v => !v)}
+                    style={{
+                      marginLeft: '0.6rem',
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      padding: '0.2rem 0.6rem',
+                      borderRadius: 'var(--radius-full)',
+                      border: '1px solid var(--color-border)',
+                      background: showMissingContact ? 'var(--color-accent)' : 'var(--color-surface)',
+                      color: showMissingContact ? '#fff' : 'var(--color-text-secondary)',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                    title="Show only attendees missing both phone and email"
+                  >
+                    {showMissingContact ? '✓ ' : ''}Missing contact ({missingCount})
+                  </button>
+                );
+              })()}
             </h3>
             {(() => {
               // Build a map of which group each host belongs to
@@ -811,7 +835,11 @@ export function EventDetail() {
                 { key: 'skip', label: "Doesn't Need to Vote", color: '#6B7280' },
                 { key: 'waiting', label: 'Waiting on Vote', color: '#F59E0B' },
               ].map(group => {
-                const groupMembers = members.filter(([uid, m]) => getGroup(uid, m) === group.key);
+                const groupMembers = members.filter(([uid, m]) => {
+                  if (getGroup(uid, m) !== group.key) return false;
+                  if (showMissingContact && (m.email || m.phone || uid.includes('@'))) return false;
+                  return true;
+                });
               if (groupMembers.length === 0) return null;
               return (
                 <div key={group.key} style={{ marginBottom: '0.75rem' }}>
