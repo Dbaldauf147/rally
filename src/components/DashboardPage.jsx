@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -205,50 +205,107 @@ export function DashboardPage() {
       ) : (
         <>
           {(() => {
-            const sortByDate = (list) => [...list].sort((a, b) => {
-              const da = a.date?.toDate?.() || new Date(a.date);
-              const db = b.date?.toDate?.() || new Date(b.date);
-              return da - db;
-            });
-            // Voting events: sort by earliest date option month so column is chronological.
-            const votingSorted = [...votingEvents].sort((a, b) => {
-              const ma = (dateOptionMonths[a.id] || []).sort()[0] || '9999-99';
-              const mb = (dateOptionMonths[b.id] || []).sort()[0] || '9999-99';
-              return ma.localeCompare(mb);
-            });
             const stages = [
               { key: 'created', label: 'Created', color: '#9CA3AF', events: createdEvents },
-              { key: 'voting', label: 'Voting', color: '#F59E0B', events: votingSorted },
-              { key: 'finalized', label: 'Date Finalized', color: '#6366F1', events: sortByDate(unbookedFinalizedEvents) },
-              { key: 'itinerary', label: 'Itinerary Completed', color: '#0891b2', events: sortByDate(itineraryCompletedEvents) },
-              { key: 'booked', label: 'Travel & Lodging', color: '#16a34a', events: sortByDate(bookedEvents) },
+              { key: 'voting', label: 'Voting', color: '#F59E0B', events: votingEvents },
+              { key: 'finalized', label: 'Date Finalized', color: '#6366F1', events: unbookedFinalizedEvents },
+              { key: 'itinerary', label: 'Itinerary Completed', color: '#0891b2', events: itineraryCompletedEvents },
+              { key: 'booked', label: 'Travel & Lodging', color: '#16a34a', events: bookedEvents },
             ];
+
+            // Derive the anchor month (YYYY-MM) for each event.
+            const anchorMonth = (e, stageKey) => {
+              if (stageKey === 'voting') {
+                const months = (dateOptionMonths[e.id] || []).slice().sort();
+                return months[0] || null;
+              }
+              if (stageKey === 'created') return null;
+              const d = e.date?.toDate?.() || (e.date ? new Date(e.date) : null);
+              if (!d || isNaN(d)) return null;
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, '0');
+              return `${y}-${m}`;
+            };
+
+            // Collect all months present across any stage (excluding Created/no-date).
+            const allMonthSet = new Set();
+            for (const stage of stages) {
+              for (const e of stage.events) {
+                const m = anchorMonth(e, stage.key);
+                if (m) allMonthSet.add(m);
+              }
+            }
+            const sortedMonths = Array.from(allMonthSet).sort();
+            const monthLabel = (ym) => {
+              const [y, m] = ym.split('-');
+              const d = new Date(parseInt(y), parseInt(m) - 1, 1);
+              return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            };
+
+            // Group each stage's events by month, remembering leftovers with no month.
+            const byStage = {};
+            for (const stage of stages) {
+              const bucket = { noDate: [] };
+              for (const m of sortedMonths) bucket[m] = [];
+              for (const e of stage.events) {
+                const m = anchorMonth(e, stage.key);
+                if (m && bucket[m]) bucket[m].push(e);
+                else bucket.noDate.push(e);
+              }
+              byStage[stage.key] = bucket;
+            }
+
+            const rows = [];
+            for (const m of sortedMonths) rows.push({ key: m, label: monthLabel(m), isNoDate: false });
+            // Add a 'No date yet' row only if any stage has leftovers there.
+            const hasNoDate = stages.some(s => byStage[s.key].noDate.length > 0);
+            if (hasNoDate) rows.push({ key: '__nodate', label: 'No date yet', isNoDate: true });
+
             return (
-              <div className={styles.kanban}>
+              <div className={styles.stageBoard}>
+                {/* Header row: empty corner + 5 stage headers */}
+                <div className={styles.stageBoardHeader} />
                 {stages.map(col => (
-                  <div key={col.key} className={styles.kanbanCol}>
-                    <div className={styles.kanbanColHeader} style={{ borderBottomColor: col.color, color: col.color, background: `${col.color}08` }}>
-                      {col.label}
-                      <span className={styles.kanbanColCount}>{col.events.length}</span>
-                    </div>
-                    <div className={styles.stageColItems}>
-                      {col.events.length === 0 ? (
-                        <div className={styles.kanbanEmpty}>No events</div>
-                      ) : (
-                        col.events.map(e => {
-                          const pct = col.key === 'voting' ? (votingProgress[e.id]?.pct ?? 0) : undefined;
-                          return (
-                            <EventCard
-                              key={e.id}
-                              event={e}
-                              onClick={() => navigate(`/event/${e.id}`)}
-                              votePct={pct}
-                            />
-                          );
-                        })
-                      )}
-                    </div>
+                  <div
+                    key={col.key}
+                    className={styles.kanbanColHeader}
+                    style={{ borderBottomColor: col.color, color: col.color, background: `${col.color}08`, borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0' }}
+                  >
+                    {col.label}
+                    <span className={styles.kanbanColCount}>{col.events.length}</span>
                   </div>
+                ))}
+
+                {/* Body rows: each row is a month (or the 'No date yet' row) */}
+                {rows.length === 0 ? (
+                  <div className={styles.stageBoardEmpty} style={{ gridColumn: '1 / span 6' }}>
+                    No events yet
+                  </div>
+                ) : rows.map(row => (
+                  <React.Fragment key={row.key}>
+                    <div className={styles.stageMonthLabel}>{row.label}</div>
+                    {stages.map(col => {
+                      const bucket = byStage[col.key];
+                      const cellEvents = row.isNoDate ? bucket.noDate : bucket[row.key];
+                      return (
+                        <div key={col.key} className={styles.stageCell}>
+                          {cellEvents.length === 0 ? (
+                            <div className={styles.stageCellEmpty}>—</div>
+                          ) : cellEvents.map(e => {
+                            const pct = col.key === 'voting' ? (votingProgress[e.id]?.pct ?? 0) : undefined;
+                            return (
+                              <EventCard
+                                key={e.id}
+                                event={e}
+                                onClick={() => navigate(`/event/${e.id}`)}
+                                votePct={pct}
+                              />
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
                 ))}
               </div>
             );

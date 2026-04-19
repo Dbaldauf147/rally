@@ -131,6 +131,55 @@
 .kanbanItems { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
 .stageColItems { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; flex: 1; }
 .stageColItems > * { width: 100%; }
+
+.stageBoard {
+  display: grid;
+  grid-template-columns: 7rem repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  align-items: start;
+}
+.stageBoardHeader { /* corner spacer above the month-label column */ }
+.stageMonthLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.8rem 0.5rem 0 0.25rem;
+  border-right: 2px solid var(--color-border);
+  align-self: stretch;
+}
+.stageCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  min-height: 3rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.stageCell > * { width: 100%; }
+.stageCellEmpty {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  font-style: italic;
+  align-self: center;
+  margin: auto 0;
+}
+.stageBoardEmpty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 900px) {
+  .stageBoard { grid-template-columns: 1fr; }
+  .stageMonthLabel { border-right: none; border-bottom: 2px solid var(--color-border); padding: 0.5rem 0; }
+}
 .kanbanItem { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.6rem; background: var(--color-bg, #f9fafb); border: 1px solid var(--color-border-light, #f0f0f0); border-radius: var(--radius-md); cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; }
 .kanbanItem:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); transform: translateY(-1px); }
 .kanbanItemDot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
