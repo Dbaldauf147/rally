@@ -473,9 +473,28 @@ export function EventDetail() {
     + itineraryText
     + '\n\nFor more details around travel, please visit this website to view the itinerary: ' + itineraryLink;
 
-  const icsUrl = `/api/calendar-invite?title=${encodeURIComponent(event.title)}&start=${encodeURIComponent(date.toISOString())}&end=${encodeURIComponent((endDate || new Date(date.getTime() + 3600000)).toISOString())}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(icsDescription)}&url=${encodeURIComponent(inviteLink)}`;
+  const { calStart, calEnd } = (() => {
+    const items = (Array.isArray(event.itinerary) ? event.itinerary : [])
+      .filter(it => (it.type || 'activity') !== 'travel' && it.date && it.time);
+    const toDate = (it) => {
+      const t = /^\d{1,2}:\d{2}$/.test(it.time) ? `${it.time}:00` : it.time;
+      const d = new Date(`${it.date}T${t}`);
+      return isNaN(d) ? null : d;
+    };
+    const dates = items.map(toDate).filter(Boolean);
+    if (dates.length === 0) {
+      return { calStart: date, calEnd: endDate || new Date(date.getTime() + 3600000) };
+    }
+    const start = new Date(Math.min(...dates.map(d => d.getTime())));
+    const end = dates.length > 1
+      ? new Date(Math.max(...dates.map(d => d.getTime())))
+      : new Date(start.getTime() + 3600000);
+    return { calStart: start, calEnd: end };
+  })();
 
-  const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${(endDate || new Date(date.getTime() + 3600000)).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&details=${encodeURIComponent(icsDescription)}`;
+  const icsUrl = `/api/calendar-invite?title=${encodeURIComponent(event.title)}&start=${encodeURIComponent(calStart.toISOString())}&end=${encodeURIComponent(calEnd.toISOString())}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(icsDescription)}&url=${encodeURIComponent(inviteLink)}`;
+
+  const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${calStart.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${calEnd.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&details=${encodeURIComponent(icsDescription)}`;
 
   function handleCopyLink() {
     const fromName = user?.displayName || 'Someone';
