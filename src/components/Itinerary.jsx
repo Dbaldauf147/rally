@@ -141,6 +141,7 @@ function TripOverviewMap({ mapsKey, transitions }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const renderersRef = useRef([]);
+  const markersRef = useRef([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
   const [polylines, setPolylines] = useState({}); // depKey -> [{polyline, mode}]
@@ -165,15 +166,19 @@ function TripOverviewMap({ mapsKey, transitions }) {
       mounted = false;
       for (const r of renderersRef.current) r.setMap(null);
       renderersRef.current = [];
+      for (const m of markersRef.current) m.setMap(null);
+      markersRef.current = [];
     };
   }, [mapsKey]);
 
   useEffect(() => {
     if (!ready || !mapRef.current || !window.google?.maps) return;
     const google = window.google;
-    // Clear previous renderers
+    // Clear previous renderers + markers
     for (const r of renderersRef.current) r.setMap(null);
     renderersRef.current = [];
+    for (const m of markersRef.current) m.setMap(null);
+    markersRef.current = [];
 
     const service = new google.maps.DirectionsService();
     const bounds = new google.maps.LatLngBounds();
@@ -181,11 +186,43 @@ function TripOverviewMap({ mapsKey, transitions }) {
     if (remaining === 0) return;
     const collected = [];
 
-    transitions.forEach(t => {
+    // Build the ordered list of unique stops so each gets one numbered marker.
+    const stopOrder = [];
+    const stopIndex = new Map();
+    const addStop = (loc, title) => {
+      const key = (loc || '').trim().toLowerCase();
+      if (!key) return;
+      if (stopIndex.has(key)) return;
+      stopIndex.set(key, stopOrder.length);
+      stopOrder.push({ loc, title });
+    };
+    for (const t of transitions) {
+      addStop(t.from, t.fromTitle);
+      addStop(t.to, t.toTitle);
+    }
+    const stopLatLngs = new Array(stopOrder.length).fill(null);
+
+    const placeMarkersIfReady = () => {
+      if (stopLatLngs.some(ll => ll === null)) return;
+      for (const m of markersRef.current) m.setMap(null);
+      markersRef.current = [];
+      stopLatLngs.forEach((ll, i) => {
+        if (!ll) return;
+        const marker = new google.maps.Marker({
+          position: ll,
+          map: mapRef.current,
+          label: { text: String(i + 1), color: '#fff', fontWeight: '700', fontSize: '12px' },
+          title: stopOrder[i].title || '',
+        });
+        markersRef.current.push(marker);
+      });
+    };
+
+    transitions.forEach((t, tIdx) => {
       const renderer = new google.maps.DirectionsRenderer({
         map: mapRef.current,
         preserveViewport: true,
-        suppressMarkers: false,
+        suppressMarkers: true,
         polylineOptions: {
           strokeColor: MODE_COLOR[t.mode] || MODE_COLOR.driving,
           strokeWeight: 4,
@@ -207,6 +244,20 @@ function TripOverviewMap({ mapsKey, transitions }) {
           const raw = leg?.overview_polyline;
           const encStr = typeof raw === 'string' ? raw : (raw?.points || null);
           if (encStr) collected.push({ polyline: encStr, mode: t.mode });
+
+          // Capture start/end latlng for stop markers (if not already captured).
+          const firstLeg = leg?.legs?.[0];
+          const lastLeg = leg?.legs?.[leg?.legs?.length - 1];
+          const fromKey = (t.from || '').trim().toLowerCase();
+          const toKey = (t.to || '').trim().toLowerCase();
+          const fromIdx = stopIndex.get(fromKey);
+          const toIdx = stopIndex.get(toKey);
+          if (firstLeg?.start_location && fromIdx != null && !stopLatLngs[fromIdx]) {
+            stopLatLngs[fromIdx] = firstLeg.start_location;
+          }
+          if (lastLeg?.end_location && toIdx != null && !stopLatLngs[toIdx]) {
+            stopLatLngs[toIdx] = lastLeg.end_location;
+          }
         } else {
           console.warn('Overview route failed:', status, 'for', t.from, '→', t.to);
         }
@@ -215,6 +266,7 @@ function TripOverviewMap({ mapsKey, transitions }) {
             mapRef.current.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
           }
           setPolylines({ [depKey]: collected });
+          placeMarkersIfReady();
         }
       });
     });
