@@ -1160,9 +1160,9 @@ export function Itinerary({ event, onSave, canEdit }) {
             // Grid row sizing: header is auto; body rows are fixed half-row heights
             // so an activity (2 half-rows) = 2 * HALF_ROW, and a route spans 2 half-rows
             // offset by 1, giving the "start at midpoint → end at midpoint" effect.
-            const HALF_ROW = 200;
+            const HALF_ROW = 160;
             const activityCount = Math.max(activityItems.length, 1);
-            const bodyRows = activityCount * 2 + 1; // extra half-row in case a trailing route exists
+            const bodyRows = activityCount * 2; // activities take 2 half-rows each; routes fit between
             const gridTemplateColumns = hideLodging
               ? 'minmax(0, 1fr) minmax(0, 1.2fr)'
               : 'minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 0.9fr)';
