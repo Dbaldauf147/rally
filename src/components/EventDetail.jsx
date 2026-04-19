@@ -589,16 +589,49 @@ export function EventDetail() {
           <p className={styles.datetime}>
             {event.dateTBD
               ? 'Date to be determined — based on poll voting'
-              : <>
-                  {format(date, 'EEEE, MMMM d, yyyy · h:mm a')}
-                  {endDate && ` – ${format(endDate, 'h:mm a')}`}
-                </>
+              : (() => {
+                  const items = (Array.isArray(event.itinerary) ? event.itinerary : [])
+                    .filter(it => (it.type || 'activity') !== 'travel' && it.time);
+                  const toMin = (t) => {
+                    const m = /^(\d{1,2}):(\d{2})/.exec(t);
+                    return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+                  };
+                  const toLabel = (t) => {
+                    const m = /^(\d{1,2}):(\d{2})/.exec(t);
+                    if (!m) return '';
+                    let h = parseInt(m[1], 10);
+                    const mm = m[2];
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    h = h % 12 || 12;
+                    return `${h}:${mm} ${ampm}`;
+                  };
+                  const mins = items.map(it => toMin(it.time)).filter(v => v !== null);
+                  if (mins.length > 0) {
+                    const minIdx = mins.indexOf(Math.min(...mins));
+                    const maxIdx = mins.indexOf(Math.max(...mins));
+                    const startLabel = toLabel(items[minIdx].time);
+                    const endLabel = mins.length > 1 ? toLabel(items[maxIdx].time) : '';
+                    return (
+                      <>
+                        {format(date, 'EEEE, MMMM d, yyyy')} · {startLabel}
+                        {endLabel && ` – ${endLabel}`}
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      {format(date, 'EEEE, MMMM d, yyyy · h:mm a')}
+                      {endDate && ` – ${format(endDate, 'h:mm a')}`}
+                    </>
+                  );
+                })()
             }
           </p>
           {event.location && <p className={styles.location}>📍 {event.location}</p>}
         </div>
       </div>
 
+      {user?.email === 'baldaufdan@gmail.com' && (
       <div className={styles.rsvpSection}>
         <RSVPWidget currentRsvp={myRsvp} onRsvp={(response) => rsvp(eventId, response)} />
         <button className={styles.shareBtn} onClick={() => window.open(googleCalUrl, '_blank')}>
@@ -693,6 +726,7 @@ export function EventDetail() {
           );
         })()}
       </div>
+      )}
 
       {result && <div style={{ padding: '0.4rem 0.75rem', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontWeight: 500, marginBottom: '0.5rem', background: 'var(--color-success-light)', color: 'var(--color-success)' }}>{result.message}</div>}
 
