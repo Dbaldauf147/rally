@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { doc, collection, onSnapshot, updateDoc, arrayUnion, getDocs, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -18,10 +18,14 @@ export function EventDetail() {
   const { user } = useAuth();
   const { updateEvent, deleteEvent, rsvp } = useEvents();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState('details');
+  const [activeTab, setActiveTab] = useState(() => {
+    const t = searchParams.get('tab');
+    return ['details', 'itinerary', 'notes', 'chat'].includes(t) ? t : 'details';
+  });
   const [inviteCopied, setInviteCopied] = useState(false);
   const [result, setResult] = useState(null);
   const [showInvite, setShowInvite] = useState(false);
@@ -464,9 +468,10 @@ export function EventDetail() {
     return '\n\nItinerary:\n' + sections.join('\n').trimEnd();
   })();
 
+  const itineraryLink = `${inviteLink}?tab=itinerary`;
   const icsDescription = (event.description || '')
     + itineraryText
-    + '\n\nFor more details around travel, please visit this website to view the itinerary: ' + inviteLink;
+    + '\n\nFor more details around travel, please visit this website to view the itinerary: ' + itineraryLink;
 
   const icsUrl = `/api/calendar-invite?title=${encodeURIComponent(event.title)}&start=${encodeURIComponent(date.toISOString())}&end=${encodeURIComponent((endDate || new Date(date.getTime() + 3600000)).toISOString())}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(icsDescription)}&url=${encodeURIComponent(inviteLink)}`;
 

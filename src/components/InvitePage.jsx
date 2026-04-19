@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,6 +10,9 @@ export function InvitePage() {
   const { token } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tab = searchParams.get('tab');
+  const tabSuffix = tab ? `?tab=${encodeURIComponent(tab)}` : '';
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
@@ -60,7 +63,7 @@ export function InvitePage() {
     await updateDoc(doc(db, 'events', event.id), updates);
     setJoined(true);
     setJoining(false);
-    setTimeout(() => navigate(`/event/${event.id}`), 1000);
+    setTimeout(() => navigate(`/event/${event.id}${tabSuffix}`), 1000);
   }
 
   if (loading) return <div className={styles.page}><p className={styles.loading}>Loading invite...</p></div>;
@@ -70,7 +73,7 @@ export function InvitePage() {
         <p className={styles.inviteLabel}>You've been invited!</p>
         <h1 className={styles.title}>Sign in to view this event</h1>
         <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: '0 0 1.5rem' }}>Create a free account or sign in to see the event details and RSVP.</p>
-        <button className={styles.joinBtn} onClick={() => navigate(`/login?redirect=/invite/${token}`)}>Sign In or Create Account</button>
+        <button className={styles.joinBtn} onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/invite/${token}${tabSuffix}`)}`)}>Sign In or Create Account</button>
       </div>
     </div>
   );
@@ -92,7 +95,7 @@ export function InvitePage() {
           {joined ? (
             <p className={styles.joinedMsg}>You're in! Redirecting...</p>
           ) : alreadyMember ? (
-            <button className={styles.joinBtn} onClick={() => navigate(`/event/${event.id}`)}>View Event</button>
+            <button className={styles.joinBtn} onClick={() => navigate(`/event/${event.id}${tabSuffix}`)}>{tab === 'itinerary' ? 'View Itinerary' : 'View Event'}</button>
           ) : user ? (
             <button className={styles.joinBtn} onClick={handleJoin} disabled={joining}>{joining ? 'Joining...' : 'Join Event'}</button>
           ) : (
