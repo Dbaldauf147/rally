@@ -413,24 +413,55 @@ export function EventDetail() {
   const inviteLink = `${window.location.origin}/invite/${event.shareToken}`;
 
   const itineraryText = (() => {
-    const items = Array.isArray(event.itinerary) ? event.itinerary : [];
+    const items = (Array.isArray(event.itinerary) ? event.itinerary : [])
+      .filter(it => (it.type || 'activity') !== 'travel');
     if (items.length === 0) return '';
     const sorted = [...items].sort((a, b) => {
       const ka = `${a.date || ''} ${a.time || ''}`;
       const kb = `${b.date || ''} ${b.time || ''}`;
       return ka.localeCompare(kb);
     });
-    const lines = sorted.map(it => {
-      const whenParts = [];
-      if (it.date) whenParts.push(it.date);
-      if (it.time) whenParts.push(it.time);
-      const when = whenParts.join(' ');
+    const byDate = new Map();
+    const undated = [];
+    for (const it of sorted) {
+      if (!it.date) { undated.push(it); continue; }
+      if (!byDate.has(it.date)) byDate.set(it.date, []);
+      byDate.get(it.date).push(it);
+    }
+    const formatDateHeader = (ymd) => {
+      try {
+        const d = new Date(ymd + 'T12:00:00');
+        return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+      } catch { return ymd; }
+    };
+    const formatTime = (t) => {
+      if (!t) return '';
+      const m = /^(\d{1,2}):(\d{2})/.exec(t);
+      if (!m) return t;
+      let h = parseInt(m[1], 10);
+      const mm = m[2];
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return `${h}:${mm} ${ampm}`;
+    };
+    const renderItem = (it) => {
+      const time = formatTime(it.time);
       const title = it.title || '(untitled)';
-      let line = when ? `• ${when} — ${title}` : `• ${title}`;
+      let line = time ? `  • ${time} — ${title}` : `  • ${title}`;
       if (it.location) line += ` @ ${it.location}`;
       return line;
-    });
-    return '\n\nItinerary:\n' + lines.join('\n');
+    };
+    const sections = [];
+    for (const [ymd, list] of byDate) {
+      sections.push(formatDateHeader(ymd));
+      for (const it of list) sections.push(renderItem(it));
+      sections.push('');
+    }
+    if (undated.length) {
+      sections.push('TBD');
+      for (const it of undated) sections.push(renderItem(it));
+    }
+    return '\n\nItinerary:\n' + sections.join('\n').trimEnd();
   })();
 
   const icsDescription = (event.description || '') + itineraryText + '\n\nRSVP: ' + inviteLink;
