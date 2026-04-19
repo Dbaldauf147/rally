@@ -1058,7 +1058,7 @@ export function Itinerary({ event, onSave, canEdit }) {
               );
             };
 
-            const renderRouteCard = (t) => {
+            const renderRouteCard = (t, routeIdx) => {
               const mode = t.mode;
               const hasSavedView = typeof t.zoom === 'number' && t.center;
               const ttKey = travelTimeKey(t.from, t.to, mode);
@@ -1066,15 +1066,17 @@ export function Itinerary({ event, onSave, canEdit }) {
               const ttText = tt?.duration
                 ? (tt.distance ? `${tt.duration} · ${tt.distance}` : tt.duration)
                 : (tt?.error ? null : '…');
+              const fromNum = routeIdx * 2 + 1;
+              const toNum = routeIdx * 2 + 2;
               return (
                 <div className={styles.dayRoute} style={{ height: '100%' }}>
                   <div className={styles.dayRouteTravelTime}>
                     {ttText || '—'}
                   </div>
                   <div className={styles.dayRouteHeader}>
-                    <span className={styles.dayRouteHeaderText}>{t.fromTitle}</span>
-                    <span className={styles.dayRouteArrow}>→</span>
-                    <span className={styles.dayRouteHeaderText}>{t.toTitle}</span>
+                    <span className={styles.dayRouteHeaderText} title={t.fromTitle}>{fromNum}</span>
+                    <span className={styles.dayRouteArrow}>-</span>
+                    <span className={styles.dayRouteHeaderText} title={t.toTitle}>{toNum}</span>
                   </div>
                   <div className={styles.modeSelectorBarCompact}>
                     <ModeSelector value={mode} onChange={m => updateItemMode(t.toItemId, m)} />
@@ -1153,9 +1155,9 @@ export function Itinerary({ event, onSave, canEdit }) {
                   ) : alignedTransitions.length === 0 ? (
                     <div className={styles.scheduleEmpty} style={{ gridColumn: 2, gridRow: '2 / span 2' }}>—</div>
                   ) : (
-                    alignedTransitions.map(t => (
+                    alignedTransitions.map((t, idx) => (
                       <div key={t.mapId} style={{ gridColumn: 2, gridRow: `${3 + 2 * t.fromIdx} / span 2`, minHeight: 0 }}>
-                        {renderRouteCard(t)}
+                        {renderRouteCard(t, idx)}
                       </div>
                     ))
                   )}
