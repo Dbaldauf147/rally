@@ -24,8 +24,9 @@ export function EventDetail() {
   const [editing, setEditing] = useState(false);
   const [activeTab, setActiveTab] = useState(() => {
     const t = searchParams.get('tab');
-    return ['details', 'itinerary', 'notes', 'chat'].includes(t) ? t : 'details';
+    return ['details', 'itinerary', 'notes', 'chat'].includes(t) ? t : null;
   });
+  const initialTabPickedRef = useRef(false);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [result, setResult] = useState(null);
   const [showInvite, setShowInvite] = useState(false);
@@ -61,6 +62,19 @@ export function EventDetail() {
     });
     return unsub;
   }, [eventId]);
+
+  // Pick the initial tab based on event stage once (if the URL didn't specify one).
+  useEffect(() => {
+    if (!event || initialTabPickedRef.current) return;
+    initialTabPickedRef.current = true;
+    if (activeTab) return; // URL ?tab= already set it
+    const stage = event.stage || 'voting';
+    if (stage === 'finalized' && !event.itineraryComplete) {
+      setActiveTab('itinerary');
+    } else {
+      setActiveTab('details');
+    }
+  }, [event, activeTab]);
 
   // Load date option voters to include poll participants in members list + track vote stats
   const [voteStats, setVoteStats] = useState({}); // { visitorId: { total, yes, maybe, no } }
