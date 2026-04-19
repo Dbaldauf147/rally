@@ -684,7 +684,6 @@ export function EventDetail() {
 
       {user?.email === 'baldaufdan@gmail.com' && (
       <div className={styles.rsvpSection}>
-        <RSVPWidget currentRsvp={myRsvp} onRsvp={(response) => rsvp(eventId, response)} />
         <button className={styles.shareBtn} onClick={() => window.open(googleCalUrl, '_blank')}>
           📅 Add to Google Calendar
         </button>
