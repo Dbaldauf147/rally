@@ -892,7 +892,7 @@ export function EventDetail() {
                         {m.role === 'owner' && <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)', background: 'var(--color-accent-light)', color: 'var(--color-accent)', fontWeight: 600 }}>Organizer</span>}
                         {m.emailed && <span title={`Emailed ${new Date(m.emailed).toLocaleDateString()}`} style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', borderRadius: 'var(--radius-full)', background: '#EDE9FE', color: '#7C3AED', fontWeight: 600 }}>✉ Emailed</span>}
                         {m.texted && <span title={`Texted ${new Date(m.texted).toLocaleDateString()}`} style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', borderRadius: 'var(--radius-full)', background: '#DCFCE7', color: '#166534', fontWeight: 600 }}>✓ Texted</span>}
-                        {stage === 'finalized' && <span className={`${styles.rsvpBadge} ${styles[`rsvp_${m.rsvp}`]}`}>{m.rsvp || 'invited'}</span>}
+                        {stage === 'finalized' && m.rsvp && m.rsvp !== 'pending' && <span className={`${styles.rsvpBadge} ${styles[`rsvp_${m.rsvp}`]}`}>{m.rsvp}</span>}
                         {isOwner && m.role !== 'owner' && uid !== user?.uid && (
                           <button
                             onClick={async (e) => {
