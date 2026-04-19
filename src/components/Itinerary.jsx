@@ -1030,23 +1030,6 @@ export function Itinerary({ event, onSave, canEdit }) {
             const lodgingItems = dateItems.filter(i => (i.type || 'activity') === 'lodging');
             const travelItems = dateItems.filter(i => i.type === 'travel');
 
-            // If the day has no activities or lodging, collapse to a compact
-            // list of travel items instead of an empty schedule grid.
-            if (activityItems.length === 0 && lodgingItems.length === 0) {
-              return (
-                <div key={dateKey} className={styles.dateGroup}>
-                  <div className={styles.dateLabel}>{dateLabel}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                    {travelItems.map(item => (
-                      <div key={item.id}>
-                        {renderItemCard(item, '#6b7280')}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            }
-
             // Routes column is computed from consecutive activity pairs so each route
             // card can align from the midpoint of the "from" activity to the midpoint
             // of the "to" activity.
@@ -1127,6 +1110,23 @@ export function Itinerary({ event, onSave, canEdit }) {
                 </div>
               );
             };
+
+            // If the day has no activities or lodging, collapse to a compact
+            // list of travel items instead of an empty schedule grid.
+            if (activityItems.length === 0 && lodgingItems.length === 0) {
+              return (
+                <div key={dateKey} className={styles.dateGroup}>
+                  <div className={styles.dateLabel}>{dateLabel}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    {travelItems.map(item => (
+                      <div key={item.id}>
+                        {renderItemCard(item, '#6b7280')}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
 
             const renderRouteCard = (t, routeIdx) => {
               const mode = t.mode;
