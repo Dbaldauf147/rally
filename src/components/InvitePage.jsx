@@ -99,23 +99,6 @@ export function InvitePage() {
             <button className={styles.joinBtn} onClick={() => navigate('/login')}>Sign in to Join</button>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.75rem' }}>
-          <a
-            href={`/api/calendar-invite?title=${encodeURIComponent(event.title)}&start=${encodeURIComponent(date.toISOString())}&end=${encodeURIComponent(new Date(date.getTime() + 3600000).toISOString())}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(event.description || '')}`}
-            style={{ fontSize: '0.78rem', color: 'var(--color-accent)', textDecoration: 'none', fontWeight: 500 }}
-          >
-            📅 Download .ics
-          </a>
-          <span style={{ color: 'var(--color-border)' }}>·</span>
-          <a
-            href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${new Date(date.getTime() + 3600000).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&details=${encodeURIComponent(event.description || '')}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ fontSize: '0.78rem', color: 'var(--color-accent)', textDecoration: 'none', fontWeight: 500 }}
-          >
-            📅 Add to Google Calendar
-          </a>
-        </div>
       </div>
     </div>
   );
