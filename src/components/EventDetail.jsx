@@ -466,8 +466,7 @@ export function EventDetail() {
 
   const icsDescription = (event.description || '')
     + itineraryText
-    + '\n\nFor more details around travel, please visit this website to view the itinerary: ' + inviteLink
-    + '\n\nRSVP: ' + inviteLink;
+    + '\n\nFor more details around travel, please visit this website to view the itinerary: ' + inviteLink;
 
   const icsUrl = `/api/calendar-invite?title=${encodeURIComponent(event.title)}&start=${encodeURIComponent(date.toISOString())}&end=${encodeURIComponent((endDate || new Date(date.getTime() + 3600000)).toISOString())}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(icsDescription)}&url=${encodeURIComponent(inviteLink)}`;
 
