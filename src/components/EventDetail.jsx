@@ -492,9 +492,26 @@ export function EventDetail() {
     return { calStart: start, calEnd: end };
   })();
 
+  const attendeeEmails = (() => {
+    const seen = new Set();
+    const out = [];
+    for (const [uid, m] of members) {
+      if (uid === user?.uid) continue;
+      if (m?.rsvp === 'no') continue;
+      const raw = (m?.email || (uid.includes('@') ? uid : '')).trim();
+      if (!raw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) continue;
+      const key = raw.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(raw);
+    }
+    return out;
+  })();
+  const attendeesParam = attendeeEmails.length ? `&add=${encodeURIComponent(attendeeEmails.join(','))}` : '';
+
   const icsUrl = `/api/calendar-invite?title=${encodeURIComponent(event.title)}&start=${encodeURIComponent(calStart.toISOString())}&end=${encodeURIComponent(calEnd.toISOString())}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(icsDescription)}&url=${encodeURIComponent(inviteLink)}`;
 
-  const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${calStart.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${calEnd.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&details=${encodeURIComponent(icsDescription)}`;
+  const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${calStart.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${calEnd.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&details=${encodeURIComponent(icsDescription)}${attendeesParam}`;
 
   function handleCopyLink() {
     const fromName = user?.displayName || 'Someone';
