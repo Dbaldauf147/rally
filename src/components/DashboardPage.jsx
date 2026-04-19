@@ -342,25 +342,31 @@ export function DashboardPage() {
           )}
           </div>{/* end dashLeft */}
           <div className={styles.dashRight}>
-          {finalizedEvents.length > 0 && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#16a34a' }} />
-                  Upcoming ({finalizedEvents.length})
-                </span>
-              </h2>
-              <div className={styles.upcomingList}>
-                {finalizedEvents
-                  .sort((a, b) => {
-                    const da = a.date?.toDate?.() || new Date(a.date);
-                    const db2 = b.date?.toDate?.() || new Date(b.date);
-                    return da - db2;
-                  })
-                  .map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
-              </div>
-            </section>
-          )}
+          {(() => {
+            const sortByDate = (list) => [...list].sort((a, b) => {
+              const da = a.date?.toDate?.() || new Date(a.date);
+              const db = b.date?.toDate?.() || new Date(b.date);
+              return da - db;
+            });
+            const finalizedSections = [
+              { key: 'finalized', label: 'Date Finalized', color: '#6366F1', events: sortByDate(unbookedFinalizedEvents) },
+              { key: 'itinerary', label: 'Itinerary Completed', color: '#0891b2', events: sortByDate(itineraryCompletedEvents) },
+              { key: 'booked', label: 'Travel & Lodging', color: '#16a34a', events: sortByDate(bookedEvents) },
+            ];
+            return finalizedSections.filter(s => s.events.length > 0).map(s => (
+              <section key={s.key} className={styles.section}>
+                <h2 className={styles.sectionTitle}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color }} />
+                    {s.label} ({s.events.length})
+                  </span>
+                </h2>
+                <div className={styles.upcomingList}>
+                  {s.events.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
+                </div>
+              </section>
+            ));
+          })()}
           </div>{/* end dashRight */}
           </div>{/* end dashColumns */}
           {pastFinalizedEvents.length > 0 && (
