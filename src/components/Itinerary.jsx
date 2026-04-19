@@ -450,6 +450,8 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
+  const [showSuggestForm, setShowSuggestForm] = useState(false);
+  const [suggestForm, setSuggestForm] = useState({ title: '', location: '', notes: '' });
   const [aiError, setAiError] = useState('');
   const [mapModes, setMapModes] = useState({}); // mapId -> mode override
   const [hideLodging, setHideLodging] = useState(true);
@@ -1090,6 +1092,163 @@ export function Itinerary({ event, onSave, canEdit }) {
                 </li>
               )}
             </ul>
+
+            {(() => {
+              const suggestions = Array.isArray(event?.highlightSuggestions) ? event.highlightSuggestions : [];
+              const toggleSuggestionLike = async (sid) => {
+                if (!user || !isMember) return;
+                const next = suggestions.map(s => {
+                  if (s.id !== sid) return s;
+                  const likes = { ...(s.likes || {}) };
+                  if (likes[user.uid]) delete likes[user.uid];
+                  else likes[user.uid] = true;
+                  return { ...s, likes };
+                });
+                await onSave({ highlightSuggestions: next });
+              };
+              const dismissSuggestion = async (sid) => {
+                await onSave({ highlightSuggestions: suggestions.filter(s => s.id !== sid) });
+              };
+              const promoteSuggestion = async (s) => {
+                const newItem = {
+                  id: crypto.randomUUID(),
+                  title: s.title,
+                  date: '',
+                  time: '',
+                  location: s.location || '',
+                  notes: s.notes || '',
+                  type: 'activity',
+                  url: '',
+                  imageQuery: '',
+                };
+                const nextItems = [...itemsRef.current, newItem];
+                await onSave({
+                  itinerary: nextItems,
+                  highlightSuggestions: suggestions.filter(x => x.id !== s.id),
+                });
+              };
+              const submitSuggestion = async () => {
+                const title = suggestForm.title.trim();
+                if (!title) return;
+                const newSuggestion = {
+                  id: crypto.randomUUID(),
+                  title,
+                  location: suggestForm.location.trim(),
+                  notes: suggestForm.notes.trim(),
+                  suggestedBy: user?.uid || '',
+                  suggestedByName: event?.members?.[user?.uid]?.name || user?.displayName || user?.email || 'Member',
+                  createdAt: new Date().toISOString(),
+                  likes: {},
+                };
+                await onSave({ highlightSuggestions: [...suggestions, newSuggestion] });
+                setSuggestForm({ title: '', location: '', notes: '' });
+                setShowSuggestForm(false);
+              };
+              return (
+                <div style={{ marginTop: '0.9rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                      Member Suggestions ({suggestions.length})
+                    </span>
+                    {isMember && !showSuggestForm && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSuggestForm(true)}
+                        style={{ padding: '0.25rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-accent)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        + Suggest a highlight
+                      </button>
+                    )}
+                  </div>
+                  {showSuggestForm && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.75rem', padding: '0.6rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface-alt)' }}>
+                      <input
+                        type="text"
+                        placeholder="What should we do / see / try?"
+                        value={suggestForm.title}
+                        onChange={e => setSuggestForm(p => ({ ...p, title: e.target.value }))}
+                        autoFocus
+                        style={{ padding: '0.45rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit' }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Location (optional)"
+                        value={suggestForm.location}
+                        onChange={e => setSuggestForm(p => ({ ...p, location: e.target.value }))}
+                        style={{ padding: '0.45rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit' }}
+                      />
+                      <textarea
+                        placeholder="Notes (optional)"
+                        value={suggestForm.notes}
+                        onChange={e => setSuggestForm(p => ({ ...p, notes: e.target.value }))}
+                        rows={2}
+                        style={{ padding: '0.45rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', fontFamily: 'inherit', resize: 'vertical' }}
+                      />
+                      <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          onClick={() => { setShowSuggestForm(false); setSuggestForm({ title: '', location: '', notes: '' }); }}
+                          style={{ padding: '0.35rem 0.9rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-muted)', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                        >Cancel</button>
+                        <button
+                          type="button"
+                          onClick={submitSuggestion}
+                          disabled={!suggestForm.title.trim()}
+                          style={{ padding: '0.35rem 0.9rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: suggestForm.title.trim() ? 'pointer' : 'not-allowed', opacity: suggestForm.title.trim() ? 1 : 0.5, fontFamily: 'inherit' }}
+                        >Add suggestion</button>
+                      </div>
+                    </div>
+                  )}
+                  {suggestions.length > 0 && (
+                    <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      {suggestions.map(s => {
+                        const count = Object.keys(s.likes || {}).length;
+                        const liked = !!(user && s.likes && s.likes[user.uid]);
+                        return (
+                          <li key={s.id} style={{ padding: '0.5rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--color-text)' }}>{s.title}</div>
+                              {s.location && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>📍 {s.location}</div>}
+                              {s.notes && <div style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', marginTop: '0.15rem' }}>{s.notes}</div>}
+                              <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
+                                Suggested by {s.suggestedByName || 'a member'}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
+                              {votingEnabled && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSuggestionLike(s.id)}
+                                  disabled={!isMember}
+                                  title={isMember ? (liked ? 'Remove your vote' : 'Vote for this suggestion') : 'Members only'}
+                                  style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: liked ? 'rgba(239, 68, 68, 0.12)' : 'var(--color-surface)', color: liked ? '#dc2626' : 'var(--color-text-secondary)', fontSize: '0.72rem', fontWeight: 600, cursor: isMember ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+                                >{liked ? '❤' : '🤍'} {count}</button>
+                              )}
+                              {canEdit && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => promoteSuggestion(s)}
+                                    title="Add to itinerary"
+                                    style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-success-light)', color: 'var(--color-success)', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                                  >✓ Add</button>
+                                  <button
+                                    type="button"
+                                    onClick={() => dismissSuggestion(s.id)}
+                                    title="Dismiss"
+                                    style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-muted)', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                                  >✗</button>
+                                </>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
