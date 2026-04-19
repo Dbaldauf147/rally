@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import styles from './Itinerary.module.css';
 
 const TRAVEL_MODES = [
@@ -388,6 +389,8 @@ function locationsEqual(a, b) {
 }
 
 export function Itinerary({ event, onSave, canEdit }) {
+  const { user } = useAuth();
+  const isAdmin = user?.email === 'baldaufdan@gmail.com';
   const items = Array.isArray(event?.itinerary) ? event.itinerary : [];
   const [editingId, setEditingId] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -806,7 +809,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {canEdit && (
+      {canEdit && isAdmin && (
         <div className={styles.aiBox}>
           <div className={styles.aiLabel}>
             <span className={styles.aiSparkle}>✨</span>
