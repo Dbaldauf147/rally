@@ -129,6 +129,8 @@
 .kanbanColHeader { padding: 0.6rem 0.75rem; border-bottom: 2px solid; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; display: flex; justify-content: space-between; align-items: center; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
 .kanbanColCount { font-size: 0.65rem; font-weight: 600; padding: 0.1rem 0.45rem; border-radius: var(--radius-full); background: rgba(0,0,0,0.06); }
 .kanbanItems { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
+.stageColItems { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; flex: 1; }
+.stageColItems > * { width: 100%; }
 .kanbanItem { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.6rem; background: var(--color-bg, #f9fafb); border: 1px solid var(--color-border-light, #f0f0f0); border-radius: var(--radius-md); cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; }
 .kanbanItem:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); transform: translateY(-1px); }
 .kanbanItemDot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }

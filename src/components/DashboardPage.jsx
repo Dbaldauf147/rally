@@ -195,50 +195,6 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* Kanban Board */}
-      {allEvents.length > 0 && (
-        <div className={styles.kanban}>
-          {[
-            { key: 'created', label: 'Created', color: '#9CA3AF', events: createdEvents },
-            { key: 'voting', label: 'Voting', color: '#F59E0B', events: votingEvents },
-            { key: 'finalized', label: 'Date Finalized', color: '#6366F1', events: unbookedFinalizedEvents },
-            { key: 'itinerary', label: 'Itinerary Completed', color: '#0891b2', events: itineraryCompletedEvents },
-            { key: 'booked', label: 'Travel & Lodging', color: '#16a34a', events: bookedEvents },
-          ].map(col => (
-            <div key={col.key} className={styles.kanbanCol}>
-              <div className={styles.kanbanColHeader} style={{ borderBottomColor: col.color, color: col.color, background: `${col.color}08` }}>
-                {col.label}
-                <span className={styles.kanbanColCount}>{col.events.length}</span>
-              </div>
-              <div className={styles.kanbanItems}>
-                {col.events.length === 0 ? (
-                  <div className={styles.kanbanEmpty}>No events</div>
-                ) : (
-                  col.events.map(e => {
-                    const pct = votingProgress[e.id]?.pct;
-                    return (
-                      <div key={e.id} className={styles.kanbanItem} onClick={() => navigate(`/event/${e.id}`)}>
-                        <div className={styles.kanbanItemDot} style={{ background: col.color }} />
-                        <span className={styles.kanbanItemTitle}>{e.title}</span>
-                        {col.key === 'voting' && pct != null && (
-                          <span className={styles.kanbanItemMeta}>{pct}%</span>
-                        )}
-                        {col.key === 'finalized' && e.location && (
-                          <span className={styles.kanbanItemMeta}>{e.location}</span>
-                        )}
-                        {col.key === 'booked' && (
-                          <span className={styles.kanbanItemMeta}>✓</span>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {allEvents.length === 0 ? (
         <div className={styles.empty}>
           <div className={styles.emptyIcon}>🗓</div>
@@ -248,127 +204,55 @@ export function DashboardPage() {
         </div>
       ) : (
         <>
-          <div className={styles.dashColumns}>
-          <div className={styles.dashLeft}>
-          {votingEvents.length > 0 && (() => {
-            // Group voting events by month of their date options
-            const monthBuckets = {};
-            const noMonth = [];
-            for (const e of votingEvents) {
-              const months = dateOptionMonths[e.id];
-              if (!months || months.length === 0) {
-                noMonth.push(e);
-              } else {
-                // Put event in each month it has options for
-                for (const ym of months) {
-                  if (!monthBuckets[ym]) monthBuckets[ym] = [];
-                  if (!monthBuckets[ym].find(x => x.id === e.id)) {
-                    monthBuckets[ym].push(e);
-                  }
-                }
-              }
-            }
-            // Sort months chronologically
-            const sortedMonths = Object.keys(monthBuckets).sort();
-            const monthLabel = (ym) => {
-              const [y, m] = ym.split('-');
-              const d = new Date(parseInt(y), parseInt(m) - 1, 1);
-              return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-            };
-
-            const dotColor = (pct) => pct >= 75 ? '#16a34a' : pct >= 40 ? '#D97706' : '#DC2626';
-
-            return (
-              <section className={styles.section}>
-                <h2 className={styles.sectionTitle}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#F59E0B' }} />
-                    Voting ({votingEvents.length})
-                  </span>
-                </h2>
-                <div className={styles.timeline}>
-                  {sortedMonths.map(ym => (
-                    <div key={ym}>
-                      <div className={styles.timelineMonth}>
-                        <span className={styles.timelineMonthLabel}>{monthLabel(ym)}</span>
-                      </div>
-                      {monthBuckets[ym].map(e => {
-                        const pct = votingProgress[e.id]?.pct ?? 0;
-                        return (
-                          <div key={e.id} className={styles.timelineItem}>
-                            <div className={styles.timelineDot} style={{ background: dotColor(pct) }} />
-                            <div className={styles.timelineCard}>
-                              <EventCard event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={pct} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                  {noMonth.length > 0 && (
-                    <div>
-                      <div className={styles.timelineMonth}>
-                        <span className={styles.timelineMonthLabel}>No Dates Yet</span>
-                      </div>
-                      {noMonth.map(e => {
-                        const pct = votingProgress[e.id]?.pct ?? 0;
-                        return (
-                          <div key={e.id} className={styles.timelineItem}>
-                            <div className={styles.timelineDot} style={{ background: '#9CA3AF' }} />
-                            <div className={styles.timelineCard}>
-                              <EventCard event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={pct} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </section>
-            );
-          })()}
-          {createdEvents.length > 0 && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6366F1' }} />
-                  Created ({createdEvents.length})
-                </span>
-              </h2>
-              <div className={styles.grid}>
-                {createdEvents.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
-              </div>
-            </section>
-          )}
-          </div>{/* end dashLeft */}
-          <div className={styles.dashRight}>
           {(() => {
             const sortByDate = (list) => [...list].sort((a, b) => {
               const da = a.date?.toDate?.() || new Date(a.date);
               const db = b.date?.toDate?.() || new Date(b.date);
               return da - db;
             });
-            const finalizedSections = [
+            // Voting events: sort by earliest date option month so column is chronological.
+            const votingSorted = [...votingEvents].sort((a, b) => {
+              const ma = (dateOptionMonths[a.id] || []).sort()[0] || '9999-99';
+              const mb = (dateOptionMonths[b.id] || []).sort()[0] || '9999-99';
+              return ma.localeCompare(mb);
+            });
+            const stages = [
+              { key: 'created', label: 'Created', color: '#9CA3AF', events: createdEvents },
+              { key: 'voting', label: 'Voting', color: '#F59E0B', events: votingSorted },
               { key: 'finalized', label: 'Date Finalized', color: '#6366F1', events: sortByDate(unbookedFinalizedEvents) },
               { key: 'itinerary', label: 'Itinerary Completed', color: '#0891b2', events: sortByDate(itineraryCompletedEvents) },
               { key: 'booked', label: 'Travel & Lodging', color: '#16a34a', events: sortByDate(bookedEvents) },
             ];
-            return finalizedSections.filter(s => s.events.length > 0).map(s => (
-              <section key={s.key} className={styles.section}>
-                <h2 className={styles.sectionTitle}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color }} />
-                    {s.label} ({s.events.length})
-                  </span>
-                </h2>
-                <div className={styles.upcomingList}>
-                  {s.events.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
-                </div>
-              </section>
-            ));
+            return (
+              <div className={styles.kanban}>
+                {stages.map(col => (
+                  <div key={col.key} className={styles.kanbanCol}>
+                    <div className={styles.kanbanColHeader} style={{ borderBottomColor: col.color, color: col.color, background: `${col.color}08` }}>
+                      {col.label}
+                      <span className={styles.kanbanColCount}>{col.events.length}</span>
+                    </div>
+                    <div className={styles.stageColItems}>
+                      {col.events.length === 0 ? (
+                        <div className={styles.kanbanEmpty}>No events</div>
+                      ) : (
+                        col.events.map(e => {
+                          const pct = col.key === 'voting' ? (votingProgress[e.id]?.pct ?? 0) : undefined;
+                          return (
+                            <EventCard
+                              key={e.id}
+                              event={e}
+                              onClick={() => navigate(`/event/${e.id}`)}
+                              votePct={pct}
+                            />
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
           })()}
-          </div>{/* end dashRight */}
-          </div>{/* end dashColumns */}
           {pastFinalizedEvents.length > 0 && (
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>
