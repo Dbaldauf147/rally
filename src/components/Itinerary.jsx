@@ -1,5 +1,53 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import styles from './Itinerary.module.css';
+
+const TRAVEL_MODES = [
+  { key: 'driving', icon: '🚗', label: 'Drive' },
+  { key: 'walking', icon: '🚶', label: 'Walk' },
+  { key: 'transit', icon: '🚆', label: 'Transit' },
+  { key: 'bicycling', icon: '🚲', label: 'Bike' },
+  { key: 'flying', icon: '✈️', label: 'Fly' },
+];
+
+function ModeSelector({ value, onChange }) {
+  return (
+    <div className={styles.modeSelector} onClick={e => e.stopPropagation()}>
+      {TRAVEL_MODES.map(m => (
+        <button
+          key={m.key}
+          type="button"
+          className={value === m.key ? styles.modeBtnActive : styles.modeBtn}
+          onClick={() => onChange(m.key)}
+          title={m.label}
+          aria-label={m.label}
+        >
+          <span className={styles.modeIcon}>{m.icon}</span>
+          <span className={styles.modeLabelText}>{m.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ModeSelectorInline({ value, onChange, disabled }) {
+  return (
+    <div className={styles.modeSelectorInline} onClick={e => e.stopPropagation()}>
+      {TRAVEL_MODES.map(m => (
+        <button
+          key={m.key}
+          type="button"
+          className={value === m.key ? styles.modeInlineBtnActive : styles.modeInlineBtn}
+          onClick={() => !disabled && onChange(m.key)}
+          title={m.label}
+          aria-label={m.label}
+          disabled={disabled}
+        >
+          {m.icon}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function formatItemDateTime(item) {
   if (!item.date) return '';
@@ -7,6 +55,336 @@ function formatItemDateTime(item) {
   const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   const timeStr = item.time ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
   return timeStr ? `${dateStr} · ${timeStr}` : dateStr;
+}
+
+// Travel items with "A → B" style locations have a start and end. Other items have a single location.
+function extractStartEnd(item) {
+  const loc = (item.location || '').trim();
+  if (!loc) return { start: '', end: '' };
+  if ((item.type || 'activity') === 'travel') {
+    const parts = loc.split(/\s*[→➜➡>]\s*|\s+to\s+/i);
+    if (parts.length >= 2) {
+      return { start: parts[0].trim(), end: parts[parts.length - 1].trim() };
+    }
+  }
+  return { start: loc, end: loc };
+}
+
+function inferTravelMode(item) {
+  if (item?.travelMode) return item.travelMode;
+  const t = ((item?.title || '') + ' ' + (item?.type || '')).toLowerCase();
+  if (/flight|fly|plane|airport/.test(t)) return 'flying';
+  if (/train|rail/.test(t)) return 'transit';
+  if (/walk/.test(t)) return 'walking';
+  if (/bike|bicycle/.test(t)) return 'bicycling';
+  return 'driving';
+}
+
+function buildDirectionsEmbed(mapsKey, origin, destination, waypoints = [], mode = 'driving', zoom = null) {
+  const modeParam = mode === 'flying' ? '' : `&mode=${mode}`;
+  const wp = waypoints.length > 0
+    ? `&waypoints=${waypoints.map(encodeURIComponent).join('|')}`
+    : '';
+  const zoomParam = typeof zoom === 'number' ? `&zoom=${zoom}` : '';
+  return `https://www.google.com/maps/embed/v1/directions?key=${mapsKey}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${modeParam}${wp}${zoomParam}`;
+}
+
+function buildDirectionsLink(origin, destination, waypoints = []) {
+  const path = [origin, ...waypoints, destination].map(encodeURIComponent).join('/');
+  return `https://www.google.com/maps/dir/${path}`;
+}
+
+function buildPlaceEmbed(mapsKey, query) {
+  return `https://www.google.com/maps/embed/v1/place?key=${mapsKey}&q=${encodeURIComponent(query)}`;
+}
+
+// Google Maps JavaScript API loader — loads once per page, shared promise.
+let mapsApiPromise = null;
+function loadMapsAPI(key) {
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'));
+  if (window.google?.maps?.DirectionsService) return Promise.resolve(window.google);
+  if (mapsApiPromise) return mapsApiPromise;
+  mapsApiPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&v=weekly`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(window.google);
+    script.onerror = () => {
+      mapsApiPromise = null;
+      reject(new Error('Failed to load Google Maps JS'));
+    };
+    document.head.appendChild(script);
+  });
+  return mapsApiPromise;
+}
+
+const GOOGLE_TRAVEL_MODE = {
+  driving: 'DRIVING',
+  walking: 'WALKING',
+  bicycling: 'BICYCLING',
+  transit: 'TRANSIT',
+  flying: 'DRIVING',
+};
+
+const MODE_COLOR = {
+  driving: '#0891b2',
+  walking: '#16a34a',
+  bicycling: '#d97706',
+  transit: '#6366F1',
+  flying: '#9333EA',
+};
+
+// Overview map showing every leg on one canvas, each in its own mode color.
+function TripOverviewMap({ mapsKey, transitions }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const renderersRef = useRef([]);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState(null);
+  const [polylines, setPolylines] = useState({}); // depKey -> [{polyline, mode}]
+  const depKey = transitions.map(t => `${t.from}|${t.to}|${t.mode}`).join('\n');
+
+  useEffect(() => {
+    if (!mapsKey) return;
+    let mounted = true;
+    loadMapsAPI(mapsKey).then(google => {
+      if (!mounted || !containerRef.current) return;
+      mapRef.current = new google.maps.Map(containerRef.current, {
+        zoom: 10,
+        center: { lat: 40.7128, lng: -74.006 },
+        mapTypeControl: false,
+        streetViewControl: false,
+        gestureHandling: 'greedy',
+        clickableIcons: false,
+      });
+      setReady(true);
+    }).catch(e => mounted && setError(e.message));
+    return () => {
+      mounted = false;
+      for (const r of renderersRef.current) r.setMap(null);
+      renderersRef.current = [];
+    };
+  }, [mapsKey]);
+
+  useEffect(() => {
+    if (!ready || !mapRef.current || !window.google?.maps) return;
+    const google = window.google;
+    // Clear previous renderers
+    for (const r of renderersRef.current) r.setMap(null);
+    renderersRef.current = [];
+
+    const service = new google.maps.DirectionsService();
+    const bounds = new google.maps.LatLngBounds();
+    let remaining = transitions.length;
+    if (remaining === 0) return;
+    const collected = [];
+
+    transitions.forEach(t => {
+      const renderer = new google.maps.DirectionsRenderer({
+        map: mapRef.current,
+        preserveViewport: true,
+        suppressMarkers: false,
+        polylineOptions: {
+          strokeColor: MODE_COLOR[t.mode] || MODE_COLOR.driving,
+          strokeWeight: 4,
+          strokeOpacity: 0.85,
+        },
+      });
+      renderersRef.current.push(renderer);
+
+      service.route({
+        origin: t.from,
+        destination: t.to,
+        travelMode: google.maps.TravelMode[GOOGLE_TRAVEL_MODE[t.mode] || 'DRIVING'],
+      }, (result, status) => {
+        remaining -= 1;
+        if (status === 'OK') {
+          renderer.setDirections(result);
+          const leg = result.routes[0];
+          if (leg?.bounds) bounds.union(leg.bounds);
+          const raw = leg?.overview_polyline;
+          const encStr = typeof raw === 'string' ? raw : (raw?.points || null);
+          if (encStr) collected.push({ polyline: encStr, mode: t.mode });
+        } else {
+          console.warn('Overview route failed:', status, 'for', t.from, '→', t.to);
+        }
+        if (remaining === 0) {
+          if (!bounds.isEmpty()) {
+            mapRef.current.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+          }
+          setPolylines({ [depKey]: collected });
+        }
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, depKey]);
+
+  if (error) return <div className={styles.routeMapError}>Map unavailable: {error}</div>;
+  const currentPolylines = polylines[depKey];
+  const staticUrl = mapsKey && currentPolylines && currentPolylines.length > 0
+    ? buildStaticMapUrl(mapsKey, currentPolylines, '900x500')
+    : null;
+  return (
+    <>
+      <div ref={containerRef} className={styles.tripOverviewMap} />
+      {staticUrl && (
+        <img
+          src={staticUrl}
+          alt="Trip route overview"
+          className={styles.tripOverviewMapPrint}
+          onError={() => console.warn('Static overview map failed to load:', staticUrl)}
+        />
+      )}
+    </>
+  );
+}
+
+// Colors in Static Maps need the 0xRRGGBB form, no leading '#'.
+function modeColorHex(mode) {
+  return (MODE_COLOR[mode] || MODE_COLOR.driving).replace('#', '0x');
+}
+
+function buildStaticMapUrl(mapsKey, paths, size = '640x360') {
+  const pathParams = paths.map(p =>
+    `path=color:${modeColorHex(p.mode)}|weight:5|enc:${encodeURIComponent(p.polyline)}`
+  ).join('&');
+  return `https://maps.googleapis.com/maps/api/staticmap?size=${size}&${pathParams}&key=${mapsKey}`;
+}
+
+// Interactive route map. Saves zoom + center on user interaction (debounced).
+function RouteMap({ mapsKey, origin, destination, mode, savedZoom, savedCenter, onViewChange }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const rendererRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const hasSavedView = typeof savedZoom === 'number' && savedCenter && typeof savedCenter.lat === 'number';
+  const [mapReady, setMapReady] = useState(false);
+  const [error, setError] = useState(null);
+  const [polyline, setPolyline] = useState(null);
+
+  // Initialize map instance once.
+  useEffect(() => {
+    if (!mapsKey) return;
+    let mounted = true;
+    loadMapsAPI(mapsKey).then(google => {
+      if (!mounted || !containerRef.current) return;
+      const map = new google.maps.Map(containerRef.current, {
+        zoom: hasSavedView ? savedZoom : 13,
+        center: hasSavedView ? savedCenter : { lat: 40.7128, lng: -74.006 },
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        gestureHandling: 'greedy',
+        clickableIcons: false,
+      });
+      mapRef.current = map;
+      rendererRef.current = new google.maps.DirectionsRenderer({
+        map,
+        preserveViewport: hasSavedView,
+      });
+
+      const flushSave = () => {
+        if (!mapRef.current) return;
+        const z = mapRef.current.getZoom();
+        const c = mapRef.current.getCenter();
+        onViewChange({ zoom: z, center: { lat: c.lat(), lng: c.lng() } });
+      };
+      const onChange = () => {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(flushSave, 600);
+      };
+      map.addListener('zoom_changed', onChange);
+      map.addListener('dragend', onChange);
+      setMapReady(true);
+    }).catch(e => {
+      if (mounted) setError(e.message);
+    });
+    return () => {
+      mounted = false;
+      clearTimeout(saveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapsKey]);
+
+  // Run directions once the map is ready, and re-run whenever route or mode changes.
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !rendererRef.current || !window.google?.maps) return;
+    const google = window.google;
+    const service = new google.maps.DirectionsService();
+    const travelMode = GOOGLE_TRAVEL_MODE[mode] || 'DRIVING';
+    service.route({
+      origin,
+      destination,
+      travelMode: google.maps.TravelMode[travelMode],
+    }, (result, status) => {
+      if (status === 'OK') {
+        rendererRef.current.setOptions({ preserveViewport: hasSavedView });
+        rendererRef.current.setDirections(result);
+        const raw = result.routes[0]?.overview_polyline;
+        const encStr = typeof raw === 'string' ? raw : (raw?.points || null);
+        if (encStr) setPolyline(encStr);
+        if (hasSavedView) {
+          mapRef.current.setZoom(savedZoom);
+          mapRef.current.setCenter(savedCenter);
+        }
+      } else {
+        console.warn('DirectionsService failed:', status, 'for', origin, '→', destination, 'mode:', travelMode);
+        if (status !== 'ZERO_RESULTS') setError(status);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin, destination, mode, mapReady]);
+
+  if (error) {
+    return (
+      <div className={styles.routeMapError}>
+        <div>Map unavailable</div>
+        <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>{error}</div>
+      </div>
+    );
+  }
+  const staticUrl = mapsKey && polyline
+    ? buildStaticMapUrl(mapsKey, [{ polyline, mode }], '640x360')
+    : null;
+  return (
+    <>
+      <div ref={containerRef} className={styles.dayRouteMap} />
+      {staticUrl && (
+        <img
+          src={staticUrl}
+          alt={`Route from ${origin} to ${destination}`}
+          className={styles.dayRouteMapPrint}
+          onError={() => console.warn('Static map failed to load:', staticUrl)}
+        />
+      )}
+    </>
+  );
+}
+
+// Loosely compare two location strings — apartment numbers, zip codes, and extra
+// neighborhood descriptors often differ slightly between activities at the same spot,
+// so we strip those before comparing.
+function normalizeLocation(loc) {
+  if (!loc) return '';
+  return loc
+    .toLowerCase()
+    .replace(/,?\s*(apt\.?|apartment|suite|ste\.?|unit|#)\s*[\w\d-]+/gi, '')
+    .replace(/,\s*[a-z]{2}\s*\d{5}(-\d{4})?/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[,\s]+|[,\s]+$/g, '')
+    .trim();
+}
+
+function locationsEqual(a, b) {
+  const na = normalizeLocation(a);
+  const nb = normalizeLocation(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  // If one is a prefix of the other (e.g., "305 w 50th st" vs "305 w 50th st, new york"),
+  // treat them as the same place.
+  if (na.startsWith(nb) || nb.startsWith(na)) return true;
+  return false;
 }
 
 export function Itinerary({ event, onSave, canEdit }) {
@@ -18,6 +396,23 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
   const [aiError, setAiError] = useState('');
+  const [mapModes, setMapModes] = useState({}); // mapId -> mode override
+  const [hideLodging, setHideLodging] = useState(true);
+  const [travelTimes, setTravelTimes] = useState({}); // key -> { duration, distance, error }
+  const travelTimeFetchRef = useRef(new Set()); // keys we've already requested
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  // Expose the latest items via a ref so async callbacks (like the map's debounced
+  // zoom-save) don't write back with a stale items array and wipe newer additions.
+  const itemsRef = useRef(items);
+  useEffect(() => { itemsRef.current = items; }, [items]);
+
+  function getMapMode(id, defaultMode) {
+    return mapModes[id] || defaultMode;
+  }
+  function setMapMode(id, mode) {
+    setMapModes(prev => ({ ...prev, [id]: mode }));
+  }
 
   async function handleAiPrompt() {
     if (!aiPrompt.trim() || aiLoading) return;
@@ -46,6 +441,8 @@ export function Itinerary({ event, onSave, canEdit }) {
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Failed to reach assistant');
+      console.log('[itinerary-assistant] response:', data);
+      console.log('[itinerary-assistant] items JSON:', JSON.stringify(data.items, null, 2));
 
       // Apply the action to the itinerary
       const newItems = (data.items || []).map(it => ({
@@ -76,8 +473,19 @@ export function Itinerary({ event, onSave, canEdit }) {
         const bd = (b.date || '') + 'T' + (b.time || '00:00');
         return ad.localeCompare(bd);
       });
+      const delta = next.length - items.length;
+      console.log('[itinerary-assistant] saving items count:', next.length, 'delta:', delta);
+      console.log('[itinerary-assistant] saved items:', next.map(i => ({ id: i.id, title: i.title, type: i.type, date: i.date, time: i.time })));
       await onSave({ itinerary: next });
-      setAiMessage(data.message || 'Updated!');
+      console.log('[itinerary-assistant] save complete');
+      const countLabel = delta > 0
+        ? ` (${delta} item${delta === 1 ? '' : 's'} added)`
+        : delta < 0
+          ? ` (${-delta} item${delta === -1 ? '' : 's'} removed)`
+          : newItems.length > 0
+            ? ` (${newItems.length} item${newItems.length === 1 ? '' : 's'} updated)`
+            : ' — nothing changed. Try rephrasing.';
+      setAiMessage((data.message || 'Updated!') + countLabel);
       setAiPrompt('');
     } catch (err) {
       setAiError(err.message || 'Something went wrong');
@@ -135,6 +543,154 @@ export function Itinerary({ event, onSave, canEdit }) {
     await onSave({ itinerary: next });
   }
 
+  async function updateItemMode(id, mode) {
+    const next = items.map(i => i.id === id ? { ...i, travelMode: mode } : i);
+    await onSave({ itinerary: next });
+  }
+
+  async function exportPDF() {
+    if (exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      // Build transitions from the latest items
+      const sortedDatesLocal = Object.keys(items.reduce((acc, i) => {
+        acc[i.date || 'Unscheduled'] = true; return acc;
+      }, {})).sort((a, b) => {
+        if (a === 'Unscheduled') return 1;
+        if (b === 'Unscheduled') return -1;
+        return a.localeCompare(b);
+      });
+      const allT = [];
+      for (const dateKey of sortedDatesLocal) {
+        const dayItems = items
+          .filter(i => (i.date || 'Unscheduled') === dateKey)
+          .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+        const activities = dayItems.filter(i => (i.type || 'activity') === 'activity');
+        for (let i = 0; i < activities.length - 1; i++) {
+          const from = activities[i];
+          const to = activities[i + 1];
+          const fromLoc = (extractStartEnd(from).end || from.location || '').trim();
+          const toLoc = (extractStartEnd(to).start || to.location || '').trim();
+          if (fromLoc && toLoc && !locationsEqual(fromLoc, toLoc)) {
+            allT.push({
+              from: fromLoc,
+              to: toLoc,
+              mode: inferTravelMode(to),
+              fromItemId: from.id,
+              toItemId: to.id,
+              toTitle: to.title,
+            });
+          }
+        }
+      }
+
+      // Fetch polyline for each transition via DirectionsService
+      let google = window.google;
+      if (!google?.maps && mapsKey) {
+        google = await loadMapsAPI(mapsKey);
+      }
+
+      const polylineByFromId = {};
+      const overviewPolylines = [];
+      if (google?.maps) {
+        const service = new google.maps.DirectionsService();
+        await Promise.all(allT.map(t => new Promise(resolve => {
+          service.route({
+            origin: t.from,
+            destination: t.to,
+            travelMode: google.maps.TravelMode[GOOGLE_TRAVEL_MODE[t.mode] || 'DRIVING'],
+          }, (result, status) => {
+            if (status === 'OK') {
+              const raw = result.routes[0]?.overview_polyline;
+              const encStr = typeof raw === 'string' ? raw : (raw?.points || null);
+              if (encStr) {
+                polylineByFromId[t.fromItemId] = { polyline: encStr, mode: t.mode, toTitle: t.toTitle };
+                overviewPolylines.push({ polyline: encStr, mode: t.mode });
+              }
+            }
+            resolve();
+          });
+        })));
+      }
+
+      // Build static map URLs and attach travel-time text
+      const routeMapsByFromId = {};
+      for (const t of allT) {
+        const p = polylineByFromId[t.fromItemId];
+        const url = p && mapsKey ? buildStaticMapUrl(mapsKey, [p], '640x280') : null;
+        const tt = travelTimes[travelTimeKey(t.from, t.to, t.mode)];
+        routeMapsByFromId[t.fromItemId] = {
+          url,
+          mode: t.mode,
+          toTitle: t.toTitle,
+          duration: tt?.duration || null,
+        };
+      }
+      const overviewMapUrl = overviewPolylines.length > 0 && mapsKey
+        ? buildStaticMapUrl(mapsKey, overviewPolylines, '900x500')
+        : null;
+
+      // Dynamic import so the pdf lib isn't loaded unless the user clicks
+      const [{ pdf }, { ItineraryPDF }] = await Promise.all([
+        import('@react-pdf/renderer'),
+        import('./ItineraryPDF'),
+      ]);
+
+      const React = await import('react');
+      const doc = React.createElement(ItineraryPDF, {
+        event,
+        items,
+        overviewMapUrl,
+        routeMapsByFromId,
+      });
+
+      const blob = await pdf(doc).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const safeTitle = (event?.title || 'itinerary').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+      a.href = url;
+      a.download = `${safeTitle || 'itinerary'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      alert('PDF export failed: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
+  async function updateItemView(id, { zoom, center }) {
+    const current = itemsRef.current;
+    // Guard: if the item no longer exists (e.g., deleted), skip.
+    if (!current.some(i => i.id === id)) return;
+    const next = current.map(i => {
+      if (i.id !== id) return i;
+      const copy = { ...i };
+      if (typeof zoom === 'number') copy.travelZoom = Math.max(1, Math.min(20, zoom));
+      if (center && typeof center.lat === 'number' && typeof center.lng === 'number') {
+        copy.travelCenter = { lat: center.lat, lng: center.lng };
+      }
+      return copy;
+    });
+    await onSave({ itinerary: next });
+  }
+
+  async function resetItemView(id) {
+    const current = itemsRef.current;
+    if (!current.some(i => i.id === id)) return;
+    const next = current.map(i => {
+      if (i.id !== id) return i;
+      const copy = { ...i };
+      delete copy.travelZoom;
+      delete copy.travelCenter;
+      return copy;
+    });
+    await onSave({ itinerary: next });
+  }
+
   // Group by date
   const groups = {};
   for (const item of items) {
@@ -148,14 +704,107 @@ export function Itinerary({ event, onSave, canEdit }) {
     return a.localeCompare(b);
   });
 
+  const mapsKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_KEY;
+
+  function travelTimeKey(from, to, mode) {
+    return `${from}|${to}|${mode}`;
+  }
+
+  // Aligned activity-to-activity transitions (one per consecutive activity pair).
+  // Same source the per-day Routes column uses, so the overview stays in sync.
+  const allTransitions = [];
+  for (const dateKey of sortedDates) {
+    const dateItemsSorted = groups[dateKey].slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    const activityItems = dateItemsSorted.filter(i => (i.type || 'activity') === 'activity');
+    for (let i = 0; i < activityItems.length - 1; i++) {
+      const fromItem = activityItems[i];
+      const toItem = activityItems[i + 1];
+      const fromLoc = (extractStartEnd(fromItem).end || fromItem.location || '').trim();
+      const toLoc = (extractStartEnd(toItem).start || toItem.location || '').trim();
+      if (fromLoc && toLoc && !locationsEqual(fromLoc, toLoc)) {
+        allTransitions.push({
+          from: fromLoc,
+          to: toLoc,
+          fromTitle: fromItem.title,
+          toTitle: toItem.title,
+          mode: inferTravelMode(toItem),
+          fromItemId: fromItem.id,
+          toItemId: toItem.id,
+          dateKey,
+        });
+      }
+    }
+  }
+
+  // Fetch travel time for every transition. Errors don't stick in the ref, so a
+  // subsequent render (or mode change) will retry.
+  const transitionFetchDep = allTransitions.map(t => travelTimeKey(t.from, t.to, t.mode)).join('\n');
+  useEffect(() => {
+    function fetchOne(t, isRetry = false) {
+      const k = travelTimeKey(t.from, t.to, t.mode);
+      if (travelTimeFetchRef.current.has(k)) return;
+      travelTimeFetchRef.current.add(k);
+      const url = `/api/travel-time?origin=${encodeURIComponent(t.from)}&destination=${encodeURIComponent(t.to)}&mode=${encodeURIComponent(t.mode)}`;
+      fetch(url, { cache: 'no-store' })
+        .then(r => r.json().then(body => ({ ok: r.ok, body })))
+        .then(({ ok, body }) => {
+          setTravelTimes(prev => ({
+            ...prev,
+            [k]: ok ? body : { error: body?.error || 'Request failed' },
+          }));
+          if (!ok) {
+            // Allow future retries, and auto-retry once after a brief delay
+            travelTimeFetchRef.current.delete(k);
+            if (!isRetry) setTimeout(() => fetchOne(t, true), 2500);
+          }
+        })
+        .catch(e => {
+          setTravelTimes(prev => ({ ...prev, [k]: { error: e.message } }));
+          travelTimeFetchRef.current.delete(k);
+          if (!isRetry) setTimeout(() => fetchOne(t, true), 2500);
+        });
+    }
+    for (const t of allTransitions) fetchOne(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transitionFetchDep]);
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
         <h3 className={styles.heading}>Trip Itinerary</h3>
-        {canEdit && !adding && !editingId && (
-          <button className={styles.addBtn} onClick={startAdd}>+ Add Item</button>
-        )}
+        <div className={styles.headerActions}>
+          <button
+            className={styles.lodgingToggleBtn}
+            onClick={() => setHideLodging(v => !v)}
+            title={hideLodging ? 'Show lodging column' : 'Hide lodging column'}
+          >
+            {hideLodging ? '🏨 Show lodging' : '🏨 Hide lodging'}
+          </button>
+          <button
+            className={styles.lodgingToggleBtn}
+            onClick={exportPDF}
+            disabled={exportingPdf}
+            title="Export itinerary as a PDF"
+          >
+            {exportingPdf ? '⏳ Generating…' : '⬇ Download PDF'}
+          </button>
+          {canEdit && !adding && !editingId && (
+            <button className={styles.addBtn} onClick={startAdd}>+ Add Item</button>
+          )}
+        </div>
       </div>
+
+      {allTransitions.length > 0 && mapsKey && (
+        <div className={styles.overviewMapSection}>
+          <div className={styles.overviewMapHeader}>
+            <span className={styles.overviewMapTitle}>🗺️ Trip Route Overview</span>
+            <span className={styles.overviewMapCount}>
+              {allTransitions.length} {allTransitions.length === 1 ? 'route' : 'routes'}
+            </span>
+          </div>
+          <TripOverviewMap mapsKey={mapsKey} transitions={allTransitions} />
+        </div>
+      )}
 
       {canEdit && (
         <div className={styles.aiBox}>
@@ -320,120 +969,206 @@ export function Itinerary({ event, onSave, canEdit }) {
             const dateLabel = dateKey === 'Unscheduled'
               ? 'Unscheduled'
               : new Date(dateKey + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+            // Activities and lodging columns
+            const activityItems = dateItems.filter(i => (i.type || 'activity') === 'activity');
+            const lodgingItems = dateItems.filter(i => (i.type || 'activity') === 'lodging');
+
+            // Routes column is computed from consecutive activity pairs so each route
+            // card can align from the midpoint of the "from" activity to the midpoint
+            // of the "to" activity.
+            const alignedTransitions = [];
+            for (let i = 0; i < activityItems.length - 1; i++) {
+              const fromItem = activityItems[i];
+              const toItem = activityItems[i + 1];
+              const fromLoc = (extractStartEnd(fromItem).end || fromItem.location || '').trim();
+              const toLoc = (extractStartEnd(toItem).start || toItem.location || '').trim();
+              if (fromLoc && toLoc && !locationsEqual(fromLoc, toLoc)) {
+                alignedTransitions.push({
+                  fromIdx: i,
+                  toIdx: i + 1,
+                  from: fromLoc,
+                  to: toLoc,
+                  fromTitle: fromItem.title,
+                  toTitle: toItem.title,
+                  mode: inferTravelMode(toItem),
+                  zoom: typeof toItem.travelZoom === 'number' ? toItem.travelZoom : null,
+                  center: toItem.travelCenter && typeof toItem.travelCenter.lat === 'number'
+                    ? { lat: toItem.travelCenter.lat, lng: toItem.travelCenter.lng }
+                    : null,
+                  fromItemId: fromItem.id,
+                  toItemId: toItem.id,
+                  mapId: `aligned-route-${dateKey}-${i}`,
+                });
+              }
+            }
+
+            // Map each activity's id to its outbound transition (if any), so we can
+            // display "travel time leaving this activity" on the card.
+            const outboundByItemId = {};
+            for (const t of alignedTransitions) {
+              outboundByItemId[t.fromItemId] = t;
+            }
+
+            // Renders a single activity/lodging card's inner content.
+            const renderItemCard = (item, color) => {
+              const loc = item.location || '';
+              const outbound = outboundByItemId[item.id];
+              const outboundTT = outbound
+                ? travelTimes[travelTimeKey(outbound.from, outbound.to, outbound.mode)]
+                : null;
+              const modeIconFor = (m) => (TRAVEL_MODES.find(x => x.key === m) || TRAVEL_MODES[0]).icon;
+              return (
+                <div className={styles.scheduleItem} style={{ borderLeftColor: color, height: '100%' }}>
+                  <div className={styles.itemContent}>
+                    <div className={styles.itemHeader}>
+                      {item.url ? (
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" className={styles.itemTitleLink}>{item.title}</a>
+                      ) : (
+                        <span className={styles.itemTitle}>{item.title}</span>
+                      )}
+                      {canEdit && (
+                        <div className={styles.itemActions}>
+                          <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit">✎</button>
+                          <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete">×</button>
+                        </div>
+                      )}
+                    </div>
+                    {item.time && <div className={styles.itemTime}>{new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>}
+                    {loc && <div className={styles.itemLocation}>📍 {loc}</div>}
+                    {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
+                    {item.url && <div className={styles.itemUrl}><a href={item.url} target="_blank" rel="noopener noreferrer">🔗 View details</a></div>}
+                    {outbound && (
+                      <div className={styles.itemLeavingFooter}>
+                        <span className={styles.itemLeavingIcon}>{modeIconFor(outbound.mode)}</span>
+                        <span className={styles.itemLeavingText}>
+                          {outboundTT?.duration
+                            ? `${outboundTT.duration} to ${outbound.toTitle}`
+                            : outboundTT?.error
+                              ? `→ ${outbound.toTitle}`
+                              : `… to ${outbound.toTitle}`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            };
+
+            const renderRouteCard = (t) => {
+              const mode = t.mode;
+              const hasSavedView = typeof t.zoom === 'number' && t.center;
+              const ttKey = travelTimeKey(t.from, t.to, mode);
+              const tt = travelTimes[ttKey];
+              const ttText = tt?.duration
+                ? (tt.distance ? `${tt.duration} · ${tt.distance}` : tt.duration)
+                : (tt?.error ? null : '…');
+              return (
+                <div className={styles.dayRoute} style={{ height: '100%' }}>
+                  <div className={styles.dayRouteTravelTime}>
+                    {ttText || '—'}
+                  </div>
+                  <div className={styles.dayRouteHeader}>
+                    <span className={styles.dayRouteHeaderText}>{t.fromTitle}</span>
+                    <span className={styles.dayRouteArrow}>→</span>
+                    <span className={styles.dayRouteHeaderText}>{t.toTitle}</span>
+                  </div>
+                  <div className={styles.modeSelectorBarCompact}>
+                    <ModeSelector value={mode} onChange={m => updateItemMode(t.toItemId, m)} />
+                    {hasSavedView && (
+                      <button
+                        type="button"
+                        className={styles.zoomResetBtn}
+                        onClick={() => resetItemView(t.toItemId)}
+                        title="Reset map to auto-fit route"
+                        aria-label="Reset map view"
+                      >⟲</button>
+                    )}
+                  </div>
+                  <div className={styles.dayRouteMapWrap} style={{ flex: '1 1 auto', height: 'auto' }}>
+                    <RouteMap
+                      mapsKey={mapsKey}
+                      origin={t.from}
+                      destination={t.to}
+                      mode={mode}
+                      savedZoom={t.zoom}
+                      savedCenter={t.center}
+                      onViewChange={view => updateItemView(t.toItemId, view)}
+                    />
+                  </div>
+                </div>
+              );
+            };
+
+            // Grid row sizing: header is auto; body rows are fixed half-row heights
+            // so an activity (2 half-rows) = 2 * HALF_ROW, and a route spans 2 half-rows
+            // offset by 1, giving the "start at midpoint → end at midpoint" effect.
+            const HALF_ROW = 200;
+            const activityCount = Math.max(activityItems.length, 1);
+            const bodyRows = activityCount * 2 + 1; // extra half-row in case a trailing route exists
+            const gridTemplateColumns = hideLodging
+              ? 'minmax(0, 1fr) minmax(0, 1.2fr)'
+              : 'minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 0.9fr)';
+
             return (
               <div key={dateKey} className={styles.dateGroup}>
                 <div className={styles.dateLabel}>{dateLabel}</div>
-                <div className={styles.scheduleGrid}>
-                  {[
-                    { key: 'travel', label: 'Travel', icon: '✈️', color: '#0891b2' },
-                    { key: 'activity', label: 'Activities', icon: '🎯', color: '#6366F1' },
-                    { key: 'lodging', label: 'Lodging', icon: '🏨', color: '#d97706' },
-                  ].map(col => {
-                    const colItems = dateItems.filter(i => (i.type || 'activity') === col.key);
-                    return (
-                      <div key={col.key} className={styles.scheduleCol}>
-                        <div className={styles.scheduleColHeader} style={{ borderBottomColor: col.color, color: col.color }}>
-                          <span>{col.icon}</span> {col.label}
-                        </div>
-                        <div className={styles.scheduleColItems}>
-                          {colItems.length === 0 ? (
-                            <div className={styles.scheduleEmpty}>—</div>
-                          ) : (
-                            colItems.map(item => {
-                              // Parse travel route for map embed
-                              const isTravel = col.key === 'travel';
-                              const loc = item.location || '';
-                              const routeParts = isTravel ? loc.split(/\s*[→➜➡>]\s*|\s+to\s+/i) : [];
-                              const hasRoute = routeParts.length >= 2;
-                              const origin = hasRoute ? routeParts[0].trim() : '';
-                              const dest = hasRoute ? routeParts[routeParts.length - 1].trim() : '';
+                <div
+                  className={styles.scheduleGrid}
+                  style={{
+                    gridTemplateColumns,
+                    gridTemplateRows: `auto repeat(${bodyRows}, ${HALF_ROW}px)`,
+                  }}
+                >
+                  {/* Column headers */}
+                  <div className={styles.scheduleColHeader} style={{ gridColumn: 1, gridRow: 1, borderBottomColor: '#6366F1', color: '#6366F1' }}>
+                    <span>🎯</span> Activities
+                  </div>
+                  <div className={styles.scheduleColHeader} style={{ gridColumn: 2, gridRow: 1, borderBottomColor: '#0891b2', color: '#0891b2' }}>
+                    <span>🚗</span> Routes
+                  </div>
+                  {!hideLodging && (
+                    <div className={styles.scheduleColHeader} style={{ gridColumn: 3, gridRow: 1, borderBottomColor: '#d97706', color: '#d97706' }}>
+                      <span>🏨</span> Lodging
+                    </div>
+                  )}
 
-                              return (
-                              <div key={item.id} className={styles.scheduleItem} style={{ borderLeftColor: col.color }}>
-                                <div className={styles.itemContent}>
-                                  <div className={styles.itemHeader}>
-                                    {item.url ? (
-                                      <a href={item.url} target="_blank" rel="noopener noreferrer" className={styles.itemTitleLink}>{item.title}</a>
-                                    ) : (
-                                      <span className={styles.itemTitle}>{item.title}</span>
-                                    )}
-                                    {canEdit && (
-                                      <div className={styles.itemActions}>
-                                        <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit">✎</button>
-                                        <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete">×</button>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {item.time && <div className={styles.itemTime}>{new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>}
-                                  {hasRoute && (
-                                    <div className={styles.travelEndpoints}>
-                                      <span className={styles.travelFrom}>📍 {origin}</span>
-                                      <span className={styles.travelArrow}>→</span>
-                                      <span className={styles.travelTo}>📍 {dest}</span>
-                                    </div>
-                                  )}
-                                  {!hasRoute && item.location && <div className={styles.itemLocation}>📍 {item.location}</div>}
-                                  {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
-                                  {hasRoute && (() => {
-                                    const mapsKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_KEY;
-                                    const gmapsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(origin)}/${encodeURIComponent(dest)}`;
-                                    if (mapsKey) {
-                                      // Infer travel mode from title
-                                      const titleLower = (item.title || '').toLowerCase();
-                                      let mode = 'driving';
-                                      if (/flight|fly|plane|airport/.test(titleLower)) mode = 'flying';
-                                      else if (/train|rail/.test(titleLower)) mode = 'transit';
-                                      else if (/walk/.test(titleLower)) mode = 'walking';
-                                      else if (/bike|bicycle/.test(titleLower)) mode = 'bicycling';
-                                      const embedMode = mode === 'flying' ? '' : `&mode=${mode}`;
-                                      const embedSrc = `https://www.google.com/maps/embed/v1/directions?key=${mapsKey}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}${embedMode}`;
-                                      return (
-                                        <div className={styles.travelMapWrap}>
-                                          <iframe
-                                            className={styles.travelMapInline}
-                                            src={embedSrc}
-                                            loading="lazy"
-                                            referrerPolicy="no-referrer-when-downgrade"
-                                            allowFullScreen
-                                          />
-                                          <a
-                                            href={gmapsUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className={styles.travelMapLink}
-                                          >
-                                            Open in Google Maps
-                                          </a>
-                                        </div>
-                                      );
-                                    }
-                                    // Fallback: link card when no API key
-                                    return (
-                                      <a
-                                        href={gmapsUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className={styles.travelRouteCard}
-                                      >
-                                        <div className={styles.travelRouteIcon}>🗺️</div>
-                                        <div className={styles.travelRouteCardText}>
-                                          <span className={styles.travelRouteCardTitle}>View Route & Travel Time</span>
-                                          <span className={styles.travelRouteCardSub}>{origin} → {dest}</span>
-                                        </div>
-                                        <span className={styles.travelRouteCardArrow}>↗</span>
-                                      </a>
-                                    );
-                                  })()}
-                                  {item.url && !hasRoute && <div className={styles.itemUrl}><a href={item.url} target="_blank" rel="noopener noreferrer">🔗 View details</a></div>}
-                                </div>
-                              </div>
-                              );
-                            })
-                          )}
-                        </div>
+                  {/* Activities */}
+                  {activityItems.length === 0 ? (
+                    <div className={styles.scheduleEmpty} style={{ gridColumn: 1, gridRow: '2 / span 2' }}>—</div>
+                  ) : (
+                    activityItems.map((item, i) => (
+                      <div key={item.id} style={{ gridColumn: 1, gridRow: `${2 + 2 * i} / span 2`, minHeight: 0 }}>
+                        {renderItemCard(item, '#6366F1')}
                       </div>
-                    );
-                  })}
+                    ))
+                  )}
+
+                  {/* Routes (offset half-row down, aligning to midpoints of activities) */}
+                  {!mapsKey ? (
+                    <div className={styles.scheduleEmpty} style={{ gridColumn: 2, gridRow: '2 / span 2' }}>—</div>
+                  ) : alignedTransitions.length === 0 ? (
+                    <div className={styles.scheduleEmpty} style={{ gridColumn: 2, gridRow: '2 / span 2' }}>—</div>
+                  ) : (
+                    alignedTransitions.map(t => (
+                      <div key={t.mapId} style={{ gridColumn: 2, gridRow: `${3 + 2 * t.fromIdx} / span 2`, minHeight: 0 }}>
+                        {renderRouteCard(t)}
+                      </div>
+                    ))
+                  )}
+
+                  {/* Lodging (stacked) */}
+                  {!hideLodging && (
+                    lodgingItems.length === 0 ? (
+                      <div className={styles.scheduleEmpty} style={{ gridColumn: 3, gridRow: '2 / span 2' }}>—</div>
+                    ) : (
+                      lodgingItems.map((item, i) => (
+                        <div key={item.id} style={{ gridColumn: 3, gridRow: `${2 + 2 * i} / span 2`, minHeight: 0 }}>
+                          {renderItemCard(item, '#d97706')}
+                        </div>
+                      ))
+                    )
+                  )}
                 </div>
 
               </div>

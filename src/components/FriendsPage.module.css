@@ -56,3 +56,17 @@
 .saveBtn:hover { background: var(--color-accent-hover); }
 .saveBtn:disabled { opacity: 0.4; }
 .cancelBtn { padding: 0.65rem 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.9rem; cursor: pointer; font-family: inherit; }
+
+.addressList { display: flex; flex-direction: column; gap: 0.35rem; text-transform: none; letter-spacing: normal; }
+.addressRow { display: grid; grid-template-columns: 140px 1fr auto; gap: 0.35rem; align-items: stretch; }
+.addressLabelInput { padding: 0.5rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.85rem; font-family: inherit; color: var(--color-text); background: var(--color-surface); outline: none; font-weight: 500; }
+.addressValueInput { padding: 0.5rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.85rem; font-family: inherit; color: var(--color-text); background: var(--color-surface); outline: none; min-width: 0; font-weight: 400; }
+.addressLabelInput:focus, .addressValueInput:focus { border-color: var(--color-accent); }
+.addressRemoveBtn { width: 2rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-muted); font-size: 1.1rem; line-height: 1; cursor: pointer; font-family: inherit; padding: 0; }
+.addressRemoveBtn:hover { color: var(--color-danger, #dc2626); border-color: var(--color-danger, #dc2626); }
+.addressAddBtn { align-self: flex-start; padding: 0.4rem 0.7rem; border: 1px dashed var(--color-border); background: var(--color-surface); color: var(--color-accent); font-size: 0.78rem; font-weight: 600; font-family: inherit; border-radius: var(--radius-md); cursor: pointer; margin-top: 0.25rem; }
+.addressAddBtn:hover { border-color: var(--color-accent); background: var(--color-surface-alt); }
+@media (max-width: 480px) {
+  .addressRow { grid-template-columns: 1fr auto; }
+  .addressLabelInput { grid-column: 1 / -1; }
+}

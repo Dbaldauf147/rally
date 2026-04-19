@@ -324,9 +324,6 @@ function PollPageInner() {
                       onMouseEnter={e => { e.currentTarget.style.borderColor = '#4f46e5'; e.currentTarget.style.background = '#eef2ff'; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = '#e5e5e5'; e.currentTarget.style.background = '#fff'; }}
                     >
-                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#4f46e5', flexShrink: 0 }}>
-                        {(name || '?')[0].toUpperCase()}
-                      </div>
                       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
                     </button>
                   );
@@ -611,69 +608,6 @@ function PollPageInner() {
             )}
           </div>
         )}
-
-        {/* Invite others */}
-        {/* Who's invited — merge event members + anyone who voted on date options */}
-        {(() => {
-          const allPeople = {};
-          // From event members
-          if (event.members) {
-            for (const [uid, m] of Object.entries(event.members)) {
-              if (m == null) continue;
-              allPeople[uid] = typeof m === 'object' ? m : { name: m };
-            }
-          }
-          // From date option votes (catches voters like "Friend" not in members)
-          for (const opt of dateOptions) {
-            for (const [voterId, v] of Object.entries(opt.votes || {})) {
-              if (!allPeople[voterId]) {
-                allPeople[voterId] = { name: v.name || voterId, rsvp: 'pending', role: 'viewer' };
-              }
-            }
-          }
-          const entries = Object.entries(allPeople);
-          if (entries.length === 0) return null;
-          return (
-          <div className={styles.section}>
-            <h3 className={styles.sectionTitle}>Who's Invited ({entries.length})</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-              {entries.map(([uid, m]) => {
-                const name = m.name || uid;
-                const rsvpStatus = m.rsvp || null;
-                const rsvpColors = { yes: { bg: '#dcfce7', color: '#16a34a', label: 'Going' }, no: { bg: '#fee2e2', color: '#dc2626', label: "Can't go" } };
-                const rs = rsvpColors[rsvpStatus];
-                return (
-                  <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem', background: '#fff', border: '1px solid #e5e5e5', borderRadius: '8px' }}>
-                    <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#e5e5e5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#525252', flexShrink: 0 }}>
-                      {(name || '?')[0].toUpperCase()}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      {rs && <span style={{ padding: '1px 8px', borderRadius: '999px', fontSize: '0.62rem', fontWeight: 700, background: rs.bg, color: rs.color }}>{rs.label}</span>}
-                    </div>
-                    <button
-                      onClick={async () => {
-                        if (!window.confirm(`Remove ${name} from this event?`)) return;
-                        await updateDoc(doc(db, 'events', eventId), { [`members.${uid}`]: null }).catch(() => {});
-                        setEvent(prev => {
-                          const next = { ...prev, members: { ...prev.members } };
-                          delete next.members[uid];
-                          return next;
-                        });
-                      }}
-                      style={{ background: 'none', border: 'none', color: '#d1d5db', fontSize: '1rem', cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0 }}
-                      onMouseEnter={e => e.target.style.color = '#dc2626'}
-                      onMouseLeave={e => e.target.style.color = '#d1d5db'}
-                    >&times;</button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          );
-        })()}
 
         <InviteOthers eventTitle={event.title} eventId={eventId} eventDate={date} eventLocation={event.location} voterName={voterName} members={event.members || {}} />
 

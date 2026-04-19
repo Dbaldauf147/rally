@@ -7,6 +7,31 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.lodgingToggleBtn {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.lodgingToggleBtn:hover {
+  background: var(--color-surface-alt);
+  border-color: #d97706;
+  color: #d97706;
 }
 
 .heading {
@@ -352,7 +377,7 @@
 }
 
 /* Three-column schedule grid per day */
-.scheduleGrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem; }
+.scheduleGrid { display: grid; gap: 0.6rem; }
 .scheduleCol { display: flex; flex-direction: column; min-width: 0; }
 .scheduleColHeader { display: flex; align-items: center; gap: 0.3rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 0.4rem; margin-bottom: 0.4rem; border-bottom: 2px solid; }
 .scheduleColItems { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
@@ -370,9 +395,30 @@
   transition: box-shadow 0.15s ease;
 }
 .scheduleItem:hover { box-shadow: var(--shadow-md, 0 2px 8px rgba(0,0,0,0.05)); }
+.scheduleItem { overflow: hidden; min-height: 0; }
+
+.itemLeavingFooter {
+  margin-top: auto;
+  padding: 0.3rem 0.5rem;
+  background: linear-gradient(135deg, #ecfeff 0%, #e0f2fe 100%);
+  border: 1px solid #a5f3fc;
+  border-radius: 6px;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font-size: 0.72rem; font-weight: 600;
+  color: #0e7490;
+  max-width: 100%;
+}
+.itemLeavingIcon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+.itemLeavingText {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
 
 @media (max-width: 768px) {
-  .scheduleGrid { grid-template-columns: 1fr; }
+  .scheduleGrid { grid-template-columns: 1fr !important; }
   .scheduleColHeader { margin-top: 0.5rem; }
 }
 
@@ -411,6 +457,306 @@
 .travelRouteCardTitle { font-size: 0.75rem; font-weight: 700; color: #0891b2; }
 .travelRouteCardSub { font-size: 0.68rem; color: #0e7490; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .travelRouteCardArrow { font-size: 0.85rem; color: #0891b2; font-weight: 700; flex-shrink: 0; }
+
+.overviewMapSection {
+  margin-bottom: 1.25rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.overviewMapHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.7rem 1rem;
+  background: linear-gradient(135deg, #ecfeff 0%, #e0f2fe 100%);
+  border-bottom: 1px solid #a5f3fc;
+}
+.overviewMapTitle {
+  font-size: 0.95rem; font-weight: 700; color: #0e7490;
+}
+.overviewMapCount {
+  font-size: 0.72rem; font-weight: 600; color: #0891b2;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 0.15rem 0.5rem; border-radius: var(--radius-full);
+}
+.overviewMixedNote {
+  padding: 0.4rem 0.85rem;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.72rem;
+  border-bottom: 1px solid #fde68a;
+}
+.overviewOpenLink {
+  display: block; text-align: center;
+  padding: 0.6rem;
+  font-size: 0.78rem; font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: none;
+  background: var(--color-surface-alt);
+  border-top: 1px solid var(--color-border);
+}
+.overviewOpenLink:hover { text-decoration: underline; }
+.overviewSummaryList {
+  list-style: none; margin: 0; padding: 0.5rem 0.75rem;
+  display: flex; flex-direction: column; gap: 0.35rem;
+}
+.overviewSummaryItem {
+  display: flex; align-items: center; gap: 0.55rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+}
+.overviewSummaryNum {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.4rem; height: 1.4rem; border-radius: 50%;
+  background: #0891b2; color: #fff; font-size: 0.7rem; font-weight: 700;
+  flex-shrink: 0;
+}
+.overviewSummaryRoute {
+  display: flex; align-items: center; gap: 0.45rem;
+  flex: 1; min-width: 0; flex-wrap: wrap;
+}
+.overviewSummaryFrom, .overviewSummaryTo {
+  color: var(--color-text); font-weight: 500;
+}
+.overviewSummaryModeIcon {
+  font-size: 1rem; line-height: 1;
+  padding: 0 0.15rem;
+}
+
+.dayRoute {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.dayRouteTravelTime {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.82rem; font-weight: 700;
+  color: #0e7490;
+  background: linear-gradient(135deg, #ecfeff 0%, #e0f2fe 100%);
+  border-bottom: 1px solid #a5f3fc;
+  text-align: center;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+.dayRouteHeader {
+  padding: 0.22rem 0.5rem;
+  font-size: 0.62rem; font-weight: 600;
+  color: var(--color-text-secondary);
+  display: flex; align-items: center; gap: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  line-height: 1.2;
+}
+.dayRouteHeaderText {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1 1 0; min-width: 0;
+}
+.dayRouteArrow {
+  color: #0891b2; font-weight: 700; flex-shrink: 0;
+}
+.dayRouteAddressBox {
+  display: flex; flex-direction: column; gap: 0.2rem;
+  padding: 0.45rem 0.7rem;
+  background: #ffffff;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.72rem;
+}
+.dayRouteAddressRow {
+  display: flex; align-items: center; gap: 0.4rem; min-width: 0;
+}
+.dayRouteAddressPin {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.05rem; height: 1.05rem; flex-shrink: 0;
+  color: #fff; border-radius: 50%;
+  font-size: 0.62rem; font-weight: 700;
+}
+.dayRouteAddressText {
+  color: var(--color-text); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; flex: 1;
+}
+
+.dayRouteMapWrap {
+  position: relative;
+  overflow: hidden;
+  height: 320px;
+  background: #e5e3df;
+}
+.dayRouteMap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+.routeMapError {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 1rem; text-align: center;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 0.82rem; gap: 0.3rem;
+}
+
+.tripOverviewMap {
+  width: 100%;
+  height: 480px;
+  background: #e5e3df;
+}
+.dayRouteMapPrint,
+.tripOverviewMapPrint {
+  display: none;
+}
+
+.itemPlaceMapWrap {
+  position: relative;
+  overflow: hidden;
+  height: 320px;
+  margin-top: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #e5e3df;
+}
+.itemPlaceMap {
+  position: absolute;
+  top: -42px;
+  left: -170px;
+  width: calc(100% + 170px);
+  height: calc(100% + 42px);
+  border: none;
+  display: block;
+}
+
+.modeSelectorBar {
+  display: flex; justify-content: center;
+  padding: 0.4rem 0.6rem;
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+}
+.modeSelectorBarCompact {
+  display: flex; justify-content: center; align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.4rem;
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+.zoomControls {
+  display: inline-flex; align-items: center; gap: 0.15rem;
+  padding: 0.15rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+}
+.zoomBtn, .zoomResetBtn {
+  width: 1.5rem; height: 1.5rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: inherit;
+  border-radius: 50%;
+  padding: 0;
+  line-height: 1;
+}
+.zoomBtn:hover, .zoomResetBtn:hover {
+  background: rgba(8, 145, 178, 0.15);
+  color: #0891b2;
+}
+.zoomResetBtn { font-size: 0.8rem; }
+.modeSelector {
+  display: inline-flex; gap: 0.25rem; flex-wrap: wrap;
+  justify-content: center;
+}
+.modeBtn, .modeBtnActive {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.72rem; font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.modeBtn:hover {
+  background: var(--color-surface-hover, #f9fafb);
+  border-color: #a5f3fc;
+}
+.modeBtnActive {
+  background: #0891b2;
+  color: #fff;
+  border-color: #0891b2;
+}
+.modeIcon {
+  font-size: 0.88rem; line-height: 1;
+}
+.modeLabelText {
+  font-size: 0.7rem;
+}
+.modeSelectorBarCompact .modeBtn,
+.modeSelectorBarCompact .modeBtnActive {
+  padding: 0.22rem 0.4rem;
+  font-size: 0.65rem;
+}
+.modeSelectorBarCompact .modeIcon { font-size: 0.8rem; }
+.modeSelectorBarCompact .modeLabelText { display: none; }
+
+.itemModeBucket {
+  display: flex; align-items: center; gap: 0.4rem;
+  margin: 0.3rem 0;
+  flex-wrap: wrap;
+}
+.itemModeBucketLabel {
+  font-size: 0.68rem; font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.modeSelectorInline {
+  display: inline-flex; gap: 0.15rem;
+  padding: 0.15rem;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+}
+.modeInlineBtn, .modeInlineBtnActive {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.6rem; height: 1.6rem;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  padding: 0;
+  line-height: 1;
+}
+.modeInlineBtn:hover:not(:disabled) {
+  background: rgba(8, 145, 178, 0.12);
+}
+.modeInlineBtnActive {
+  background: #0891b2;
+  box-shadow: 0 1px 3px rgba(8, 145, 178, 0.35);
+}
+.modeInlineBtn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.modeInlineBtnActive:disabled {
+  opacity: 1;
+}
 
 /* Legacy .item kept for form preview if needed */
 .item {
@@ -499,4 +845,118 @@
 .iconBtn:hover {
   background: var(--color-surface-alt);
   color: var(--color-accent);
+}
+
+/* Print / PDF styles — strip UI chrome, keep content + images. */
+@media print {
+  /* Hide browser UI chrome and page surroundings — only itinerary content prints */
+  :global(body *) { visibility: hidden !important; }
+  .container, .container * { visibility: visible !important; }
+  .container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* Hide interactive bits */
+  .headerActions,
+  .aiBox,
+  .itemActions,
+  .modeSelectorBarCompact,
+  .zoomControls,
+  .zoomResetBtn,
+  .itemModeBucket,
+  .lodgingToggleBtn,
+  .addBtn {
+    display: none !important;
+  }
+
+  /* Interactive maps (iframes/JS divs) print as blank — replace with static images. */
+  .dayRouteMap,
+  .tripOverviewMap {
+    display: none !important;
+  }
+  .dayRouteMapPrint,
+  .tripOverviewMapPrint {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .dayRouteMapWrap {
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  /* Give the grid a simple column layout for print: activity, then route, then lodging */
+  .scheduleGrid {
+    display: grid !important;
+    grid-auto-rows: auto !important;
+    grid-template-rows: auto !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .scheduleItem {
+    height: auto !important;
+    min-height: 0 !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .dayRoute {
+    height: auto !important;
+    min-height: 0 !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Each day on its own page where possible */
+  .dateGroup {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: always;
+    break-after: page;
+    padding-top: 0.5rem;
+  }
+  .dateGroup:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  /* Keep the travel time banner readable in print */
+  .dayRouteTravelTime {
+    background: #ecfeff !important;
+    color: #0e7490 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Trip highlights images: preserve backgrounds */
+  .highlightCard, .highlightImg, .highlightsSection {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Tighter margins on the printed page itself */
+  @page {
+    margin: 0.5in;
+    size: letter;
+  }
+
+  .heading {
+    font-size: 1.4rem;
+  }
+  .dateLabel {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    border-bottom: 2px solid #0891b2;
+    padding-bottom: 0.2rem;
+  }
 }

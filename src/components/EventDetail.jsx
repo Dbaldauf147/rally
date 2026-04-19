@@ -472,18 +472,22 @@ export function EventDetail() {
           { key: 'created', label: 'Created' },
           { key: 'voting', label: 'Voting' },
           { key: 'finalized', label: 'Date Finalized' },
+          { key: 'itinerary', label: 'Itinerary Completed' },
           { key: 'booked', label: 'Travel Booked' },
         ].map((step, i, arr) => {
           const isFinalized = stage === 'finalized';
+          const isItineraryComplete = isFinalized && event.itineraryComplete;
           const isBooked = isFinalized && event.travelBooked;
           const isActive =
             step.key === 'created' ||
             (step.key === 'voting' && (stage === 'voting' || isFinalized)) ||
             (step.key === 'finalized' && isFinalized) ||
+            (step.key === 'itinerary' && isItineraryComplete) ||
             (step.key === 'booked' && isBooked);
           const isCurrent =
             (step.key === 'voting' && stage === 'voting') ||
-            (step.key === 'finalized' && isFinalized && !isBooked) ||
+            (step.key === 'finalized' && isFinalized && !isItineraryComplete && !isBooked) ||
+            (step.key === 'itinerary' && isItineraryComplete && !isBooked) ||
             (step.key === 'booked' && isBooked) ||
             (step.key === 'created' && stage !== 'voting' && !isFinalized);
           return (
@@ -602,19 +606,30 @@ export function EventDetail() {
           const phones = members
             .filter(([uid, m]) => uid !== user?.uid && m.phone)
             .map(([, m]) => m.phone);
-          return phones.length > 0 ? (
-            <button className={styles.shareBtn} onClick={() => {
-              const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
-              const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
-              const defaultMsg = event.stage === 'finalized'
-                ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails & RSVP: ${pollLink}`
-                : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
-              setTextAllMessage(defaultMsg);
-              setShowTextAll(true);
-            }}>
-              💬 Text All ({phones.length})
-            </button>
-          ) : null;
+          if (phones.length === 0) return null;
+          const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
+          const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
+          const calendarLink = `${window.location.origin}${icsUrl}`;
+          const pollMsg = event.stage === 'finalized'
+            ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails & RSVP: ${pollLink}`
+            : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
+          const calMsg = `You're invited to ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}.\n\nAdd to your calendar: ${calendarLink}`;
+          return (
+            <>
+              <button className={styles.shareBtn} onClick={() => {
+                setTextAllMessage(pollMsg);
+                setShowTextAll(true);
+              }}>
+                💬 Text All Poll ({phones.length})
+              </button>
+              <button className={styles.shareBtn} onClick={() => {
+                setTextAllMessage(calMsg);
+                setShowTextAll(true);
+              }}>
+                📅 Text All Calendar Invite ({phones.length})
+              </button>
+            </>
+          );
         })()}
       </div>
 
@@ -723,7 +738,6 @@ export function EventDetail() {
                         onClick={isOwner ? () => { if (!dragMemberUid) { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } } : undefined}
                         style={{ ...(isOwner ? { cursor: dragMemberUid ? 'grabbing' : 'grab' } : {}), ...(isDupe ? { background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 'var(--radius-md)' } : {}), ...(dropTargetUid === uid ? { background: '#DBEAFE', border: '2px solid #3B82F6', borderRadius: 'var(--radius-md)' } : {}), ...(dragMemberUid === uid ? { opacity: 0.4 } : {}) }}
                       >
-                        <div className={styles.memberAvatar} style={isDupe ? { background: '#F59E0B', color: '#fff' } : undefined}>{(m.name || '?')[0].toUpperCase()}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <span className={styles.memberName}>
                             {m.name || 'Guest'}
@@ -952,6 +966,19 @@ export function EventDetail() {
                   setShowFinalize(true);
                 }}>
                   Edit Date
+                </button>
+              )}
+              {stage === 'finalized' && (
+                <button
+                  className={styles.editBtn}
+                  onClick={() => updateEvent(eventId, { itineraryComplete: !event.itineraryComplete })}
+                  style={{
+                    background: event.itineraryComplete ? 'var(--color-success-light)' : 'var(--color-surface-alt)',
+                    borderColor: event.itineraryComplete ? 'var(--color-success)' : 'var(--color-border)',
+                    color: event.itineraryComplete ? 'var(--color-success)' : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {event.itineraryComplete ? '✓ Itinerary Completed' : '📝 Mark Itinerary Complete'}
                 </button>
               )}
               {stage === 'finalized' && (

@@ -49,32 +49,45 @@ export function DashboardPage() {
             }
           }
           months[e.id] = [...monthSet];
-          // Count voting groups: members with plusOneOf are grouped with their host
-          const members = e.members || {};
-          const memberUids = Object.keys(members);
-          const independentVoters = new Set();
-          for (const uid of memberUids) {
-            const m = members[uid];
-            if (m?.plusOneOf && memberUids.includes(m.plusOneOf)) {
-              // plus-ones vote with their host
-            } else if (!m?.skipVote) {
-              independentVoters.add(uid);
+          // Merge event.members with any poll voters (matches EventDetail's member list)
+          const merged = { ...(e.members || {}) };
+          for (const d of openDocs) {
+            const votes = d.data().votes || {};
+            for (const voterId of Object.keys(votes)) {
+              if (!merged[voterId]) merged[voterId] = { role: 'viewer', fromVotes: true };
             }
           }
-          const totalUnits = independentVoters.size || 1;
-          const totalOpenOptions = openDocs.length;
-          // Fractional progress: sum of (open votes per user / total open options),
-          // averaged over voting units. A user who voted on 3 of 5 open dates contributes 0.6.
-          // Users who only voted on closed dates contribute 0.
-          let fractionSum = 0;
-          let anyVoted = 0;
-          for (const uid of independentVoters) {
-            const voted = userOpenVoteCount[uid] || 0;
-            if (voted > 0) anyVoted++;
-            if (totalOpenOptions > 0) fractionSum += voted / totalOpenOptions;
+          // Filter out null/invalid entries (EventDetail does the same at line 300)
+          const memberEntries = Object.entries(merged).filter(([, m]) => m != null && typeof m === 'object');
+          // Per-member own status, then apply plus-one inheritance (matches EventDetail getGroup)
+          const ownStatus = {};
+          for (const [uid, m] of memberEntries) {
+            if (m.skipVote) ownStatus[uid] = 'skip';
+            else if ((userOpenVoteCount[uid] || 0) > 0) ownStatus[uid] = 'voted';
+            else ownStatus[uid] = 'waiting';
           }
-          const pct = totalUnits > 0 && totalOpenOptions > 0
-            ? Math.round((fractionSum / totalUnits) * 100)
+          const priority = { voted: 0, skip: 1, waiting: 2 };
+          const effectiveStatus = {};
+          for (const [uid, m] of memberEntries) {
+            const own = ownStatus[uid];
+            if (!m.plusOneOf || !(m.plusOneOf in ownStatus)) {
+              effectiveStatus[uid] = own;
+              continue;
+            }
+            const linked = ownStatus[m.plusOneOf];
+            effectiveStatus[uid] = (priority[own] ?? 2) <= (priority[linked] ?? 2) ? own : linked;
+          }
+          // Denominator excludes skip; numerator is anyone effectively voted
+          let anyVoted = 0;
+          let totalUnits = 0;
+          for (const uid of Object.keys(effectiveStatus)) {
+            const s = effectiveStatus[uid];
+            if (s === 'skip') continue;
+            totalUnits++;
+            if (s === 'voted') anyVoted++;
+          }
+          const pct = totalUnits > 0 && openDocs.length > 0
+            ? Math.round((anyVoted / totalUnits) * 100)
             : 0;
           progress[e.id] = { voted: anyVoted, total: totalUnits, pct };
         } catch {
@@ -139,7 +152,8 @@ export function DashboardPage() {
     return d < today;
   });
   const bookedEvents = finalizedEvents.filter(e => e.travelBooked);
-  const unbookedFinalizedEvents = finalizedEvents.filter(e => !e.travelBooked);
+  const itineraryCompletedEvents = finalizedEvents.filter(e => e.itineraryComplete && !e.travelBooked);
+  const unbookedFinalizedEvents = finalizedEvents.filter(e => !e.itineraryComplete && !e.travelBooked);
 
   async function handleCreateEvent(data) {
     setShowCreate(false);
@@ -188,6 +202,7 @@ export function DashboardPage() {
             { key: 'created', label: 'Created', color: '#9CA3AF', events: createdEvents },
             { key: 'voting', label: 'Voting', color: '#F59E0B', events: votingEvents },
             { key: 'finalized', label: 'Date Finalized', color: '#6366F1', events: unbookedFinalizedEvents },
+            { key: 'itinerary', label: 'Itinerary Completed', color: '#0891b2', events: itineraryCompletedEvents },
             { key: 'booked', label: 'Travel & Lodging', color: '#16a34a', events: bookedEvents },
           ].map(col => (
             <div key={col.key} className={styles.kanbanCol}>

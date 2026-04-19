@@ -5,6 +5,69 @@ import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import styles from './FriendsPage.module.css';
 
+// Normalize a friend's addresses into an array of { label, value }.
+// Supports legacy friends with a single `address` string.
+function getFriendAddresses(friend) {
+  if (Array.isArray(friend?.addresses) && friend.addresses.length > 0) {
+    return friend.addresses.map(a => ({ label: a.label || '', value: a.value || a.address || '' }));
+  }
+  if (friend?.address) return [{ label: 'Home', value: friend.address }];
+  return [];
+}
+
+function AddressListEditor({ value, onChange }) {
+  const rows = value && value.length > 0 ? value : [{ label: '', value: '' }];
+  function update(i, patch) {
+    const next = rows.map((r, idx) => idx === i ? { ...r, ...patch } : r);
+    onChange(next);
+  }
+  function add() {
+    onChange([...rows, { label: '', value: '' }]);
+  }
+  function remove(i) {
+    const next = rows.filter((_, idx) => idx !== i);
+    onChange(next.length > 0 ? next : [{ label: '', value: '' }]);
+  }
+  return (
+    <div className={styles.addressList}>
+      {rows.map((row, i) => (
+        <div key={i} className={styles.addressRow}>
+          <input
+            className={styles.addressLabelInput}
+            placeholder="Label (Home, Work...)"
+            value={row.label}
+            onChange={e => update(i, { label: e.target.value })}
+            list={`address-label-options-${i}`}
+          />
+          <datalist id={`address-label-options-${i}`}>
+            <option value="Home" />
+            <option value="Work" />
+            <option value="Cabin" />
+            <option value="Vacation" />
+            <option value="Parents" />
+          </datalist>
+          <input
+            className={styles.addressValueInput}
+            placeholder="123 Main St, City, State ZIP"
+            value={row.value}
+            onChange={e => update(i, { value: e.target.value })}
+          />
+          <button
+            type="button"
+            className={styles.addressRemoveBtn}
+            onClick={() => remove(i)}
+            title="Remove address"
+            aria-label="Remove address"
+          >×</button>
+        </div>
+      ))}
+      <button type="button" className={styles.addressAddBtn} onClick={add}>
+        + Add another address
+      </button>
+    </div>
+  );
+}
+
 function ComesWithPicker({ friends, editFriendId, value, onChange }) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -81,7 +144,7 @@ export function FriendsPage() {
   const [newGroup, setNewGroup] = useState('');
   const [newGuest, setNewGuest] = useState('');
   const [newTag, setNewTag] = useState('');
-  const [newAddress, setNewAddress] = useState('');
+  const [newAddresses, setNewAddresses] = useState([{ label: '', value: '' }]);
   const [newWorkEmail, setNewWorkEmail] = useState('');
   const [newInstagram, setNewInstagram] = useState('');
   const [editFriend, setEditFriend] = useState(null); // null=closed, object=editing
@@ -99,6 +162,9 @@ export function FriendsPage() {
   async function addFriend(data) {
     if (!user || !data.name?.trim()) return;
     const id = data.email?.trim().toLowerCase() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const cleanedAddresses = (data.addresses || [])
+      .map(a => ({ label: (a.label || '').trim(), value: (a.value || '').trim() }))
+      .filter(a => a.value);
     await setDoc(doc(db, 'users', user.uid, 'friends', id), {
       name: data.name.trim(),
       email: (data.email || '').trim().toLowerCase(),
@@ -106,7 +172,8 @@ export function FriendsPage() {
       group: (data.group || '').trim(),
       guest: (data.guest || '').trim(),
       tag: (data.tag || '').trim(),
-      address: (data.address || '').trim(),
+      address: cleanedAddresses[0]?.value || (data.address || '').trim(),
+      addresses: cleanedAddresses,
       workEmail: (data.workEmail || '').trim().toLowerCase(),
       instagram: (data.instagram || '').trim(),
       createdAt: new Date().toISOString(),
@@ -119,12 +186,13 @@ export function FriendsPage() {
   }
 
   function openEdit(friend) {
+    const initialAddresses = getFriendAddresses(friend);
     setEditFields({
       name: friend.name || '',
       email: friend.email || '',
       workEmail: friend.workEmail || '',
       phone: friend.phone || '',
-      address: friend.address || '',
+      addresses: initialAddresses.length > 0 ? initialAddresses : [{ label: '', value: '' }],
       group: friend.group || '',
       guest: friend.guest || '',
       tag: friend.tag || '',
@@ -137,10 +205,15 @@ export function FriendsPage() {
   async function handleSaveEdit(e) {
     e.preventDefault();
     if (!user || !editFriend) return;
+    const cleanedAddresses = (editFields.addresses || [])
+      .map(a => ({ label: (a.label || '').trim(), value: (a.value || '').trim() }))
+      .filter(a => a.value);
     const nextFields = {
       ...editFields,
       email: (editFields.email || '').trim().toLowerCase(),
       workEmail: (editFields.workEmail || '').trim().toLowerCase(),
+      addresses: cleanedAddresses,
+      address: cleanedAddresses[0]?.value || '',
       createdAt: editFriend.createdAt || new Date().toISOString(),
     };
     await setDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), nextFields);
@@ -279,8 +352,8 @@ export function FriendsPage() {
 
   async function handleAddSingle(e) {
     e.preventDefault();
-    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, address: newAddress, workEmail: newWorkEmail, instagram: newInstagram });
-    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddress(''); setNewWorkEmail(''); setNewInstagram('');
+    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram });
+    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram('');
     setShowAdd(false);
     setResult({ type: 'success', message: 'Contact added!' });
     setTimeout(() => setResult(null), 3000);
@@ -648,7 +721,6 @@ export function FriendsPage() {
                   {selectMode && (
                     <input type="checkbox" checked={selectedIds.has(f.id)} onChange={() => toggleSelect(f.id)} onClick={e => e.stopPropagation()} style={{ accentColor: 'var(--color-accent)', flexShrink: 0 }} />
                   )}
-                  <div className={styles.cardAvatar}>{(f.name || '?')[0].toUpperCase()}</div>
                   <div className={styles.cardInfo}>
                     <div className={styles.cardName}>{f.name}</div>
                   </div>
@@ -718,8 +790,8 @@ export function FriendsPage() {
                 <input className={styles.input} type="email" value={newWorkEmail} onChange={e => setNewWorkEmail(e.target.value)} placeholder="work@company.com" />
               </label>
               <label className={styles.label}>
-                Address
-                <input className={styles.input} value={newAddress} onChange={e => setNewAddress(e.target.value)} placeholder="123 Main St, City, State ZIP" />
+                Addresses
+                <AddressListEditor value={newAddresses} onChange={setNewAddresses} />
               </label>
               <label className={styles.label}>
                 Guest
@@ -752,7 +824,7 @@ export function FriendsPage() {
               <label className={styles.label}>Email<input className={styles.input} type="email" value={editFields.email} onChange={e => editSet('email', e.target.value)} /></label>
               <label className={styles.label}>Work Email<input className={styles.input} type="email" value={editFields.workEmail} onChange={e => editSet('workEmail', e.target.value)} /></label>
               <label className={styles.label}>Phone<input className={styles.input} type="tel" value={editFields.phone} onChange={e => editSet('phone', e.target.value)} placeholder="(555) 123-4567" /></label>
-              <label className={styles.label}>Address<input className={styles.input} value={editFields.address} onChange={e => editSet('address', e.target.value)} /></label>
+              <label className={styles.label}>Addresses<AddressListEditor value={editFields.addresses || [{ label: '', value: '' }]} onChange={v => editSet('addresses', v)} /></label>
               <label className={styles.label}>Group
                 <input className={styles.input} value={editFields.group} onChange={e => editSet('group', e.target.value)} list="edit-group-options" />
                 {groups.length > 0 && <datalist id="edit-group-options">{groups.map(g => <option key={g} value={g} />)}</datalist>}

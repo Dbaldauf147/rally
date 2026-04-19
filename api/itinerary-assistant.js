@@ -40,7 +40,10 @@ Rules:
 - Categorize each item with the right type: "activity" for sightseeing, dining, tours, entertainment; "travel" for flights, drives, trains, transfers, car rentals; "lodging" for hotels, Airbnb, resorts, accommodations.
 - When planning a full day or trip, always include travel and lodging items where appropriate (e.g., check-in/check-out times, flight arrivals/departures).
 - For every activity, restaurant, attraction, and hotel, include a url to the official website or Google Maps page. Use real, well-known URLs (e.g., "https://www.sagradafamilia.org" for Sagrada Familia, "https://maps.google.com/?q=La+Boqueria+Barcelona" for a market). For flights or generic transfers, leave url as empty string.
-- For travel items, format the location field as "Origin → Destination" (e.g., "JFK Airport → Barcelona Airport", "Barcelona → Girona"). This enables route mapping. For activities and lodging, use just the place name and city.`;
+- For travel items, format the location field as "Origin → Destination" (e.g., "JFK Airport → Barcelona Airport", "Barcelona → Girona"). This enables route mapping. For activities and lodging, use just the place name and city.
+- **When inserting an item between two existing items, always copy the date from the surrounding items and choose a time that falls between their times.** Never leave the date blank on a new item if the surrounding items have dates.
+- **Every new item MUST be included in the items array in your response.** Do not describe an addition in the message without including the corresponding item. If the message says "Added X", items must include X.
+- When the user is adding a single item, use action "add" and include only the new item in the items array — do NOT re-send the existing items.`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
