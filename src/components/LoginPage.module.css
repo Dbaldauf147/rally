@@ -15,3 +15,4 @@
 .submitBtn:disabled { opacity: 0.5; }
 .switch { margin-top: 1.25rem; font-size: 0.82rem; color: var(--color-text-muted); }
 .switchBtn { background: none; border: none; color: var(--color-accent); font-weight: 600; cursor: pointer; font-size: 0.82rem; }
+.emailPreferred { font-size: 0.82rem; color: var(--color-text-muted); margin: 0 0 1rem; padding: 0.5rem 0.75rem; background: var(--color-surface-alt); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
