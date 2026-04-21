@@ -46,6 +46,7 @@ export function EventDetail() {
   const [dateOptionsVoters, setDateOptionsVoters] = useState({});
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [friendSearch, setFriendSearch] = useState('');
+  const [friendGroupFilter, setFriendGroupFilter] = useState([]);
   const [showFinalize, setShowFinalize] = useState(false);
   const [finalizeDate, setFinalizeDate] = useState('');
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
@@ -1065,7 +1066,55 @@ export function EventDetail() {
             })()}
 
             {isOwner && (
-              showAddFriend ? (
+              showAddFriend ? (() => {
+                function friendGroupTokens(value) {
+                  return (value || '').split(',').map(g => g.trim()).filter(Boolean);
+                }
+                const allGroups = [...new Set(friends.flatMap(f => friendGroupTokens(f.group)))].sort();
+                const memberEmails = new Set(members.map(([, m]) => (m.email || '').toLowerCase()).filter(Boolean));
+                const memberNames = new Set(members.map(([, m]) => (m.name || '').toLowerCase()).filter(Boolean));
+                function notAlreadyMember(f) {
+                  if (f.email && memberEmails.has(f.email.toLowerCase())) return false;
+                  if (f.name && memberNames.has(f.name.toLowerCase())) return false;
+                  return true;
+                }
+                const available = friends.filter(f => {
+                  if (!notAlreadyMember(f)) return false;
+                  if (friendGroupFilter.length > 0) {
+                    const tokens = friendGroupTokens(f.group);
+                    if (!friendGroupFilter.some(g => tokens.includes(g))) return false;
+                  }
+                  if (!friendSearch.trim()) return true;
+                  const term = friendSearch.toLowerCase();
+                  return (f.name || '').toLowerCase().includes(term) || (f.email || '').toLowerCase().includes(term);
+                });
+                async function addFriendToEvent(f) {
+                  const key = (f.email || f.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
+                  const updates = {
+                    [`members.${key}`]: { role: 'viewer', rsvp: 'pending', name: f.name || '', email: f.email || '', phone: f.phone || '' },
+                    memberUids: arrayUnion(key),
+                  };
+                  const addedNames = [f.name];
+                  if (f.linkedTo) {
+                    const linked = friends.find(x => x.id === f.linkedTo);
+                    if (linked && notAlreadyMember(linked)) {
+                      const linkedKey = (linked.email || linked.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
+                      updates[`members.${linkedKey}`] = { role: 'viewer', rsvp: 'pending', name: linked.name || '', email: linked.email || '', phone: linked.phone || '', plusOneOf: key };
+                      updates.memberUids = arrayUnion(key, linkedKey);
+                      addedNames.push(linked.name);
+                    }
+                  }
+                  const reverseLinked = friends.filter(x => x.linkedTo === f.id && notAlreadyMember(x));
+                  for (const rl of reverseLinked) {
+                    const rlKey = (rl.email || rl.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
+                    updates[`members.${rlKey}`] = { role: 'viewer', rsvp: 'pending', name: rl.name || '', email: rl.email || '', phone: rl.phone || '', plusOneOf: key };
+                    updates.memberUids = arrayUnion(key, rlKey);
+                    addedNames.push(rl.name);
+                  }
+                  await updateDoc(doc(db, 'events', eventId), updates);
+                  return addedNames.filter(Boolean);
+                }
+                return (
                 <div style={{ marginTop: '0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '0.75rem', background: 'var(--color-surface)' }}>
                   <input
                     type="text"
@@ -1075,46 +1124,53 @@ export function EventDetail() {
                     autoFocus
                     style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', marginBottom: '0.5rem', boxSizing: 'border-box' }}
                   />
+                  {allGroups.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginRight: '0.2rem' }}>Groups:</span>
+                      {allGroups.map(g => {
+                        const active = friendGroupFilter.includes(g);
+                        return (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={() => setFriendGroupFilter(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g])}
+                            style={{ padding: '0.2rem 0.55rem', borderRadius: 'var(--radius-full)', border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`, background: active ? 'var(--color-accent-light)' : 'var(--color-surface)', color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)', fontSize: '0.72rem', fontWeight: active ? 600 : 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            {g}
+                          </button>
+                        );
+                      })}
+                      {friendGroupFilter.length > 0 && (
+                        <button type="button" onClick={() => setFriendGroupFilter([])} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.7rem', cursor: 'pointer', fontFamily: 'inherit' }}>Clear</button>
+                      )}
+                    </div>
+                  )}
+                  {available.length > 0 && (friendGroupFilter.length > 0 || friendSearch.trim()) && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const all = [];
+                        for (const f of available) {
+                          const names = await addFriendToEvent(f);
+                          all.push(...names);
+                        }
+                        setResult({ type: 'success', message: `${all.length} added: ${all.slice(0, 4).join(', ')}${all.length > 4 ? '...' : ''}` });
+                        setTimeout(() => setResult(null), 3000);
+                        setFriendGroupFilter([]);
+                        setFriendSearch('');
+                      }}
+                      style={{ width: '100%', padding: '0.45rem', marginBottom: '0.5rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-accent)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      + Add all {available.length}
+                    </button>
+                  )}
                   <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                    {(() => {
-                      const memberEmails = new Set(members.map(([, m]) => (m.email || '').toLowerCase()).filter(Boolean));
-                      const memberNames = new Set(members.map(([, m]) => (m.name || '').toLowerCase()).filter(Boolean));
-                      const available = friends.filter(f => {
-                        if (f.email && memberEmails.has(f.email.toLowerCase())) return false;
-                        if (f.name && memberNames.has(f.name.toLowerCase())) return false;
-                        if (!friendSearch.trim()) return true;
-                        const term = friendSearch.toLowerCase();
-                        return (f.name || '').toLowerCase().includes(term) || (f.email || '').toLowerCase().includes(term);
-                      });
-                      if (available.length === 0) return <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', textAlign: 'center', margin: '0.5rem 0' }}>{friendSearch.trim() ? 'No matching friends' : 'All friends already added'}</p>;
-                      return available.map(f => (
+                    {available.length === 0 ? (
+                      <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', textAlign: 'center', margin: '0.5rem 0' }}>{friendSearch.trim() || friendGroupFilter.length > 0 ? 'No matching friends' : 'All friends already added'}</p>
+                    ) : available.map(f => (
                         <button key={f.id} onClick={async () => {
-                          const key = (f.email || f.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
-                          const updates = {
-                            [`members.${key}`]: { role: 'viewer', rsvp: 'pending', name: f.name || '', email: f.email || '', phone: f.phone || '' },
-                            memberUids: arrayUnion(key),
-                          };
-                          // Auto-add linked contact as "assumed yes by way of"
-                          if (f.linkedTo) {
-                            const linked = friends.find(x => x.id === f.linkedTo);
-                            if (linked) {
-                              const linkedKey = (linked.email || linked.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
-                              updates[`members.${linkedKey}`] = { role: 'viewer', rsvp: 'pending', name: linked.name || '', email: linked.email || '', phone: linked.phone || '', plusOneOf: key };
-                              updates.memberUids = arrayUnion(key, linkedKey);
-                            }
-                          }
-                          // Also check if someone else is linked TO this friend
-                          const reverseLinked = friends.filter(x => x.linkedTo === f.id);
-                          for (const rl of reverseLinked) {
-                            const rlKey = (rl.email || rl.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
-                            updates[`members.${rlKey}`] = { role: 'viewer', rsvp: 'pending', name: rl.name || '', email: rl.email || '', phone: rl.phone || '', plusOneOf: key };
-                            updates.memberUids = arrayUnion(key, rlKey);
-                          }
-                          await updateDoc(doc(db, 'events', eventId), updates);
-                          const addedNames = [f.name];
-                          if (f.linkedTo) { const l = friends.find(x => x.id === f.linkedTo); if (l) addedNames.push(l.name); }
-                          reverseLinked.forEach(rl => addedNames.push(rl.name));
-                          setResult({ type: 'success', message: `${addedNames.filter(Boolean).join(' & ')} added!` });
+                          const added = await addFriendToEvent(f);
+                          setResult({ type: 'success', message: `${added.join(' & ')} added!` });
                           setTimeout(() => setResult(null), 3000);
                         }} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', padding: '0.5rem 0.6rem', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg)'}
@@ -1129,14 +1185,14 @@ export function EventDetail() {
                           </div>
                           <span style={{ fontSize: '0.75rem', color: 'var(--color-accent)', fontWeight: 600 }}>+ Add</span>
                         </button>
-                      ));
-                    })()}
+                      ))}
                   </div>
-                  <button onClick={() => { setShowAddFriend(false); setFriendSearch(''); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <button onClick={() => { setShowAddFriend(false); setFriendSearch(''); setFriendGroupFilter([]); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Done
                   </button>
                 </div>
-              ) : (
+                );
+              })() : (
                 <button onClick={() => setShowAddFriend(true)} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                   + Add Friends
                 </button>
