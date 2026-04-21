@@ -28,44 +28,74 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   const [googleConnected, setGoogleConnected] = useState(() => !!localStorage.getItem('google-cal-token'));
   const [loadingGoogle, setLoadingGoogle] = useState(false);
 
-  // Fetch Google Calendar events for the visible month
+  // Get a valid access token, refreshing via refresh-token if expired
+  async function getValidGoogleToken() {
+    let token = localStorage.getItem('google-cal-token');
+    const expiry = localStorage.getItem('google-cal-expiry');
+    const refreshToken = localStorage.getItem('google-cal-refresh');
+    if (token && expiry && Date.now() < Number(expiry) - 60000) return token;
+    if (refreshToken) {
+      try {
+        const res = await fetch(`/api/google-refresh?refreshToken=${encodeURIComponent(refreshToken)}`);
+        const data = await res.json();
+        if (data.accessToken) {
+          localStorage.setItem('google-cal-token', data.accessToken);
+          localStorage.setItem('google-cal-expiry', String(Date.now() + (data.expiresIn || 3600) * 1000));
+          return data.accessToken;
+        }
+      } catch {}
+    }
+    return token || null;
+  }
+
+  // Fetch Google Calendar events for the visible month from all selected calendars
   const fetchGoogleBusy = useCallback(async () => {
-    const token = localStorage.getItem('google-cal-token');
-    const calId = localStorage.getItem('google-cal-selected');
-    if (!token || !calId) {
-      setGoogleConnected(!!token);
+    const selectedMulti = (() => {
+      try { return JSON.parse(localStorage.getItem('google-cal-selected-multi') || '[]'); } catch { return []; }
+    })();
+    const legacySingle = localStorage.getItem('google-cal-selected');
+    const calIds = selectedMulti.length > 0 ? selectedMulti : (legacySingle ? [legacySingle] : []);
+
+    const token = await getValidGoogleToken();
+    if (!token) {
+      setGoogleConnected(false);
       return;
     }
     setGoogleConnected(true);
+    if (calIds.length === 0) return; // connected but no calendars picked yet
+
     setLoadingGoogle(true);
     try {
       const mStart = startOfMonth(calMonth);
       const mEnd = endOfMonth(calMonth);
-      const res = await fetch(`/api/google-calendar?accessToken=${encodeURIComponent(token)}&timeMin=${mStart.toISOString()}&timeMax=${mEnd.toISOString()}&calendarId=${encodeURIComponent(calId)}`);
-      const data = await res.json();
-      if (data.events) {
-        const dates = new Set();
-        const map = {};
-        const fullMap = {};
-        for (const evt of data.events) {
-          const start = new Date(evt.start);
-          const end = new Date(evt.end || evt.start);
-          const days = evt.allDay
-            ? eachDayOfInterval({ start, end: new Date(end.getTime() - 86400000) })
-            : [start];
-          for (const d of days) {
-            const ds = toDateStr(d);
-            dates.add(ds);
-            if (!map[ds]) map[ds] = [];
-            map[ds].push(evt.title);
-            if (!fullMap[ds]) fullMap[ds] = [];
-            fullMap[ds].push(evt);
+      const dates = new Set();
+      const map = {};
+      const fullMap = {};
+      for (const calId of calIds) {
+        try {
+          const res = await fetch(`/api/google-calendar?accessToken=${encodeURIComponent(token)}&timeMin=${mStart.toISOString()}&timeMax=${mEnd.toISOString()}&calendarId=${encodeURIComponent(calId)}`);
+          const data = await res.json();
+          if (!data.events) continue;
+          for (const evt of data.events) {
+            const start = new Date(evt.start);
+            const end = new Date(evt.end || evt.start);
+            const days = evt.allDay
+              ? eachDayOfInterval({ start, end: new Date(end.getTime() - 86400000) })
+              : [start];
+            for (const d of days) {
+              const ds = toDateStr(d);
+              dates.add(ds);
+              if (!map[ds]) map[ds] = [];
+              map[ds].push(evt.title);
+              if (!fullMap[ds]) fullMap[ds] = [];
+              fullMap[ds].push(evt);
+            }
           }
-        }
-        setGoogleBusyDates(dates);
-        setGoogleEventMap(map);
-        setGoogleFullEvents(fullMap);
+        } catch {}
       }
+      setGoogleBusyDates(dates);
+      setGoogleEventMap(map);
+      setGoogleFullEvents(fullMap);
     } catch {}
     setLoadingGoogle(false);
   }, [calMonth]);
