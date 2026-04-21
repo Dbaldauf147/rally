@@ -303,6 +303,7 @@ export function FriendsPage() {
     }
     setAddingToTrip(false);
     setShowAddToTrip(false);
+    setSelectedIds(new Set());
     setResult({ type: 'success', message: `${selectedFriends.length} contact${selectedFriends.length !== 1 ? 's' : ''} added to event!` });
     setTimeout(() => setResult(null), 3000);
   }
@@ -475,7 +476,10 @@ export function FriendsPage() {
   const activeFilterCount = filters.group.length + filters.tag.length + filters.guest.length + (filters.hasEmail ? 1 : 0) + (filters.hasPhone ? 1 : 0) + (filters.hasInstagram ? 1 : 0);
 
   // Groups and tags
-  const groups = [...new Set(friends.map(f => f.group).filter(Boolean))].sort();
+  function groupTokens(value) {
+    return (value || '').split(',').map(g => g.trim()).filter(Boolean);
+  }
+  const groups = [...new Set(friends.flatMap(f => groupTokens(f.group)))].sort();
   const allTags = [...new Set(friends.flatMap(f => (f.tag || '').split(';').map(t => t.trim()).filter(Boolean)))].sort();
   const allGuests = [...new Set(friends.map(f => f.guest).filter(Boolean))].sort();
 
@@ -486,7 +490,7 @@ export function FriendsPage() {
     filtered = filtered.filter(f => f.name?.toLowerCase().includes(q));
   }
   // Dropdown filters
-  if (filters.group.length > 0) filtered = filtered.filter(f => filters.group.includes(f.group));
+  if (filters.group.length > 0) filtered = filtered.filter(f => { const tokens = groupTokens(f.group); return filters.group.some(g => tokens.includes(g)); });
   if (filters.tag.length > 0) filtered = filtered.filter(f => { const tags = (f.tag || '').split(';').map(t => t.trim()); return filters.tag.some(t => tags.includes(t)); });
   if (filters.guest.length > 0) filtered = filtered.filter(f => filters.guest.includes(f.guest));
   if (filters.hasEmail === 'yes') filtered = filtered.filter(f => f.email);
@@ -537,6 +541,15 @@ export function FriendsPage() {
         </button>
         {activeFilterCount > 0 && (
           <button onClick={() => setFilters({ group: [], tag: [], guest: [], hasEmail: '', hasPhone: '', hasInstagram: '' })} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit' }}>Clear all</button>
+        )}
+        {(activeFilterCount > 0 || search.trim()) && filtered.length > 0 && (
+          <button
+            onClick={() => { setSelectedIds(new Set(filtered.map(f => f.id))); setShowAddToTrip(true); loadEvents(); }}
+            style={{ padding: '0.35rem 0.75rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-full)', background: 'var(--color-accent)', color: '#fff', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+            title="Add everyone matching the current filters to an event"
+          >
+            + Add {filtered.length} to Event
+          </button>
         )}
         {/* Group chips */}
         {groups.length > 0 && groups.map(g => (
