@@ -8,9 +8,13 @@
 .modeBtn { background: var(--color-surface); color: var(--color-text-muted); }
 .modeBtn:hover { background: var(--color-surface-alt); }
 .modeActive { background: var(--color-accent); color: #fff; font-weight: 600; }
-.calHeader { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+.calHeader { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 0.5rem; }
+.calHeaderNav { grid-column: 2; display: flex; align-items: center; justify-content: center; gap: 0.75rem; }
 .calNav { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--color-border); background: var(--color-surface); font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--color-text-secondary); transition: all 0.15s; }
 .calNav:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.calRefresh { grid-column: 3; justify-self: end; background: none; border: none; color: var(--color-accent); font-size: 0.72rem; font-weight: 500; cursor: pointer; font-family: inherit; padding: 0.2rem 0.35rem; border-radius: var(--radius-sm); white-space: nowrap; }
+.calRefresh:hover:not(:disabled) { background: var(--color-accent-light); }
+.calRefresh:disabled { opacity: 0.6; cursor: default; color: var(--color-text-muted); }
 .calMonthLabel { font-size: 0.85rem; font-weight: 600; min-width: 130px; text-align: center; }
 .calGrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
 .calDayLabel { text-align: center; font-size: 0.6rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; padding: 0.2rem 0; }

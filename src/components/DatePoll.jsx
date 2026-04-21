@@ -25,12 +25,19 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   const [googleFullEvents, setGoogleFullEvents] = useState({}); // { dateStr: [full event objects] }
   const [viewingDay, setViewingDay] = useState(null); // dateStr of day being viewed
   const [topPick, setTopPick] = useState(null); // optionId of user's top choice
+  const [googleConnected, setGoogleConnected] = useState(() => !!localStorage.getItem('google-cal-token'));
+  const [loadingGoogle, setLoadingGoogle] = useState(false);
 
   // Fetch Google Calendar events for the visible month
   const fetchGoogleBusy = useCallback(async () => {
     const token = localStorage.getItem('google-cal-token');
     const calId = localStorage.getItem('google-cal-selected');
-    if (!token || !calId) return;
+    if (!token || !calId) {
+      setGoogleConnected(!!token);
+      return;
+    }
+    setGoogleConnected(true);
+    setLoadingGoogle(true);
     try {
       const mStart = startOfMonth(calMonth);
       const mEnd = endOfMonth(calMonth);
@@ -60,6 +67,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         setGoogleFullEvents(fullMap);
       }
     } catch {}
+    setLoadingGoogle(false);
   }, [calMonth]);
 
   useEffect(() => {
@@ -276,9 +284,23 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           <button className={selMode === 'range' ? styles.modeActive : styles.modeBtn} onClick={() => { setSelMode('range'); setSelStart(null); setSelEnd(null); setSelectedDays(new Set()); }}>Date Range</button>
         </div>
         <div className={styles.calHeader}>
-          <button className={styles.calNav} onClick={() => setCalMonth(subMonths(calMonth, 1))}>‹</button>
-          <span className={styles.calMonthLabel}>{format(calMonth, 'MMMM yyyy')}</span>
-          <button className={styles.calNav} onClick={() => setCalMonth(addMonths(calMonth, 1))}>›</button>
+          <div className={styles.calHeaderNav}>
+            <button className={styles.calNav} onClick={() => setCalMonth(subMonths(calMonth, 1))}>‹</button>
+            <span className={styles.calMonthLabel}>{format(calMonth, 'MMMM yyyy')}</span>
+            <button className={styles.calNav} onClick={() => setCalMonth(addMonths(calMonth, 1))}>›</button>
+          </div>
+          {googleConnected && (
+            <button
+              type="button"
+              className={styles.calRefresh}
+              onClick={fetchGoogleBusy}
+              disabled={loadingGoogle}
+              title="Refresh Google Calendar"
+              aria-label="Refresh Google Calendar"
+            >
+              {loadingGoogle ? 'Syncing…' : '↻ Refresh'}
+            </button>
+          )}
         </div>
         <div className={styles.calGrid}>
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
