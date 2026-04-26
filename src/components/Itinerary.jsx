@@ -1041,7 +1041,6 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [travelTimes, setTravelTimes] = useState({}); // key -> { duration, distance, error }
   const travelTimeFetchRef = useRef(new Set()); // keys we've already requested
   const [exportingPdf, setExportingPdf] = useState(false);
-  const [emailingItinerary, setEmailingItinerary] = useState(false);
   const [emailResult, setEmailResult] = useState('');
 
   // Expose the latest items via a ref so async callbacks (like the map's debounced
@@ -1192,11 +1191,10 @@ export function Itinerary({ event, onSave, canEdit }) {
     await onSave({ itinerary: next });
   }
 
-  async function emailItinerary() {
-    if (emailingItinerary) return;
+  function emailItinerary() {
     const members = event?.members || {};
     const seen = new Set();
-    const recipients = [];
+    const emails = [];
     for (const [uid, m] of Object.entries(members)) {
       if (!m) continue;
       if (m.rsvp === 'no') continue;
@@ -1205,64 +1203,119 @@ export function Itinerary({ event, onSave, canEdit }) {
       const key = raw.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      recipients.push({ name: m.name || '', email: raw });
+      emails.push(raw);
     }
-    if (recipients.length === 0) {
+    if (emails.length === 0) {
       alert('No attendees with valid email addresses found.');
       return;
     }
-    const names = recipients.map(r => r.name || r.email).join(', ');
-    if (!confirm(`Email the itinerary to ${recipients.length} attendee${recipients.length === 1 ? '' : 's'}?\n\n${names}`)) return;
 
-    setEmailingItinerary(true);
-    setEmailResult('');
-    try {
-      const toDateStr = (d) => {
-        if (!d) return '';
-        const date = d?.toDate ? d.toDate() : new Date(d);
-        if (isNaN(date)) return '';
-        return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-      };
-      const link = event?.shareToken
-        ? `${window.location.origin}/invite/${event.shareToken}?tab=itinerary`
-        : '';
-      const body = {
-        recipients,
-        fromName: user?.displayName || user?.email || 'A friend',
-        event: {
-          title: event?.title || '',
-          date: toDateStr(event?.startDate || event?.date),
-          location: event?.location || '',
-          description: event?.description || '',
-          link,
-        },
-        itinerary: items,
-        tripHighlights: Array.isArray(event?.tripHighlights) ? event.tripHighlights : [],
-      };
-      const resp = await fetch('/api/send-itinerary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Failed to send');
-      if (data.message) {
-        setEmailResult(data.message);
-      } else {
-        const failed = data.total - data.sent;
-        setEmailResult(
-          failed === 0
-            ? `Sent to ${data.sent} attendee${data.sent === 1 ? '' : 's'}.`
-            : `Sent to ${data.sent} of ${data.total}. ${failed} failed.`
-        );
-      }
-      setTimeout(() => setEmailResult(''), 6000);
-    } catch (err) {
-      setEmailResult('Error: ' + (err.message || 'Failed to send.'));
-      setTimeout(() => setEmailResult(''), 8000);
-    } finally {
-      setEmailingItinerary(false);
+    const toDateStr = (d) => {
+      if (!d) return '';
+      const date = d?.toDate ? d.toDate() : new Date(d);
+      if (isNaN(date)) return '';
+      return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    };
+    const formatTime = (t) => {
+      if (!t) return '';
+      const m = /^(\d{1,2}):(\d{2})/.exec(t);
+      if (!m) return t;
+      let h = parseInt(m[1], 10);
+      const mm = m[2];
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return `${h}:${mm} ${ampm}`;
+    };
+    const formatDateHeader = (ymd) => {
+      try {
+        const d = new Date(ymd + 'T12:00:00');
+        return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+      } catch { return ymd; }
+    };
+
+    const fromName = user?.displayName || user?.email || 'A friend';
+    const startStr = toDateStr(event?.startDate || event?.date);
+    const endStr = toDateStr(event?.endDate);
+    const dateRange = endStr && endStr !== startStr ? `${startStr} – ${endStr}` : startStr;
+    const link = event?.shareToken
+      ? `${window.location.origin}/invite/${event.shareToken}?tab=itinerary`
+      : '';
+
+    const lines = [];
+    lines.push(`Hey! Here's the itinerary for ${event?.title || 'our trip'}.`);
+    lines.push('');
+    if (dateRange) lines.push(`📅 ${dateRange}`);
+    if (event?.location) lines.push(`📍 ${event.location}`);
+    if (event?.description) {
+      lines.push('');
+      lines.push(event.description);
     }
+
+    const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+    if (highlights.length > 0) {
+      lines.push('');
+      lines.push('✨ Trip Highlights');
+      highlights.forEach((h, i) => {
+        const lock = h.locked ? '🔒 ' : '';
+        const cost = h.cost ? ` — ${h.cost}` : '';
+        lines.push(`  ${i + 1}. ${lock}${h.text || ''}${cost}`);
+      });
+    }
+
+    const itin = (Array.isArray(items) ? items : [])
+      .filter(it => (it.type || 'activity') !== 'travel');
+    if (itin.length > 0) {
+      const sorted = [...itin].sort((a, b) => {
+        const ka = `${a.date || ''} ${a.time || ''}`;
+        const kb = `${b.date || ''} ${b.time || ''}`;
+        return ka.localeCompare(kb);
+      });
+      const byDate = new Map();
+      const undated = [];
+      for (const it of sorted) {
+        if (!it.date) { undated.push(it); continue; }
+        if (!byDate.has(it.date)) byDate.set(it.date, []);
+        byDate.get(it.date).push(it);
+      }
+      lines.push('');
+      lines.push('📅 Itinerary');
+      for (const [ymd, list] of byDate) {
+        lines.push('');
+        lines.push(formatDateHeader(ymd));
+        for (const it of list) {
+          const time = formatTime(it.time);
+          const title = it.title || '(untitled)';
+          let line = time ? `  • ${time} — ${title}` : `  • ${title}`;
+          if (it.location) line += ` @ ${it.location}`;
+          lines.push(line);
+        }
+      }
+      if (undated.length) {
+        lines.push('');
+        lines.push('TBD');
+        for (const it of undated) {
+          const title = it.title || '(untitled)';
+          let line = `  • ${title}`;
+          if (it.location) line += ` @ ${it.location}`;
+          lines.push(line);
+        }
+      }
+    }
+
+    if (link) {
+      lines.push('');
+      lines.push(`View the full itinerary on Rally: ${link}`);
+    }
+    lines.push('');
+    lines.push(`— ${fromName}`);
+
+    const body = lines.join('\n');
+    const subject = `Itinerary for ${event?.title || 'our trip'}`;
+    const mailto = `mailto:${encodeURIComponent(emails.join(','))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+    window.location.href = mailto;
+    setEmailResult(`Opened email draft for ${emails.length} recipient${emails.length === 1 ? '' : 's'}.`);
+    setTimeout(() => setEmailResult(''), 5000);
   }
 
   async function exportPDF() {
@@ -1509,10 +1562,9 @@ export function Itinerary({ event, onSave, canEdit }) {
             <button
               className={styles.lodgingToggleBtn}
               onClick={emailItinerary}
-              disabled={emailingItinerary}
-              title="Email this itinerary to all attendees"
+              title="Open an email draft to all attendees with the itinerary pre-filled"
             >
-              {emailingItinerary ? '⏳ Sending…' : '📧 Email itinerary'}
+              📧 Email itinerary
             </button>
           )}
           {canEdit && !adding && !editingId && (
