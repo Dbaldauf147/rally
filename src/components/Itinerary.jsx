@@ -78,6 +78,8 @@ function FlightCosts({ event, onSave, canEdit }) {
     from: it.from || '',
     to: it.to || it.city || '',
     cost: it.cost || '',
+    tripType: it.tripType === 'one-way' ? 'one-way' : 'round-trip',
+    stops: typeof it.stops === 'number' ? it.stops : 0,
   }));
   // Local edits per row, committed to Firestore on blur. This avoids writing
   // on every keystroke while still showing the user their input immediately.
@@ -113,8 +115,20 @@ function FlightCosts({ event, onSave, canEdit }) {
   }
 
   async function addRow() {
-    const newRow = { id: crypto.randomUUID(), from: '', to: '', cost: '' };
+    const newRow = { id: crypto.randomUUID(), from: '', to: '', cost: '', tripType: 'round-trip', stops: 0 };
     await onSave({ flightCosts: [...rawItems, newRow] });
+  }
+
+  async function setTripType(id, tripType) {
+    await onSave({
+      flightCosts: rawItems.map(x => x.id === id ? { ...x, tripType } : x),
+    });
+  }
+
+  async function setStops(id, stops) {
+    await onSave({
+      flightCosts: rawItems.map(x => x.id === id ? { ...x, stops } : x),
+    });
   }
 
   async function removeRow(id) {
@@ -155,6 +169,20 @@ function FlightCosts({ event, onSave, canEdit }) {
                   aria-label="Remove"
                 >✕</button>
               )}
+              <div className={styles.flightCostTypeRow}>
+                <button
+                  type="button"
+                  className={row.tripType === 'one-way' ? styles.flightCostTypeBtnActive : styles.flightCostTypeBtn}
+                  onClick={() => canEdit && setTripType(row.id, 'one-way')}
+                  disabled={!canEdit}
+                >One way</button>
+                <button
+                  type="button"
+                  className={row.tripType === 'round-trip' ? styles.flightCostTypeBtnActive : styles.flightCostTypeBtn}
+                  onClick={() => canEdit && setTripType(row.id, 'round-trip')}
+                  disabled={!canEdit}
+                >Round trip</button>
+              </div>
               <label className={styles.flightCostLabel}>
                 From
                 <input
@@ -180,6 +208,20 @@ function FlightCosts({ event, onSave, canEdit }) {
                   onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
                   className={styles.flightCostInput}
                 />
+              </label>
+              <label className={styles.flightCostLabel}>
+                Stops
+                <select
+                  value={row.stops}
+                  disabled={!canEdit}
+                  onChange={e => setStops(row.id, parseInt(e.target.value, 10))}
+                  className={styles.flightCostInput}
+                >
+                  <option value={0}>Direct</option>
+                  <option value={1}>1 stop</option>
+                  <option value={2}>2 stops</option>
+                  <option value={3}>3+ stops</option>
+                </select>
               </label>
               <label className={styles.flightCostLabel}>
                 Cost
