@@ -521,6 +521,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                   >
                     {h.locked ? '🔒' : '🔓'}
                   </button>
+                  <span className={styles.highlightNumber} aria-label={`Stop ${idx + 1}`}>{idx + 1}</span>
                   {editingId === h.id ? (
                     <div className={styles.highlightEditFields}>
                       <input
@@ -560,28 +561,29 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                   ) : (
                     <>
                       <span className={styles.highlightText}>{h.text}</span>
-                      {h.cost && (
-                        <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
-                      )}
-                      {urls.map((u, i) => {
-                        const ig = isInstagramUrl(u);
-                        return (
-                          <a
-                            key={`${u}-${i}`}
-                            href={u}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={styles.highlightLinkBtn}
-                            title={u}
-                            aria-label={ig ? 'Open Instagram' : 'Open link'}
-                          >{ig ? '📱' : '🔗'}</a>
-                        );
-                      })}
-                      {h.addedByName && (
-                        <span className={styles.highlightMetaInline}>· {h.addedByName}</span>
-                      )}
-                      {canEdit && (
-                        <div className={styles.highlightActions}>
+                      <div className={styles.highlightRowEnd}>
+                        {h.cost && (
+                          <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
+                        )}
+                        {urls.map((u, i) => {
+                          const ig = isInstagramUrl(u);
+                          return (
+                            <a
+                              key={`${u}-${i}`}
+                              href={u}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.highlightLinkBtn}
+                              title={u}
+                              aria-label={ig ? 'Open Instagram' : 'Open link'}
+                            >{ig ? '📱' : '🔗'}</a>
+                          );
+                        })}
+                        {h.addedByName && (
+                          <span className={styles.highlightMetaInline}>· {h.addedByName}</span>
+                        )}
+                        {canEdit && (
+                          <div className={styles.highlightActions}>
                           <button
                             type="button"
                             className={styles.highlightIconBtn}
@@ -617,7 +619,8 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                             </>
                           )}
                         </div>
-                      )}
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
