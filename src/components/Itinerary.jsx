@@ -71,7 +71,14 @@ function normalizeInstagramUrl(url) {
 }
 
 function FlightCosts({ event, onSave, canEdit }) {
-  const items = Array.isArray(event?.flightCosts) ? event.flightCosts : [];
+  const rawItems = Array.isArray(event?.flightCosts) ? event.flightCosts : [];
+  // Migrate legacy { city, cost } shape on read so existing data still renders.
+  const items = rawItems.map(it => ({
+    id: it.id,
+    from: it.from || '',
+    to: it.to || it.city || '',
+    cost: it.cost || '',
+  }));
   // Local edits per row, committed to Firestore on blur. This avoids writing
   // on every keystroke while still showing the user their input immediately.
   const [drafts, setDrafts] = useState({});
@@ -92,25 +99,26 @@ function FlightCosts({ event, onSave, canEdit }) {
     const row = items.find(x => x.id === id);
     if (!row) return;
     const merged = {
-      ...row,
-      ...(draft.city !== undefined ? { city: draft.city.trim() } : {}),
-      ...(draft.cost !== undefined ? { cost: draft.cost.trim() } : {}),
+      id: row.id,
+      from: (draft.from !== undefined ? draft.from : row.from || '').trim(),
+      to: (draft.to !== undefined ? draft.to : row.to || '').trim(),
+      cost: (draft.cost !== undefined ? draft.cost : row.cost || '').trim(),
     };
-    if (merged.city === row.city && merged.cost === row.cost) {
+    if (merged.from === row.from && merged.to === row.to && merged.cost === row.cost) {
       setDrafts(prev => { const c = { ...prev }; delete c[id]; return c; });
       return;
     }
-    await onSave({ flightCosts: items.map(x => x.id === id ? merged : x) });
+    await onSave({ flightCosts: rawItems.map(x => x.id === id ? merged : x) });
     setDrafts(prev => { const c = { ...prev }; delete c[id]; return c; });
   }
 
   async function addRow() {
-    const newRow = { id: crypto.randomUUID(), city: '', cost: '' };
-    await onSave({ flightCosts: [...items, newRow] });
+    const newRow = { id: crypto.randomUUID(), from: '', to: '', cost: '' };
+    await onSave({ flightCosts: [...rawItems, newRow] });
   }
 
   async function removeRow(id) {
-    await onSave({ flightCosts: items.filter(x => x.id !== id) });
+    await onSave({ flightCosts: rawItems.filter(x => x.id !== id) });
     setDrafts(prev => { const c = { ...prev }; delete c[id]; return c; });
   }
 
@@ -120,45 +128,24 @@ function FlightCosts({ event, onSave, canEdit }) {
         <div>
           <h4 className={styles.flightCostsTitle}>✈️ Flight Costs</h4>
           <div className={styles.flightCostsSubtitle}>
-            Track flight prices to candidate destinations.
+            Track flight prices between cities.
           </div>
         </div>
         {canEdit && (
-          <button className={styles.flightCostsAddBtn} onClick={addRow}>+ Add city</button>
+          <button className={styles.flightCostsAddBtn} onClick={addRow}>+ Add flight</button>
         )}
       </div>
 
       {items.length === 0 ? (
         <div className={styles.flightCostsEmpty}>
           {canEdit
-            ? 'No cities yet. Click "+ Add city" to start.'
+            ? 'No flights yet. Click "+ Add flight" to start.'
             : 'No flight costs added yet.'}
         </div>
       ) : (
-        <div className={styles.flightCostsList}>
+        <div className={styles.flightCostsGrid}>
           {items.map(row => (
-            <div key={row.id} className={styles.flightCostRow}>
-              <input
-                type="text"
-                placeholder="City (e.g., Barcelona)"
-                value={getValue(row.id, 'city')}
-                disabled={!canEdit}
-                onChange={e => setDraft(row.id, 'city', e.target.value)}
-                onBlur={() => commit(row.id)}
-                onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
-                className={styles.flightCostInputCity}
-              />
-              <input
-                type="text"
-                inputMode="decimal"
-                placeholder="$0"
-                value={getValue(row.id, 'cost')}
-                disabled={!canEdit}
-                onChange={e => setDraft(row.id, 'cost', e.target.value)}
-                onBlur={() => commit(row.id)}
-                onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
-                className={styles.flightCostInputCost}
-              />
+            <div key={row.id} className={styles.flightCostCard}>
               {canEdit && (
                 <button
                   type="button"
@@ -168,6 +155,46 @@ function FlightCosts({ event, onSave, canEdit }) {
                   aria-label="Remove"
                 >✕</button>
               )}
+              <label className={styles.flightCostLabel}>
+                From
+                <input
+                  type="text"
+                  placeholder="NYC"
+                  value={getValue(row.id, 'from')}
+                  disabled={!canEdit}
+                  onChange={e => setDraft(row.id, 'from', e.target.value)}
+                  onBlur={() => commit(row.id)}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                  className={styles.flightCostInput}
+                />
+              </label>
+              <label className={styles.flightCostLabel}>
+                To
+                <input
+                  type="text"
+                  placeholder="Barcelona"
+                  value={getValue(row.id, 'to')}
+                  disabled={!canEdit}
+                  onChange={e => setDraft(row.id, 'to', e.target.value)}
+                  onBlur={() => commit(row.id)}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                  className={styles.flightCostInput}
+                />
+              </label>
+              <label className={styles.flightCostLabel}>
+                Cost
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="$0"
+                  value={getValue(row.id, 'cost')}
+                  disabled={!canEdit}
+                  onChange={e => setDraft(row.id, 'cost', e.target.value)}
+                  onBlur={() => commit(row.id)}
+                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                  className={styles.flightCostInput}
+                />
+              </label>
             </div>
           ))}
         </div>
