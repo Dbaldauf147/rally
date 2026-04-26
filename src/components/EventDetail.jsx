@@ -569,7 +569,7 @@ export function EventDetail() {
   }
 
   const tabs = [
-    { key: 'details', label: 'Details' },
+    { key: 'details', label: 'People & Poll' },
     { key: 'itinerary', label: 'Itinerary' },
     { key: 'notes', label: 'Notes' },
     { key: 'chat', label: 'Chat' },

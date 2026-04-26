@@ -139,7 +139,7 @@ function FlightCosts({ event, onSave, canEdit }) {
   }
 
   async function addRow() {
-    const newRow = { id: crypto.randomUUID(), from: '', to: '', cost: '', tripType: 'round-trip', stops: 0 };
+    const newRow = { id: crypto.randomUUID(), from: '', to: '', cost: '$', tripType: 'round-trip', stops: 0 };
     await onSave({ flightCosts: [...rawItems, newRow] });
   }
 
@@ -226,50 +226,40 @@ function FlightCosts({ event, onSave, canEdit }) {
                   className={row.tripType === 'round-trip' ? styles.flightCostTypeBtnActive : styles.flightCostTypeBtn}
                   onClick={() => canEdit && setTripType(row.id, 'round-trip')}
                   disabled={!canEdit}
-                >Round trip</button>
+                >Round</button>
               </div>
-              <label className={styles.flightCostLabel}>
-                From
-                <input
-                  type="text"
-                  placeholder="NYC"
-                  value={getValue(row.id, 'from')}
-                  disabled={!canEdit}
-                  onChange={e => setDraft(row.id, 'from', e.target.value)}
-                  onBlur={() => commit(row.id)}
-                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
-                  className={styles.flightCostInput}
-                />
-              </label>
-              <label className={styles.flightCostLabel}>
-                To
-                <input
-                  type="text"
-                  placeholder="Barcelona"
-                  value={getValue(row.id, 'to')}
-                  disabled={!canEdit}
-                  onChange={e => setDraft(row.id, 'to', e.target.value)}
-                  onBlur={() => commit(row.id)}
-                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
-                  className={styles.flightCostInput}
-                />
-              </label>
-              <label className={styles.flightCostLabel}>
-                Stops
+              <input
+                type="text"
+                placeholder="From"
+                value={getValue(row.id, 'from')}
+                disabled={!canEdit}
+                onChange={e => setDraft(row.id, 'from', e.target.value)}
+                onBlur={() => commit(row.id)}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                className={styles.flightCostInput}
+              />
+              <input
+                type="text"
+                placeholder="To"
+                value={getValue(row.id, 'to')}
+                disabled={!canEdit}
+                onChange={e => setDraft(row.id, 'to', e.target.value)}
+                onBlur={() => commit(row.id)}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                className={styles.flightCostInput}
+              />
+              <div className={styles.flightCostStopsCostRow}>
                 <select
                   value={row.stops}
                   disabled={!canEdit}
                   onChange={e => setStops(row.id, parseInt(e.target.value, 10))}
-                  className={styles.flightCostInput}
+                  className={styles.flightCostSelect}
                 >
                   <option value={0}>Direct</option>
                   <option value={1}>1 stop</option>
                   <option value={2}>2 stops</option>
                   <option value={3}>3+ stops</option>
                 </select>
-              </label>
-              <label className={styles.flightCostLabel}>
-                Cost
                 <input
                   type="text"
                   inputMode="decimal"
@@ -279,9 +269,9 @@ function FlightCosts({ event, onSave, canEdit }) {
                   onChange={e => setDraft(row.id, 'cost', e.target.value)}
                   onBlur={() => commit(row.id)}
                   onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
-                  className={styles.flightCostInput}
+                  className={styles.flightCostInputCost}
                 />
-              </label>
+              </div>
               {(() => {
                 const url = buildGoogleFlightsUrl(row, event);
                 if (!url) return null;
