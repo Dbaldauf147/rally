@@ -66,6 +66,65 @@
   margin-bottom: 1rem;
 }
 
+.aiPanelFab {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 90;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1.1rem;
+  border: none;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, #863bff 0%, #7c3aed 100%);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.aiPanelFab:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.45);
+}
+
+.aiPanelDocked {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 90;
+  width: 360px;
+  max-width: calc(100vw - 2.5rem);
+  background: linear-gradient(135deg, #faf7ff 0%, #f5f0fe 100%);
+  border: 1px solid #e9e1fb;
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.12);
+}
+.aiPanelCloseBtn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: transparent;
+  border: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.aiPanelCloseBtn:hover {
+  color: var(--color-text);
+  background: rgba(124, 58, 237, 0.08);
+}
+
 .aiLabel {
   display: flex;
   align-items: center;
@@ -602,7 +661,7 @@
   border-radius: var(--radius-md);
   padding: 2px;
   gap: 2px;
-  margin-right: 1.5rem;
+  margin: 0 1.6rem;
 }
 .flightCostTypeBtn,
 .flightCostTypeBtnActive {
@@ -668,6 +727,34 @@
   padding: 0;
 }
 .flightCostRemoveBtn:hover { color: #dc2626; background: var(--color-surface); }
+.flightCostStarBtn,
+.flightCostStarBtnActive {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.3rem;
+  background: transparent;
+  border: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.05rem;
+  border-radius: var(--radius-md);
+  padding: 0;
+  line-height: 1;
+}
+.flightCostStarBtn { color: var(--color-text-muted); }
+.flightCostStarBtn:hover:not(:disabled) { color: #f59e0b; }
+.flightCostStarBtnActive { color: #f59e0b; text-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
+.flightCostStarBtn:disabled,
+.flightCostStarBtnActive:disabled { cursor: default; }
+.flightCostCardStarred {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4);
+}
 .highlightRowLocked {
   background: rgba(134, 59, 255, 0.06);
   border-color: rgba(134, 59, 255, 0.35);

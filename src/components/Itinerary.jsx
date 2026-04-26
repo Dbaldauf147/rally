@@ -80,6 +80,7 @@ function FlightCosts({ event, onSave, canEdit }) {
     cost: it.cost || '',
     tripType: it.tripType === 'one-way' ? 'one-way' : 'round-trip',
     stops: typeof it.stops === 'number' ? it.stops : 0,
+    starred: !!it.starred,
   }));
   // Local edits per row, committed to Firestore on blur. This avoids writing
   // on every keystroke while still showing the user their input immediately.
@@ -131,6 +132,16 @@ function FlightCosts({ event, onSave, canEdit }) {
     });
   }
 
+  // Single-select star: starring one row clears the star on every other row.
+  async function toggleStar(id) {
+    const wasStarred = !!rawItems.find(x => x.id === id)?.starred;
+    await onSave({
+      flightCosts: rawItems.map(x => x.id === id
+        ? { ...x, starred: !wasStarred }
+        : { ...x, starred: false }),
+    });
+  }
+
   async function removeRow(id) {
     await onSave({ flightCosts: rawItems.filter(x => x.id !== id) });
     setDrafts(prev => { const c = { ...prev }; delete c[id]; return c; });
@@ -159,7 +170,18 @@ function FlightCosts({ event, onSave, canEdit }) {
       ) : (
         <div className={styles.flightCostsGrid}>
           {items.map(row => (
-            <div key={row.id} className={styles.flightCostCard}>
+            <div
+              key={row.id}
+              className={row.starred ? `${styles.flightCostCard} ${styles.flightCostCardStarred}` : styles.flightCostCard}
+            >
+              <button
+                type="button"
+                onClick={() => canEdit && toggleStar(row.id)}
+                disabled={!canEdit}
+                className={row.starred ? styles.flightCostStarBtnActive : styles.flightCostStarBtn}
+                title={row.starred ? 'This is the chosen flight' : 'Mark as the best option'}
+                aria-label={row.starred ? 'Unstar' : 'Star'}
+              >{row.starred ? '★' : '☆'}</button>
               {canEdit && (
                 <button
                   type="button"
@@ -954,6 +976,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
   const [aiError, setAiError] = useState('');
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [mapModes, setMapModes] = useState({}); // mapId -> mode override
   const [hideLodging, setHideLodging] = useState(true);
   const [travelTimes, setTravelTimes] = useState({}); // key -> { duration, distance, error }
@@ -1457,32 +1480,53 @@ export function Itinerary({ event, onSave, canEdit }) {
       <FlightCosts event={event} onSave={onSave} canEdit={canEdit} />
 
       {canEdit && isAdmin && (
-        <div className={styles.aiBox}>
-          <div className={styles.aiLabel}>
-            <span className={styles.aiSparkle}>✨</span>
-            Ask Claude to plan your trip
-          </div>
-          <div className={styles.aiRow}>
-            <input
-              className={styles.aiInput}
-              type="text"
-              placeholder='e.g., "Plan a day in Rome with 4 activities" or "Move the museum to morning"'
-              value={aiPrompt}
-              onChange={e => setAiPrompt(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleAiPrompt(); }}
-              disabled={aiLoading}
-            />
+        aiPanelOpen ? (
+          <div className={styles.aiPanelDocked}>
             <button
-              className={styles.aiSendBtn}
-              onClick={handleAiPrompt}
-              disabled={aiLoading || !aiPrompt.trim()}
-            >
-              {aiLoading ? '…' : 'Send'}
-            </button>
+              type="button"
+              className={styles.aiPanelCloseBtn}
+              onClick={() => setAiPanelOpen(false)}
+              aria-label="Close AI assistant"
+              title="Close"
+            >✕</button>
+            <div className={styles.aiLabel}>
+              <span className={styles.aiSparkle}>✨</span>
+              Ask Claude to plan your trip
+            </div>
+            <div className={styles.aiRow}>
+              <input
+                className={styles.aiInput}
+                type="text"
+                placeholder='e.g., "Plan a day in Rome with 4 activities"'
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleAiPrompt(); }}
+                disabled={aiLoading}
+                autoFocus
+              />
+              <button
+                className={styles.aiSendBtn}
+                onClick={handleAiPrompt}
+                disabled={aiLoading || !aiPrompt.trim()}
+              >
+                {aiLoading ? '…' : 'Send'}
+              </button>
+            </div>
+            {aiMessage && <div className={styles.aiMessage}>{aiMessage}</div>}
+            {aiError && <div className={styles.aiErrorMsg}>{aiError}</div>}
           </div>
-          {aiMessage && <div className={styles.aiMessage}>{aiMessage}</div>}
-          {aiError && <div className={styles.aiErrorMsg}>{aiError}</div>}
-        </div>
+        ) : (
+          <button
+            type="button"
+            className={styles.aiPanelFab}
+            onClick={() => setAiPanelOpen(true)}
+            title="Ask Claude to plan your trip"
+            aria-label="Open AI assistant"
+          >
+            <span className={styles.aiSparkle}>✨</span>
+            Plan with AI
+          </button>
+        )
       )}
 
       {(adding || editingId) && (
