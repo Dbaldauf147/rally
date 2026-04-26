@@ -444,6 +444,29 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     await onSave({ tripHighlights: next });
   }
 
+  // Cast or move the current user's rank vote on a highlight.
+  // Each member can have at most one highlight per rank (1, 2, 3).
+  // Clicking the same rank again removes their vote.
+  async function castVote(highlightId, rank) {
+    if (!user) return;
+    const uid = user.uid;
+    const target = highlights.find(h => h.id === highlightId);
+    if (!target) return;
+    const wasAtThisRank = (target.votes || {})[uid] === rank;
+    const next = highlights.map(h => {
+      const votes = { ...(h.votes || {}) };
+      if (h.id === highlightId) {
+        if (wasAtThisRank) delete votes[uid];
+        else votes[uid] = rank;
+      } else if (votes[uid] === rank) {
+        // User is moving this rank away from another highlight.
+        delete votes[uid];
+      }
+      return { ...h, votes };
+    });
+    await onSave({ tripHighlights: next });
+  }
+
   return (
     <div className={styles.highlightsSection}>
       <div className={styles.highlightsHeaderRow}>
@@ -579,9 +602,32 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                             >{ig ? '📱' : '🔗'}</a>
                           );
                         })}
-                        {h.addedByName && (
-                          <span className={styles.highlightMetaInline}>· {h.addedByName}</span>
-                        )}
+                        <div className={styles.highlightVotes}>
+                          {[1, 2, 3].map(rank => {
+                            const myRank = user ? (h.votes || {})[user.uid] : null;
+                            const isMine = myRank === rank;
+                            const count = Object.values(h.votes || {}).filter(v => v === rank).length;
+                            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉';
+                            return (
+                              <button
+                                key={rank}
+                                type="button"
+                                onClick={() => castVote(h.id, rank)}
+                                disabled={!user}
+                                className={isMine ? styles.highlightVoteBtnActive : styles.highlightVoteBtn}
+                                title={!user
+                                  ? 'Sign in to vote'
+                                  : isMine
+                                    ? `Your #${rank} pick (click to remove)`
+                                    : `Vote as #${rank}`}
+                                aria-label={`Vote as #${rank}`}
+                              >
+                                <span aria-hidden="true">{medal}</span>
+                                {count > 0 && <span>{count}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
                         {canEdit && (
                           <div className={styles.highlightActions}>
                           <button
