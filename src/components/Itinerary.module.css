@@ -448,10 +448,70 @@
   flex-shrink: 0;
 }
 .highlightLinkBtn:hover { background: rgba(0, 0, 0, 0.05); }
-.highlightEmbed {
+.highlightEmbeds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
   margin-left: calc(28px + 0.55rem);
   margin-top: 0.1rem;
 }
+.highlightEmbed {
+  width: 100%;
+}
+.highlightCost {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.urlList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.urlRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.urlRow .highlightsInput {
+  flex: 1;
+  min-width: 0;
+}
+.urlRemoveBtn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.urlRemoveBtn:hover { background: var(--color-surface-alt); color: #dc2626; border-color: #fecaca; }
+.urlAddBtn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.urlAddBtn:hover { color: var(--color-accent); border-color: var(--color-accent); }
 .highlightRowLocked {
   background: rgba(134, 59, 255, 0.06);
   border-color: rgba(134, 59, 255, 0.35);

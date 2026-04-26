@@ -87,29 +87,93 @@ function normalizeInstagramUrl(url) {
   }
 }
 
+// Read URLs from a highlight, falling back to legacy single `url` field.
+function getHighlightUrls(h) {
+  if (Array.isArray(h?.urls) && h.urls.length > 0) return h.urls.filter(Boolean);
+  if (h?.url) return [h.url];
+  return [];
+}
+
+function cleanUrlList(arr) {
+  return (arr || [])
+    .map(u => (u || '').trim())
+    .filter(Boolean)
+    .map(u => isInstagramUrl(u) ? normalizeInstagramUrl(u) : u);
+}
+
+function UrlInputList({ urls, setUrls, autoFocus = false }) {
+  const list = urls.length > 0 ? urls : [''];
+  function update(i, value) {
+    const next = [...list];
+    next[i] = value;
+    setUrls(next);
+  }
+  function removeAt(i) {
+    const next = list.filter((_, idx) => idx !== i);
+    setUrls(next.length > 0 ? next : ['']);
+  }
+  function addRow() {
+    setUrls([...list, '']);
+  }
+  return (
+    <div className={styles.urlList}>
+      {list.map((u, i) => (
+        <div key={i} className={styles.urlRow}>
+          <input
+            type="url"
+            inputMode="url"
+            className={styles.highlightsInput}
+            placeholder={i === 0
+              ? 'Optional URL (Instagram link will embed the video)'
+              : 'Another URL'}
+            value={u}
+            onChange={e => update(i, e.target.value)}
+            autoFocus={autoFocus && i === 0}
+          />
+          {(list.length > 1 || u) && (
+            <button
+              type="button"
+              className={styles.urlRemoveBtn}
+              onClick={() => removeAt(i)}
+              title="Remove URL"
+              aria-label="Remove URL"
+            >✕</button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        className={styles.urlAddBtn}
+        onClick={addRow}
+      >+ Add another link</button>
+    </div>
+  );
+}
+
 function TripHighlightsList({ event, onSave, canEdit }) {
   const { user } = useAuth();
   const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
   const [adding, setAdding] = useState(false);
   const [draftText, setDraftText] = useState('');
-  const [draftUrl, setDraftUrl] = useState('');
+  const [draftCost, setDraftCost] = useState('');
+  const [draftUrls, setDraftUrls] = useState(['']);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
-  const [editUrl, setEditUrl] = useState('');
+  const [editCost, setEditCost] = useState('');
+  const [editUrls, setEditUrls] = useState(['']);
 
-  // Re-process Instagram embeds whenever an IG URL is added / changed.
+  // Re-process Instagram embeds whenever the set of IG URLs changes.
   const igEmbedKey = highlights
-    .filter(h => isInstagramUrl(h.url || ''))
-    .map(h => h.url)
+    .flatMap(h => getHighlightUrls(h).filter(isInstagramUrl))
     .join('|');
   useEffect(() => {
     if (igEmbedKey) processInstagramEmbeds();
   }, [igEmbedKey]);
 
-  function cleanUrl(raw) {
-    const trimmed = (raw || '').trim();
-    if (!trimmed) return '';
-    return isInstagramUrl(trimmed) ? normalizeInstagramUrl(trimmed) : trimmed;
+  function resetDraft() {
+    setDraftText('');
+    setDraftCost('');
+    setDraftUrls(['']);
   }
 
   async function add() {
@@ -118,15 +182,15 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     const newH = {
       id: crypto.randomUUID(),
       text,
-      url: cleanUrl(draftUrl),
+      cost: draftCost.trim(),
+      urls: cleanUrlList(draftUrls),
       locked: false,
       addedAt: new Date().toISOString(),
       addedByUid: user?.uid || '',
       addedByName: event?.members?.[user?.uid]?.name || user?.displayName || user?.email || 'Member',
     };
     await onSave({ tripHighlights: [...highlights, newH] });
-    setDraftText('');
-    setDraftUrl('');
+    resetDraft();
     setAdding(false);
   }
 
@@ -140,21 +204,26 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     if (h.locked) return;
     setEditingId(h.id);
     setEditText(h.text || '');
-    setEditUrl(h.url || '');
+    setEditCost(h.cost || '');
+    const existing = getHighlightUrls(h);
+    setEditUrls(existing.length > 0 ? existing : ['']);
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditText('');
-    setEditUrl('');
+    setEditCost('');
+    setEditUrls(['']);
   }
 
   async function saveEdit() {
     const text = editText.trim();
     if (!text || !editingId) { cancelEdit(); return; }
-    const url = cleanUrl(editUrl);
+    const urls = cleanUrlList(editUrls);
     await onSave({
-      tripHighlights: highlights.map(h => h.id === editingId ? { ...h, text, url } : h),
+      tripHighlights: highlights.map(h => h.id === editingId
+        ? { ...h, text, cost: editCost.trim(), urls, url: '' }
+        : h),
     });
     cancelEdit();
   }
@@ -173,7 +242,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         <div>
           <h4 className={styles.highlightsTitle}>✨ Trip Highlights</h4>
           <div className={styles.highlightsSubtitle}>
-            Must-do experiences. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Add an Instagram link to embed a video.
+            Must-do experiences. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Add Instagram links to embed videos.
           </div>
         </div>
         {canEdit && !adding && (
@@ -190,28 +259,23 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             value={draftText}
             onChange={e => setDraftText(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter' && draftText.trim()) add();
-              else if (e.key === 'Escape') { setAdding(false); setDraftText(''); setDraftUrl(''); }
+              if (e.key === 'Escape') { setAdding(false); resetDraft(); }
             }}
             autoFocus
           />
           <input
-            type="url"
-            inputMode="url"
+            type="text"
             className={styles.highlightsInput}
-            placeholder="Optional URL (Instagram link will embed the video)"
-            value={draftUrl}
-            onChange={e => setDraftUrl(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && draftText.trim()) add();
-              else if (e.key === 'Escape') { setAdding(false); setDraftText(''); setDraftUrl(''); }
-            }}
+            placeholder="Cost (optional, e.g., $50/person, free, ~€20)"
+            value={draftCost}
+            onChange={e => setDraftCost(e.target.value)}
           />
+          <UrlInputList urls={draftUrls} setUrls={setDraftUrls} />
           <div className={styles.highlightsFormActions}>
             <button
               type="button"
               className={styles.highlightsCancelBtn}
-              onClick={() => { setAdding(false); setDraftText(''); setDraftUrl(''); }}
+              onClick={() => { setAdding(false); resetDraft(); }}
             >Cancel</button>
             <button
               type="button"
@@ -230,8 +294,9 @@ function TripHighlightsList({ event, onSave, canEdit }) {
       ) : (
         <ul className={styles.highlightsList}>
           {highlights.map(h => {
-            const isIg = isInstagramUrl(h.url || '');
-            const hasOtherUrl = !!h.url && !isIg;
+            const urls = getHighlightUrls(h);
+            const igUrls = urls.filter(isInstagramUrl);
+            const otherUrls = urls.filter(u => !isInstagramUrl(u));
             return (
               <li
                 key={h.id}
@@ -258,23 +323,21 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                         value={editText}
                         onChange={e => setEditText(e.target.value)}
                         onKeyDown={e => {
-                          if (e.key === 'Enter' && editText.trim()) saveEdit();
-                          else if (e.key === 'Escape') cancelEdit();
+                          if (e.key === 'Escape') cancelEdit();
                         }}
                         autoFocus
                       />
                       <input
-                        type="url"
-                        inputMode="url"
+                        type="text"
                         className={styles.highlightInlineInput}
-                        value={editUrl}
-                        placeholder="Optional URL (Instagram link will embed)"
-                        onChange={e => setEditUrl(e.target.value)}
+                        placeholder="Cost (optional, e.g., $50/person, free)"
+                        value={editCost}
+                        onChange={e => setEditCost(e.target.value)}
                         onKeyDown={e => {
-                          if (e.key === 'Enter' && editText.trim()) saveEdit();
-                          else if (e.key === 'Escape') cancelEdit();
+                          if (e.key === 'Escape') cancelEdit();
                         }}
                       />
+                      <UrlInputList urls={editUrls} setUrls={setEditUrls} />
                       <div className={styles.highlightEditActions}>
                         <button
                           type="button"
@@ -291,16 +354,20 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                   ) : (
                     <>
                       <span className={styles.highlightText}>{h.text}</span>
-                      {hasOtherUrl && (
+                      {h.cost && (
+                        <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
+                      )}
+                      {otherUrls.map((u, i) => (
                         <a
-                          href={h.url}
+                          key={`${u}-${i}`}
+                          href={u}
                           target="_blank"
                           rel="noopener noreferrer"
                           className={styles.highlightLinkBtn}
-                          title={h.url}
+                          title={u}
                           aria-label="Open link"
                         >🔗</a>
-                      )}
+                      ))}
                       {h.addedByName && (
                         <span className={styles.highlightMetaInline}>· {h.addedByName}</span>
                       )}
@@ -326,25 +393,29 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                   )}
                 </div>
 
-                {isIg && editingId !== h.id && (
-                  <div className={styles.highlightEmbed}>
-                    <blockquote
-                      className="instagram-media"
-                      data-instgrm-permalink={h.url}
-                      data-instgrm-version="14"
-                      style={{
-                        background: '#fff',
-                        border: 0,
-                        borderRadius: 12,
-                        margin: 0,
-                        maxWidth: '100%',
-                        minWidth: 'unset',
-                        padding: 0,
-                        width: '100%',
-                      }}
-                    >
-                      <a href={h.url} target="_blank" rel="noopener noreferrer">View on Instagram</a>
-                    </blockquote>
+                {igUrls.length > 0 && editingId !== h.id && (
+                  <div className={styles.highlightEmbeds}>
+                    {igUrls.map(u => (
+                      <div key={u} className={styles.highlightEmbed}>
+                        <blockquote
+                          className="instagram-media"
+                          data-instgrm-permalink={u}
+                          data-instgrm-version="14"
+                          style={{
+                            background: '#fff',
+                            border: 0,
+                            borderRadius: 12,
+                            margin: 0,
+                            maxWidth: '100%',
+                            minWidth: 'unset',
+                            padding: 0,
+                            width: '100%',
+                          }}
+                        >
+                          <a href={u} target="_blank" rel="noopener noreferrer">View on Instagram</a>
+                        </blockquote>
+                      </div>
+                    ))}
                   </div>
                 )}
               </li>
@@ -923,6 +994,8 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [travelTimes, setTravelTimes] = useState({}); // key -> { duration, distance, error }
   const travelTimeFetchRef = useRef(new Set()); // keys we've already requested
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [emailingItinerary, setEmailingItinerary] = useState(false);
+  const [emailResult, setEmailResult] = useState('');
 
   // Expose the latest items via a ref so async callbacks (like the map's debounced
   // zoom-save) don't write back with a stale items array and wipe newer additions.
@@ -1070,6 +1143,80 @@ export function Itinerary({ event, onSave, canEdit }) {
   async function updateItemMode(id, mode) {
     const next = items.map(i => i.id === id ? { ...i, travelMode: mode } : i);
     await onSave({ itinerary: next });
+  }
+
+  async function emailItinerary() {
+    if (emailingItinerary) return;
+    const members = event?.members || {};
+    const seen = new Set();
+    const recipients = [];
+    for (const [uid, m] of Object.entries(members)) {
+      if (!m) continue;
+      if (m.rsvp === 'no') continue;
+      const raw = (m.email || (uid.includes('@') ? uid : '')).trim();
+      if (!raw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) continue;
+      const key = raw.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      recipients.push({ name: m.name || '', email: raw });
+    }
+    if (recipients.length === 0) {
+      alert('No attendees with valid email addresses found.');
+      return;
+    }
+    const names = recipients.map(r => r.name || r.email).join(', ');
+    if (!confirm(`Email the itinerary to ${recipients.length} attendee${recipients.length === 1 ? '' : 's'}?\n\n${names}`)) return;
+
+    setEmailingItinerary(true);
+    setEmailResult('');
+    try {
+      const toDateStr = (d) => {
+        if (!d) return '';
+        const date = d?.toDate ? d.toDate() : new Date(d);
+        if (isNaN(date)) return '';
+        return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+      };
+      const link = event?.shareToken
+        ? `${window.location.origin}/invite/${event.shareToken}?tab=itinerary`
+        : '';
+      const body = {
+        recipients,
+        fromName: user?.displayName || user?.email || 'A friend',
+        event: {
+          title: event?.title || '',
+          date: toDateStr(event?.startDate || event?.date),
+          location: event?.location || '',
+          description: event?.description || '',
+          link,
+        },
+        itinerary: items,
+        savedVideos: Array.isArray(event?.savedVideos) ? event.savedVideos : [],
+        tripHighlights: Array.isArray(event?.tripHighlights) ? event.tripHighlights : [],
+      };
+      const resp = await fetch('/api/send-itinerary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed to send');
+      if (data.message) {
+        setEmailResult(data.message);
+      } else {
+        const failed = data.total - data.sent;
+        setEmailResult(
+          failed === 0
+            ? `Sent to ${data.sent} attendee${data.sent === 1 ? '' : 's'}.`
+            : `Sent to ${data.sent} of ${data.total}. ${failed} failed.`
+        );
+      }
+      setTimeout(() => setEmailResult(''), 6000);
+    } catch (err) {
+      setEmailResult('Error: ' + (err.message || 'Failed to send.'));
+      setTimeout(() => setEmailResult(''), 8000);
+    } finally {
+      setEmailingItinerary(false);
+    }
   }
 
   async function exportPDF() {
@@ -1312,11 +1459,24 @@ export function Itinerary({ event, onSave, canEdit }) {
           >
             {exportingPdf ? '⏳ Generating…' : '⬇ Download PDF'}
           </button>
+          {canEdit && (
+            <button
+              className={styles.lodgingToggleBtn}
+              onClick={emailItinerary}
+              disabled={emailingItinerary}
+              title="Email this itinerary to all attendees"
+            >
+              {emailingItinerary ? '⏳ Sending…' : '📧 Email itinerary'}
+            </button>
+          )}
           {canEdit && !adding && !editingId && (
             <button className={styles.addBtn} onClick={startAdd}>+ Add Item</button>
           )}
         </div>
       </div>
+      {emailResult && (
+        <div className={styles.aiMessage} style={{ marginBottom: '0.75rem' }}>{emailResult}</div>
+      )}
 
       {allTransitions.length > 0 && mapsKey && (
         <div className={styles.overviewMapSection}>
