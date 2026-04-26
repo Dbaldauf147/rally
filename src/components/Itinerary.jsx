@@ -70,6 +70,29 @@ function normalizeInstagramUrl(url) {
   }
 }
 
+function buildGoogleFlightsUrl(row, event) {
+  const from = (row.from || '').trim();
+  const to = (row.to || '').trim();
+  if (!from && !to) return null;
+
+  const toIsoDate = (d) => {
+    if (!d) return '';
+    const date = d?.toDate ? d.toDate() : new Date(d);
+    if (isNaN(date)) return '';
+    return date.toISOString().split('T')[0];
+  };
+  const startIso = toIsoDate(event?.startDate || event?.date);
+  const endIso = toIsoDate(event?.endDate);
+
+  const parts = ['Flights'];
+  if (from) parts.push(`from ${from}`);
+  if (to) parts.push(`to ${to}`);
+  if (startIso) parts.push(`on ${startIso}`);
+  if (row.tripType === 'round-trip' && endIso) parts.push(`returning ${endIso}`);
+
+  return `https://www.google.com/travel/flights?q=${encodeURIComponent(parts.join(' '))}`;
+}
+
 function FlightCosts({ event, onSave, canEdit }) {
   const rawItems = Array.isArray(event?.flightCosts) ? event.flightCosts : [];
   // Migrate legacy { city, cost } shape on read so existing data still renders.
@@ -259,6 +282,19 @@ function FlightCosts({ event, onSave, canEdit }) {
                   className={styles.flightCostInput}
                 />
               </label>
+              {(() => {
+                const url = buildGoogleFlightsUrl(row, event);
+                if (!url) return null;
+                return (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.flightCostSearchLink}
+                    title="Search this route on Google Flights"
+                  >🔍 Google Flights</a>
+                );
+              })()}
             </div>
           ))}
         </div>
