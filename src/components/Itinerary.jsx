@@ -628,6 +628,21 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                             );
                           })}
                         </div>
+                        {(() => {
+                          const counts = { 1: 0, 2: 0, 3: 0 };
+                          for (const rank of Object.values(h.votes || {})) {
+                            if (rank === 1 || rank === 2 || rank === 3) counts[rank]++;
+                          }
+                          const score = counts[1] * 3 + counts[2] * 2 + counts[3] * 1;
+                          return (
+                            <span
+                              className={score > 0 ? styles.highlightScoreActive : styles.highlightScore}
+                              title={`Ranked-choice score: 3×${counts[1]} + 2×${counts[2]} + 1×${counts[3]} = ${score}`}
+                            >
+                              <span aria-hidden="true">★</span> {score}
+                            </span>
+                          );
+                        })()}
                         {canEdit && (
                           <div className={styles.highlightActions}>
                           <button

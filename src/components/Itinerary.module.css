@@ -846,6 +846,29 @@
   gap: 0.2rem;
   flex-shrink: 0;
 }
+.highlightScore,
+.highlightScoreActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.highlightScore {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+.highlightScoreActive {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border: 1px solid #f59e0b;
+}
 .highlightVoteBtn,
 .highlightVoteBtnActive {
   display: inline-flex;
