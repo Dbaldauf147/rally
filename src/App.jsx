@@ -8,6 +8,7 @@ import { CalendarView } from './components/CalendarView';
 import { InvitePage } from './components/InvitePage';
 import { PollPage } from './components/PollPage';
 import { FriendsPage } from './components/FriendsPage';
+import { SharePage } from './components/SharePage';
 import { NavBar } from './components/NavBar';
 import { UpdateBanner } from './components/UpdateBanner';
 
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarView /></ProtectedRoute>} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
+        <Route path="/share" element={<SharePage />} />
         <Route path="/event/:eventId" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/trip/:tripId" element={<ProtectedRoute><TripDetail /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />

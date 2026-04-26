@@ -43,7 +43,15 @@ Rules:
 - For travel items, format the location field as "Origin → Destination" (e.g., "JFK Airport → Barcelona Airport", "Barcelona → Girona"). This enables route mapping. For activities and lodging, use just the place name and city.
 - **When inserting an item between two existing items, always copy the date from the surrounding items and choose a time that falls between their times.** Never leave the date blank on a new item if the surrounding items have dates.
 - **Every new item MUST be included in the items array in your response.** Do not describe an addition in the message without including the corresponding item. If the message says "Added X", items must include X.
-- When the user is adding a single item, use action "add" and include only the new item in the items array — do NOT re-send the existing items.`;
+- When the user is adding a single item, use action "add" and include only the new item in the items array — do NOT re-send the existing items.
+
+Trip Highlights:
+- The eventContext may include a "tripHighlights" array. Each highlight has { text, locked }. These are the user's must-do experiences for this trip.
+- When planning or modifying an itinerary, build it around the highlights — every highlight should map to one or more itinerary items (an activity, a meal, a stop) when scheduling permits.
+- **Locked highlights are non-negotiable.** When you generate or replace the itinerary, every locked highlight MUST be represented by at least one itinerary item. Never produce an itinerary that drops a locked highlight.
+- **Never modify, remove, or reword highlights themselves.** Highlights live separate from the itinerary and you do not return them. Only the items array is yours to write.
+- Unlocked highlights are strong preferences but you may skip them if there isn't time or they don't fit the user's request.
+- If the user explicitly asks you to add or remove a highlight, do not — explain in your message that they should manage highlights from the Trip Highlights list.`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });

@@ -50,6 +50,473 @@ function ModeSelectorInline({ value, onChange, disabled }) {
   );
 }
 
+// Loads Instagram's embed script once. After load (or if already loaded),
+// re-runs Embeds.process() so any new <blockquote class="instagram-media"> is
+// upgraded into an iframe.
+function processInstagramEmbeds() {
+  if (typeof window === 'undefined') return;
+  if (window.instgrm?.Embeds?.process) {
+    window.instgrm.Embeds.process();
+    return;
+  }
+  if (document.getElementById('instagram-embed-script')) return;
+  const s = document.createElement('script');
+  s.id = 'instagram-embed-script';
+  s.async = true;
+  s.src = 'https://www.instagram.com/embed.js';
+  document.body.appendChild(s);
+}
+
+function isInstagramUrl(url) {
+  try {
+    const u = new URL(url);
+    return /(^|\.)instagram\.com$/i.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+// Strip share-tracking params (e.g. ?igsh=...) so the embed permalink is clean.
+function normalizeInstagramUrl(url) {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)instagram\.com$/i.test(u.hostname)) return url;
+    return `https://www.instagram.com${u.pathname.replace(/\/+$/, '')}/`;
+  } catch {
+    return url;
+  }
+}
+
+function TripHighlightsList({ event, onSave, canEdit }) {
+  const { user } = useAuth();
+  const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+  const [adding, setAdding] = useState(false);
+  const [draftText, setDraftText] = useState('');
+  const [draftUrl, setDraftUrl] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+
+  // Re-process Instagram embeds whenever an IG URL is added / changed.
+  const igEmbedKey = highlights
+    .filter(h => isInstagramUrl(h.url || ''))
+    .map(h => h.url)
+    .join('|');
+  useEffect(() => {
+    if (igEmbedKey) processInstagramEmbeds();
+  }, [igEmbedKey]);
+
+  function cleanUrl(raw) {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) return '';
+    return isInstagramUrl(trimmed) ? normalizeInstagramUrl(trimmed) : trimmed;
+  }
+
+  async function add() {
+    const text = draftText.trim();
+    if (!text) return;
+    const newH = {
+      id: crypto.randomUUID(),
+      text,
+      url: cleanUrl(draftUrl),
+      locked: false,
+      addedAt: new Date().toISOString(),
+      addedByUid: user?.uid || '',
+      addedByName: event?.members?.[user?.uid]?.name || user?.displayName || user?.email || 'Member',
+    };
+    await onSave({ tripHighlights: [...highlights, newH] });
+    setDraftText('');
+    setDraftUrl('');
+    setAdding(false);
+  }
+
+  async function toggleLock(id) {
+    await onSave({
+      tripHighlights: highlights.map(h => h.id === id ? { ...h, locked: !h.locked } : h),
+    });
+  }
+
+  function startEdit(h) {
+    if (h.locked) return;
+    setEditingId(h.id);
+    setEditText(h.text || '');
+    setEditUrl(h.url || '');
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditText('');
+    setEditUrl('');
+  }
+
+  async function saveEdit() {
+    const text = editText.trim();
+    if (!text || !editingId) { cancelEdit(); return; }
+    const url = cleanUrl(editUrl);
+    await onSave({
+      tripHighlights: highlights.map(h => h.id === editingId ? { ...h, text, url } : h),
+    });
+    cancelEdit();
+  }
+
+  async function remove(id) {
+    const h = highlights.find(x => x.id === id);
+    if (!h) return;
+    if (h.locked) { alert('Unlock this highlight before removing it.'); return; }
+    if (!confirm('Remove this highlight?')) return;
+    await onSave({ tripHighlights: highlights.filter(x => x.id !== id) });
+  }
+
+  return (
+    <div className={styles.highlightsSection}>
+      <div className={styles.highlightsHeaderRow}>
+        <div>
+          <h4 className={styles.highlightsTitle}>✨ Trip Highlights</h4>
+          <div className={styles.highlightsSubtitle}>
+            Must-do experiences. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Add an Instagram link to embed a video.
+          </div>
+        </div>
+        {canEdit && !adding && (
+          <button className={styles.highlightsAddBtn} onClick={() => setAdding(true)}>+ Add highlight</button>
+        )}
+      </div>
+
+      {adding && (
+        <div className={styles.highlightsForm}>
+          <input
+            type="text"
+            className={styles.highlightsInput}
+            placeholder="e.g., See the Sagrada Familia"
+            value={draftText}
+            onChange={e => setDraftText(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && draftText.trim()) add();
+              else if (e.key === 'Escape') { setAdding(false); setDraftText(''); setDraftUrl(''); }
+            }}
+            autoFocus
+          />
+          <input
+            type="url"
+            inputMode="url"
+            className={styles.highlightsInput}
+            placeholder="Optional URL (Instagram link will embed the video)"
+            value={draftUrl}
+            onChange={e => setDraftUrl(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && draftText.trim()) add();
+              else if (e.key === 'Escape') { setAdding(false); setDraftText(''); setDraftUrl(''); }
+            }}
+          />
+          <div className={styles.highlightsFormActions}>
+            <button
+              type="button"
+              className={styles.highlightsCancelBtn}
+              onClick={() => { setAdding(false); setDraftText(''); setDraftUrl(''); }}
+            >Cancel</button>
+            <button
+              type="button"
+              className={styles.highlightsSaveBtn}
+              onClick={add}
+              disabled={!draftText.trim()}
+            >Add</button>
+          </div>
+        </div>
+      )}
+
+      {highlights.length === 0 && !adding ? (
+        <div className={styles.highlightsEmpty}>
+          No highlights yet. Add the must-do experiences for this trip — the AI assistant will plan around them.
+        </div>
+      ) : (
+        <ul className={styles.highlightsList}>
+          {highlights.map(h => {
+            const isIg = isInstagramUrl(h.url || '');
+            const hasOtherUrl = !!h.url && !isIg;
+            return (
+              <li
+                key={h.id}
+                className={h.locked ? `${styles.highlightRow} ${styles.highlightRowLocked}` : styles.highlightRow}
+              >
+                <div className={styles.highlightRowMain}>
+                  <button
+                    type="button"
+                    onClick={() => canEdit && toggleLock(h.id)}
+                    disabled={!canEdit}
+                    title={h.locked
+                      ? 'Locked — AI must include this. Click to unlock.'
+                      : 'Unlocked — AI may skip this. Click to lock.'}
+                    className={styles.highlightLockBtn}
+                    aria-label={h.locked ? 'Unlock highlight' : 'Lock highlight'}
+                  >
+                    {h.locked ? '🔒' : '🔓'}
+                  </button>
+                  {editingId === h.id ? (
+                    <div className={styles.highlightEditFields}>
+                      <input
+                        type="text"
+                        className={styles.highlightInlineInput}
+                        value={editText}
+                        onChange={e => setEditText(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && editText.trim()) saveEdit();
+                          else if (e.key === 'Escape') cancelEdit();
+                        }}
+                        autoFocus
+                      />
+                      <input
+                        type="url"
+                        inputMode="url"
+                        className={styles.highlightInlineInput}
+                        value={editUrl}
+                        placeholder="Optional URL (Instagram link will embed)"
+                        onChange={e => setEditUrl(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && editText.trim()) saveEdit();
+                          else if (e.key === 'Escape') cancelEdit();
+                        }}
+                      />
+                      <div className={styles.highlightEditActions}>
+                        <button
+                          type="button"
+                          className={styles.highlightInlineSaveBtn}
+                          onClick={saveEdit}
+                        >Save</button>
+                        <button
+                          type="button"
+                          className={styles.highlightInlineCancelBtn}
+                          onClick={cancelEdit}
+                        >✕</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span className={styles.highlightText}>{h.text}</span>
+                      {hasOtherUrl && (
+                        <a
+                          href={h.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.highlightLinkBtn}
+                          title={h.url}
+                          aria-label="Open link"
+                        >🔗</a>
+                      )}
+                      {h.addedByName && (
+                        <span className={styles.highlightMetaInline}>· {h.addedByName}</span>
+                      )}
+                      {canEdit && !h.locked && (
+                        <div className={styles.highlightActions}>
+                          <button
+                            type="button"
+                            className={styles.highlightIconBtn}
+                            onClick={() => startEdit(h)}
+                            title="Edit"
+                            aria-label="Edit"
+                          >✏️</button>
+                          <button
+                            type="button"
+                            className={styles.highlightIconBtn}
+                            onClick={() => remove(h.id)}
+                            title="Remove"
+                            aria-label="Remove"
+                          >🗑️</button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {isIg && editingId !== h.id && (
+                  <div className={styles.highlightEmbed}>
+                    <blockquote
+                      className="instagram-media"
+                      data-instgrm-permalink={h.url}
+                      data-instgrm-version="14"
+                      style={{
+                        background: '#fff',
+                        border: 0,
+                        borderRadius: 12,
+                        margin: 0,
+                        maxWidth: '100%',
+                        minWidth: 'unset',
+                        padding: 0,
+                        width: '100%',
+                      }}
+                    >
+                      <a href={h.url} target="_blank" rel="noopener noreferrer">View on Instagram</a>
+                    </blockquote>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function SavedVideos({ event, onSave, canEdit }) {
+  const { user } = useAuth();
+  const videos = Array.isArray(event?.savedVideos) ? event.savedVideos : [];
+  const [form, setForm] = useState({ url: '', title: '' });
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const embedKey = videos.map(v => v.url).join('|');
+  useEffect(() => {
+    if (videos.length > 0) processInstagramEmbeds();
+  }, [embedKey, videos.length]);
+
+  async function addVideo() {
+    const url = form.url.trim();
+    if (!url) { setError('Paste an Instagram link first.'); return; }
+    if (!isInstagramUrl(url)) { setError("That doesn't look like an Instagram link."); return; }
+    setSaving(true);
+    setError('');
+    try {
+      const newVideo = {
+        id: crypto.randomUUID(),
+        url: normalizeInstagramUrl(url),
+        title: form.title.trim() || 'Untitled',
+        addedAt: new Date().toISOString(),
+        addedByUid: user?.uid || '',
+        addedByName: event?.members?.[user?.uid]?.name || user?.displayName || user?.email || 'Member',
+      };
+      await onSave({ savedVideos: [...videos, newVideo] });
+      setForm({ url: '', title: '' });
+      setAdding(false);
+    } catch (e) {
+      setError(e.message || 'Failed to save.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function renameVideo(id) {
+    const v = videos.find(x => x.id === id);
+    if (!v) return;
+    const next = prompt('Rename video:', v.title || '');
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === v.title) return;
+    await onSave({ savedVideos: videos.map(x => x.id === id ? { ...x, title: trimmed } : x) });
+  }
+
+  async function removeVideo(id) {
+    if (!confirm('Remove this video?')) return;
+    await onSave({ savedVideos: videos.filter(x => x.id !== id) });
+  }
+
+  return (
+    <div className={styles.videosSection}>
+      <div className={styles.videosHeader}>
+        <h4 className={styles.videosTitle}>📱 Saved Videos</h4>
+        {canEdit && !adding && (
+          <button className={styles.videosAddBtn} onClick={() => setAdding(true)}>+ Add video</button>
+        )}
+      </div>
+
+      {adding && (
+        <div className={styles.videosForm}>
+          <input
+            type="url"
+            inputMode="url"
+            placeholder="Paste Instagram link (e.g. https://www.instagram.com/reel/...)"
+            value={form.url}
+            onChange={e => setForm(p => ({ ...p, url: e.target.value }))}
+            className={styles.videosInput}
+            autoFocus
+          />
+          <input
+            type="text"
+            placeholder="Name this video (e.g., Best ramen in Tokyo)"
+            value={form.title}
+            onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+            className={styles.videosInput}
+          />
+          {error && <div className={styles.videosError}>{error}</div>}
+          <div className={styles.videosHint}>
+            In Instagram, tap the paper-airplane → <strong>Copy link</strong>, then paste here.
+          </div>
+          <div className={styles.videosFormActions}>
+            <button
+              type="button"
+              className={styles.videosCancelBtn}
+              onClick={() => { setAdding(false); setForm({ url: '', title: '' }); setError(''); }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={styles.videosSaveBtn}
+              onClick={addVideo}
+              disabled={saving || !form.url.trim()}
+            >
+              {saving ? 'Saving…' : 'Save video'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {videos.length === 0 && !adding ? (
+        <div className={styles.videosEmpty}>
+          No videos saved yet. Add Instagram reels you want to remember — spots, restaurants, activities.
+        </div>
+      ) : (
+        <div className={styles.videosGrid}>
+          {videos.map(v => (
+            <div key={v.id} className={styles.videoCard}>
+              <div className={styles.videoCardHeader}>
+                <div className={styles.videoCardTitle} title={v.title}>{v.title}</div>
+                {canEdit && (
+                  <div className={styles.videoCardActions}>
+                    <button
+                      type="button"
+                      className={styles.videoIconBtn}
+                      onClick={() => renameVideo(v.id)}
+                      title="Rename"
+                      aria-label="Rename"
+                    >✏️</button>
+                    <button
+                      type="button"
+                      className={styles.videoIconBtn}
+                      onClick={() => removeVideo(v.id)}
+                      title="Remove"
+                      aria-label="Remove"
+                    >🗑️</button>
+                  </div>
+                )}
+              </div>
+              <blockquote
+                className="instagram-media"
+                data-instgrm-permalink={v.url}
+                data-instgrm-version="14"
+                style={{
+                  background: '#fff',
+                  border: 0,
+                  borderRadius: 12,
+                  margin: 0,
+                  maxWidth: '100%',
+                  minWidth: 'unset',
+                  padding: 0,
+                  width: '100%',
+                }}
+              >
+                <a href={v.url} target="_blank" rel="noopener noreferrer">View on Instagram</a>
+              </blockquote>
+              {v.addedByName && (
+                <div className={styles.videoCardMeta}>Added by {v.addedByName}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function formatItemDateTime(item) {
   if (!item.date) return '';
   const d = new Date(item.date + 'T' + (item.time || '00:00'));
@@ -450,8 +917,6 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
-  const [showSuggestForm, setShowSuggestForm] = useState(false);
-  const [suggestForm, setSuggestForm] = useState({ title: '', location: '', notes: '' });
   const [aiError, setAiError] = useState('');
   const [mapModes, setMapModes] = useState({}); // mapId -> mode override
   const [hideLodging, setHideLodging] = useState(true);
@@ -490,6 +955,8 @@ export function Itinerary({ event, onSave, canEdit }) {
         endDate: toDateStr(event?.endDate),
         location: event?.location || '',
         description: event?.description || '',
+        tripHighlights: (Array.isArray(event?.tripHighlights) ? event.tripHighlights : [])
+          .map(h => ({ text: h.text || '', locked: !!h.locked })),
       };
       const resp = await fetch('/api/itinerary-assistant', {
         method: 'POST',
@@ -962,296 +1429,10 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {/* Trip highlights — key activities with images */}
-      {(() => {
-        const highlights = items
-          .filter(i => (i.type || 'activity') === 'activity' && i.title)
-          .slice(0, 6);
-        const lodgingHighlight = items.find(i => i.type === 'lodging' && i.title);
-        if (highlights.length === 0) return null;
-        const votingEnabled = !!event?.highlightsVotingEnabled;
-        const isMember = !!(user && event?.members?.[user.uid]);
-        const canToggle = canEdit;
-        const toggleVoting = async () => {
-          await onSave({ highlightsVotingEnabled: !votingEnabled });
-        };
-        const toggleLike = async (itemId) => {
-          if (!user || !isMember) return;
-          const next = itemsRef.current.map(i => {
-            if (i.id !== itemId) return i;
-            const likes = { ...(i.likes || {}) };
-            if (likes[user.uid]) delete likes[user.uid];
-            else likes[user.uid] = true;
-            return { ...i, likes };
-          });
-          await onSave({ itinerary: next });
-        };
-        const voteCount = (item) => Object.keys(item.likes || {}).length;
-        const userLiked = (item) => !!(user && item.likes && item.likes[user.uid]);
-        return (
-          <div className={styles.highlightsSection}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <h4 className={styles.highlightsTitle} style={{ margin: 0 }}>Trip Highlights</h4>
-              {canToggle && (
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', fontWeight: 500, color: 'var(--color-text-secondary)', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={votingEnabled} onChange={toggleVoting} />
-                  Let members vote on highlights
-                </label>
-              )}
-            </div>
-            <div className={styles.highlightsImages}>
-              {highlights.slice(0, 4).map(item => {
-                const query = encodeURIComponent(item.imageQuery || item.title);
-                const count = voteCount(item);
-                const liked = userLiked(item);
-                return (
-                  <div key={item.id} className={styles.highlightCard} style={{ position: 'relative' }}>
-                    <img
-                      className={styles.highlightImg}
-                      src={`https://image.pollinations.ai/prompt/${query}%20travel%20photo?width=400&height=250&nologo=true&seed=${item.id.slice(0, 8)}`}
-                      alt={item.title}
-                      loading="lazy"
-                      onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-                    />
-                    <div className={styles.highlightImgFallback} style={{ display: 'none' }}>
-                      {(item.type || 'activity') === 'activity' ? '🎯' : item.type === 'lodging' ? '🏨' : '✈️'}
-                    </div>
-                    <div className={styles.highlightLabel}>{item.title}</div>
-                    {votingEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => toggleLike(item.id)}
-                        disabled={!isMember}
-                        title={isMember ? (liked ? 'Remove your vote' : 'Vote for this highlight') : 'Members only'}
-                        style={{
-                          position: 'absolute',
-                          top: '0.4rem',
-                          right: '0.4rem',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.2rem',
-                          padding: '0.2rem 0.5rem',
-                          borderRadius: 'var(--radius-full)',
-                          border: 'none',
-                          background: liked ? 'rgba(239, 68, 68, 0.95)' : 'rgba(255, 255, 255, 0.9)',
-                          color: liked ? '#fff' : '#111',
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          cursor: isMember ? 'pointer' : 'not-allowed',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        {liked ? '❤' : '🤍'} {count}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <ul className={styles.highlightsList}>
-              {highlights.map(item => {
-                const count = voteCount(item);
-                const liked = userLiked(item);
-                return (
-                  <li key={item.id}>
-                    {item.url ? (
-                      <a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
-                    ) : item.title}
-                    {item.location && <span className={styles.highlightMeta}> — {item.location}</span>}
-                    {votingEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => toggleLike(item.id)}
-                        disabled={!isMember}
-                        title={isMember ? (liked ? 'Remove your vote' : 'Vote for this highlight') : 'Members only'}
-                        style={{
-                          marginLeft: '0.5rem',
-                          padding: '0.1rem 0.45rem',
-                          borderRadius: 'var(--radius-full)',
-                          border: '1px solid var(--color-border)',
-                          background: liked ? 'rgba(239, 68, 68, 0.12)' : 'var(--color-surface)',
-                          color: liked ? '#dc2626' : 'var(--color-text-secondary)',
-                          fontSize: '0.72rem',
-                          fontWeight: 600,
-                          cursor: isMember ? 'pointer' : 'not-allowed',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        {liked ? '❤' : '🤍'} {count}
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
-              {lodgingHighlight && (
-                <li>
-                  🏨 {lodgingHighlight.url ? (
-                    <a href={lodgingHighlight.url} target="_blank" rel="noopener noreferrer">{lodgingHighlight.title}</a>
-                  ) : lodgingHighlight.title}
-                  {lodgingHighlight.location && <span className={styles.highlightMeta}> — {lodgingHighlight.location}</span>}
-                </li>
-              )}
-            </ul>
+      <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
 
-            {(() => {
-              const suggestions = Array.isArray(event?.highlightSuggestions) ? event.highlightSuggestions : [];
-              const toggleSuggestionLike = async (sid) => {
-                if (!user || !isMember) return;
-                const next = suggestions.map(s => {
-                  if (s.id !== sid) return s;
-                  const likes = { ...(s.likes || {}) };
-                  if (likes[user.uid]) delete likes[user.uid];
-                  else likes[user.uid] = true;
-                  return { ...s, likes };
-                });
-                await onSave({ highlightSuggestions: next });
-              };
-              const dismissSuggestion = async (sid) => {
-                await onSave({ highlightSuggestions: suggestions.filter(s => s.id !== sid) });
-              };
-              const promoteSuggestion = async (s) => {
-                const newItem = {
-                  id: crypto.randomUUID(),
-                  title: s.title,
-                  date: '',
-                  time: '',
-                  location: s.location || '',
-                  notes: s.notes || '',
-                  type: 'activity',
-                  url: '',
-                  imageQuery: '',
-                };
-                const nextItems = [...itemsRef.current, newItem];
-                await onSave({
-                  itinerary: nextItems,
-                  highlightSuggestions: suggestions.filter(x => x.id !== s.id),
-                });
-              };
-              const submitSuggestion = async () => {
-                const title = suggestForm.title.trim();
-                if (!title) return;
-                const newSuggestion = {
-                  id: crypto.randomUUID(),
-                  title,
-                  location: suggestForm.location.trim(),
-                  notes: suggestForm.notes.trim(),
-                  suggestedBy: user?.uid || '',
-                  suggestedByName: event?.members?.[user?.uid]?.name || user?.displayName || user?.email || 'Member',
-                  createdAt: new Date().toISOString(),
-                  likes: {},
-                };
-                await onSave({ highlightSuggestions: [...suggestions, newSuggestion] });
-                setSuggestForm({ title: '', location: '', notes: '' });
-                setShowSuggestForm(false);
-              };
-              return (
-                <div style={{ marginTop: '0.9rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-                      Member Suggestions ({suggestions.length})
-                    </span>
-                    {isMember && !showSuggestForm && (
-                      <button
-                        type="button"
-                        onClick={() => setShowSuggestForm(true)}
-                        style={{ padding: '0.25rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-accent)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-                      >
-                        + Suggest a highlight
-                      </button>
-                    )}
-                  </div>
-                  {showSuggestForm && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.75rem', padding: '0.6rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface-alt)' }}>
-                      <input
-                        type="text"
-                        placeholder="What should we do / see / try?"
-                        value={suggestForm.title}
-                        onChange={e => setSuggestForm(p => ({ ...p, title: e.target.value }))}
-                        autoFocus
-                        style={{ padding: '0.45rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit' }}
-                      />
-                      <input
-                        type="text"
-                        placeholder="Location (optional)"
-                        value={suggestForm.location}
-                        onChange={e => setSuggestForm(p => ({ ...p, location: e.target.value }))}
-                        style={{ padding: '0.45rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit' }}
-                      />
-                      <textarea
-                        placeholder="Notes (optional)"
-                        value={suggestForm.notes}
-                        onChange={e => setSuggestForm(p => ({ ...p, notes: e.target.value }))}
-                        rows={2}
-                        style={{ padding: '0.45rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', fontFamily: 'inherit', resize: 'vertical' }}
-                      />
-                      <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
-                        <button
-                          type="button"
-                          onClick={() => { setShowSuggestForm(false); setSuggestForm({ title: '', location: '', notes: '' }); }}
-                          style={{ padding: '0.35rem 0.9rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-muted)', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
-                        >Cancel</button>
-                        <button
-                          type="button"
-                          onClick={submitSuggestion}
-                          disabled={!suggestForm.title.trim()}
-                          style={{ padding: '0.35rem 0.9rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: suggestForm.title.trim() ? 'pointer' : 'not-allowed', opacity: suggestForm.title.trim() ? 1 : 0.5, fontFamily: 'inherit' }}
-                        >Add suggestion</button>
-                      </div>
-                    </div>
-                  )}
-                  {suggestions.length > 0 && (
-                    <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                      {suggestions.map(s => {
-                        const count = Object.keys(s.likes || {}).length;
-                        const liked = !!(user && s.likes && s.likes[user.uid]);
-                        return (
-                          <li key={s.id} style={{ padding: '0.5rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--color-text)' }}>{s.title}</div>
-                              {s.location && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>📍 {s.location}</div>}
-                              {s.notes && <div style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', marginTop: '0.15rem' }}>{s.notes}</div>}
-                              <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
-                                Suggested by {s.suggestedByName || 'a member'}
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
-                              {votingEnabled && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleSuggestionLike(s.id)}
-                                  disabled={!isMember}
-                                  title={isMember ? (liked ? 'Remove your vote' : 'Vote for this suggestion') : 'Members only'}
-                                  style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: liked ? 'rgba(239, 68, 68, 0.12)' : 'var(--color-surface)', color: liked ? '#dc2626' : 'var(--color-text-secondary)', fontSize: '0.72rem', fontWeight: 600, cursor: isMember ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
-                                >{liked ? '❤' : '🤍'} {count}</button>
-                              )}
-                              {canEdit && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => promoteSuggestion(s)}
-                                    title="Add to itinerary"
-                                    style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-success-light)', color: 'var(--color-success)', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-                                  >✓ Add</button>
-                                  <button
-                                    type="button"
-                                    onClick={() => dismissSuggestion(s.id)}
-                                    title="Dismiss"
-                                    style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-muted)', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-                                  >✗</button>
-                                </>
-                              )}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        );
-      })()}
+
+      <SavedVideos event={event} onSave={onSave} canEdit={canEdit} />
 
       {items.length === 0 && !adding ? (
         <div className={styles.empty}>
