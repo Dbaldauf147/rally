@@ -830,7 +830,8 @@
   font-size: 0.8rem;
   padding: 0;
 }
-.highlightIconBtn:hover { border-color: var(--color-border); background: var(--color-surface); }
+.highlightIconBtn:hover:not(:disabled) { border-color: var(--color-border); background: var(--color-surface); }
+.highlightIconBtn:disabled { opacity: 0.3; cursor: not-allowed; }
 .highlightInlineInput {
   flex: 1;
   min-width: 0;

@@ -434,6 +434,16 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     await onSave({ tripHighlights: highlights.filter(x => x.id !== id) });
   }
 
+  async function move(id, delta) {
+    const idx = highlights.findIndex(x => x.id === id);
+    if (idx < 0) return;
+    const target = idx + delta;
+    if (target < 0 || target >= highlights.length) return;
+    const next = highlights.slice();
+    [next[idx], next[target]] = [next[target], next[idx]];
+    await onSave({ tripHighlights: next });
+  }
+
   return (
     <div className={styles.highlightsSection}>
       <div className={styles.highlightsHeaderRow}>
@@ -491,7 +501,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         </div>
       ) : (
         <ul className={styles.highlightsList}>
-          {highlights.map(h => {
+          {highlights.map((h, idx) => {
             const urls = getHighlightUrls(h);
             return (
               <li
@@ -570,22 +580,42 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                       {h.addedByName && (
                         <span className={styles.highlightMetaInline}>· {h.addedByName}</span>
                       )}
-                      {canEdit && !h.locked && (
+                      {canEdit && (
                         <div className={styles.highlightActions}>
                           <button
                             type="button"
                             className={styles.highlightIconBtn}
-                            onClick={() => startEdit(h)}
-                            title="Edit"
-                            aria-label="Edit"
-                          >✏️</button>
+                            onClick={() => move(h.id, -1)}
+                            disabled={idx === 0}
+                            title="Move up"
+                            aria-label="Move up"
+                          >↑</button>
                           <button
                             type="button"
                             className={styles.highlightIconBtn}
-                            onClick={() => remove(h.id)}
-                            title="Remove"
-                            aria-label="Remove"
-                          >🗑️</button>
+                            onClick={() => move(h.id, 1)}
+                            disabled={idx === highlights.length - 1}
+                            title="Move down"
+                            aria-label="Move down"
+                          >↓</button>
+                          {!h.locked && (
+                            <>
+                              <button
+                                type="button"
+                                className={styles.highlightIconBtn}
+                                onClick={() => startEdit(h)}
+                                title="Edit"
+                                aria-label="Edit"
+                              >✏️</button>
+                              <button
+                                type="button"
+                                className={styles.highlightIconBtn}
+                                onClick={() => remove(h.id)}
+                                title="Remove"
+                                aria-label="Remove"
+                              >🗑️</button>
+                            </>
+                          )}
                         </div>
                       )}
                     </>
