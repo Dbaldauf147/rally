@@ -512,6 +512,109 @@
   cursor: pointer;
 }
 .urlAddBtn:hover { color: var(--color-accent); border-color: var(--color-accent); }
+
+/* Flight Costs */
+.flightCostsSection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+}
+.flightCostsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.flightCostsTitle {
+  margin: 0 0 0.15rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.flightCostsSubtitle {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.flightCostsAddBtn {
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.flightCostsAddBtn:hover { background: var(--color-accent-hover); }
+.flightCostsEmpty {
+  padding: 0.85rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+.flightCostsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.flightCostRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.flightCostInputCity {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+}
+.flightCostInputCost {
+  width: 110px;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  flex-shrink: 0;
+}
+.flightCostInputCity:focus,
+.flightCostInputCost:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(134, 59, 255, 0.15);
+}
+.flightCostRemoveBtn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.flightCostRemoveBtn:hover { color: #dc2626; border-color: #fecaca; background: var(--color-surface-alt); }
 .highlightRowLocked {
   background: rgba(134, 59, 255, 0.06);
   border-color: rgba(134, 59, 255, 0.35);
@@ -1187,167 +1290,3 @@
   }
 }
 
-/* Saved Videos */
-.videosSection {
-  margin: 1.25rem 0;
-  padding: 1rem 1.1rem;
-  background: linear-gradient(135deg, #fdf4ff 0%, #fef3f8 100%);
-  border: 1px solid #f3d6ee;
-  border-radius: var(--radius-lg);
-}
-.videosHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  flex-wrap: wrap;
-}
-.videosTitle {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 700;
-  color: #be185d;
-}
-.videosAddBtn {
-  background: #ec4899;
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-full);
-  padding: 0.4rem 0.85rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.videosAddBtn:hover {
-  background: #db2777;
-}
-.videosForm {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  margin-bottom: 0.85rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-.videosInput {
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-.videosInput:focus {
-  outline: none;
-  border-color: #ec4899;
-  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.15);
-}
-.videosFormActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-.videosCancelBtn {
-  padding: 0.45rem 0.95rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-}
-.videosSaveBtn {
-  padding: 0.45rem 0.95rem;
-  border-radius: var(--radius-md);
-  border: none;
-  background: #ec4899;
-  color: #fff;
-  font-size: 0.85rem;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-}
-.videosSaveBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.videosError {
-  font-size: 0.82rem;
-  color: #dc2626;
-}
-.videosHint {
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-}
-.videosEmpty {
-  padding: 1rem;
-  text-align: center;
-  font-size: 0.88rem;
-  color: var(--color-text-muted);
-  background: var(--color-surface);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-}
-.videosGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1rem;
-}
-.videoCard {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-.videoCardHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-}
-.videoCardTitle {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
-}
-.videoCardActions {
-  display: flex;
-  gap: 0.25rem;
-  flex-shrink: 0;
-}
-.videoIconBtn {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 0.85rem;
-  padding: 0;
-}
-.videoIconBtn:hover {
-  background: var(--color-surface-alt);
-}
-.videoCardMeta {
-  font-size: 0.72rem;
-  color: var(--color-text-muted);
-}

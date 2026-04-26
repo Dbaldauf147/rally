@@ -113,22 +113,10 @@ function buildHighlightsHtml(highlights) {
     <ul style="padding:0;margin:0;list-style:none;">${rows}</ul>`;
 }
 
-function buildVideosHtml(videos) {
-  const list = Array.isArray(videos) ? videos : [];
-  if (list.length === 0) return '';
-  const rows = list.map(v => `
-    <li style="padding:0.4rem 0;border-bottom:1px solid #f3f4f6;">
-      <a href="${escapeHtml(v.url)}" style="color:#4f46e5;text-decoration:none;font-weight:600;">${escapeHtml(v.title || 'Video')}</a>
-    </li>`).join('');
-  return `
-    <h2 style="font-size:1.05rem;color:#111;margin:1.5rem 0 0.5rem;">📱 Saved Videos</h2>
-    <ul style="padding:0;margin:0;list-style:none;">${rows}</ul>`;
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { recipients, fromName, event, itinerary, savedVideos, tripHighlights } = req.body || {};
+  const { recipients, fromName, event, itinerary, tripHighlights } = req.body || {};
   if (!Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({ error: 'No recipients provided' });
   }
@@ -143,7 +131,6 @@ export default async function handler(req, res) {
 
   const itineraryHtml = buildItineraryHtml(itinerary);
   const highlightsHtml = buildHighlightsHtml(tripHighlights);
-  const videosHtml = buildVideosHtml(savedVideos);
   const linkBtn = event.link
     ? `<a href="${escapeHtml(event.link)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:0.7rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin-top:1rem;">View full itinerary on Rally</a>`
     : '';
@@ -168,7 +155,6 @@ export default async function handler(req, res) {
 
           ${highlightsHtml}
           ${itineraryHtml ? `<h2 style="font-size:1.05rem;color:#111;margin:1.5rem 0 0.5rem;">📅 Itinerary</h2>${itineraryHtml}` : ''}
-          ${videosHtml}
 
           ${linkBtn}
 

@@ -694,25 +694,6 @@ export function EventDetail() {
         <button className={styles.shareBtn} onClick={handleCopyLink}>
           {inviteCopied ? '✓ Link copied!' : '🔗 Copy link'}
         </button>
-        <button className={styles.shareBtn} onClick={() => {
-          const fromName = user?.displayName || 'Someone';
-          const pollUrl = `${window.location.origin}/poll/${eventId}?name=Friend`;
-          const message = `Hey! ${fromName} invited you to ${event.title}.\n\nVote here on what dates you can make: ${pollUrl}`;
-          navigator.clipboard.writeText(message);
-          setResult({ type: 'success', message: 'Poll invite copied!' });
-          setTimeout(() => setResult(null), 2000);
-        }}>
-          📊 Copy Poll Link
-        </button>
-        <a
-          className={styles.shareBtn}
-          href={`/poll/${eventId}?name=Friend`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ textDecoration: 'none' }}
-        >
-          👁 Preview Poll
-        </a>
         <button className={styles.shareBtn} onClick={() => setShowInvite(true)}>
           ✉ Share invite
         </button>

@@ -50,23 +50,6 @@ function ModeSelectorInline({ value, onChange, disabled }) {
   );
 }
 
-// Loads Instagram's embed script once. After load (or if already loaded),
-// re-runs Embeds.process() so any new <blockquote class="instagram-media"> is
-// upgraded into an iframe.
-function processInstagramEmbeds() {
-  if (typeof window === 'undefined') return;
-  if (window.instgrm?.Embeds?.process) {
-    window.instgrm.Embeds.process();
-    return;
-  }
-  if (document.getElementById('instagram-embed-script')) return;
-  const s = document.createElement('script');
-  s.id = 'instagram-embed-script';
-  s.async = true;
-  s.src = 'https://www.instagram.com/embed.js';
-  document.body.appendChild(s);
-}
-
 function isInstagramUrl(url) {
   try {
     const u = new URL(url);
@@ -85,6 +68,112 @@ function normalizeInstagramUrl(url) {
   } catch {
     return url;
   }
+}
+
+function FlightCosts({ event, onSave, canEdit }) {
+  const items = Array.isArray(event?.flightCosts) ? event.flightCosts : [];
+  // Local edits per row, committed to Firestore on blur. This avoids writing
+  // on every keystroke while still showing the user their input immediately.
+  const [drafts, setDrafts] = useState({});
+
+  function getValue(id, field) {
+    if (drafts[id] && drafts[id][field] !== undefined) return drafts[id][field];
+    const row = items.find(x => x.id === id);
+    return row?.[field] || '';
+  }
+
+  function setDraft(id, field, value) {
+    setDrafts(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  }
+
+  async function commit(id) {
+    const draft = drafts[id];
+    if (!draft) return;
+    const row = items.find(x => x.id === id);
+    if (!row) return;
+    const merged = {
+      ...row,
+      ...(draft.city !== undefined ? { city: draft.city.trim() } : {}),
+      ...(draft.cost !== undefined ? { cost: draft.cost.trim() } : {}),
+    };
+    if (merged.city === row.city && merged.cost === row.cost) {
+      setDrafts(prev => { const c = { ...prev }; delete c[id]; return c; });
+      return;
+    }
+    await onSave({ flightCosts: items.map(x => x.id === id ? merged : x) });
+    setDrafts(prev => { const c = { ...prev }; delete c[id]; return c; });
+  }
+
+  async function addRow() {
+    const newRow = { id: crypto.randomUUID(), city: '', cost: '' };
+    await onSave({ flightCosts: [...items, newRow] });
+  }
+
+  async function removeRow(id) {
+    await onSave({ flightCosts: items.filter(x => x.id !== id) });
+    setDrafts(prev => { const c = { ...prev }; delete c[id]; return c; });
+  }
+
+  return (
+    <div className={styles.flightCostsSection}>
+      <div className={styles.flightCostsHeader}>
+        <div>
+          <h4 className={styles.flightCostsTitle}>✈️ Flight Costs</h4>
+          <div className={styles.flightCostsSubtitle}>
+            Track flight prices to candidate destinations.
+          </div>
+        </div>
+        {canEdit && (
+          <button className={styles.flightCostsAddBtn} onClick={addRow}>+ Add city</button>
+        )}
+      </div>
+
+      {items.length === 0 ? (
+        <div className={styles.flightCostsEmpty}>
+          {canEdit
+            ? 'No cities yet. Click "+ Add city" to start.'
+            : 'No flight costs added yet.'}
+        </div>
+      ) : (
+        <div className={styles.flightCostsList}>
+          {items.map(row => (
+            <div key={row.id} className={styles.flightCostRow}>
+              <input
+                type="text"
+                placeholder="City (e.g., Barcelona)"
+                value={getValue(row.id, 'city')}
+                disabled={!canEdit}
+                onChange={e => setDraft(row.id, 'city', e.target.value)}
+                onBlur={() => commit(row.id)}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                className={styles.flightCostInputCity}
+              />
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="$0"
+                value={getValue(row.id, 'cost')}
+                disabled={!canEdit}
+                onChange={e => setDraft(row.id, 'cost', e.target.value)}
+                onBlur={() => commit(row.id)}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                className={styles.flightCostInputCost}
+              />
+              {canEdit && (
+                <button
+                  type="button"
+                  className={styles.flightCostRemoveBtn}
+                  onClick={() => removeRow(row.id)}
+                  title="Remove"
+                  aria-label="Remove"
+                >✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Read URLs from a highlight, falling back to legacy single `url` field.
@@ -161,14 +250,6 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [editText, setEditText] = useState('');
   const [editCost, setEditCost] = useState('');
   const [editUrls, setEditUrls] = useState(['']);
-
-  // Re-process Instagram embeds whenever the set of IG URLs changes.
-  const igEmbedKey = highlights
-    .flatMap(h => getHighlightUrls(h).filter(isInstagramUrl))
-    .join('|');
-  useEffect(() => {
-    if (igEmbedKey) processInstagramEmbeds();
-  }, [igEmbedKey]);
 
   function resetDraft() {
     setDraftText('');
@@ -295,8 +376,6 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         <ul className={styles.highlightsList}>
           {highlights.map(h => {
             const urls = getHighlightUrls(h);
-            const igUrls = urls.filter(isInstagramUrl);
-            const otherUrls = urls.filter(u => !isInstagramUrl(u));
             return (
               <li
                 key={h.id}
@@ -357,17 +436,20 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                       {h.cost && (
                         <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
                       )}
-                      {otherUrls.map((u, i) => (
-                        <a
-                          key={`${u}-${i}`}
-                          href={u}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={styles.highlightLinkBtn}
-                          title={u}
-                          aria-label="Open link"
-                        >🔗</a>
-                      ))}
+                      {urls.map((u, i) => {
+                        const ig = isInstagramUrl(u);
+                        return (
+                          <a
+                            key={`${u}-${i}`}
+                            href={u}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.highlightLinkBtn}
+                            title={u}
+                            aria-label={ig ? 'Open Instagram' : 'Open link'}
+                          >{ig ? '📱' : '🔗'}</a>
+                        );
+                      })}
                       {h.addedByName && (
                         <span className={styles.highlightMetaInline}>· {h.addedByName}</span>
                       )}
@@ -393,196 +475,10 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                   )}
                 </div>
 
-                {igUrls.length > 0 && editingId !== h.id && (
-                  <div className={styles.highlightEmbeds}>
-                    {igUrls.map(u => (
-                      <div key={u} className={styles.highlightEmbed}>
-                        <blockquote
-                          className="instagram-media"
-                          data-instgrm-permalink={u}
-                          data-instgrm-version="14"
-                          style={{
-                            background: '#fff',
-                            border: 0,
-                            borderRadius: 12,
-                            margin: 0,
-                            maxWidth: '100%',
-                            minWidth: 'unset',
-                            padding: 0,
-                            width: '100%',
-                          }}
-                        >
-                          <a href={u} target="_blank" rel="noopener noreferrer">View on Instagram</a>
-                        </blockquote>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </li>
             );
           })}
         </ul>
-      )}
-    </div>
-  );
-}
-
-function SavedVideos({ event, onSave, canEdit }) {
-  const { user } = useAuth();
-  const videos = Array.isArray(event?.savedVideos) ? event.savedVideos : [];
-  const [form, setForm] = useState({ url: '', title: '' });
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const embedKey = videos.map(v => v.url).join('|');
-  useEffect(() => {
-    if (videos.length > 0) processInstagramEmbeds();
-  }, [embedKey, videos.length]);
-
-  async function addVideo() {
-    const url = form.url.trim();
-    if (!url) { setError('Paste an Instagram link first.'); return; }
-    if (!isInstagramUrl(url)) { setError("That doesn't look like an Instagram link."); return; }
-    setSaving(true);
-    setError('');
-    try {
-      const newVideo = {
-        id: crypto.randomUUID(),
-        url: normalizeInstagramUrl(url),
-        title: form.title.trim() || 'Untitled',
-        addedAt: new Date().toISOString(),
-        addedByUid: user?.uid || '',
-        addedByName: event?.members?.[user?.uid]?.name || user?.displayName || user?.email || 'Member',
-      };
-      await onSave({ savedVideos: [...videos, newVideo] });
-      setForm({ url: '', title: '' });
-      setAdding(false);
-    } catch (e) {
-      setError(e.message || 'Failed to save.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function renameVideo(id) {
-    const v = videos.find(x => x.id === id);
-    if (!v) return;
-    const next = prompt('Rename video:', v.title || '');
-    if (next == null) return;
-    const trimmed = next.trim();
-    if (!trimmed || trimmed === v.title) return;
-    await onSave({ savedVideos: videos.map(x => x.id === id ? { ...x, title: trimmed } : x) });
-  }
-
-  async function removeVideo(id) {
-    if (!confirm('Remove this video?')) return;
-    await onSave({ savedVideos: videos.filter(x => x.id !== id) });
-  }
-
-  return (
-    <div className={styles.videosSection}>
-      <div className={styles.videosHeader}>
-        <h4 className={styles.videosTitle}>📱 Saved Videos</h4>
-        {canEdit && !adding && (
-          <button className={styles.videosAddBtn} onClick={() => setAdding(true)}>+ Add video</button>
-        )}
-      </div>
-
-      {adding && (
-        <div className={styles.videosForm}>
-          <input
-            type="url"
-            inputMode="url"
-            placeholder="Paste Instagram link (e.g. https://www.instagram.com/reel/...)"
-            value={form.url}
-            onChange={e => setForm(p => ({ ...p, url: e.target.value }))}
-            className={styles.videosInput}
-            autoFocus
-          />
-          <input
-            type="text"
-            placeholder="Name this video (e.g., Best ramen in Tokyo)"
-            value={form.title}
-            onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
-            className={styles.videosInput}
-          />
-          {error && <div className={styles.videosError}>{error}</div>}
-          <div className={styles.videosHint}>
-            In Instagram, tap the paper-airplane → <strong>Copy link</strong>, then paste here.
-          </div>
-          <div className={styles.videosFormActions}>
-            <button
-              type="button"
-              className={styles.videosCancelBtn}
-              onClick={() => { setAdding(false); setForm({ url: '', title: '' }); setError(''); }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className={styles.videosSaveBtn}
-              onClick={addVideo}
-              disabled={saving || !form.url.trim()}
-            >
-              {saving ? 'Saving…' : 'Save video'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {videos.length === 0 && !adding ? (
-        <div className={styles.videosEmpty}>
-          No videos saved yet. Add Instagram reels you want to remember — spots, restaurants, activities.
-        </div>
-      ) : (
-        <div className={styles.videosGrid}>
-          {videos.map(v => (
-            <div key={v.id} className={styles.videoCard}>
-              <div className={styles.videoCardHeader}>
-                <div className={styles.videoCardTitle} title={v.title}>{v.title}</div>
-                {canEdit && (
-                  <div className={styles.videoCardActions}>
-                    <button
-                      type="button"
-                      className={styles.videoIconBtn}
-                      onClick={() => renameVideo(v.id)}
-                      title="Rename"
-                      aria-label="Rename"
-                    >✏️</button>
-                    <button
-                      type="button"
-                      className={styles.videoIconBtn}
-                      onClick={() => removeVideo(v.id)}
-                      title="Remove"
-                      aria-label="Remove"
-                    >🗑️</button>
-                  </div>
-                )}
-              </div>
-              <blockquote
-                className="instagram-media"
-                data-instgrm-permalink={v.url}
-                data-instgrm-version="14"
-                style={{
-                  background: '#fff',
-                  border: 0,
-                  borderRadius: 12,
-                  margin: 0,
-                  maxWidth: '100%',
-                  minWidth: 'unset',
-                  padding: 0,
-                  width: '100%',
-                }}
-              >
-                <a href={v.url} target="_blank" rel="noopener noreferrer">View on Instagram</a>
-              </blockquote>
-              {v.addedByName && (
-                <div className={styles.videoCardMeta}>Added by {v.addedByName}</div>
-              )}
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );
@@ -1190,7 +1086,6 @@ export function Itinerary({ event, onSave, canEdit }) {
           link,
         },
         itinerary: items,
-        savedVideos: Array.isArray(event?.savedVideos) ? event.savedVideos : [],
         tripHighlights: Array.isArray(event?.tripHighlights) ? event.tripHighlights : [],
       };
       const resp = await fetch('/api/send-itinerary', {
@@ -1490,6 +1385,8 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
+      <FlightCosts event={event} onSave={onSave} canEdit={canEdit} />
+
       {canEdit && isAdmin && (
         <div className={styles.aiBox}>
           <div className={styles.aiLabel}>
@@ -1590,9 +1487,6 @@ export function Itinerary({ event, onSave, canEdit }) {
       )}
 
       <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
-
-
-      <SavedVideos event={event} onSave={onSave} canEdit={canEdit} />
 
       {items.length === 0 && !adding ? (
         <div className={styles.empty}>
