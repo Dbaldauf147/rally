@@ -741,20 +741,12 @@ export function EventDetail() {
             : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
           const calMsg = `You're invited to ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}.\n\nAdd to your calendar: ${calendarLink}`;
           return (
-            <>
-              <button className={styles.shareBtn} onClick={() => {
-                setTextAllMessage(pollMsg);
-                setShowTextAll(true);
-              }}>
-                💬 Text All Poll ({phones.length})
-              </button>
-              <button className={styles.shareBtn} onClick={() => {
-                setTextAllMessage(calMsg);
-                setShowTextAll(true);
-              }}>
-                📅 Text All Calendar Invite ({phones.length})
-              </button>
-            </>
+            <button className={styles.shareBtn} onClick={() => {
+              setTextAllMessage(calMsg);
+              setShowTextAll(true);
+            }}>
+              📅 Text All Calendar Invite ({phones.length})
+            </button>
           );
         })()}
       </div>
