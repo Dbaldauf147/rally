@@ -411,8 +411,10 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     return out;
   })();
 
-  function countDaysForHighlight(h) {
-    if (Array.isArray(h?.dates) && h.dates.length > 0) return h.dates.length;
+  function getDaysForHighlight(h) {
+    if (Array.isArray(h?.dates) && h.dates.length > 0) {
+      return h.dates.slice().sort();
+    }
     const dates = new Set();
     // Items explicitly tagged to this highlight from the item form.
     for (const it of itineraryItems) {
@@ -421,16 +423,19 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         dates.add(it.date);
       }
     }
-    if (dates.size > 0) return dates.size;
+    if (dates.size > 0) return Array.from(dates).sort();
     // Fallback: text match on title/location/notes.
     const needle = (h?.text || '').trim().toLowerCase();
-    if (!needle) return 0;
+    if (!needle) return [];
     for (const it of itineraryItems) {
       if (!it?.date) continue;
       const haystack = ((it.title || '') + ' ' + (it.location || '') + ' ' + (it.notes || '')).toLowerCase();
       if (haystack.includes(needle)) dates.add(it.date);
     }
-    return dates.size;
+    return Array.from(dates).sort();
+  }
+  function countDaysForHighlight(h) {
+    return getDaysForHighlight(h).length;
   }
   const [adding, setAdding] = useState(false);
   const [draftText, setDraftText] = useState('');
@@ -758,19 +763,26 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                   <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
                 )}
                 {(() => {
-                  const days = countDaysForHighlight(h);
-                  if (days === 0) return null;
-                  const explicit = Array.isArray(h.dates) && h.dates.length > 0;
-                  const tooltip = explicit
-                    ? 'Tied to: ' + h.dates.slice().sort()
-                        .map(d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }))
-                        .join(', ')
-                    : 'Auto-detected from itinerary text';
+                  const days = getDaysForHighlight(h);
+                  if (days.length === 0) return null;
+                  const fmtShort = (d) => {
+                    const dt = new Date(d + 'T12:00:00');
+                    return `${dt.toLocaleDateString('en-US', { weekday: 'short' })} ${dt.getMonth() + 1}/${dt.getDate()}`;
+                  };
+                  const fmtFull = (d) => {
+                    const dt = new Date(d + 'T12:00:00');
+                    return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                  };
+                  const labels = days.map(fmtShort);
+                  const fullList = days.map(fmtFull).join(', ');
+                  const display = days.length <= 4
+                    ? labels.join(', ')
+                    : `${labels.slice(0, 3).join(', ')} +${days.length - 3}`;
                   return (
                     <span
                       className={styles.highlightDayCount}
-                      title={tooltip}
-                    >📅 {days} day{days === 1 ? '' : 's'}</span>
+                      title={fullList}
+                    >📅 {display}</span>
                   );
                 })()}
                 {urls.map((u, i) => {
