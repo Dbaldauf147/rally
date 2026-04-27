@@ -387,6 +387,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [draftGroupName, setDraftGroupName] = useState('');
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editGroupName, setEditGroupName] = useState('');
+  const [expandedVotersId, setExpandedVotersId] = useState(null);
 
   function resetDraft() {
     setDraftText('');
@@ -622,7 +623,19 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             </div>
           ) : (
             <>
-              <span className={styles.highlightText}>{h.text}</span>
+              <span
+                className={`${styles.highlightText} ${styles.highlightTextClickable}`}
+                onClick={() => setExpandedVotersId(prev => prev === h.id ? null : h.id)}
+                title="Click to see who voted"
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setExpandedVotersId(prev => prev === h.id ? null : h.id);
+                  }
+                }}
+              >{h.text}</span>
               <div className={styles.highlightRowEnd}>
                 {h.cost && (
                   <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
@@ -731,6 +744,28 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             </>
           )}
         </div>
+        {expandedVotersId === h.id && editingId !== h.id && (
+          <div className={styles.highlightVotersPanel}>
+            {[1, 2, 3].map(rank => {
+              const voterUids = Object.entries(h.votes || {})
+                .filter(([, r]) => r === rank)
+                .map(([uid]) => uid);
+              const names = voterUids.map(uid => {
+                const m = event?.members?.[uid];
+                return m?.name || (uid.includes('@') ? uid.split('@')[0] : 'Member');
+              });
+              const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉';
+              return (
+                <div key={rank} className={styles.highlightVotersRow}>
+                  <span className={styles.highlightVotersMedal}>{medal}</span>
+                  {names.length > 0
+                    ? <span className={styles.highlightVotersNames}>{names.join(', ')}</span>
+                    : <span className={styles.highlightVotersEmpty}>nobody yet</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </li>
     );
   }
@@ -839,6 +874,71 @@ function TripHighlightsList({ event, onSave, canEdit }) {
           </div>
         )}
       </div>
+
+      {(() => {
+        if (highlights.length === 0) return null;
+        const membersObj = event?.members || {};
+        const voters = [];
+        for (const [uid, m] of Object.entries(membersObj)) {
+          if (!m) continue;
+          if (m.rsvp === 'no') continue;
+          const ranksVoted = new Set();
+          for (const h of highlights) {
+            const r = (h.votes || {})[uid];
+            if (r === 1 || r === 2 || r === 3) ranksVoted.add(r);
+          }
+          voters.push({
+            uid,
+            name: m.name || (uid.includes('@') ? uid.split('@')[0] : 'Member'),
+            ranksVoted,
+            missing: [1, 2, 3].filter(r => !ranksVoted.has(r)),
+          });
+        }
+        if (voters.length === 0) return null;
+        const complete = voters.filter(v => v.missing.length === 0);
+        const partial = voters.filter(v => v.missing.length > 0 && v.missing.length < 3);
+        const none = voters.filter(v => v.missing.length === 3);
+        const allDone = complete.length === voters.length;
+        const formatMissing = (m) => m.map(r => `#${r}`).join(', ');
+        return (
+          <div className={allDone ? styles.votingStatusDone : styles.votingStatus}>
+            <div className={styles.votingStatusHeader}>
+              <span>🗳️ Voting status</span>
+              <span className={styles.votingStatusCount}>
+                {complete.length} of {voters.length} voted on all 3
+              </span>
+            </div>
+            {allDone ? (
+              <div className={styles.votingStatusBody}>Everyone has cast their top 3 picks.</div>
+            ) : (
+              <div className={styles.votingStatusBody}>
+                {partial.length > 0 && (
+                  <div>
+                    <span className={styles.votingStatusLabel}>Partial</span>{' '}
+                    {partial.map((v, i) => (
+                      <span key={v.uid}>
+                        {i > 0 && ', '}
+                        <strong>{v.name}</strong> <span className={styles.votingStatusMissing}>(missing {formatMissing(v.missing)})</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {none.length > 0 && (
+                  <div>
+                    <span className={styles.votingStatusLabel}>No votes yet</span>{' '}
+                    {none.map((v, i) => (
+                      <span key={v.uid}>
+                        {i > 0 && ', '}
+                        <strong>{v.name}</strong>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {addingGroup && (
         <div className={styles.highlightsForm}>
