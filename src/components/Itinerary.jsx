@@ -402,6 +402,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [editGroupName, setEditGroupName] = useState('');
   const [expandedVotersId, setExpandedVotersId] = useState(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
 
   function resetDraft() {
     setDraftText('');
@@ -432,6 +433,12 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   async function toggleLock(id) {
     await onSave({
       tripHighlights: highlights.map(h => h.id === id ? { ...h, locked: !h.locked } : h),
+    });
+  }
+
+  async function toggleHidden(id) {
+    await onSave({
+      tripHighlights: highlights.map(h => h.id === id ? { ...h, hidden: !h.hidden } : h),
     });
   }
 
@@ -558,17 +565,19 @@ function TripHighlightsList({ event, onSave, canEdit }) {
 
   // Group-aware ordering for display + continuous numbering across groups.
   const groupIds = new Set(groups.map(g => g.id));
+  const visibleHighlights = highlights.filter(h => showHidden || !h.hidden);
   const orderedHighlights = [];
   for (const g of groups) {
-    for (const h of highlights) {
+    for (const h of visibleHighlights) {
       if ((h.groupId || '') === g.id) orderedHighlights.push(h);
     }
   }
-  for (const h of highlights) {
+  for (const h of visibleHighlights) {
     if (!h.groupId || !groupIds.has(h.groupId)) orderedHighlights.push(h);
   }
   const numberById = new Map(orderedHighlights.map((h, i) => [h.id, i + 1]));
-  const ungroupedHighlights = highlights.filter(h => !h.groupId || !groupIds.has(h.groupId));
+  const ungroupedHighlights = visibleHighlights.filter(h => !h.groupId || !groupIds.has(h.groupId));
+  const hiddenCount = highlights.filter(h => h.hidden).length;
 
   function GroupSelector({ value, onChange, includeUngrouped = true }) {
     if (groups.length === 0) return null;
@@ -592,7 +601,11 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     return (
       <li
         key={h.id}
-        className={h.locked ? `${styles.highlightRow} ${styles.highlightRowLocked}` : styles.highlightRow}
+        className={[
+          styles.highlightRow,
+          h.locked ? styles.highlightRowLocked : '',
+          h.hidden ? styles.highlightRowHidden : '',
+        ].filter(Boolean).join(' ')}
       >
         <div className={styles.highlightRowMain}>
           <button
@@ -744,6 +757,13 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                       title="Move down"
                       aria-label="Move down"
                     >↓</button>
+                    <button
+                      type="button"
+                      className={styles.highlightIconBtn}
+                      onClick={() => toggleHidden(h.id)}
+                      title={h.hidden ? 'Show this highlight' : 'Hide this highlight'}
+                      aria-label={h.hidden ? 'Show highlight' : 'Hide highlight'}
+                    >{h.hidden ? '👁' : '🙈'}</button>
                     {!h.locked && (
                       <>
                         <button
@@ -900,15 +920,23 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             )}
           </div>
         </div>
-        {canEdit && !collapsed && (
+        {!collapsed && (
           <div className={styles.highlightsHeaderActions}>
-            {!addingGroup && (
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                className={styles.highlightsToggleHiddenBtn}
+                onClick={() => setShowHidden(v => !v)}
+                title={showHidden ? 'Hide hidden highlights' : 'Show hidden highlights'}
+              >{showHidden ? `🙈 Hide ${hiddenCount} hidden` : `👁 Show ${hiddenCount} hidden`}</button>
+            )}
+            {canEdit && !addingGroup && (
               <button
                 className={styles.highlightsAddGroupBtn}
                 onClick={() => setAddingGroup(true)}
               >+ Add group</button>
             )}
-            {!adding && (
+            {canEdit && !adding && (
               <button className={styles.highlightsAddBtn} onClick={() => setAdding(true)}>+ Add highlight</button>
             )}
           </div>
@@ -1060,7 +1088,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             {groups.map(g => renderGroupSection(
               g.id,
               g.name,
-              highlights.filter(h => (h.groupId || '') === g.id),
+              visibleHighlights.filter(h => (h.groupId || '') === g.id),
             ))}
             {(ungroupedHighlights.length > 0 || groups.length === 0) && renderGroupSection(
               '',

@@ -1063,6 +1063,30 @@
   border-color: rgba(134, 59, 255, 0.35);
 }
 .highlightRowLocked:hover { background: rgba(134, 59, 255, 0.1); }
+.highlightRowHidden {
+  opacity: 0.55;
+  background: var(--color-surface-alt);
+  border-style: dashed;
+}
+.highlightRowHidden .highlightText {
+  text-decoration: line-through;
+  text-decoration-color: var(--color-text-muted);
+}
+.highlightsToggleHiddenBtn {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.highlightsToggleHiddenBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
 .highlightLockBtn {
   background: transparent;
   border: none;
