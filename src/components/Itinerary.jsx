@@ -401,6 +401,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editGroupName, setEditGroupName] = useState('');
   const [expandedVotersId, setExpandedVotersId] = useState(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   function resetDraft() {
     setDraftText('');
@@ -877,13 +878,29 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   return (
     <div className={styles.highlightsSection}>
       <div className={styles.highlightsHeaderRow}>
-        <div>
-          <h4 className={styles.highlightsTitle}>✨ Trip Highlights</h4>
-          <div className={styles.highlightsSubtitle}>
-            Must-do experiences. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Group highlights into sections to organize the trip.
+        <div className={styles.highlightsTitleWrap}>
+          <button
+            type="button"
+            className={styles.highlightsCollapseBtn}
+            onClick={() => setCollapsed(v => !v)}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Show highlights' : 'Hide highlights'}
+          >{collapsed ? '▸' : '▾'}</button>
+          <div>
+            <h4 className={styles.highlightsTitle}>
+              ✨ Trip Highlights
+              {collapsed && highlights.length > 0 && (
+                <span className={styles.highlightsCollapsedCount}>{highlights.length}</span>
+              )}
+            </h4>
+            {!collapsed && (
+              <div className={styles.highlightsSubtitle}>
+                Must-do experiences. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Group highlights into sections to organize the trip.
+              </div>
+            )}
           </div>
         </div>
-        {canEdit && (
+        {canEdit && !collapsed && (
           <div className={styles.highlightsHeaderActions}>
             {!addingGroup && (
               <button
@@ -898,7 +915,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         )}
       </div>
 
-      {(() => {
+      {!collapsed && (() => {
         if (highlights.length === 0) return null;
         const membersObj = event?.members || {};
         const voters = [];
@@ -963,7 +980,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         );
       })()}
 
-      {addingGroup && (
+      {!collapsed && addingGroup && (
         <div className={styles.highlightsForm}>
           <input
             type="text"
@@ -993,7 +1010,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {adding && (
+      {!collapsed && adding && (
         <div className={styles.highlightsForm}>
           <input
             type="text"
@@ -1033,23 +1050,25 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {highlights.length === 0 && groups.length === 0 && !adding && !addingGroup ? (
-        <div className={styles.highlightsEmpty}>
-          No highlights yet. Add the must-do experiences for this trip — the AI assistant will plan around them.
-        </div>
-      ) : (
-        <>
-          {groups.map(g => renderGroupSection(
-            g.id,
-            g.name,
-            highlights.filter(h => (h.groupId || '') === g.id),
-          ))}
-          {(ungroupedHighlights.length > 0 || groups.length === 0) && renderGroupSection(
-            '',
-            groups.length === 0 ? '' : 'Ungrouped',
-            ungroupedHighlights,
-          )}
-        </>
+      {!collapsed && (
+        highlights.length === 0 && groups.length === 0 && !adding && !addingGroup ? (
+          <div className={styles.highlightsEmpty}>
+            No highlights yet. Add the must-do experiences for this trip — the AI assistant will plan around them.
+          </div>
+        ) : (
+          <>
+            {groups.map(g => renderGroupSection(
+              g.id,
+              g.name,
+              highlights.filter(h => (h.groupId || '') === g.id),
+            ))}
+            {(ungroupedHighlights.length > 0 || groups.length === 0) && renderGroupSection(
+              '',
+              groups.length === 0 ? '' : 'Ungrouped',
+              ungroupedHighlights,
+            )}
+          </>
+        )
       )}
     </div>
   );
