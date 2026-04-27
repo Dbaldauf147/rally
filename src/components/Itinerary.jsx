@@ -310,16 +310,25 @@ function cleanUrlList(arr) {
 function UrlInputList({ urls, setUrls, autoFocus = false }) {
   const list = urls.length > 0 ? urls : [''];
   function update(i, value) {
-    const next = list.slice();
-    next[i] = value;
-    setUrls(next);
+    setUrls(prev => {
+      const base = (prev && prev.length > 0) ? prev : [''];
+      const next = base.slice();
+      next[i] = value;
+      return next;
+    });
   }
   function removeAt(i) {
-    const next = list.filter((_, idx) => idx !== i);
-    setUrls(next.length > 0 ? next : ['']);
+    setUrls(prev => {
+      const base = (prev && prev.length > 0) ? prev : [''];
+      const next = base.filter((_, idx) => idx !== i);
+      return next.length > 0 ? next : [''];
+    });
   }
   function addRow() {
-    setUrls([...list, '']);
+    setUrls(prev => {
+      const base = (prev && prev.length > 0) ? prev : [''];
+      return [...base, ''];
+    });
   }
   return (
     <div className={styles.urlList}>
@@ -330,6 +339,7 @@ function UrlInputList({ urls, setUrls, autoFocus = false }) {
             type="text"
             inputMode="url"
             autoComplete="off"
+            autoCapitalize="off"
             spellCheck={false}
             className={styles.highlightsInput}
             placeholder={i === 0
@@ -637,13 +647,24 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                             if (rank === 1 || rank === 2 || rank === 3) counts[rank]++;
                           }
                           const score = counts[1] * 3 + counts[2] * 2 + counts[3] * 1;
+                          const totalMedals = counts[1] + counts[2] + counts[3];
                           return (
-                            <span
-                              className={score > 0 ? styles.highlightScoreActive : styles.highlightScore}
-                              title={`Ranked-choice score: 3×${counts[1]} + 2×${counts[2]} + 1×${counts[3]} = ${score}`}
-                            >
-                              <span aria-hidden="true">★</span> {score}
-                            </span>
+                            <>
+                              <span
+                                className={score > 0 ? styles.highlightScoreActive : styles.highlightScore}
+                                title={`Ranked-choice score: 3×${counts[1]} + 2×${counts[2]} + 1×${counts[3]} = ${score}`}
+                              >
+                                <span aria-hidden="true">★</span> {score}
+                              </span>
+                              {totalMedals > 0 && (
+                                <span
+                                  className={styles.highlightMedalCount}
+                                  title={`${counts[1]} × 🥇, ${counts[2]} × 🥈, ${counts[3]} × 🥉`}
+                                >
+                                  🏅 {totalMedals}
+                                </span>
+                              )}
+                            </>
                           );
                         })()}
                         {canEdit && (
