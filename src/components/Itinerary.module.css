@@ -573,6 +573,19 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
+.highlightDayCount {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: rgba(8, 145, 178, 0.12);
+  color: #0e7490;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .urlList {
   display: flex;
   flex-direction: column;

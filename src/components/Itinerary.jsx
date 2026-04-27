@@ -373,6 +373,19 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const { user } = useAuth();
   const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
   const groups = Array.isArray(event?.tripHighlightGroups) ? event.tripHighlightGroups : [];
+  const itineraryItems = Array.isArray(event?.itinerary) ? event.itinerary : [];
+
+  function countDaysForHighlight(h) {
+    const needle = (h?.text || '').trim().toLowerCase();
+    if (!needle) return 0;
+    const dates = new Set();
+    for (const it of itineraryItems) {
+      if (!it?.date) continue;
+      const haystack = ((it.title || '') + ' ' + (it.location || '') + ' ' + (it.notes || '')).toLowerCase();
+      if (haystack.includes(needle)) dates.add(it.date);
+    }
+    return dates.size;
+  }
   const [adding, setAdding] = useState(false);
   const [draftText, setDraftText] = useState('');
   const [draftCost, setDraftCost] = useState('');
@@ -640,6 +653,16 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                 {h.cost && (
                   <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
                 )}
+                {(() => {
+                  const days = countDaysForHighlight(h);
+                  if (days === 0) return null;
+                  return (
+                    <span
+                      className={styles.highlightDayCount}
+                      title="Days in the itinerary that mention this highlight"
+                    >📅 {days} day{days === 1 ? '' : 's'}</span>
+                  );
+                })()}
                 {urls.map((u, i) => {
                   const ig = isInstagramUrl(u);
                   return (
