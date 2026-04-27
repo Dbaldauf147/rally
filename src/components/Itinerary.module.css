@@ -570,6 +570,86 @@
   color: var(--color-text-muted);
   margin-bottom: 0.05rem;
 }
+
+/* Highlight groups */
+.highlightsHeaderActions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.highlightsAddGroupBtn {
+  background: transparent;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-full);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.highlightsAddGroupBtn:hover {
+  background: rgba(134, 59, 255, 0.08);
+}
+.highlightGroupSection {
+  margin-top: 0.85rem;
+}
+.highlightGroupSection:first-of-type {
+  margin-top: 0.5rem;
+}
+.highlightGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.45rem;
+  border-bottom: 2px solid var(--color-accent-light, #f0ddd6);
+}
+.highlightGroupName {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.highlightGroupCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 0.45rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.highlightGroupActions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.2rem;
+}
+.highlightGroupNameInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+}
+.highlightGroupEmpty {
+  padding: 0.6rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
 .urlRow {
   display: flex;
   align-items: center;

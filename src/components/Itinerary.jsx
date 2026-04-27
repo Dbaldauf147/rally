@@ -372,19 +372,27 @@ function UrlInputList({ urls, setUrls, autoFocus = false }) {
 function TripHighlightsList({ event, onSave, canEdit }) {
   const { user } = useAuth();
   const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+  const groups = Array.isArray(event?.tripHighlightGroups) ? event.tripHighlightGroups : [];
   const [adding, setAdding] = useState(false);
   const [draftText, setDraftText] = useState('');
   const [draftCost, setDraftCost] = useState('');
   const [draftUrls, setDraftUrls] = useState(['']);
+  const [draftGroupId, setDraftGroupId] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [editCost, setEditCost] = useState('');
   const [editUrls, setEditUrls] = useState(['']);
+  const [editGroupId, setEditGroupId] = useState('');
+  const [addingGroup, setAddingGroup] = useState(false);
+  const [draftGroupName, setDraftGroupName] = useState('');
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [editGroupName, setEditGroupName] = useState('');
 
   function resetDraft() {
     setDraftText('');
     setDraftCost('');
     setDraftUrls(['']);
+    setDraftGroupId('');
   }
 
   async function add() {
@@ -395,6 +403,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
       text,
       cost: draftCost.trim(),
       urls: cleanUrlList(draftUrls),
+      groupId: draftGroupId || '',
       locked: false,
       addedAt: new Date().toISOString(),
       addedByUid: user?.uid || '',
@@ -418,6 +427,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     setEditCost(h.cost || '');
     const existing = getHighlightUrls(h);
     setEditUrls(existing.length > 0 ? existing : ['']);
+    setEditGroupId(h.groupId || '');
   }
 
   function cancelEdit() {
@@ -425,6 +435,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     setEditText('');
     setEditCost('');
     setEditUrls(['']);
+    setEditGroupId('');
   }
 
   async function saveEdit() {
@@ -433,7 +444,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     const urls = cleanUrlList(editUrls);
     await onSave({
       tripHighlights: highlights.map(h => h.id === editingId
-        ? { ...h, text, cost: editCost.trim(), urls, url: '' }
+        ? { ...h, text, cost: editCost.trim(), urls, url: '', groupId: editGroupId || '' }
         : h),
     });
     cancelEdit();
@@ -448,13 +459,63 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   }
 
   async function move(id, delta) {
-    const idx = highlights.findIndex(x => x.id === id);
+    const h = highlights.find(x => x.id === id);
+    if (!h) return;
+    const groupId = h.groupId || '';
+    const sameGroup = highlights.filter(x => (x.groupId || '') === groupId);
+    const groupIdx = sameGroup.findIndex(x => x.id === id);
+    const targetGroupIdx = groupIdx + delta;
+    if (targetGroupIdx < 0 || targetGroupIdx >= sameGroup.length) return;
+    const targetH = sameGroup[targetGroupIdx];
+    const idxA = highlights.findIndex(x => x.id === id);
+    const idxB = highlights.findIndex(x => x.id === targetH.id);
+    const next = highlights.slice();
+    [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
+    await onSave({ tripHighlights: next });
+  }
+
+  // Group management.
+  async function addGroup() {
+    const name = draftGroupName.trim();
+    if (!name) return;
+    const newGroup = { id: crypto.randomUUID(), name };
+    await onSave({ tripHighlightGroups: [...groups, newGroup] });
+    setDraftGroupName('');
+    setAddingGroup(false);
+  }
+
+  async function renameGroup(id) {
+    const name = editGroupName.trim();
+    if (!name) { setEditingGroupId(null); setEditGroupName(''); return; }
+    await onSave({
+      tripHighlightGroups: groups.map(g => g.id === id ? { ...g, name } : g),
+    });
+    setEditingGroupId(null);
+    setEditGroupName('');
+  }
+
+  async function removeGroup(id) {
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    const inGroup = highlights.filter(h => (h.groupId || '') === id).length;
+    const msg = inGroup > 0
+      ? `Remove group "${g.name}"? Its ${inGroup} highlight${inGroup === 1 ? '' : 's'} will move to Ungrouped.`
+      : `Remove group "${g.name}"?`;
+    if (!confirm(msg)) return;
+    await onSave({
+      tripHighlightGroups: groups.filter(x => x.id !== id),
+      tripHighlights: highlights.map(h => (h.groupId || '') === id ? { ...h, groupId: '' } : h),
+    });
+  }
+
+  async function moveGroup(id, delta) {
+    const idx = groups.findIndex(x => x.id === id);
     if (idx < 0) return;
     const target = idx + delta;
-    if (target < 0 || target >= highlights.length) return;
-    const next = highlights.slice();
+    if (target < 0 || target >= groups.length) return;
+    const next = groups.slice();
     [next[idx], next[target]] = [next[target], next[idx]];
-    await onSave({ tripHighlights: next });
+    await onSave({ tripHighlightGroups: next });
   }
 
   // Cast or move the current user's rank vote on a highlight.
@@ -480,19 +541,334 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     await onSave({ tripHighlights: next });
   }
 
+  // Group-aware ordering for display + continuous numbering across groups.
+  const groupIds = new Set(groups.map(g => g.id));
+  const orderedHighlights = [];
+  for (const g of groups) {
+    for (const h of highlights) {
+      if ((h.groupId || '') === g.id) orderedHighlights.push(h);
+    }
+  }
+  for (const h of highlights) {
+    if (!h.groupId || !groupIds.has(h.groupId)) orderedHighlights.push(h);
+  }
+  const numberById = new Map(orderedHighlights.map((h, i) => [h.id, i + 1]));
+  const ungroupedHighlights = highlights.filter(h => !h.groupId || !groupIds.has(h.groupId));
+
+  function GroupSelector({ value, onChange, includeUngrouped = true }) {
+    if (groups.length === 0) return null;
+    return (
+      <select
+        className={styles.highlightsInput}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      >
+        {includeUngrouped && <option value="">Ungrouped</option>}
+        {groups.map(g => (
+          <option key={g.id} value={g.id}>{g.name}</option>
+        ))}
+      </select>
+    );
+  }
+
+  function renderRow(h, withinGroupIdx, withinGroupCount) {
+    const urls = getHighlightUrls(h);
+    const displayNumber = numberById.get(h.id);
+    return (
+      <li
+        key={h.id}
+        className={h.locked ? `${styles.highlightRow} ${styles.highlightRowLocked}` : styles.highlightRow}
+      >
+        <div className={styles.highlightRowMain}>
+          <button
+            type="button"
+            onClick={() => canEdit && toggleLock(h.id)}
+            disabled={!canEdit}
+            title={h.locked
+              ? 'Locked — AI must include this. Click to unlock.'
+              : 'Unlocked — AI may skip this. Click to lock.'}
+            className={styles.highlightLockBtn}
+            aria-label={h.locked ? 'Unlock highlight' : 'Lock highlight'}
+          >
+            {h.locked ? '🔒' : '🔓'}
+          </button>
+          <span className={styles.highlightNumber} aria-label={`Stop ${displayNumber}`}>{displayNumber}</span>
+          {editingId === h.id ? (
+            <div className={styles.highlightEditFields}>
+              <input
+                type="text"
+                className={styles.highlightInlineInput}
+                value={editText}
+                onChange={e => setEditText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape') cancelEdit(); }}
+                autoFocus
+              />
+              <input
+                type="text"
+                className={styles.highlightInlineInput}
+                placeholder="Cost (optional)"
+                value={editCost}
+                onChange={e => setEditCost(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape') cancelEdit(); }}
+              />
+              {groups.length > 0 && (
+                <GroupSelector value={editGroupId} onChange={setEditGroupId} />
+              )}
+              <UrlInputList urls={editUrls} setUrls={setEditUrls} />
+              <div className={styles.highlightEditActions}>
+                <button type="button" className={styles.highlightInlineSaveBtn} onClick={saveEdit}>Save</button>
+                <button type="button" className={styles.highlightInlineCancelBtn} onClick={cancelEdit}>✕</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <span className={styles.highlightText}>{h.text}</span>
+              <div className={styles.highlightRowEnd}>
+                {h.cost && (
+                  <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
+                )}
+                {urls.map((u, i) => {
+                  const ig = isInstagramUrl(u);
+                  return (
+                    <a
+                      key={`${u}-${i}`}
+                      href={u}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.highlightLinkBtn}
+                      title={u}
+                      aria-label={ig ? 'Open Instagram' : 'Open link'}
+                    >{ig ? '📱' : '🔗'}</a>
+                  );
+                })}
+                <div className={styles.highlightVotes}>
+                  {[1, 2, 3].map(rank => {
+                    const myRank = user ? (h.votes || {})[user.uid] : null;
+                    const isMine = myRank === rank;
+                    const count = Object.values(h.votes || {}).filter(v => v === rank).length;
+                    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉';
+                    return (
+                      <button
+                        key={rank}
+                        type="button"
+                        onClick={() => castVote(h.id, rank)}
+                        disabled={!user}
+                        className={isMine ? styles.highlightVoteBtnActive : styles.highlightVoteBtn}
+                        title={!user ? 'Sign in to vote' : isMine ? `Your #${rank} pick (click to remove)` : `Vote as #${rank}`}
+                        aria-label={`Vote as #${rank}`}
+                      >
+                        <span aria-hidden="true">{medal}</span>
+                        {count > 0 && <span>{count}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const counts = { 1: 0, 2: 0, 3: 0 };
+                  for (const rank of Object.values(h.votes || {})) {
+                    if (rank === 1 || rank === 2 || rank === 3) counts[rank]++;
+                  }
+                  const score = counts[1] * 3 + counts[2] * 2 + counts[3] * 1;
+                  const totalMedals = counts[1] + counts[2] + counts[3];
+                  return (
+                    <>
+                      <span
+                        className={score > 0 ? styles.highlightScoreActive : styles.highlightScore}
+                        title={`Ranked-choice score: 3×${counts[1]} + 2×${counts[2]} + 1×${counts[3]} = ${score}`}
+                      >
+                        <span aria-hidden="true">★</span> {score}
+                      </span>
+                      {totalMedals > 0 && (
+                        <span
+                          className={styles.highlightMedalCount}
+                          title={`${counts[1]} × 🥇, ${counts[2]} × 🥈, ${counts[3]} × 🥉`}
+                        >
+                          🏅 {totalMedals}
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
+                {canEdit && (
+                  <div className={styles.highlightActions}>
+                    <button
+                      type="button"
+                      className={styles.highlightIconBtn}
+                      onClick={() => move(h.id, -1)}
+                      disabled={withinGroupIdx === 0}
+                      title="Move up"
+                      aria-label="Move up"
+                    >↑</button>
+                    <button
+                      type="button"
+                      className={styles.highlightIconBtn}
+                      onClick={() => move(h.id, 1)}
+                      disabled={withinGroupIdx === withinGroupCount - 1}
+                      title="Move down"
+                      aria-label="Move down"
+                    >↓</button>
+                    {!h.locked && (
+                      <>
+                        <button
+                          type="button"
+                          className={styles.highlightIconBtn}
+                          onClick={() => startEdit(h)}
+                          title="Edit"
+                          aria-label="Edit"
+                        >✏️</button>
+                        <button
+                          type="button"
+                          className={styles.highlightIconBtn}
+                          onClick={() => remove(h.id)}
+                          title="Remove"
+                          aria-label="Remove"
+                        >🗑️</button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </li>
+    );
+  }
+
+  function renderGroupSection(groupId, groupName, listForGroup) {
+    if (listForGroup.length === 0 && !groupId) return null;
+    return (
+      <div key={groupId || '__ungrouped__'} className={styles.highlightGroupSection}>
+        <div className={styles.highlightGroupHeader}>
+          {editingGroupId === groupId ? (
+            <>
+              <input
+                type="text"
+                className={styles.highlightGroupNameInput}
+                value={editGroupName}
+                onChange={e => setEditGroupName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') renameGroup(groupId);
+                  else if (e.key === 'Escape') { setEditingGroupId(null); setEditGroupName(''); }
+                }}
+                autoFocus
+              />
+              <button
+                type="button"
+                className={styles.highlightInlineSaveBtn}
+                onClick={() => renameGroup(groupId)}
+              >Save</button>
+              <button
+                type="button"
+                className={styles.highlightInlineCancelBtn}
+                onClick={() => { setEditingGroupId(null); setEditGroupName(''); }}
+              >✕</button>
+            </>
+          ) : (
+            <>
+              <span className={styles.highlightGroupName}>{groupName}</span>
+              <span className={styles.highlightGroupCount}>{listForGroup.length}</span>
+              {canEdit && groupId && (
+                <div className={styles.highlightGroupActions}>
+                  <button
+                    type="button"
+                    className={styles.highlightIconBtn}
+                    onClick={() => moveGroup(groupId, -1)}
+                    disabled={groups.findIndex(g => g.id === groupId) === 0}
+                    title="Move group up"
+                    aria-label="Move group up"
+                  >↑</button>
+                  <button
+                    type="button"
+                    className={styles.highlightIconBtn}
+                    onClick={() => moveGroup(groupId, 1)}
+                    disabled={groups.findIndex(g => g.id === groupId) === groups.length - 1}
+                    title="Move group down"
+                    aria-label="Move group down"
+                  >↓</button>
+                  <button
+                    type="button"
+                    className={styles.highlightIconBtn}
+                    onClick={() => { setEditingGroupId(groupId); setEditGroupName(groupName); }}
+                    title="Rename group"
+                    aria-label="Rename group"
+                  >✏️</button>
+                  <button
+                    type="button"
+                    className={styles.highlightIconBtn}
+                    onClick={() => removeGroup(groupId)}
+                    title="Remove group"
+                    aria-label="Remove group"
+                  >🗑️</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {listForGroup.length === 0 ? (
+          <div className={styles.highlightGroupEmpty}>No highlights in this group yet.</div>
+        ) : (
+          <ul className={styles.highlightsList}>
+            {listForGroup.map((h, i) => renderRow(h, i, listForGroup.length))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={styles.highlightsSection}>
       <div className={styles.highlightsHeaderRow}>
         <div>
           <h4 className={styles.highlightsTitle}>✨ Trip Highlights</h4>
           <div className={styles.highlightsSubtitle}>
-            Must-do experiences. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Add Instagram links to embed videos.
+            Must-do experiences. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Group highlights into sections to organize the trip.
           </div>
         </div>
-        {canEdit && !adding && (
-          <button className={styles.highlightsAddBtn} onClick={() => setAdding(true)}>+ Add highlight</button>
+        {canEdit && (
+          <div className={styles.highlightsHeaderActions}>
+            {!addingGroup && (
+              <button
+                className={styles.highlightsAddGroupBtn}
+                onClick={() => setAddingGroup(true)}
+              >+ Add group</button>
+            )}
+            {!adding && (
+              <button className={styles.highlightsAddBtn} onClick={() => setAdding(true)}>+ Add highlight</button>
+            )}
+          </div>
         )}
       </div>
+
+      {addingGroup && (
+        <div className={styles.highlightsForm}>
+          <input
+            type="text"
+            className={styles.highlightsInput}
+            placeholder='Group name (e.g., "Day 1 — Barcelona")'
+            value={draftGroupName}
+            onChange={e => setDraftGroupName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && draftGroupName.trim()) addGroup();
+              else if (e.key === 'Escape') { setAddingGroup(false); setDraftGroupName(''); }
+            }}
+            autoFocus
+          />
+          <div className={styles.highlightsFormActions}>
+            <button
+              type="button"
+              className={styles.highlightsCancelBtn}
+              onClick={() => { setAddingGroup(false); setDraftGroupName(''); }}
+            >Cancel</button>
+            <button
+              type="button"
+              className={styles.highlightsSaveBtn}
+              onClick={addGroup}
+              disabled={!draftGroupName.trim()}
+            >Add group</button>
+          </div>
+        </div>
+      )}
 
       {adding && (
         <div className={styles.highlightsForm}>
@@ -514,6 +890,9 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             value={draftCost}
             onChange={e => setDraftCost(e.target.value)}
           />
+          {groups.length > 0 && (
+            <GroupSelector value={draftGroupId} onChange={setDraftGroupId} />
+          )}
           <UrlInputList urls={draftUrls} setUrls={setDraftUrls} />
           <div className={styles.highlightsFormActions}>
             <button
@@ -531,189 +910,23 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {highlights.length === 0 && !adding ? (
+      {highlights.length === 0 && groups.length === 0 && !adding && !addingGroup ? (
         <div className={styles.highlightsEmpty}>
           No highlights yet. Add the must-do experiences for this trip — the AI assistant will plan around them.
         </div>
       ) : (
-        <ul className={styles.highlightsList}>
-          {highlights.map((h, idx) => {
-            const urls = getHighlightUrls(h);
-            return (
-              <li
-                key={h.id}
-                className={h.locked ? `${styles.highlightRow} ${styles.highlightRowLocked}` : styles.highlightRow}
-              >
-                <div className={styles.highlightRowMain}>
-                  <button
-                    type="button"
-                    onClick={() => canEdit && toggleLock(h.id)}
-                    disabled={!canEdit}
-                    title={h.locked
-                      ? 'Locked — AI must include this. Click to unlock.'
-                      : 'Unlocked — AI may skip this. Click to lock.'}
-                    className={styles.highlightLockBtn}
-                    aria-label={h.locked ? 'Unlock highlight' : 'Lock highlight'}
-                  >
-                    {h.locked ? '🔒' : '🔓'}
-                  </button>
-                  <span className={styles.highlightNumber} aria-label={`Stop ${idx + 1}`}>{idx + 1}</span>
-                  {editingId === h.id ? (
-                    <div className={styles.highlightEditFields}>
-                      <input
-                        type="text"
-                        className={styles.highlightInlineInput}
-                        value={editText}
-                        onChange={e => setEditText(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Escape') cancelEdit();
-                        }}
-                        autoFocus
-                      />
-                      <input
-                        type="text"
-                        className={styles.highlightInlineInput}
-                        placeholder="Cost (optional, e.g., $50/person, free)"
-                        value={editCost}
-                        onChange={e => setEditCost(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Escape') cancelEdit();
-                        }}
-                      />
-                      <UrlInputList urls={editUrls} setUrls={setEditUrls} />
-                      <div className={styles.highlightEditActions}>
-                        <button
-                          type="button"
-                          className={styles.highlightInlineSaveBtn}
-                          onClick={saveEdit}
-                        >Save</button>
-                        <button
-                          type="button"
-                          className={styles.highlightInlineCancelBtn}
-                          onClick={cancelEdit}
-                        >✕</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <span className={styles.highlightText}>{h.text}</span>
-                      <div className={styles.highlightRowEnd}>
-                        {h.cost && (
-                          <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
-                        )}
-                        {urls.map((u, i) => {
-                          const ig = isInstagramUrl(u);
-                          return (
-                            <a
-                              key={`${u}-${i}`}
-                              href={u}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={styles.highlightLinkBtn}
-                              title={u}
-                              aria-label={ig ? 'Open Instagram' : 'Open link'}
-                            >{ig ? '📱' : '🔗'}</a>
-                          );
-                        })}
-                        <div className={styles.highlightVotes}>
-                          {[1, 2, 3].map(rank => {
-                            const myRank = user ? (h.votes || {})[user.uid] : null;
-                            const isMine = myRank === rank;
-                            const count = Object.values(h.votes || {}).filter(v => v === rank).length;
-                            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉';
-                            return (
-                              <button
-                                key={rank}
-                                type="button"
-                                onClick={() => castVote(h.id, rank)}
-                                disabled={!user}
-                                className={isMine ? styles.highlightVoteBtnActive : styles.highlightVoteBtn}
-                                title={!user
-                                  ? 'Sign in to vote'
-                                  : isMine
-                                    ? `Your #${rank} pick (click to remove)`
-                                    : `Vote as #${rank}`}
-                                aria-label={`Vote as #${rank}`}
-                              >
-                                <span aria-hidden="true">{medal}</span>
-                                {count > 0 && <span>{count}</span>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {(() => {
-                          const counts = { 1: 0, 2: 0, 3: 0 };
-                          for (const rank of Object.values(h.votes || {})) {
-                            if (rank === 1 || rank === 2 || rank === 3) counts[rank]++;
-                          }
-                          const score = counts[1] * 3 + counts[2] * 2 + counts[3] * 1;
-                          const totalMedals = counts[1] + counts[2] + counts[3];
-                          return (
-                            <>
-                              <span
-                                className={score > 0 ? styles.highlightScoreActive : styles.highlightScore}
-                                title={`Ranked-choice score: 3×${counts[1]} + 2×${counts[2]} + 1×${counts[3]} = ${score}`}
-                              >
-                                <span aria-hidden="true">★</span> {score}
-                              </span>
-                              {totalMedals > 0 && (
-                                <span
-                                  className={styles.highlightMedalCount}
-                                  title={`${counts[1]} × 🥇, ${counts[2]} × 🥈, ${counts[3]} × 🥉`}
-                                >
-                                  🏅 {totalMedals}
-                                </span>
-                              )}
-                            </>
-                          );
-                        })()}
-                        {canEdit && (
-                          <div className={styles.highlightActions}>
-                          <button
-                            type="button"
-                            className={styles.highlightIconBtn}
-                            onClick={() => move(h.id, -1)}
-                            disabled={idx === 0}
-                            title="Move up"
-                            aria-label="Move up"
-                          >↑</button>
-                          <button
-                            type="button"
-                            className={styles.highlightIconBtn}
-                            onClick={() => move(h.id, 1)}
-                            disabled={idx === highlights.length - 1}
-                            title="Move down"
-                            aria-label="Move down"
-                          >↓</button>
-                          {!h.locked && (
-                            <>
-                              <button
-                                type="button"
-                                className={styles.highlightIconBtn}
-                                onClick={() => startEdit(h)}
-                                title="Edit"
-                                aria-label="Edit"
-                              >✏️</button>
-                              <button
-                                type="button"
-                                className={styles.highlightIconBtn}
-                                onClick={() => remove(h.id)}
-                                title="Remove"
-                                aria-label="Remove"
-                              >🗑️</button>
-                            </>
-                          )}
-                        </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          {groups.map(g => renderGroupSection(
+            g.id,
+            g.name,
+            highlights.filter(h => (h.groupId || '') === g.id),
+          ))}
+          {(ungroupedHighlights.length > 0 || groups.length === 0) && renderGroupSection(
+            '',
+            groups.length === 0 ? '' : 'Ungrouped',
+            ungroupedHighlights,
+          )}
+        </>
       )}
     </div>
   );
