@@ -108,6 +108,7 @@ function FlightCosts({ event, onSave, canEdit }) {
   // Local edits per row, committed to Firestore on blur. This avoids writing
   // on every keystroke while still showing the user their input immediately.
   const [drafts, setDrafts] = useState({});
+  const [collapsed, setCollapsed] = useState(false);
 
   function getValue(id, field) {
     if (drafts[id] && drafts[id][field] !== undefined) return drafts[id][field];
@@ -173,18 +174,34 @@ function FlightCosts({ event, onSave, canEdit }) {
   return (
     <div className={styles.flightCostsSection}>
       <div className={styles.flightCostsHeader}>
-        <div>
-          <h4 className={styles.flightCostsTitle}>✈️ Flight Costs</h4>
-          <div className={styles.flightCostsSubtitle}>
-            Track flight prices between cities.
+        <div className={styles.highlightsTitleWrap}>
+          <button
+            type="button"
+            className={styles.highlightsCollapseBtn}
+            onClick={() => setCollapsed(v => !v)}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Show flight costs' : 'Hide flight costs'}
+          >{collapsed ? '▸' : '▾'}</button>
+          <div>
+            <h4 className={styles.flightCostsTitle}>
+              ✈️ Flight Costs
+              {collapsed && items.length > 0 && (
+                <span className={styles.highlightsCollapsedCount}>{items.length}</span>
+              )}
+            </h4>
+            {!collapsed && (
+              <div className={styles.flightCostsSubtitle}>
+                Track flight prices between cities.
+              </div>
+            )}
           </div>
         </div>
-        {canEdit && (
+        {canEdit && !collapsed && (
           <button className={styles.flightCostsAddBtn} onClick={addRow}>+ Add flight</button>
         )}
       </div>
 
-      {items.length === 0 ? (
+      {!collapsed && (items.length === 0 ? (
         <div className={styles.flightCostsEmpty}>
           {canEdit
             ? 'No flights yet. Click "+ Add flight" to start.'
@@ -288,7 +305,7 @@ function FlightCosts({ event, onSave, canEdit }) {
             </div>
           ))}
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -403,6 +420,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [expandedVotersId, setExpandedVotersId] = useState(null);
   const [collapsed, setCollapsed] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
+  const [hideVoting, setHideVoting] = useState(false);
 
   function resetDraft() {
     setDraftText('');
@@ -650,19 +668,23 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             </div>
           ) : (
             <>
-              <span
-                className={`${styles.highlightText} ${styles.highlightTextClickable}`}
-                onClick={() => setExpandedVotersId(prev => prev === h.id ? null : h.id)}
-                title="Click to see who voted"
-                role="button"
-                tabIndex={0}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setExpandedVotersId(prev => prev === h.id ? null : h.id);
-                  }
-                }}
-              >{h.text}</span>
+              {hideVoting ? (
+                <span className={styles.highlightText}>{h.text}</span>
+              ) : (
+                <span
+                  className={`${styles.highlightText} ${styles.highlightTextClickable}`}
+                  onClick={() => setExpandedVotersId(prev => prev === h.id ? null : h.id)}
+                  title="Click to see who voted"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setExpandedVotersId(prev => prev === h.id ? null : h.id);
+                    }
+                  }}
+                >{h.text}</span>
+              )}
               <div className={styles.highlightRowEnd}>
                 {h.cost && (
                   <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
@@ -691,6 +713,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                     >{ig ? '📱' : '🔗'}</a>
                   );
                 })}
+                {!hideVoting && (
                 <div className={styles.highlightVotes}>
                   {[1, 2, 3].map(rank => {
                     const myRank = user ? (h.votes || {})[user.uid] : null;
@@ -713,7 +736,8 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                     );
                   })}
                 </div>
-                {(() => {
+                )}
+                {!hideVoting && (() => {
                   const counts = { 1: 0, 2: 0, 3: 0 };
                   for (const rank of Object.values(h.votes || {})) {
                     if (rank === 1 || rank === 2 || rank === 3) counts[rank]++;
@@ -788,7 +812,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             </>
           )}
         </div>
-        {expandedVotersId === h.id && editingId !== h.id && (
+        {!hideVoting && expandedVotersId === h.id && editingId !== h.id && (
           <div className={styles.highlightVotersPanel}>
             {[1, 2, 3].map(rank => {
               const voterUids = Object.entries(h.votes || {})
@@ -922,6 +946,12 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         </div>
         {!collapsed && (
           <div className={styles.highlightsHeaderActions}>
+            <button
+              type="button"
+              className={styles.highlightsToggleHiddenBtn}
+              onClick={() => setHideVoting(v => !v)}
+              title={hideVoting ? 'Show voting' : 'Hide voting'}
+            >{hideVoting ? '🗳️ Show voting' : '🙊 Hide voting'}</button>
             {hiddenCount > 0 && (
               <button
                 type="button"
@@ -943,7 +973,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         )}
       </div>
 
-      {!collapsed && (() => {
+      {!collapsed && !hideVoting && (() => {
         if (highlights.length === 0) return null;
         const membersObj = event?.members || {};
         const voters = [];
@@ -1189,15 +1219,18 @@ const MODE_COLOR = {
 };
 
 // Overview map showing every leg on one canvas, each in its own mode color.
-function TripOverviewMap({ mapsKey, transitions }) {
+function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const renderersRef = useRef([]);
   const markersRef = useRef([]);
+  const flightLinesRef = useRef([]);
+  const flightMarkersRef = useRef([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
   const [polylines, setPolylines] = useState({}); // depKey -> [{polyline, mode}]
   const depKey = transitions.map(t => `${t.from}|${t.to}|${t.mode}`).join('\n');
+  const flightKey = flights.map(f => `${f.from}|${f.to}`).join('\n');
 
   useEffect(() => {
     if (!mapsKey) return;
@@ -1220,8 +1253,74 @@ function TripOverviewMap({ mapsKey, transitions }) {
       renderersRef.current = [];
       for (const m of markersRef.current) m.setMap(null);
       markersRef.current = [];
+      for (const l of flightLinesRef.current) l.setMap(null);
+      flightLinesRef.current = [];
+      for (const m of flightMarkersRef.current) m.setMap(null);
+      flightMarkersRef.current = [];
     };
   }, [mapsKey]);
+
+  // Draw flights as direct geodesic polylines (DirectionsService can't route flights).
+  useEffect(() => {
+    if (!ready || !mapRef.current || !window.google?.maps) return;
+    const google = window.google;
+    // Clear previous flight lines + markers
+    for (const l of flightLinesRef.current) l.setMap(null);
+    flightLinesRef.current = [];
+    for (const m of flightMarkersRef.current) m.setMap(null);
+    flightMarkersRef.current = [];
+    if (!flights || flights.length === 0) return;
+    const geocoder = new google.maps.Geocoder();
+    const flightBounds = new google.maps.LatLngBounds();
+    let pendingFlights = flights.length;
+    flights.forEach(f => {
+      Promise.all([
+        new Promise(resolve => geocoder.geocode({ address: f.from }, (r, s) => resolve(s === 'OK' && r[0] ? r[0].geometry.location : null))),
+        new Promise(resolve => geocoder.geocode({ address: f.to }, (r, s) => resolve(s === 'OK' && r[0] ? r[0].geometry.location : null))),
+      ]).then(([fromLL, toLL]) => {
+        pendingFlights -= 1;
+        if (!fromLL || !toLL || !mapRef.current) {
+          if (pendingFlights === 0 && transitions.length === 0 && !flightBounds.isEmpty()) {
+            mapRef.current.fitBounds(flightBounds, { top: 60, right: 60, bottom: 60, left: 60 });
+          }
+          return;
+        }
+        flightBounds.extend(fromLL);
+        flightBounds.extend(toLL);
+        const color = MODE_COLOR[f.mode] || MODE_COLOR.flying;
+        const line = new google.maps.Polyline({
+          path: [fromLL, toLL],
+          geodesic: true,
+          strokeColor: color,
+          strokeOpacity: 0,
+          icons: [{
+            icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 3 },
+            offset: '0',
+            repeat: '12px',
+          }],
+          map: mapRef.current,
+        });
+        flightLinesRef.current.push(line);
+        // Add a small plane marker at the midpoint as a hint
+        const midLat = (fromLL.lat() + toLL.lat()) / 2;
+        const midLng = (fromLL.lng() + toLL.lng()) / 2;
+        const marker = new google.maps.Marker({
+          position: { lat: midLat, lng: midLng },
+          map: mapRef.current,
+          icon: {
+            path: 'M -2,-2 L 2,-2 L 2,2 L -2,2 Z',
+            scale: 0,
+          },
+          label: { text: '✈️', fontSize: '16px' },
+          title: f.title || `${f.from} → ${f.to}`,
+        });
+        flightMarkersRef.current.push(marker);
+        if (pendingFlights === 0 && transitions.length === 0 && !flightBounds.isEmpty()) {
+          mapRef.current.fitBounds(flightBounds, { top: 60, right: 60, bottom: 60, left: 60 });
+        }
+      });
+    });
+  }, [ready, flightKey]);
 
   useEffect(() => {
     if (!ready || !mapRef.current || !window.google?.maps) return;
@@ -1979,6 +2078,25 @@ export function Itinerary({ event, onSave, canEdit }) {
     }
   }
 
+  // Travel items themselves (flights, trains, transfers). DirectionsService
+  // can't route flights, so these get drawn as direct geodesic polylines.
+  const allFlights = items
+    .filter(i => i.type === 'travel')
+    .map(i => {
+      const { start, end } = extractStartEnd(i);
+      const from = (start || '').trim();
+      const to = (end || '').trim();
+      if (!from || !to || locationsEqual(from, to)) return null;
+      return {
+        id: i.id,
+        from,
+        to,
+        title: i.title || '',
+        mode: inferTravelMode(i),
+      };
+    })
+    .filter(Boolean);
+
   // Fetch travel time for every transition. Errors don't stick in the ref, so a
   // subsequent render (or mode change) will retry.
   const transitionFetchDep = allTransitions.map(t => travelTimeKey(t.from, t.to, t.mode)).join('\n');
@@ -2025,12 +2143,28 @@ export function Itinerary({ event, onSave, canEdit }) {
             const start = toDate(event?.startDate || event?.date);
             const end = toDate(event?.endDate) || start;
             if (!start || !end) return null;
-            const ms = end.setHours(0, 0, 0, 0) - start.setHours(0, 0, 0, 0);
+            // Clone before mutating with setHours
+            const s = new Date(start);
+            const e = new Date(end);
+            s.setHours(0, 0, 0, 0);
+            e.setHours(0, 0, 0, 0);
+            const ms = e - s;
             const days = Math.max(1, Math.round(ms / 86400000) + 1);
+            const sameYear = s.getFullYear() === e.getFullYear();
+            const fmtShort = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const fmtFull = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const range = days === 1
+              ? fmtFull(s)
+              : sameYear
+                ? `${fmtShort(s)} – ${fmtShort(e)}, ${e.getFullYear()}`
+                : `${fmtFull(s)} – ${fmtFull(e)}`;
             return (
-              <span className={styles.tripDaysBadge} title="Total trip length">
-                {days} day{days === 1 ? '' : 's'}
-              </span>
+              <>
+                <span className={styles.tripDaysBadge} title="Total trip length">
+                  {days} day{days === 1 ? '' : 's'}
+                </span>
+                <span className={styles.tripDateRange} title="Trip dates">{range}</span>
+              </>
             );
           })()}
         </h3>
@@ -2076,7 +2210,7 @@ export function Itinerary({ event, onSave, canEdit }) {
               {allTransitions.length} {allTransitions.length === 1 ? 'route' : 'routes'}
             </span>
           </div>
-          <TripOverviewMap mapsKey={mapsKey} transitions={allTransitions} />
+          <TripOverviewMap mapsKey={mapsKey} transitions={allTransitions} flights={allFlights} />
         </div>
       )}
 
@@ -2201,6 +2335,48 @@ export function Itinerary({ event, onSave, canEdit }) {
           </div>
         </div>
       )}
+
+      {(() => {
+        const flights = Array.isArray(event?.flightCosts) ? event.flightCosts : [];
+        if (flights.length === 0) return null;
+        const parseCost = (v) => {
+          if (typeof v !== 'string') return NaN;
+          const cleaned = v.replace(/[^\d.]/g, '');
+          if (!cleaned) return NaN;
+          const n = parseFloat(cleaned);
+          return isNaN(n) ? NaN : n;
+        };
+        const numericCosts = flights.map(f => parseCost(f.cost)).filter(n => !isNaN(n));
+        const cheapest = numericCosts.length ? Math.min(...numericCosts) : null;
+        const total = numericCosts.length ? numericCosts.reduce((a, b) => a + b, 0) : null;
+        const starred = flights.find(f => f.starred);
+        const fmt = (n) => `$${Math.round(n).toLocaleString()}`;
+        return (
+          <div className={styles.flightSummary}>
+            <span className={styles.flightSummaryItem}>
+              <strong>{flights.length}</strong> flight{flights.length === 1 ? '' : 's'} tracked
+            </span>
+            {cheapest !== null && (
+              <span className={styles.flightSummaryItem}>
+                Cheapest <strong>{fmt(cheapest)}</strong>
+              </span>
+            )}
+            {total !== null && flights.length > 1 && (
+              <span className={styles.flightSummaryItem}>
+                Total <strong>{fmt(total)}</strong>
+              </span>
+            )}
+            {starred && (
+              <span className={styles.flightSummaryStarred}>
+                ⭐ {starred.from || '?'} → {starred.to || starred.city || '?'}
+                {starred.cost ? ` · ${starred.cost}` : ''}
+                {starred.tripType === 'one-way' ? ' · one way' : ''}
+                {typeof starred.stops === 'number' && starred.stops === 0 ? ' · direct' : ''}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
 
