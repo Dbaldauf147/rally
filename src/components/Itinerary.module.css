@@ -562,6 +562,14 @@
   flex-direction: column;
   gap: 0.4rem;
 }
+.urlListLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 0.05rem;
+}
 .urlRow {
   display: flex;
   align-items: center;

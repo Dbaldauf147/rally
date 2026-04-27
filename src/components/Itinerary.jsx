@@ -310,7 +310,7 @@ function cleanUrlList(arr) {
 function UrlInputList({ urls, setUrls, autoFocus = false }) {
   const list = urls.length > 0 ? urls : [''];
   function update(i, value) {
-    const next = [...list];
+    const next = list.slice();
     next[i] = value;
     setUrls(next);
   }
@@ -323,15 +323,18 @@ function UrlInputList({ urls, setUrls, autoFocus = false }) {
   }
   return (
     <div className={styles.urlList}>
+      <div className={styles.urlListLabel}>Links / Videos</div>
       {list.map((u, i) => (
         <div key={i} className={styles.urlRow}>
           <input
-            type="url"
+            type="text"
             inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
             className={styles.highlightsInput}
             placeholder={i === 0
-              ? 'Optional URL (Instagram link will embed the video)'
-              : 'Another URL'}
+              ? 'Paste an Instagram, YouTube, or any link'
+              : 'Another link'}
             value={u}
             onChange={e => update(i, e.target.value)}
             autoFocus={autoFocus && i === 0}
@@ -341,8 +344,8 @@ function UrlInputList({ urls, setUrls, autoFocus = false }) {
               type="button"
               className={styles.urlRemoveBtn}
               onClick={() => removeAt(i)}
-              title="Remove URL"
-              aria-label="Remove URL"
+              title="Remove link"
+              aria-label="Remove link"
             >✕</button>
           )}
         </div>
