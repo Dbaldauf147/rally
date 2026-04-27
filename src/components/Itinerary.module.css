@@ -665,6 +665,43 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
+.highlightDayPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.highlightDayPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.highlightDayPill,
+.highlightDayPillActive {
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.highlightDayPill:hover {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+.highlightDayPillActive {
+  background: rgba(8, 145, 178, 0.15);
+  border-color: #0891b2;
+  color: #0e7490;
+  font-weight: 700;
+}
+.highlightDayPillActive:hover {
+  background: rgba(8, 145, 178, 0.25);
+}
 .urlList {
   display: flex;
   flex-direction: column;

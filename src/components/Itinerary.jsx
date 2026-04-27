@@ -392,7 +392,27 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const groups = Array.isArray(event?.tripHighlightGroups) ? event.tripHighlightGroups : [];
   const itineraryItems = Array.isArray(event?.itinerary) ? event.itinerary : [];
 
+  // Generate the list of YYYY-MM-DD dates spanning the trip (inclusive).
+  const tripDates = (() => {
+    const toDate = (d) => {
+      if (!d) return null;
+      const x = d?.toDate ? d.toDate() : new Date(d);
+      return isNaN(x) ? null : x;
+    };
+    const start = toDate(event?.startDate || event?.date);
+    const end = toDate(event?.endDate) || start;
+    if (!start || !end) return [];
+    const s = new Date(start); s.setHours(0, 0, 0, 0);
+    const e = new Date(end); e.setHours(0, 0, 0, 0);
+    const out = [];
+    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+      out.push(d.toISOString().split('T')[0]);
+    }
+    return out;
+  })();
+
   function countDaysForHighlight(h) {
+    if (Array.isArray(h?.dates) && h.dates.length > 0) return h.dates.length;
     const needle = (h?.text || '').trim().toLowerCase();
     if (!needle) return 0;
     const dates = new Set();
@@ -413,6 +433,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [editCost, setEditCost] = useState('');
   const [editUrls, setEditUrls] = useState(['']);
   const [editGroupId, setEditGroupId] = useState('');
+  const [editDates, setEditDates] = useState([]);
   const [addingGroup, setAddingGroup] = useState(false);
   const [draftGroupName, setDraftGroupName] = useState('');
   const [editingGroupId, setEditingGroupId] = useState(null);
@@ -468,6 +489,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     const existing = getHighlightUrls(h);
     setEditUrls(existing.length > 0 ? existing : ['']);
     setEditGroupId(h.groupId || '');
+    setEditDates(Array.isArray(h.dates) ? h.dates.slice() : []);
   }
 
   function cancelEdit() {
@@ -476,18 +498,26 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     setEditCost('');
     setEditUrls(['']);
     setEditGroupId('');
+    setEditDates([]);
   }
 
   async function saveEdit() {
     const text = editText.trim();
     if (!text || !editingId) { cancelEdit(); return; }
     const urls = cleanUrlList(editUrls);
+    const dates = Array.isArray(editDates) ? editDates.slice().sort() : [];
     await onSave({
       tripHighlights: highlights.map(h => h.id === editingId
-        ? { ...h, text, cost: editCost.trim(), urls, url: '', groupId: editGroupId || '' }
+        ? { ...h, text, cost: editCost.trim(), urls, url: '', groupId: editGroupId || '', dates }
         : h),
     });
     cancelEdit();
+  }
+
+  function toggleEditDate(date) {
+    setEditDates(prev => prev.includes(date)
+      ? prev.filter(d => d !== date)
+      : [...prev, date]);
   }
 
   async function remove(id) {
@@ -660,6 +690,26 @@ function TripHighlightsList({ event, onSave, canEdit }) {
               {groups.length > 0 && (
                 <GroupSelector value={editGroupId} onChange={setEditGroupId} />
               )}
+              {tripDates.length > 0 && (
+                <div className={styles.highlightDayPicker}>
+                  <div className={styles.urlListLabel}>Days</div>
+                  <div className={styles.highlightDayPills}>
+                    {tripDates.map(d => {
+                      const date = new Date(d + 'T12:00:00');
+                      const label = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                      const active = editDates.includes(d);
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          className={active ? styles.highlightDayPillActive : styles.highlightDayPill}
+                          onClick={() => toggleEditDate(d)}
+                        >{label}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <UrlInputList urls={editUrls} setUrls={setEditUrls} />
               <div className={styles.highlightEditActions}>
                 <button type="button" className={styles.highlightInlineSaveBtn} onClick={saveEdit}>Save</button>
@@ -692,10 +742,16 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                 {(() => {
                   const days = countDaysForHighlight(h);
                   if (days === 0) return null;
+                  const explicit = Array.isArray(h.dates) && h.dates.length > 0;
+                  const tooltip = explicit
+                    ? 'Tied to: ' + h.dates.slice().sort()
+                        .map(d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }))
+                        .join(', ')
+                    : 'Auto-detected from itinerary text';
                   return (
                     <span
                       className={styles.highlightDayCount}
-                      title="Days in the itinerary that mention this highlight"
+                      title={tooltip}
                     >📅 {days} day{days === 1 ? '' : 's'}</span>
                   );
                 })()}
