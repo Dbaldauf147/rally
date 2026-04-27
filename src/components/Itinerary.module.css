@@ -39,6 +39,22 @@
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--color-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+.tripDaysBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  background: rgba(134, 59, 255, 0.12);
+  color: var(--color-accent);
+  border: 1px solid rgba(134, 59, 255, 0.3);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .addBtn {

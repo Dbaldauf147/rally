@@ -1844,7 +1844,26 @@ export function Itinerary({ event, onSave, canEdit }) {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h3 className={styles.heading}>Trip Itinerary</h3>
+        <h3 className={styles.heading}>
+          Trip Itinerary
+          {(() => {
+            const toDate = (d) => {
+              if (!d) return null;
+              const x = d?.toDate ? d.toDate() : new Date(d);
+              return isNaN(x) ? null : x;
+            };
+            const start = toDate(event?.startDate || event?.date);
+            const end = toDate(event?.endDate) || start;
+            if (!start || !end) return null;
+            const ms = end.setHours(0, 0, 0, 0) - start.setHours(0, 0, 0, 0);
+            const days = Math.max(1, Math.round(ms / 86400000) + 1);
+            return (
+              <span className={styles.tripDaysBadge} title="Total trip length">
+                {days} day{days === 1 ? '' : 's'}
+              </span>
+            );
+          })()}
+        </h3>
         <div className={styles.headerActions}>
           <button
             className={styles.lodgingToggleBtn}
