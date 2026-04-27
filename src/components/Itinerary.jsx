@@ -413,9 +413,18 @@ function TripHighlightsList({ event, onSave, canEdit }) {
 
   function countDaysForHighlight(h) {
     if (Array.isArray(h?.dates) && h.dates.length > 0) return h.dates.length;
+    const dates = new Set();
+    // Items explicitly tagged to this highlight from the item form.
+    for (const it of itineraryItems) {
+      if (!it?.date) continue;
+      if (Array.isArray(it.highlightIds) && it.highlightIds.includes(h.id)) {
+        dates.add(it.date);
+      }
+    }
+    if (dates.size > 0) return dates.size;
+    // Fallback: text match on title/location/notes.
     const needle = (h?.text || '').trim().toLowerCase();
     if (!needle) return 0;
-    const dates = new Set();
     for (const it of itineraryItems) {
       if (!it?.date) continue;
       const haystack = ((it.title || '') + ' ' + (it.location || '') + ' ' + (it.notes || '')).toLowerCase();
@@ -1662,7 +1671,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const items = Array.isArray(event?.itinerary) ? event.itinerary : [];
   const [editingId, setEditingId] = useState(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '' });
+  const [form, setForm] = useState({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [] });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
@@ -1770,7 +1779,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   }
 
   function startAdd() {
-    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '' });
+    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [] });
     setAdding(true);
     setEditingId(null);
   }
@@ -1784,6 +1793,7 @@ export function Itinerary({ event, onSave, canEdit }) {
       notes: item.notes || '',
       type: item.type || 'activity',
       url: item.url || '',
+      highlightIds: Array.isArray(item.highlightIds) ? item.highlightIds : [],
     });
     setEditingId(item.id);
     setAdding(false);
@@ -2392,6 +2402,30 @@ export function Itinerary({ event, onSave, canEdit }) {
             value={form.notes}
             onChange={e => setForm({ ...form, notes: e.target.value })}
           />
+          {Array.isArray(event?.tripHighlights) && event.tripHighlights.length > 0 && (
+            <div className={styles.itemHighlightTagger}>
+              <div className={styles.urlListLabel}>Tag highlights</div>
+              <div className={styles.itemHighlightTagPills}>
+                {event.tripHighlights.map(h => {
+                  const active = (form.highlightIds || []).includes(h.id);
+                  return (
+                    <button
+                      key={h.id}
+                      type="button"
+                      className={active ? styles.itemHighlightTagPillActive : styles.itemHighlightTagPill}
+                      onClick={() => {
+                        const cur = form.highlightIds || [];
+                        const next = cur.includes(h.id)
+                          ? cur.filter(x => x !== h.id)
+                          : [...cur, h.id];
+                        setForm({ ...form, highlightIds: next });
+                      }}
+                    >{h.text}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className={styles.formActions}>
             <button className={styles.cancelBtn} onClick={cancel}>Cancel</button>
             <button className={styles.saveBtn} onClick={saveItem} disabled={!form.title.trim()}>
