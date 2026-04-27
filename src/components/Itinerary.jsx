@@ -441,7 +441,16 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [expandedVotersId, setExpandedVotersId] = useState(null);
   const [collapsed, setCollapsed] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
-  const [hideVoting, setHideVoting] = useState(false);
+  const hideVotingKey = `rally.tripHighlights.hideVoting.${event?.id || 'global'}`;
+  const [hideVoting, setHideVoting] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try { return localStorage.getItem(hideVotingKey) === '1'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(hideVotingKey, hideVoting ? '1' : '0'); }
+    catch { /* ignore */ }
+  }, [hideVotingKey, hideVoting]);
 
   function resetDraft() {
     setDraftText('');
