@@ -1375,10 +1375,15 @@ export function Itinerary({ event, onSave, canEdit }) {
 
     const body = lines.join('\n');
     const subject = `Itinerary for ${event?.title || 'our trip'}`;
-    const mailto = `mailto:${encodeURIComponent(emails.join(','))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
-    window.location.href = mailto;
-    setEmailResult(`Opened email draft for ${emails.length} recipient${emails.length === 1 ? '' : 's'}.`);
+    const opened = window.open(gmailUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      setEmailResult('Pop-up blocked — please allow pop-ups for Rally and try again.');
+      setTimeout(() => setEmailResult(''), 8000);
+      return;
+    }
+    setEmailResult(`Gmail draft opened for ${emails.length} recipient${emails.length === 1 ? '' : 's'}.`);
     setTimeout(() => setEmailResult(''), 5000);
   }
 
