@@ -11,6 +11,15 @@ import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { Notes } from './Notes';
+import {
+  syncEventToGoogleCalendar,
+  removeEventFromGoogleCalendar,
+  isGoogleCalendarConnected,
+  connectGoogleCalendar,
+  listGoogleCalendars,
+  getSyncTargetCalendar,
+  setSyncTargetCalendar,
+} from '../googleCalendar';
 import styles from './EventDetail.module.css';
 
 export function EventDetail() {
@@ -54,6 +63,13 @@ export function EventDetail() {
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
+  const [calSyncing, setCalSyncing] = useState(false);
+  const [calSyncMsg, setCalSyncMsg] = useState(null); // { type: 'success' | 'error', message: string }
+  const [calTarget, setCalTarget] = useState(() => getSyncTargetCalendar());
+  const [showCalPicker, setShowCalPicker] = useState(false);
+  const [calPickerList, setCalPickerList] = useState(null); // null = not loaded, [] = empty
+  const [calPickerLoading, setCalPickerLoading] = useState(false);
+  const [calPickerError, setCalPickerError] = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'events', eventId), (snap) => {
@@ -529,6 +545,115 @@ export function EventDetail() {
 
   const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${calStart.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${calEnd.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&details=${encodeURIComponent(icsDescription)}${attendeesParam}`;
 
+  const userCalSync = user?.uid ? event.googleCalendar?.[user.uid] : null;
+  const calIsStale = !!userCalSync && (
+    userCalSync.calStartMs !== calStart.getTime() ||
+    userCalSync.calEndMs !== calEnd.getTime()
+  );
+
+  async function handleCalendarSync() {
+    if (!user?.uid) return;
+    setCalSyncing(true);
+    setCalSyncMsg(null);
+    try {
+      if (!isGoogleCalendarConnected()) {
+        await connectGoogleCalendar();
+      }
+      // Re-sync writes back to the calendar where the event was originally created,
+      // so changing your default later doesn't strand existing events.
+      const targetId = userCalSync?.calendarId || calTarget.id;
+      const targetName = userCalSync?.calendarName || calTarget.name;
+      const doSync = () => syncEventToGoogleCalendar({
+        event,
+        googleEventId: userCalSync?.googleEventId,
+        calStart,
+        calEnd,
+        description: icsDescription,
+        calendarId: targetId,
+      });
+      let googleEventId;
+      try {
+        googleEventId = await doSync();
+      } catch (err) {
+        if (err?.code === 'NOT_CONNECTED') {
+          await connectGoogleCalendar();
+          googleEventId = await doSync();
+        } else {
+          throw err;
+        }
+      }
+      await updateEvent(eventId, {
+        [`googleCalendar.${user.uid}`]: {
+          googleEventId,
+          calendarId: targetId,
+          calendarName: targetName,
+          calStartMs: calStart.getTime(),
+          calEndMs: calEnd.getTime(),
+          syncedAt: new Date().toISOString(),
+        },
+      });
+      setCalSyncMsg({ type: 'success', message: userCalSync ? `Updated in “${targetName}”` : `Added to “${targetName}”` });
+    } catch (err) {
+      setCalSyncMsg({ type: 'error', message: err?.message || 'Failed to sync to Google Calendar' });
+    } finally {
+      setCalSyncing(false);
+      setTimeout(() => setCalSyncMsg(null), 6000);
+    }
+  }
+
+  async function handleCalendarRemove() {
+    if (!user?.uid || !userCalSync?.googleEventId) return;
+    const targetName = userCalSync.calendarName || 'your Google Calendar';
+    if (!window.confirm(`Remove this event from “${targetName}”?`)) return;
+    setCalSyncing(true);
+    setCalSyncMsg(null);
+    try {
+      await removeEventFromGoogleCalendar(userCalSync.googleEventId, userCalSync.calendarId || 'primary');
+      await updateEvent(eventId, { [`googleCalendar.${user.uid}`]: deleteField() });
+      setCalSyncMsg({ type: 'success', message: `Removed from “${targetName}”` });
+    } catch (err) {
+      setCalSyncMsg({ type: 'error', message: err?.message || 'Failed to remove from Google Calendar' });
+    } finally {
+      setCalSyncing(false);
+      setTimeout(() => setCalSyncMsg(null), 5000);
+    }
+  }
+
+  async function openCalendarPicker() {
+    setShowCalPicker(true);
+    setCalPickerError('');
+    if (calPickerList) return; // already loaded
+    setCalPickerLoading(true);
+    try {
+      if (!isGoogleCalendarConnected()) {
+        await connectGoogleCalendar();
+      }
+      const cals = await listGoogleCalendars();
+      setCalPickerList(cals);
+    } catch (err) {
+      if (err?.code === 'NOT_CONNECTED') {
+        try {
+          await connectGoogleCalendar();
+          const cals = await listGoogleCalendars();
+          setCalPickerList(cals);
+        } catch (err2) {
+          setCalPickerError(err2?.message || 'Failed to load calendars');
+        }
+      } else {
+        setCalPickerError(err?.message || 'Failed to load calendars');
+      }
+    } finally {
+      setCalPickerLoading(false);
+    }
+  }
+
+  function chooseCalendar(cal) {
+    const id = cal.primary ? 'primary' : cal.id;
+    setSyncTargetCalendar(id, cal.name);
+    setCalTarget({ id, name: cal.name });
+    setShowCalPicker(false);
+  }
+
   function handleCopyLink() {
     const fromName = user?.displayName || 'Someone';
     const pollUrl = `${window.location.origin}/poll/${eventId}?name=Friend`;
@@ -682,6 +807,116 @@ export function EventDetail() {
           {event.location && <p className={styles.location}>📍 {event.location}</p>}
         </div>
       </div>
+
+      {user?.uid && stage === 'finalized' && !event.dateTBD && (
+        <div className={styles.rsvpSection} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+            {!userCalSync && (
+              <button className={styles.shareBtn} disabled={calSyncing} onClick={handleCalendarSync}>
+                {calSyncing ? 'Syncing…' : '📅 Sync to my Google Calendar'}
+              </button>
+            )}
+            {userCalSync && (
+              <>
+                <button
+                  className={styles.shareBtn}
+                  disabled={calSyncing}
+                  onClick={handleCalendarSync}
+                  style={calIsStale ? { background: 'var(--color-warning-light)', borderColor: 'var(--color-warning)', color: 'var(--color-warning)' } : undefined}
+                >
+                  {calSyncing
+                    ? 'Syncing…'
+                    : calIsStale
+                      ? '↻ Update in Google Calendar (date changed)'
+                      : '✓ Synced to Google Calendar — Re-sync'}
+                </button>
+                <button className={styles.shareBtn} disabled={calSyncing} onClick={handleCalendarRemove}>
+                  Remove from Google Calendar
+                </button>
+              </>
+            )}
+            {calSyncMsg && (
+              <span style={{
+                fontSize: '0.85rem',
+                color: calSyncMsg.type === 'success' ? 'var(--color-success)' : 'var(--color-danger, #b91c1c)',
+              }}>
+                {calSyncMsg.message}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+            {userCalSync ? (
+              <>Synced to <strong>{userCalSync.calendarName || 'Primary calendar'}</strong></>
+            ) : (
+              <>Syncing to <strong>{calTarget.name}</strong></>
+            )}
+            {' · '}
+            <button
+              type="button"
+              onClick={openCalendarPicker}
+              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-accent)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit' }}
+            >
+              Change
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showCalPicker && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' }}
+          onClick={() => setShowCalPicker(false)}
+        >
+          <div
+            style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', maxWidth: '420px', width: '100%', boxShadow: 'var(--shadow-lg)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0 0 0.25rem' }}>Choose Calendar</h2>
+            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 0.85rem' }}>
+              Future syncs of finalized Rally events will be added to this calendar. Existing synced events stay where they were created.
+            </p>
+            {calPickerLoading && <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', textAlign: 'center', padding: '1rem 0' }}>Loading calendars…</p>}
+            {calPickerError && <p style={{ fontSize: '0.85rem', color: 'var(--color-danger, #b91c1c)' }}>{calPickerError}</p>}
+            {!calPickerLoading && calPickerList && calPickerList.length === 0 && (
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>No writable calendars found.</p>
+            )}
+            {!calPickerLoading && calPickerList && calPickerList.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '320px', overflowY: 'auto' }}>
+                {calPickerList.map(cal => {
+                  const targetIdForCal = cal.primary ? 'primary' : cal.id;
+                  const isSelected = calTarget.id === targetIdForCal;
+                  return (
+                    <button
+                      key={cal.id}
+                      type="button"
+                      onClick={() => chooseCalendar(cal)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.6rem 0.75rem',
+                        border: isSelected ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
+                        borderRadius: '8px', background: isSelected ? 'var(--color-accent-light)' : 'var(--color-surface)',
+                        cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%', boxSizing: 'border-box',
+                      }}
+                    >
+                      <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: cal.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--color-text)', flex: 1 }}>{cal.name}</span>
+                      {cal.primary && <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>Primary</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowCalPicker(false)}
+                style={{ flex: 1, padding: '0.55rem', border: '1px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {user?.email === 'baldaufdan@gmail.com' && (
       <div className={styles.rsvpSection}>

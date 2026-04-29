@@ -17,6 +17,7 @@ export default async function handler(req, res) {
       name: c.summary || c.id,
       color: c.backgroundColor || '#4285F4',
       primary: c.primary || false,
+      accessRole: c.accessRole || 'reader',
     }));
     return res.json({ calendars });
   } catch (err) {
