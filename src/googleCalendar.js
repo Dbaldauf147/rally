@@ -8,6 +8,7 @@ const REFRESH_KEY = 'google-cal-refresh';
 const EXPIRY_KEY = 'google-cal-expiry';
 const TARGET_ID_KEY = 'google-cal-sync-target-id';
 const TARGET_NAME_KEY = 'google-cal-sync-target-name';
+const AUTO_SYNC_KEY = 'google-cal-auto-sync';
 
 export function getSyncTargetCalendar() {
   const id = localStorage.getItem(TARGET_ID_KEY) || 'primary';
@@ -18,6 +19,42 @@ export function getSyncTargetCalendar() {
 export function setSyncTargetCalendar(id, name) {
   localStorage.setItem(TARGET_ID_KEY, id);
   localStorage.setItem(TARGET_NAME_KEY, name);
+}
+
+export function getAutoSyncEnabled() {
+  return localStorage.getItem(AUTO_SYNC_KEY) === '1';
+}
+
+export function setAutoSyncEnabled(enabled) {
+  if (enabled) localStorage.setItem(AUTO_SYNC_KEY, '1');
+  else localStorage.removeItem(AUTO_SYNC_KEY);
+}
+
+// Mirrors EventDetail's calStart/calEnd computation so manual and auto-sync
+// produce the same timing. If the event's itinerary has timed activities,
+// span from the earliest to the latest. Otherwise fall back to noon + 1h
+// (which buildCalendarPayload turns into an all-day entry).
+export function computeCalRange(event) {
+  const date = event.date?.toDate?.() || (event.date ? new Date(event.date) : null);
+  const endDate = event.endDate?.toDate?.() || (event.endDate ? new Date(event.endDate) : null);
+  if (!date || isNaN(date.getTime())) return null;
+
+  const items = (Array.isArray(event.itinerary) ? event.itinerary : [])
+    .filter(it => (it.type || 'activity') !== 'travel' && it.date && it.time);
+  const toDate = (it) => {
+    const t = /^\d{1,2}:\d{2}$/.test(it.time) ? `${it.time}:00` : it.time;
+    const d = new Date(`${it.date}T${t}`);
+    return isNaN(d.getTime()) ? null : d;
+  };
+  const dates = items.map(toDate).filter(Boolean);
+  if (dates.length === 0) {
+    return { calStart: date, calEnd: endDate || new Date(date.getTime() + 3600000) };
+  }
+  const start = new Date(Math.min(...dates.map(d => d.getTime())));
+  const end = dates.length > 1
+    ? new Date(Math.max(...dates.map(d => d.getTime())))
+    : new Date(start.getTime() + 3600000);
+  return { calStart: start, calEnd: end };
 }
 
 export function isGoogleCalendarConnected() {

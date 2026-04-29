@@ -19,6 +19,8 @@ import {
   listGoogleCalendars,
   getSyncTargetCalendar,
   setSyncTargetCalendar,
+  getAutoSyncEnabled,
+  setAutoSyncEnabled,
 } from '../googleCalendar';
 import styles from './EventDetail.module.css';
 
@@ -66,6 +68,7 @@ export function EventDetail() {
   const [calSyncing, setCalSyncing] = useState(false);
   const [calSyncMsg, setCalSyncMsg] = useState(null); // { type: 'success' | 'error', message: string }
   const [calTarget, setCalTarget] = useState(() => getSyncTargetCalendar());
+  const [calAutoSync, setCalAutoSync] = useState(() => getAutoSyncEnabled());
   const [showCalPicker, setShowCalPicker] = useState(false);
   const [calPickerList, setCalPickerList] = useState(null); // null = not loaded, [] = empty
   const [calPickerLoading, setCalPickerLoading] = useState(false);
@@ -850,6 +853,7 @@ export function EventDetail() {
             ) : (
               <>Syncing to <strong>{calTarget.name}</strong></>
             )}
+            {calAutoSync && <> · <span style={{ color: 'var(--color-success)' }}>Auto-sync on</span></>}
             {' · '}
             <button
               type="button"
@@ -905,6 +909,24 @@ export function EventDetail() {
                 })}
               </div>
             )}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.55rem', marginTop: '1rem', padding: '0.65rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={calAutoSync}
+                onChange={(e) => {
+                  setCalAutoSync(e.target.checked);
+                  setAutoSyncEnabled(e.target.checked);
+                }}
+                style={{ accentColor: 'var(--color-accent)', width: '16px', height: '16px', marginTop: '2px' }}
+              />
+              <span style={{ flex: 1 }}>
+                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--color-text)' }}>Auto-sync finalized events</span>
+                <br />
+                <span style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)' }}>
+                  Automatically add every finalized Rally event to <strong>{calTarget.name}</strong> while you have Rally open. You won't need to click Sync per event.
+                </span>
+              </span>
+            </label>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
               <button
                 type="button"

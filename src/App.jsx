@@ -11,6 +11,7 @@ import { FriendsPage } from './components/FriendsPage';
 import { SharePage } from './components/SharePage';
 import { NavBar } from './components/NavBar';
 import { UpdateBanner } from './components/UpdateBanner';
+import { GoogleCalendarAutoSyncRunner } from './hooks/useGoogleCalendarAutoSync';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -37,6 +38,7 @@ export default function App() {
   return (
     <>
       {user && <NavBar />}
+      {user && <GoogleCalendarAutoSyncRunner />}
       <UpdateBanner />
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
