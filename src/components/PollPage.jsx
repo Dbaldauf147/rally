@@ -56,6 +56,7 @@ function PollPageInner() {
   const [showSuggest, setShowSuggest] = useState(true);
   const [suggestMode, setSuggestMode] = useState(null); // null | 'single' | 'range'
   const [suggestDates, setSuggestDates] = useState([]); // for single mode — array of date strings
+  const [singlePickerValue, setSinglePickerValue] = useState(''); // staged value before Add
   const [suggestStart, setSuggestStart] = useState('');
   const [suggestEnd, setSuggestEnd] = useState('');
   const [suggestNote, setSuggestNote] = useState('');
@@ -149,6 +150,7 @@ function PollPageInner() {
           setDateOptions(prev => [...prev, { id: ref.id, ...newOption }]);
         }
         setSuggestDates([]);
+        setSinglePickerValue('');
       } else {
         if (!suggestStart) { setSuggesting(false); return; }
         const newOption = {
@@ -537,15 +539,27 @@ function PollPageInner() {
                     <>
                       <div>
                         <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: '0.2rem' }}>Add dates</label>
-                        <input
-                          type="date"
-                          onChange={e => {
-                            const val = e.target.value;
-                            if (val && !suggestDates.includes(val)) setSuggestDates(prev => [...prev, val].sort());
-                            e.target.value = '';
-                          }}
-                          style={{ width: '100%', padding: '0.5rem', border: '1px solid #e5e5e5', borderRadius: '8px', fontSize: '0.88rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
-                        />
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <input
+                            type="date"
+                            value={singlePickerValue}
+                            onChange={e => setSinglePickerValue(e.target.value)}
+                            style={{ flex: 1, padding: '0.5rem', border: '1px solid #e5e5e5', borderRadius: '8px', fontSize: '0.88rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (singlePickerValue && !suggestDates.includes(singlePickerValue)) {
+                                setSuggestDates(prev => [...prev, singlePickerValue].sort());
+                              }
+                              setSinglePickerValue('');
+                            }}
+                            disabled={!singlePickerValue}
+                            style={{ padding: '0.5rem 0.85rem', border: '1px solid #c7d2fe', borderRadius: '8px', background: singlePickerValue ? '#eef2ff' : '#f3f4f6', color: singlePickerValue ? '#4338ca' : '#9ca3af', fontSize: '0.85rem', fontWeight: 600, cursor: singlePickerValue ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+                          >
+                            + Add
+                          </button>
+                        </div>
                       </div>
                       {suggestDates.length > 0 && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
@@ -597,7 +611,7 @@ function PollPageInner() {
                       {suggesting ? 'Adding...' : 'Add Suggestion'}
                     </button>
                     <button
-                      onClick={() => { setSuggestMode(null); setSuggestStart(''); setSuggestEnd(''); setSuggestDates([]); setSuggestNote(''); }}
+                      onClick={() => { setSuggestMode(null); setSuggestStart(''); setSuggestEnd(''); setSuggestDates([]); setSinglePickerValue(''); setSuggestNote(''); }}
                       style={{ padding: '0.6rem 1rem', border: '1px solid #e5e5e5', borderRadius: '8px', background: '#fff', color: '#6b7280', fontSize: '0.88rem', cursor: 'pointer', fontFamily: 'inherit' }}
                     >
                       Back
