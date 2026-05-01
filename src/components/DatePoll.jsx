@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -104,6 +104,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     fetchGoogleBusy();
   }, [fetchGoogleBusy]);
 
+  const didAlignCalRef = useRef(false);
   useEffect(() => {
     const q = query(collection(db, entityType, entityId, 'dateOptions'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
@@ -118,6 +119,25 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           }
           return null;
         });
+      }
+      // Jump the calendar to the earliest open suggested date the first time
+      // options load, so the dates being voted on are visible by default.
+      // Only runs once per mount — manual nav stays sticky after that.
+      if (!didAlignCalRef.current && opts.length > 0) {
+        didAlignCalRef.current = true;
+        const openOpts = opts.filter(o => !o.closed && o.startDate);
+        const pool = openOpts.length > 0 ? openOpts : opts.filter(o => o.startDate);
+        if (pool.length > 0) {
+          const earliest = pool.reduce((min, o) => (o.startDate < min ? o.startDate : min), pool[0].startDate);
+          const target = new Date(earliest + 'T00:00:00');
+          if (!isNaN(target.getTime())) {
+            setCalMonth(prev => (
+              prev.getFullYear() === target.getFullYear() && prev.getMonth() === target.getMonth()
+                ? prev
+                : new Date(target.getFullYear(), target.getMonth(), 1)
+            ));
+          }
+        }
       }
     }, () => {});
     return unsub;
