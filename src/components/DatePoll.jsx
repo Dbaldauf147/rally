@@ -9,7 +9,7 @@ function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false }) {
+export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [] }) {
   const isFinalized = stage === 'finalized';
   const { user } = useAuth();
   const [options, setOptions] = useState([]);
@@ -19,6 +19,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   const [selectedDays, setSelectedDays] = useState(new Set()); // for single day(s) mode
   const [note, setNote] = useState('');
   const [adding, setAdding] = useState(false);
+  const [referenceOnly, setReferenceOnly] = useState(false);
   const [selMode, setSelMode] = useState('single'); // 'single' | 'range'
   const [googleBusyDates, setGoogleBusyDates] = useState(new Set());
   const [googleEventMap, setGoogleEventMap] = useState({}); // { dateStr: [{ title, start, end }] }
@@ -179,36 +180,37 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   async function handleSubmit() {
     if (!user) return;
     setAdding(true);
+    const baseDoc = {
+      note: note.trim(),
+      suggestedBy: user.uid,
+      suggestedByName: user.displayName || user.email || 'Someone',
+      votes: {},
+      createdAt: serverTimestamp(),
+      ...(referenceOnly ? { noVote: true } : {}),
+    };
     if (selMode === 'single') {
       // Create one suggestion per selected day
       const sorted = [...selectedDays].sort();
       for (const ds of sorted) {
         await addDoc(collection(db, entityType, entityId, 'dateOptions'), {
+          ...baseDoc,
           startDate: ds,
           endDate: ds,
-          note: note.trim(),
-          suggestedBy: user.uid,
-          suggestedByName: user.displayName || user.email || 'Someone',
-          votes: {},
-          createdAt: serverTimestamp(),
         });
       }
       setSelectedDays(new Set());
     } else {
       if (!selStart) { setAdding(false); return; }
       await addDoc(collection(db, entityType, entityId, 'dateOptions'), {
+        ...baseDoc,
         startDate: selStart,
         endDate: selEnd || selStart,
-        note: note.trim(),
-        suggestedBy: user.uid,
-        suggestedByName: user.displayName || user.email || 'Someone',
-        votes: {},
-        createdAt: serverTimestamp(),
       });
       setSelStart(null);
       setSelEnd(null);
     }
     setNote('');
+    setReferenceOnly(false);
     setAdding(false);
   }
 
@@ -311,7 +313,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   });
 
   const bestId = (() => {
-    const openOpts = ranked.filter(o => !o.closed);
+    const openOpts = ranked.filter(o => !o.closed && !o.noVote);
     return openOpts.length > 0 && openOpts[0].score > 0 ? openOpts[0].id : null;
   })();
 
@@ -397,17 +399,29 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           </div>
         )}
         {(selMode === 'single' ? selectedDays.size > 0 : !!selStart) && (
-          <div className={styles.submitRow}>
-            <input
-              className={styles.noteInput}
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              placeholder="Add a note (optional)"
-            />
-            <button className={styles.submitBtn} onClick={handleSubmit} disabled={adding}>
-              {adding ? 'Adding...' : `Suggest ${selMode === 'single' ? selectedDays.size : ''} Date${selMode === 'single' && selectedDays.size !== 1 ? 's' : ''}`}
-            </button>
-          </div>
+          <>
+            <div className={styles.submitRow}>
+              <input
+                className={styles.noteInput}
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder={referenceOnly ? 'Name (e.g. "Backup option")' : 'Add a note (optional)'}
+              />
+              <button className={styles.submitBtn} onClick={handleSubmit} disabled={adding || (referenceOnly && !note.trim())}>
+                {adding ? 'Adding...' : referenceOnly
+                  ? `Add ${selMode === 'single' ? selectedDays.size : ''} Reference${selMode === 'single' && selectedDays.size !== 1 ? 's' : ''}`
+                  : `Suggest ${selMode === 'single' ? selectedDays.size : ''} Date${selMode === 'single' && selectedDays.size !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+            <label className={styles.refToggle}>
+              <input
+                type="checkbox"
+                checked={referenceOnly}
+                onChange={e => setReferenceOnly(e.target.checked)}
+              />
+              <span>📌 Add as reference only (no voting)</span>
+            </label>
+          </>
         )}
 
         <div className={styles.calLegend}>
@@ -456,18 +470,23 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const votesDisabled = isFinalized;
             const topPickCount = Object.values(opt.votes || {}).filter(v => v.topPick).length;
             const isMyTopPick = topPick === opt.id;
+            const isReference = !!opt.noVote;
 
             return (
-              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''}`} style={isMyTopPick ? { borderColor: '#f59e0b' } : {}}>
+              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''} ${isReference ? styles.optionReference : ''}`} style={isMyTopPick && !isReference ? { borderColor: '#f59e0b' } : {}}>
                 {isBest && <div className={styles.bestBadge}>Most Popular</div>}
+                {isReference && <div className={styles.refBadge}>📌 Reference</div>}
                 <div className={styles.optionHeader}>
                   <div className={styles.optionDates}>
+                    {isReference && opt.note && (
+                      <div className={styles.refName}>{opt.note}</div>
+                    )}
                     {isRange
                       ? <span className={styles.dateRange}>{format(start, 'MMM d')} – {format(end, 'MMM d, yyyy')} <span className={styles.dayCount}>{dayCount} days</span></span>
                       : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                    {!isFinalized && canManage && (
+                    {!isFinalized && canManage && !isReference && (
                       <button
                         className={styles.deleteBtn}
                         onClick={() => handleToggleClosed(opt.id, true)}
@@ -477,56 +496,71 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                         🚫
                       </button>
                     )}
-                    {opt.suggestedBy === user?.uid && (
+                    {(opt.suggestedBy === user?.uid || (isReference && canManage)) && (
                       <button className={styles.deleteBtn} onClick={() => handleDelete(opt.id)} title="Remove">×</button>
                     )}
                   </div>
                 </div>
-                {opt.note && <p className={styles.note}>{opt.note}</p>}
-                <p className={styles.suggestedBy}>Suggested by {opt.suggestedByName}</p>
+                {!isReference && opt.note && <p className={styles.note}>{opt.note}</p>}
+                <p className={styles.suggestedBy}>{isReference ? 'Added' : 'Suggested'} by {opt.suggestedByName}</p>
 
-                <div className={styles.voteRow}>
-                  <button className={myVote === 'yes' ? styles.voteYesActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'yes' ? 'none' : 'yes')} disabled={votesDisabled}>
-                    ✓ Works ({opt.yesCount})
-                  </button>
-                  <button className={myVote === 'maybe' ? styles.voteMaybeActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'maybe' ? 'none' : 'maybe')} disabled={votesDisabled}>
-                    ? Maybe ({opt.maybeCount})
-                  </button>
-                  <button className={myVote === 'no' ? styles.voteNoActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'no' ? 'none' : 'no')} disabled={votesDisabled}>
-                    ✗ No ({votes.filter(([,v]) => v.vote === 'no').length})
-                  </button>
-                  {!isFinalized && user && (
-                    <button
-                      className={styles.voteBtn}
-                      onClick={() => handleTopPick(opt.id)}
-                      title={isMyTopPick ? 'Remove top pick' : 'Mark as your top choice'}
-                      style={{
-                        background: isMyTopPick ? '#fef3c7' : undefined,
-                        borderColor: isMyTopPick ? '#f59e0b' : undefined,
-                        color: isMyTopPick ? '#d97706' : '#d1d5db',
-                        fontSize: '0.85rem',
-                        minWidth: 'auto',
-                        padding: '0.35rem 0.5rem',
-                      }}
-                    >
-                      {isMyTopPick ? '⭐' : '☆'}
-                    </button>
-                  )}
-                  {topPickCount > 0 && (
-                    <span style={{ fontSize: '0.72rem', color: '#d97706', fontWeight: 600, marginLeft: '0.25rem' }}>
-                      ⭐ {topPickCount}
-                    </span>
-                  )}
-                </div>
+                {!isReference && (
+                  <>
+                    <div className={styles.voteRow}>
+                      <button className={myVote === 'yes' ? styles.voteYesActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'yes' ? 'none' : 'yes')} disabled={votesDisabled}>
+                        ✓ Works ({opt.yesCount})
+                      </button>
+                      <button className={myVote === 'maybe' ? styles.voteMaybeActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'maybe' ? 'none' : 'maybe')} disabled={votesDisabled}>
+                        ? Maybe ({opt.maybeCount})
+                      </button>
+                      <button className={myVote === 'no' ? styles.voteNoActive : styles.voteBtn} onClick={() => !votesDisabled && handleVote(opt.id, myVote === 'no' ? 'none' : 'no')} disabled={votesDisabled}>
+                        ✗ No ({votes.filter(([,v]) => v.vote === 'no').length})
+                      </button>
+                      {!isFinalized && user && (
+                        <button
+                          className={styles.voteBtn}
+                          onClick={() => handleTopPick(opt.id)}
+                          title={isMyTopPick ? 'Remove top pick' : 'Mark as your top choice'}
+                          style={{
+                            background: isMyTopPick ? '#fef3c7' : undefined,
+                            borderColor: isMyTopPick ? '#f59e0b' : undefined,
+                            color: isMyTopPick ? '#d97706' : '#d1d5db',
+                            fontSize: '0.85rem',
+                            minWidth: 'auto',
+                            padding: '0.35rem 0.5rem',
+                          }}
+                        >
+                          {isMyTopPick ? '⭐' : '☆'}
+                        </button>
+                      )}
+                      {topPickCount > 0 && (
+                        <span style={{ fontSize: '0.72rem', color: '#d97706', fontWeight: 600, marginLeft: '0.25rem' }}>
+                          ⭐ {topPickCount}
+                        </span>
+                      )}
+                    </div>
 
-                {votes.length > 0 && (
-                  <div className={styles.voterList}>
-                    {votes.filter(([,v]) => v.vote !== 'none').map(([uid, v]) => (
-                      <span key={uid} className={styles[`voter_${v.vote}`]}>
-                        {v.name?.split(' ')[0] || 'Guest'}{v.topPick ? ' ⭐' : ''}
-                      </span>
-                    ))}
-                  </div>
+                    {(() => {
+                      const castVoters = votes.filter(([,v]) => v.vote && v.vote !== 'none');
+                      const votedUids = new Set(castVoters.map(([uid]) => uid));
+                      const missing = members.filter(([uid, m]) => !votedUids.has(uid) && (m?.name || '').trim());
+                      if (castVoters.length === 0 && missing.length === 0) return null;
+                      return (
+                        <div className={styles.voterList}>
+                          {castVoters.map(([uid, v]) => (
+                            <span key={uid} className={styles[`voter_${v.vote}`]}>
+                              {v.name?.split(' ')[0] || 'Guest'}{v.topPick ? ' ⭐' : ''}
+                            </span>
+                          ))}
+                          {missing.map(([uid, m]) => (
+                            <span key={uid} className={styles.voter_missing} title="Hasn't voted yet">
+                              {(m.name || 'Guest').split(' ')[0]}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </>
                 )}
               </div>
             );

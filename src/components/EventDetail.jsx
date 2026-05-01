@@ -1440,7 +1440,7 @@ export function EventDetail() {
             )}
           </div>
 
-          <DatePoll entityType="events" entityId={eventId} stage={stage} canManage={isOwner} />
+          <DatePoll entityType="events" entityId={eventId} stage={stage} canManage={isOwner} members={members} />
 
           {isOwner && (
             <div className={styles.ownerActions}>
