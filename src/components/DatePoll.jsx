@@ -415,7 +415,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                 title={hasOverlap ? `Also being voted on: ${overlapTitles.join(', ')}` : undefined}
                 onClick={() => {
                   if (!isPast) handleDayClick(day);
-                  if (isBusy) setViewingDay(viewingDay === ds ? null : ds);
+                  if (isBusy || hasOverlap) setViewingDay(viewingDay === ds ? null : ds);
                   else setViewingDay(null);
                 }}
                 disabled={isPast}
@@ -475,25 +475,31 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         </div>
       </div>
 
-      {/* Side panel — Google Calendar events for selected day */}
-      {viewingDay && googleFullEvents[viewingDay] && (
+      {/* Side panel — Google Calendar events and other Rally events for selected day */}
+      {viewingDay && (googleFullEvents[viewingDay] || otherEventDates.has(viewingDay)) && (
         <div className={styles.sidePanel}>
           <div className={styles.sidePanelHeader}>
             <h4 className={styles.sidePanelTitle}>{format(new Date(viewingDay + 'T00:00:00'), 'EEEE, MMM d')}</h4>
             <button className={styles.sidePanelClose} onClick={() => setViewingDay(null)}>&times;</button>
           </div>
           <div className={styles.sidePanelEvents}>
-            {googleFullEvents[viewingDay].map((evt, i) => {
+            {(googleFullEvents[viewingDay] || []).map((evt, i) => {
               const start = new Date(evt.start);
               const timeStr = evt.allDay ? 'All day' : format(start, 'h:mm a');
               return (
-                <div key={i} className={styles.sidePanelEvent}>
+                <div key={`g-${i}`} className={styles.sidePanelEvent}>
                   <div className={styles.sidePanelTime}>{timeStr}</div>
                   <div className={styles.sidePanelEventTitle}>{evt.title}</div>
                   {evt.location && <div className={styles.sidePanelLocation}>📍 {evt.location}</div>}
                 </div>
               );
             })}
+            {(otherEventDates.get(viewingDay) || []).map((title, i) => (
+              <div key={`r-${i}`} className={styles.sidePanelEvent} style={{ background: '#fffbeb', borderLeftColor: '#f59e0b' }}>
+                <div className={styles.sidePanelTime} style={{ color: '#d97706' }}>Rally event voting</div>
+                <div className={styles.sidePanelEventTitle}>{title}</div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -586,7 +592,13 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                     {(() => {
                       const castVoters = votes.filter(([,v]) => v.vote && v.vote !== 'none');
                       const votedUids = new Set(castVoters.map(([uid]) => uid));
-                      const missing = members.filter(([uid, m]) => !votedUids.has(uid) && (m?.name || '').trim());
+                      const missing = members.filter(([uid, m]) => {
+                        if (votedUids.has(uid)) return false;
+                        if (!(m?.name || '').trim()) return false;
+                        // Plus-ones inherit their host's vote, so hide them when the host has voted on this option
+                        if (m.plusOneOf && votedUids.has(m.plusOneOf)) return false;
+                        return true;
+                      });
                       if (castVoters.length === 0 && missing.length === 0) return null;
                       return (
                         <div className={styles.voterList}>
