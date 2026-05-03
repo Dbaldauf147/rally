@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, deleteDoc, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { format, eachDayOfInterval, startOfMonth, endOfMonth, getDay, addMonths, subMonths, isSameDay } from 'date-fns';
@@ -28,6 +28,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   const [topPick, setTopPick] = useState(null); // optionId of user's top choice
   const [googleConnected, setGoogleConnected] = useState(() => !!localStorage.getItem('google-cal-token'));
   const [loadingGoogle, setLoadingGoogle] = useState(false);
+  const [otherEventDates, setOtherEventDates] = useState(new Map()); // dateStr -> [event titles]
 
   // Get a valid access token, refreshing via refresh-token if expired
   async function getValidGoogleToken() {
@@ -104,6 +105,44 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   useEffect(() => {
     fetchGoogleBusy();
   }, [fetchGoogleBusy]);
+
+  // Fetch other voting-stage events the user is part of, to highlight
+  // dates that already have an open poll elsewhere as potential overlaps.
+  useEffect(() => {
+    if (!user || entityType !== 'events') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const eventsSnap = await getDocs(query(
+          collection(db, 'events'),
+          where('memberUids', 'array-contains', user.uid)
+        ));
+        const others = eventsSnap.docs.filter(d => d.id !== entityId && (d.data().stage || 'voting') === 'voting');
+        const map = new Map();
+        await Promise.all(others.map(async d => {
+          const title = d.data().title || 'Event';
+          try {
+            const optsSnap = await getDocs(collection(db, 'events', d.id, 'dateOptions'));
+            for (const optDoc of optsSnap.docs) {
+              const opt = optDoc.data();
+              if (opt.closed || opt.noVote || !opt.startDate) continue;
+              const start = new Date(opt.startDate + 'T00:00:00');
+              const end = new Date((opt.endDate || opt.startDate) + 'T00:00:00');
+              if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
+              for (const day of eachDayOfInterval({ start, end })) {
+                const ds = toDateStr(day);
+                const list = map.get(ds) || [];
+                if (!list.includes(title)) list.push(title);
+                map.set(ds, list);
+              }
+            }
+          } catch {}
+        }));
+        if (!cancelled) setOtherEventDates(map);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [user, entityType, entityId]);
 
   const didAlignCalRef = useRef(false);
   useEffect(() => {
@@ -367,10 +406,13 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const isPast = day < new Date(today.getFullYear(), today.getMonth(), today.getDate());
             const isBusy = googleBusyDates.has(ds);
             const busyEvents = googleEventMap[ds];
+            const overlapTitles = otherEventDates.get(ds);
+            const hasOverlap = !!overlapTitles && overlapTitles.length > 0;
             return (
               <button
                 key={ds}
-                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
+                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasOverlap && !isSelected ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
+                title={hasOverlap ? `Also being voted on: ${overlapTitles.join(', ')}` : undefined}
                 onClick={() => {
                   if (!isPast) handleDayClick(day);
                   if (isBusy) setViewingDay(viewingDay === ds ? null : ds);
@@ -429,6 +471,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#BBF7D0' }} /> Suggested</span>
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid var(--color-accent)', background: 'none' }} /> Today</span>
           {googleBusyDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #4285F4', background: 'none' }} /> Google Event</span>}
+          {otherEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #f59e0b', background: 'none' }} /> Other Rally event voting</span>}
         </div>
       </div>
 
