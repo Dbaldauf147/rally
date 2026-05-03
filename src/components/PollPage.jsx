@@ -377,7 +377,7 @@ function PollPageInner() {
         )}
 
         {/* Date poll */}
-        {dateOptions.length > 0 && (
+        {dateOptions.length > 0 && (nameConfirmed || isFinalized) && (
           <div className={styles.section}>
             <h3 className={styles.sectionTitle}>{isFinalized ? 'Finalized Dates' : 'Vote on dates'}</h3>
             {isFinalized
@@ -508,7 +508,7 @@ function PollPageInner() {
         )}
 
         {/* Suggest new dates */}
-        {!isFinalized && (
+        {nameConfirmed && !isFinalized && (
           <div className={styles.section}>
             {!showSuggest ? (
               <button
