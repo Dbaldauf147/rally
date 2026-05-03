@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { doc, collection, onSnapshot, updateDoc, arrayUnion, getDocs, deleteField } from 'firebase/firestore';
+import { doc, collection, onSnapshot, updateDoc, arrayUnion, arrayRemove, getDocs, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
@@ -62,6 +62,8 @@ export function EventDetail() {
   const [finalizeDate, setFinalizeDate] = useState('');
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
   const [showTextAll, setShowTextAll] = useState(false);
+  const [phantomFriendVotes, setPhantomFriendVotes] = useState(null); // null=unchecked, number=vote count
+  const [cleaningPhantom, setCleaningPhantom] = useState(false);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
@@ -267,6 +269,53 @@ export function EventDetail() {
       } catch {}
     })();
   }, [friends.length, event, user]);
+
+  // Detect legacy phantom "friend" votes — anonymous votes cast under the
+  // generic ?name=Friend invite link before name confirmation was required.
+  useEffect(() => {
+    const hasFriendMember = !!event?.members?.friend;
+    const isOwnerNow = event?.members?.[user?.uid]?.role === 'owner';
+    if (!hasFriendMember || !isOwnerNow) {
+      setPhantomFriendVotes(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const dSnap = await getDocs(collection(db, 'events', eventId, 'dateOptions'));
+        let count = 0;
+        for (const d of dSnap.docs) {
+          if (d.data().votes?.friend) count++;
+        }
+        if (!cancelled) setPhantomFriendVotes(count);
+      } catch {
+        if (!cancelled) setPhantomFriendVotes(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [event?.members?.friend, user?.uid, eventId]);
+
+  async function cleanupPhantomFriend() {
+    if (cleaningPhantom) return;
+    setCleaningPhantom(true);
+    try {
+      const dSnap = await getDocs(collection(db, 'events', eventId, 'dateOptions'));
+      for (const d of dSnap.docs) {
+        if (d.data().votes?.friend) {
+          await updateDoc(doc(db, 'events', eventId, 'dateOptions', d.id), {
+            'votes.friend': deleteField(),
+          }).catch(() => {});
+        }
+      }
+      await updateDoc(doc(db, 'events', eventId), {
+        'members.friend': deleteField(),
+        memberUids: arrayRemove('friend'),
+      }).catch(() => {});
+      setPhantomFriendVotes(null);
+    } finally {
+      setCleaningPhantom(false);
+    }
+  }
 
   if (loading) return <div className={styles.loading}>Loading...</div>;
   if (!event) return <div className={styles.loading}>Event not found</div>;
@@ -1550,6 +1599,47 @@ export function EventDetail() {
             )}
           </div>
 
+          {isOwner && phantomFriendVotes !== null && (
+            <div style={{
+              padding: '0.75rem 0.9rem',
+              marginBottom: '0.75rem',
+              background: 'var(--color-warning-light)',
+              border: '1px solid #fcd34d',
+              borderRadius: 'var(--radius-md)',
+              fontSize: '0.82rem',
+              color: '#92400e',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+              flexWrap: 'wrap',
+            }}>
+              <span>
+                ⚠ Anonymous "Friend" voter detected
+                {phantomFriendVotes > 0 && ` (${phantomFriendVotes} vote${phantomFriendVotes !== 1 ? 's' : ''})`}.
+                These came from an old link before name confirmation was required.
+              </span>
+              <button
+                onClick={cleanupPhantomFriend}
+                disabled={cleaningPhantom}
+                style={{
+                  padding: '0.4rem 0.85rem',
+                  border: '1px solid #92400e',
+                  borderRadius: 'var(--radius-md)',
+                  background: '#fff',
+                  color: '#92400e',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: cleaningPhantom ? 'default' : 'pointer',
+                  fontFamily: 'inherit',
+                  whiteSpace: 'nowrap',
+                  opacity: cleaningPhantom ? 0.6 : 1,
+                }}
+              >
+                {cleaningPhantom ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
+          )}
           <DatePoll entityType="events" entityId={eventId} stage={stage} canManage={isOwner} members={members} />
 
           {isOwner && (
