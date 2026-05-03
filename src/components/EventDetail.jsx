@@ -1019,6 +1019,116 @@ export function EventDetail() {
       </div>
       )}
 
+      {showTextAll && (() => {
+        const recipients = members.filter(([uid, m]) => uid !== user?.uid && m.phone);
+        const phones = recipients.map(([, m]) => m.phone);
+        if (phones.length === 0) return null;
+        const sendText = () => {
+          const cleanedPhones = phones
+            .map(p => {
+              let c = String(p).replace(/[^+\d]/g, '');
+              if (!c.startsWith('+')) {
+                c = c.startsWith('1') ? `+${c}` : `+1${c}`;
+              }
+              return c;
+            })
+            .join(',');
+          const body = encodeURIComponent(textAllMessage);
+          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+          const smsUrl = isIOS
+            ? `sms:/open?addresses=${cleanedPhones}&body=${body}`
+            : `sms:${cleanedPhones}?body=${body}`;
+          const updates = {};
+          recipients.forEach(([uid]) => {
+            updates[`members.${uid}.texted`] = new Date().toISOString();
+          });
+          if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
+          window.location.href = smsUrl;
+          setShowTextAll(false);
+          setTextAllMessage('');
+        };
+        return (
+          <div style={{
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.75rem',
+            marginBottom: '0.75rem',
+            background: 'var(--color-surface-alt)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Edit text draft — sending to {recipients.length}
+              </span>
+              <button
+                onClick={() => { if (!textAllSending) { setShowTextAll(false); setTextAllMessage(''); } }}
+                disabled={textAllSending}
+                style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '1.1rem', cursor: 'pointer', padding: 0, lineHeight: 1 }}
+                title="Close draft"
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem' }}>
+              {recipients.map(([uid, m]) => (
+                <span key={uid} style={{
+                  fontSize: '0.7rem',
+                  padding: '0.15rem 0.45rem',
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-full)',
+                  color: 'var(--color-text-secondary)',
+                }}>
+                  {m.name || 'Unnamed'}
+                </span>
+              ))}
+            </div>
+            <textarea
+              value={textAllMessage}
+              onChange={e => setTextAllMessage(e.target.value)}
+              rows={4}
+              disabled={textAllSending}
+              placeholder="Write a message to send to the group..."
+              style={{
+                width: '100%',
+                padding: '0.55rem 0.7rem',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.88rem',
+                fontFamily: 'inherit',
+                resize: 'vertical',
+                outline: 'none',
+                boxSizing: 'border-box',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text)',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem' }}>
+              <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                {textAllMessage.length} character{textAllMessage.length !== 1 ? 's' : ''}
+              </span>
+              <button
+                disabled={!textAllMessage.trim() || textAllSending}
+                onClick={sendText}
+                style={{
+                  padding: '0.4rem 0.9rem',
+                  border: 'none',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--color-accent)',
+                  color: '#fff',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                  cursor: !textAllMessage.trim() ? 'not-allowed' : 'pointer',
+                  opacity: !textAllMessage.trim() ? 0.5 : 1,
+                }}
+              >
+                📤 Open in Messages ({phones.length})
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {result && <div style={{ padding: '0.4rem 0.75rem', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontWeight: 500, marginBottom: '0.5rem', background: 'var(--color-success-light)', color: 'var(--color-success)' }}>{result.message}</div>}
 
       <div className={styles.tabs}>
@@ -1654,127 +1764,6 @@ export function EventDetail() {
           </div>
         </div>
       )}
-
-      {showTextAll && (() => {
-        const recipients = members.filter(([uid, m]) => uid !== user?.uid && m.phone);
-        const phones = recipients.map(([, m]) => m.phone);
-        const closeModal = () => { if (!textAllSending) { setShowTextAll(false); setTextAllMessage(''); } };
-        return (
-          <div className={styles.modalOverlay} onClick={closeModal}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 0.25rem' }}>Text Everyone</h2>
-              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 1rem' }}>
-                Send a text to {recipients.length} member{recipients.length !== 1 ? 's' : ''} with a phone number on file.
-              </p>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.85rem', maxHeight: '80px', overflowY: 'auto' }}>
-                {recipients.map(([uid, m]) => (
-                  <span key={uid} style={{
-                    fontSize: '0.75rem',
-                    padding: '0.2rem 0.55rem',
-                    background: 'var(--color-surface-alt)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-full)',
-                    color: 'var(--color-text-secondary)',
-                  }}>
-                    {m.name || 'Unnamed'}
-                  </span>
-                ))}
-              </div>
-
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.4rem' }}>
-                Message
-              </label>
-              <textarea
-                value={textAllMessage}
-                onChange={e => setTextAllMessage(e.target.value)}
-                rows={6}
-                disabled={textAllSending}
-                placeholder="Write a message to send to the group..."
-                autoFocus
-                style={{
-                  width: '100%',
-                  padding: '0.65rem 0.85rem',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '0.92rem',
-                  fontFamily: 'inherit',
-                  resize: 'vertical',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  background: 'var(--color-surface)',
-                  color: 'var(--color-text)',
-                }}
-              />
-              <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: '0.3rem', textAlign: 'right' }}>
-                {textAllMessage.length} character{textAllMessage.length !== 1 ? 's' : ''}
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
-                <button
-                  onClick={closeModal}
-                  disabled={textAllSending}
-                  style={{
-                    padding: '0.55rem 1.25rem',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'none',
-                    color: 'var(--color-text-muted)',
-                    fontSize: '0.9rem',
-                    fontWeight: 500,
-                    fontFamily: 'inherit',
-                    cursor: textAllSending ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  disabled={!textAllMessage.trim() || phones.length === 0}
-                  onClick={() => {
-                    const cleanedPhones = phones
-                      .map(p => {
-                        let c = String(p).replace(/[^+\d]/g, '');
-                        if (!c.startsWith('+')) {
-                          c = c.startsWith('1') ? `+${c}` : `+1${c}`;
-                        }
-                        return c;
-                      })
-                      .join(',');
-                    const body = encodeURIComponent(textAllMessage);
-                    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-                    const smsUrl = isIOS
-                      ? `sms:/open?addresses=${cleanedPhones}&body=${body}`
-                      : `sms:${cleanedPhones}?body=${body}`;
-                    // Mark recipients as texted optimistically
-                    const updates = {};
-                    recipients.forEach(([uid]) => {
-                      updates[`members.${uid}.texted`] = new Date().toISOString();
-                    });
-                    if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
-                    window.location.href = smsUrl;
-                    setShowTextAll(false);
-                    setTextAllMessage('');
-                  }}
-                  style={{
-                    padding: '0.55rem 1.25rem',
-                    border: 'none',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--color-accent)',
-                    color: '#fff',
-                    fontSize: '0.9rem',
-                    fontWeight: 600,
-                    fontFamily: 'inherit',
-                    cursor: !textAllMessage.trim() ? 'not-allowed' : 'pointer',
-                    opacity: !textAllMessage.trim() ? 0.5 : 1,
-                  }}
-                >
-                  Open in Messages ({phones.length})
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {showInvite && (() => {
         const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
