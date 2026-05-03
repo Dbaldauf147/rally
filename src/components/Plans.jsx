@@ -6,6 +6,19 @@ function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Google returns all-day events with date-only strings like "2026-05-04".
+// new Date("2026-05-04") parses as UTC midnight, which in any timezone
+// west of UTC rolls back to the previous calendar day. Parse the components
+// directly so the date stays put.
+function parseEventDate(s) {
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(s);
+}
+
 async function getValidGoogleToken() {
   const token = localStorage.getItem('google-cal-token');
   const expiry = Number(localStorage.getItem('google-cal-expiry') || 0);
@@ -104,8 +117,9 @@ export function Plans() {
           if (data.needsAuth) { setGoogleConnected(false); continue; }
           if (!data.events) continue;
           for (const evt of data.events) {
-            const start = new Date(evt.start);
-            const end = new Date(evt.end || evt.start);
+            const start = parseEventDate(evt.start);
+            const end = parseEventDate(evt.end || evt.start);
+            if (!start) continue;
             const days = evt.allDay
               ? eachDayOfInterval({ start, end: new Date(end.getTime() - 86400000) })
               : [start];
