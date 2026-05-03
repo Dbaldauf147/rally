@@ -1,0 +1,41 @@
+.page { max-width: 960px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.titleBlock { display: flex; flex-direction: column; gap: 0.25rem; }
+.title { font-size: 1.6rem; font-weight: 700; margin: 0; color: var(--color-text); }
+.subtitle { font-size: 0.85rem; color: var(--color-text-muted); margin: 0; }
+.controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.btn { padding: 0.5rem 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.82rem; font-weight: 500; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; }
+.btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btnPrimary { composes: btn; background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+.btnPrimary:hover { filter: brightness(0.95); color: #fff; }
+
+.table { width: 100%; border-collapse: collapse; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
+.table th, .table td { padding: 0.65rem 0.85rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--color-border); border-right: 1px solid var(--color-border); }
+.table th:last-child, .table td:last-child { border-right: none; }
+.table tr:last-child td { border-bottom: none; }
+.table th { background: var(--color-surface-alt); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.weekdayCell { font-weight: 600; color: var(--color-text); width: 130px; }
+.dateLabel { display: block; font-weight: 400; color: var(--color-text-muted); font-size: 0.72rem; margin-top: 0.1rem; }
+.eventCell { font-size: 0.85rem; color: var(--color-text); min-height: 1.5rem; }
+.eventLine { display: block; padding: 0.05rem 0; }
+.eventLine + .eventLine { border-top: 1px dashed var(--color-border-light, #f1f1f1); padding-top: 0.15rem; margin-top: 0.15rem; }
+.todayRow td { background: #fffbeb; }
+.todayRow .weekdayCell { color: #b45309; }
+.empty { color: var(--color-text-muted); font-style: italic; font-size: 0.8rem; }
+
+.calPickerCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem; margin-bottom: 1rem; }
+.calPickerHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.calPickerTitle { font-size: 0.95rem; font-weight: 600; margin: 0; color: var(--color-text); }
+.calPickerClose { background: none; border: none; font-size: 1.1rem; color: var(--color-text-muted); cursor: pointer; padding: 0; line-height: 1; }
+.calList { display: flex; flex-direction: column; gap: 0.4rem; max-height: 280px; overflow-y: auto; padding-top: 0.5rem; }
+.calRow { display: flex; align-items: center; gap: 0.55rem; padding: 0.4rem 0.5rem; border-radius: var(--radius-md); cursor: pointer; }
+.calRow:hover { background: var(--color-surface-alt); }
+.calColor { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.calName { font-size: 0.88rem; color: var(--color-text); flex: 1; }
+.calBadge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: var(--radius-full); background: var(--color-surface-alt); color: var(--color-text-muted); }
+
+.connectCard { background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: var(--radius-lg); padding: 2rem 1.5rem; text-align: center; }
+.connectTitle { font-size: 1.05rem; font-weight: 600; color: var(--color-text); margin: 0 0 0.4rem; }
+.connectDesc { font-size: 0.88rem; color: var(--color-text-muted); margin: 0 0 1rem; }
+.errorBanner { background: var(--color-danger-light, #fee2e2); border: 1px solid #fca5a5; color: var(--color-danger, #dc2626); padding: 0.55rem 0.8rem; border-radius: var(--radius-md); font-size: 0.82rem; margin-bottom: 0.75rem; }

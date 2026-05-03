@@ -5,6 +5,7 @@ import { DashboardPage } from './components/DashboardPage';
 import { EventDetail } from './components/EventDetail';
 import { TripDetail } from './components/TripDetail';
 import { CalendarView } from './components/CalendarView';
+import { Plans } from './components/Plans';
 import { InvitePage } from './components/InvitePage';
 import { PollPage } from './components/PollPage';
 import { FriendsPage } from './components/FriendsPage';
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/poll/:eventId" element={<PollPage />} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarView /></ProtectedRoute>} />
+        <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/event/:eventId" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
