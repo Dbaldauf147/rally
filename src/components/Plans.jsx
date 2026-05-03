@@ -253,10 +253,17 @@ export function Plans() {
 
       {googleConnected && selectedIds.length > 0 && (
         <table className={styles.table}>
+          <colgroup>
+            <col style={{ width: 130 }} />
+            <col />
+            <col style={{ width: 130 }} />
+            <col />
+          </colgroup>
           <thead>
             <tr>
               <th>Weekday</th>
               <th>This Week</th>
+              <th>Weekday</th>
               <th>Next Week</th>
             </tr>
           </thead>
@@ -270,11 +277,13 @@ export function Plans() {
                 <tr key={label} className={(w1IsToday || w2IsToday) ? styles.todayRow : ''}>
                   <td className={styles.weekdayCell}>
                     {label}
-                    <span className={styles.dateLabel}>
-                      {format(w1, 'MMM d')} / {format(w2, 'MMM d')}
-                    </span>
+                    <span className={styles.dateLabel}>{format(w1, 'MMM d')}</span>
                   </td>
                   <td className={styles.eventCell}>{renderCell(w1)}</td>
+                  <td className={styles.weekdayCell}>
+                    {label}
+                    <span className={styles.dateLabel}>{format(w2, 'MMM d')}</span>
+                  </td>
                   <td className={styles.eventCell}>{renderCell(w2)}</td>
                 </tr>
               );

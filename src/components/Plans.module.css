@@ -10,14 +10,14 @@
 .btnPrimary { composes: btn; background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
 .btnPrimary:hover { filter: brightness(0.95); color: #fff; }
 
-.table { width: 100%; border-collapse: collapse; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
+.table { width: 100%; table-layout: fixed; border-collapse: collapse; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
 .table th, .table td { padding: 0.65rem 0.85rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--color-border); border-right: 1px solid var(--color-border); }
 .table th:last-child, .table td:last-child { border-right: none; }
 .table tr:last-child td { border-bottom: none; }
 .table th { background: var(--color-surface-alt); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
 .weekdayCell { font-weight: 600; color: var(--color-text); width: 130px; }
 .dateLabel { display: block; font-weight: 400; color: var(--color-text-muted); font-size: 0.72rem; margin-top: 0.1rem; }
-.eventCell { font-size: 0.85rem; color: var(--color-text); min-height: 1.5rem; }
+.eventCell { font-size: 0.85rem; color: var(--color-text); min-height: 1.5rem; word-break: break-word; }
 .eventLine { display: block; padding: 0.05rem 0; }
 .eventLine + .eventLine { border-top: 1px dashed var(--color-border-light, #f1f1f1); padding-top: 0.15rem; margin-top: 0.15rem; }
 .todayRow td { background: #fffbeb; }
