@@ -367,13 +367,15 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         </div>
       )}
 
-      {/* Calendar + side panel — only show when voting */}
-      {!isFinalized && <div className={styles.calendarRow}>
+      {/* Calendar + side panel — read-only when finalized */}
+      <div className={styles.calendarRow}>
       <div className={styles.calendarCard}>
-        <div className={styles.modeToggle}>
-          <button className={selMode === 'single' ? styles.modeActive : styles.modeBtn} onClick={() => { setSelMode('single'); setSelStart(null); setSelEnd(null); setSelectedDays(new Set()); }}>Single Day(s)</button>
-          <button className={selMode === 'range' ? styles.modeActive : styles.modeBtn} onClick={() => { setSelMode('range'); setSelStart(null); setSelEnd(null); setSelectedDays(new Set()); }}>Date Range</button>
-        </div>
+        {!isFinalized && (
+          <div className={styles.modeToggle}>
+            <button className={selMode === 'single' ? styles.modeActive : styles.modeBtn} onClick={() => { setSelMode('single'); setSelStart(null); setSelEnd(null); setSelectedDays(new Set()); }}>Single Day(s)</button>
+            <button className={selMode === 'range' ? styles.modeActive : styles.modeBtn} onClick={() => { setSelMode('range'); setSelStart(null); setSelEnd(null); setSelectedDays(new Set()); }}>Date Range</button>
+          </div>
+        )}
         <div className={styles.calHeader}>
           <div className={styles.calHeaderNav}>
             <button className={styles.calNav} onClick={() => setCalMonth(subMonths(calMonth, 1))}>‹</button>
@@ -414,7 +416,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                 className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasOverlap && !isSelected ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
                 title={hasOverlap ? `Also being voted on: ${overlapTitles.join(', ')}` : undefined}
                 onClick={() => {
-                  if (!isPast) handleDayClick(day);
+                  if (!isPast && !isFinalized) handleDayClick(day);
                   if (isBusy || hasOverlap) setViewingDay(viewingDay === ds ? null : ds);
                   else setViewingDay(null);
                 }}
@@ -427,7 +429,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         </div>
 
         {/* Selection info + submit */}
-        {(selMode === 'single' ? selectedDays.size > 0 : !!selStart) && (
+        {!isFinalized && (selMode === 'single' ? selectedDays.size > 0 : !!selStart) && (
           <div className={styles.selectionBar}>
             <span className={styles.selectionText}>
               {selMode === 'single'
@@ -440,7 +442,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             <button className={styles.selClear} onClick={() => { setSelStart(null); setSelEnd(null); setSelectedDays(new Set()); }}>Clear</button>
           </div>
         )}
-        {(selMode === 'single' ? selectedDays.size > 0 : !!selStart) && (
+        {!isFinalized && (selMode === 'single' ? selectedDays.size > 0 : !!selStart) && (
           <>
             <div className={styles.submitRow}>
               <input
@@ -503,7 +505,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           </div>
         </div>
       )}
-      </div>}
+      </div>
 
       {/* Suggested date options with voting — available at the top */}
       {ranked.filter(o => !o.closed).length > 0 && (
