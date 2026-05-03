@@ -1,4 +1,4 @@
-.page { max-width: 960px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+.page { max-width: 1400px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
 .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .titleBlock { display: flex; flex-direction: column; gap: 0.25rem; }
 .title { font-size: 1.6rem; font-weight: 700; margin: 0; color: var(--color-text); }
