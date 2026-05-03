@@ -20,8 +20,8 @@
 .eventCell { font-size: 0.85rem; color: var(--color-text); min-height: 1.5rem; word-break: break-word; }
 .eventLine { display: block; padding: 0.05rem 0; }
 .eventLine + .eventLine { border-top: 1px dashed var(--color-border-light, #f1f1f1); padding-top: 0.15rem; margin-top: 0.15rem; }
-.todayRow td { background: #fffbeb; }
-.todayRow .weekdayCell { color: #b45309; }
+.todayCell { background: #fffbeb; }
+.weekdayCell.todayCell { color: #b45309; }
 .empty { color: var(--color-text-muted); font-style: italic; font-size: 0.8rem; }
 
 .calPickerCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem; margin-bottom: 1rem; }

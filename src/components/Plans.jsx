@@ -49,13 +49,15 @@ export function Plans() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Compute the two weeks (Monday-anchored)
+  // Compute the three weeks (Monday-anchored)
   const today = new Date();
   const week1Start = startOfWeek(today, { weekStartsOn: 1 });
   const week2Start = addWeeks(week1Start, 1);
-  const week2End = addDays(week2Start, 6);
+  const week3Start = addWeeks(week1Start, 2);
+  const week3End = addDays(week3Start, 6);
   const week1Days = eachDayOfInterval({ start: week1Start, end: addDays(week1Start, 6) });
-  const week2Days = eachDayOfInterval({ start: week2Start, end: week2End });
+  const week2Days = eachDayOfInterval({ start: week2Start, end: addDays(week2Start, 6) });
+  const week3Days = eachDayOfInterval({ start: week3Start, end: week3End });
 
   // Persist calendar selection
   useEffect(() => {
@@ -109,7 +111,7 @@ export function Plans() {
 
     try {
       const timeMin = new Date(week1Start.getFullYear(), week1Start.getMonth(), week1Start.getDate(), 0, 0, 0).toISOString();
-      const timeMax = new Date(week2End.getFullYear(), week2End.getMonth(), week2End.getDate(), 23, 59, 59).toISOString();
+      const timeMax = new Date(week3End.getFullYear(), week3End.getMonth(), week3End.getDate(), 23, 59, 59).toISOString();
       for (const calId of selectedIds) {
         try {
           const res = await fetch(`/api/google-calendar?accessToken=${encodeURIComponent(token)}&timeMin=${timeMin}&timeMax=${timeMax}&calendarId=${encodeURIComponent(calId)}`);
@@ -201,7 +203,7 @@ export function Plans() {
         <div className={styles.titleBlock}>
           <h1 className={styles.title}>Plans</h1>
           <p className={styles.subtitle}>
-            {format(week1Start, 'MMM d')} – {format(week2End, 'MMM d, yyyy')}
+            {format(week1Start, 'MMM d')} – {format(week3End, 'MMM d, yyyy')}
             {selectedIds.length > 0 && ` · ${selectedIds.length} calendar${selectedIds.length !== 1 ? 's' : ''}`}
           </p>
         </div>
@@ -272,6 +274,8 @@ export function Plans() {
             <col />
             <col style={{ width: 130 }} />
             <col />
+            <col style={{ width: 130 }} />
+            <col />
           </colgroup>
           <thead>
             <tr>
@@ -279,26 +283,37 @@ export function Plans() {
               <th>This Week</th>
               <th>Weekday</th>
               <th>Next Week</th>
+              <th>Weekday</th>
+              <th>Week After Next</th>
             </tr>
           </thead>
           <tbody>
             {weekdayLabels.map((label, i) => {
               const w1 = week1Days[i];
               const w2 = week2Days[i];
+              const w3 = week3Days[i];
               const w1IsToday = isSameDay(w1, today);
               const w2IsToday = isSameDay(w2, today);
+              const w3IsToday = isSameDay(w3, today);
+              const wkCls = (isToday) => `${styles.weekdayCell}${isToday ? ` ${styles.todayCell}` : ''}`;
+              const evCls = (isToday) => `${styles.eventCell}${isToday ? ` ${styles.todayCell}` : ''}`;
               return (
-                <tr key={label} className={(w1IsToday || w2IsToday) ? styles.todayRow : ''}>
-                  <td className={styles.weekdayCell}>
+                <tr key={label}>
+                  <td className={wkCls(w1IsToday)}>
                     {label}
                     <span className={styles.dateLabel}>{format(w1, 'MMM d')}</span>
                   </td>
-                  <td className={styles.eventCell}>{renderCell(w1)}</td>
-                  <td className={styles.weekdayCell}>
+                  <td className={evCls(w1IsToday)}>{renderCell(w1)}</td>
+                  <td className={wkCls(w2IsToday)}>
                     {label}
                     <span className={styles.dateLabel}>{format(w2, 'MMM d')}</span>
                   </td>
-                  <td className={styles.eventCell}>{renderCell(w2)}</td>
+                  <td className={evCls(w2IsToday)}>{renderCell(w2)}</td>
+                  <td className={wkCls(w3IsToday)}>
+                    {label}
+                    <span className={styles.dateLabel}>{format(w3, 'MMM d')}</span>
+                  </td>
+                  <td className={evCls(w3IsToday)}>{renderCell(w3)}</td>
                 </tr>
               );
             })}
