@@ -112,7 +112,12 @@ export function Plans() {
             for (const d of days) {
               const ds = toDateStr(d);
               if (!map[ds]) map[ds] = [];
+              // Dedupe: same title + same start time on the same day = same event
+              // appearing on multiple selected calendars (or imported twice).
+              const dedupeKey = `${(evt.title || '').trim().toLowerCase()}|${evt.allDay ? 'allday' : start.getTime()}`;
+              if (map[ds].some(e => e._key === dedupeKey)) continue;
               map[ds].push({
+                _key: dedupeKey,
                 title: evt.title,
                 time: evt.allDay ? '' : format(start, 'h:mm a'),
                 color: colorById[calId] || '#4285F4',
