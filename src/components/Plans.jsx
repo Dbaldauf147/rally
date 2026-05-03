@@ -295,25 +295,29 @@ export function Plans() {
               const w1IsToday = isSameDay(w1, today);
               const w2IsToday = isSameDay(w2, today);
               const w3IsToday = isSameDay(w3, today);
+              const isWeekend = i === 4 || i === 5; // Friday or Saturday
               const wkCls = (isToday) => `${styles.weekdayCell}${isToday ? ` ${styles.todayCell}` : ''}`;
-              const evCls = (isToday) => `${styles.eventCell}${isToday ? ` ${styles.todayCell}` : ''}`;
+              const evCls = (day, isToday) => {
+                const empty = (eventsByDay[toDateStr(day)] || []).length === 0;
+                return `${styles.eventCell}${isToday ? ` ${styles.todayCell}` : ''}${isWeekend && empty ? ` ${styles.emptyWeekend}` : ''}`;
+              };
               return (
                 <tr key={label}>
                   <td className={wkCls(w1IsToday)}>
                     {label}
                     <span className={styles.dateLabel}>{format(w1, 'MMM d')}</span>
                   </td>
-                  <td className={evCls(w1IsToday)}>{renderCell(w1)}</td>
+                  <td className={evCls(w1, w1IsToday)}>{renderCell(w1)}</td>
                   <td className={wkCls(w2IsToday)}>
                     {label}
                     <span className={styles.dateLabel}>{format(w2, 'MMM d')}</span>
                   </td>
-                  <td className={evCls(w2IsToday)}>{renderCell(w2)}</td>
+                  <td className={evCls(w2, w2IsToday)}>{renderCell(w2)}</td>
                   <td className={wkCls(w3IsToday)}>
                     {label}
                     <span className={styles.dateLabel}>{format(w3, 'MMM d')}</span>
                   </td>
-                  <td className={evCls(w3IsToday)}>{renderCell(w3)}</td>
+                  <td className={evCls(w3, w3IsToday)}>{renderCell(w3)}</td>
                 </tr>
               );
             })}
