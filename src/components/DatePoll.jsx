@@ -138,7 +138,13 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const start = data.date?.toDate?.() || (data.date ? new Date(data.date) : null);
             const endRaw = data.endDate?.toDate?.() || (data.endDate ? new Date(data.endDate) : null);
             if (!start || isNaN(start.getTime())) return;
-            const end = endRaw && !isNaN(endRaw.getTime()) ? endRaw : start;
+            let end = endRaw && !isNaN(endRaw.getTime()) ? endRaw : start;
+            // Guard against bad data — if start is later than end, treat it as a single day,
+            // and cap absurdly long ranges (>60 days) to the start so a stale endDate
+            // can't paint every visible cell with the conflict ring.
+            if (end < start) end = start;
+            const dayDiff = Math.floor((end - start) / 86400000);
+            if (dayDiff > 60) end = start;
             for (const day of eachDayOfInterval({ start, end })) {
               const ds = toDateStr(day);
               const list = finalizedMap.get(ds) || [];
