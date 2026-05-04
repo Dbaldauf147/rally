@@ -633,14 +633,6 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
       {isFinalized && (() => {
         const ranges = Array.isArray(altRanges) ? altRanges : [];
         if (ranges.length === 0 && !canManage) return null;
-        const formatRange = (r) => {
-          const s = new Date(r.startDate + 'T00:00:00');
-          const e = new Date((r.endDate || r.startDate) + 'T00:00:00');
-          if (r.endDate && r.endDate !== r.startDate) {
-            return `${format(s, 'MMM d')} – ${format(e, 'MMM d, yyyy')}`;
-          }
-          return format(s, 'EEE, MMM d, yyyy');
-        };
         const submit = async () => {
           const label = newRangeLabel.trim();
           if (!newRangeStart || !label || !onAddAltRange) return;
@@ -656,70 +648,80 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           setNewRangeEnd('');
         };
         return (
-          <div style={{ marginTop: '1rem', padding: '0.75rem 0.9rem', background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: ranges.length > 0 ? '0.5rem' : 0 }}>
+          <div className={styles.altRangeSection}>
+            <div className={styles.closedSectionHeader}>
               Other group date ranges
             </div>
             {ranges.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                {ranges.map(r => (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)' }}>{r.label}</span>
-                    <span style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', flex: 1 }}>{formatRange(r)}</span>
-                    {canManage && onRemoveAltRange && (
-                      <button
-                        onClick={() => onRemoveAltRange(r.id)}
-                        title="Remove"
-                        style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '1.1rem', cursor: 'pointer', padding: '0 0.25rem', lineHeight: 1 }}
-                      >×</button>
-                    )}
-                  </div>
-                ))}
+              <div className={styles.optionsList}>
+                {ranges.map(r => {
+                  const start = new Date(r.startDate + 'T00:00:00');
+                  const end = new Date((r.endDate || r.startDate) + 'T00:00:00');
+                  const isRange = r.endDate && r.endDate !== r.startDate;
+                  const dayCount = isRange ? eachDayOfInterval({ start, end }).length : 1;
+                  return (
+                    <div key={r.id} className={styles.option}>
+                      <div className={styles.optionHeader}>
+                        <div className={styles.optionDates}>
+                          <div className={styles.altRangeLabel}>{r.label}</div>
+                          {isRange
+                            ? <span className={styles.dateRange}>{format(start, 'MMM d')} – {format(end, 'MMM d, yyyy')} <span className={styles.dayCount}>{dayCount} days</span></span>
+                            : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
+                        </div>
+                        {canManage && onRemoveAltRange && (
+                          <button className={styles.deleteBtn} onClick={() => onRemoveAltRange(r.id)} title="Remove">×</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {canManage && !showAddRange && (
               <button
                 onClick={() => setShowAddRange(true)}
-                style={{ marginTop: ranges.length > 0 ? '0.5rem' : 0, padding: '0.4rem 0.75rem', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-secondary)', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'inherit' }}
+                className={styles.altRangeAddBtn}
               >
                 + Add another date range
               </button>
             )}
             {canManage && showAddRange && (
-              <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+              <div className={styles.altRangeForm}>
                 <input
                   type="text"
                   value={newRangeLabel}
                   onChange={e => setNewRangeLabel(e.target.value)}
                   placeholder="Group name (e.g. Sarah's family)"
-                  style={{ flex: '1 1 180px', padding: '0.4rem 0.55rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontFamily: 'inherit' }}
+                  className={styles.altRangeInput}
                 />
-                <input
-                  type="date"
-                  value={newRangeStart}
-                  onChange={e => setNewRangeStart(e.target.value)}
-                  style={{ padding: '0.35rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontFamily: 'inherit' }}
-                />
-                <input
-                  type="date"
-                  value={newRangeEnd}
-                  min={newRangeStart}
-                  onChange={e => setNewRangeEnd(e.target.value)}
-                  style={{ padding: '0.35rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontFamily: 'inherit' }}
-                />
-                <button
-                  onClick={submit}
-                  disabled={!newRangeStart || !newRangeLabel.trim()}
-                  style={{ padding: '0.4rem 0.85rem', border: 'none', borderRadius: 'var(--radius-md)', background: (!newRangeStart || !newRangeLabel.trim()) ? 'var(--color-border)' : 'var(--color-accent)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: (!newRangeStart || !newRangeLabel.trim()) ? 'default' : 'pointer', fontFamily: 'inherit' }}
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => { setShowAddRange(false); setNewRangeLabel(''); setNewRangeStart(''); setNewRangeEnd(''); }}
-                  style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}
-                >
-                  Cancel
-                </button>
+                <div className={styles.altRangeFormRow}>
+                  <input
+                    type="date"
+                    value={newRangeStart}
+                    onChange={e => setNewRangeStart(e.target.value)}
+                    className={styles.altRangeDateInput}
+                  />
+                  <input
+                    type="date"
+                    value={newRangeEnd}
+                    min={newRangeStart}
+                    onChange={e => setNewRangeEnd(e.target.value)}
+                    className={styles.altRangeDateInput}
+                  />
+                  <button
+                    onClick={submit}
+                    disabled={!newRangeStart || !newRangeLabel.trim()}
+                    className={styles.altRangeSubmit}
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => { setShowAddRange(false); setNewRangeLabel(''); setNewRangeStart(''); setNewRangeEnd(''); }}
+                    className={styles.altRangeCancel}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
           </div>
