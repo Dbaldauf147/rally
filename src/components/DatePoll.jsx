@@ -213,13 +213,20 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     return unsub;
   }, [entityType, entityId, user]);
 
-  // Build set of all suggested dates for highlighting
+  // Build sets of suggested dates for highlighting on the calendar grid.
+  // Closed (no-longer-available) suggestions render with an X overlay
+  // instead of the green "still on the table" background.
   const suggestedDates = new Set();
+  const closedSuggestedDates = new Set();
   for (const opt of options) {
     const start = new Date(opt.startDate + 'T00:00:00');
     const end = new Date((opt.endDate || opt.startDate) + 'T00:00:00');
     const days = eachDayOfInterval({ start, end });
-    days.forEach(d => suggestedDates.add(toDateStr(d)));
+    days.forEach(d => {
+      const ds = toDateStr(d);
+      if (opt.closed) closedSuggestedDates.add(ds);
+      else suggestedDates.add(ds);
+    });
   }
 
   function handleDayClick(day) {
@@ -433,6 +440,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const ds = toDateStr(day);
             const isCurrentMonth = day.getMonth() === calMonth.getMonth();
             const isSuggested = suggestedDates.has(ds);
+            const isClosedSuggestion = closedSuggestedDates.has(ds) && !isSuggested;
             const isSelected = isInSelection(day);
             const isToday = isSameDay(day, today);
             const isPast = day < new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -448,7 +456,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             return (
               <button
                 key={ds}
-                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
+                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
                 title={tooltipParts.length > 0 ? tooltipParts.join(' · ') : undefined}
                 onClick={() => {
                   if (!isPast && !isFinalized) handleDayClick(day);
@@ -509,7 +517,8 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid var(--color-accent)', background: 'none' }} /> Today</span>
           {googleBusyDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #4285F4', background: 'none' }} /> Google Event</span>}
           {otherEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #f59e0b', background: 'none' }} /> Other Rally event voting</span>}
-          {finalizedEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #dc2626', background: 'none' }} /> Other Rally event finalized</span>}
+          {finalizedEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #16a34a', background: 'none' }} /> Other Rally event finalized</span>}
+          {closedSuggestedDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#f3f4f6', color: '#dc2626', textAlign: 'center', fontSize: '0.7rem', lineHeight: '10px' }}>✕</span> Closed (no longer available)</span>}
         </div>
       </div>
 
@@ -533,8 +542,8 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
               );
             })}
             {(finalizedEventDates.get(viewingDay) || []).map((title, i) => (
-              <div key={`f-${i}`} className={styles.sidePanelEvent} style={{ background: '#fef2f2', borderLeftColor: '#dc2626' }}>
-                <div className={styles.sidePanelTime} style={{ color: '#dc2626' }}>Rally event finalized</div>
+              <div key={`f-${i}`} className={styles.sidePanelEvent} style={{ background: '#dcfce7', borderLeftColor: '#16a34a' }}>
+                <div className={styles.sidePanelTime} style={{ color: '#15803d' }}>Rally event finalized</div>
                 <div className={styles.sidePanelEventTitle}>{title}</div>
               </div>
             ))}
