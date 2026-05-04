@@ -1466,8 +1466,12 @@ export function EventDetail() {
                         {m.phone && uid !== user?.uid && (() => {
                           const name = m.name ? m.name.split(' ')[0] : 'Friend';
                           const pollUrl = `${window.location.origin}/poll/${eventId}?name=${encodeURIComponent(name)}`;
-                          const dateStr = event.date ? format(new Date(event.date.seconds ? event.date.seconds * 1000 : event.date), 'EEEE, MMMM d · h:mm a') : '';
-                          const msg = `Hey ${name}! You're invited to ${event.title}.\n\nVote here on what dates you can make: ${pollUrl}`;
+                          const recipientHasVoted = (voteStats[uid]?.total || 0) > 0;
+                          const msg = stage === 'finalized'
+                            ? `Hey ${name}! Just a reminder about ${event.title}${event.location ? ` at ${event.location}` : ''}.\n\nDetails & RSVP: ${pollUrl}`
+                            : recipientHasVoted
+                              ? `Hey ${name}! People have suggested additional dates for ${event.title}. Would any of these new dates work for you?\n\nVote here: ${pollUrl}`
+                              : `Hey ${name}! You're invited to ${event.title}.\n\nVote here on what dates you can make: ${pollUrl}`;
                           const cleaned = m.phone.replace(/[^\d+]/g, '');
                           return (
                             <a href={`sms:${cleaned}?body=${encodeURIComponent(msg)}`}
