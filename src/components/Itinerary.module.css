@@ -1948,3 +1948,68 @@
   }
 }
 
+.subHighlightWrap {
+  margin: 0.35rem 0 0 2.6rem;
+  padding-left: 0.4rem;
+  border-left: 2px dashed var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.subHighlightList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.subHighlightItem {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+}
+.subHighlightDot { color: var(--color-text-muted); }
+.subHighlightText { flex: 1; }
+.subHighlightRemove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  line-height: 1;
+}
+.subHighlightRemove:hover { color: var(--color-danger, #dc2626); }
+.subHighlightAddRow {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.1rem;
+}
+.subHighlightInput {
+  flex: 1;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  outline: none;
+}
+.subHighlightInput:focus { border-color: var(--color-accent); }
+.subHighlightAddBtn {
+  padding: 0.3rem 0.7rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+

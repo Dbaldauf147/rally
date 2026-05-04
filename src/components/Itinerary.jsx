@@ -453,6 +453,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editGroupName, setEditGroupName] = useState('');
   const [expandedVotersId, setExpandedVotersId] = useState(null);
+  const [subDraftById, setSubDraftById] = useState({}); // highlightId -> input text
   const [collapsed, setCollapsed] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const hideVotingKey = `rally.tripHighlights.hideVoting.${event?.id || 'global'}`;
@@ -614,6 +615,26 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   // Cast or move the current user's rank vote on a highlight.
   // Each member can have at most one highlight per rank (1, 2, 3).
   // Clicking the same rank again removes their vote.
+  async function addSubHighlight(highlightId, text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    const next = highlights.map(h => {
+      if (h.id !== highlightId) return h;
+      const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+      return { ...h, subHighlights: [...subs, { id: crypto.randomUUID(), text: trimmed }] };
+    });
+    await onSave({ tripHighlights: next });
+  }
+
+  async function removeSubHighlight(highlightId, subId) {
+    const next = highlights.map(h => {
+      if (h.id !== highlightId) return h;
+      const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+      return { ...h, subHighlights: subs.filter(s => s.id !== subId) };
+    });
+    await onSave({ tripHighlights: next });
+  }
+
   async function castVote(highlightId, rank) {
     if (!user) return;
     const uid = user.uid;
@@ -898,6 +919,55 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             </>
           )}
         </div>
+        {(() => {
+          const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+          if (subs.length === 0 && !canEdit) return null;
+          const draft = subDraftById[h.id] || '';
+          const setDraft = (v) => setSubDraftById(prev => ({ ...prev, [h.id]: v }));
+          const submit = async () => {
+            if (!draft.trim()) return;
+            await addSubHighlight(h.id, draft);
+            setDraft('');
+          };
+          return (
+            <div className={styles.subHighlightWrap}>
+              {subs.length > 0 && (
+                <ul className={styles.subHighlightList}>
+                  {subs.map(s => (
+                    <li key={s.id} className={styles.subHighlightItem}>
+                      <span className={styles.subHighlightDot}>•</span>
+                      <span className={styles.subHighlightText}>{s.text}</span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          className={styles.subHighlightRemove}
+                          onClick={() => removeSubHighlight(h.id, s.id)}
+                          title="Remove"
+                          aria-label="Remove sub-item"
+                        >×</button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {canEdit && (
+                <div className={styles.subHighlightAddRow}>
+                  <input
+                    type="text"
+                    className={styles.subHighlightInput}
+                    value={draft}
+                    placeholder="+ Add a thing to do here"
+                    onChange={e => setDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+                  />
+                  {draft.trim() && (
+                    <button type="button" className={styles.subHighlightAddBtn} onClick={submit}>Add</button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         {!hideVoting && expandedVotersId === h.id && editingId !== h.id && (
           <div className={styles.highlightVotersPanel}>
             {[1, 2, 3].map(rank => {
@@ -1018,14 +1088,14 @@ function TripHighlightsList({ event, onSave, canEdit }) {
           >{collapsed ? '▸' : '▾'}</button>
           <div>
             <h4 className={styles.highlightsTitle}>
-              ✨ Trip Highlights
+              ✨ Key Destinations
               {collapsed && highlights.length > 0 && (
                 <span className={styles.highlightsCollapsedCount}>{highlights.length}</span>
               )}
             </h4>
             {!collapsed && (
               <div className={styles.highlightsSubtitle}>
-                Must-do experiences. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Group highlights into sections to organize the trip.
+                Must-visit places. The AI assistant plans the itinerary around these. Lock 🔒 the ones it must keep. Add sub-items for key things to do at each one.
               </div>
             )}
           </div>
@@ -1914,11 +1984,16 @@ export function Itinerary({ event, onSave, canEdit }) {
     const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
     if (highlights.length > 0) {
       lines.push('');
-      lines.push('✨ Trip Highlights');
+      lines.push('✨ Key Destinations');
       highlights.forEach((h, i) => {
         const lock = h.locked ? '🔒 ' : '';
         const cost = h.cost ? ` — ${h.cost}` : '';
         lines.push(`  ${i + 1}. ${lock}${h.text || ''}${cost}`);
+        const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+        for (const s of subs) {
+          if (!s || !s.text) continue;
+          lines.push(`     • ${s.text}`);
+        }
       });
     }
 
