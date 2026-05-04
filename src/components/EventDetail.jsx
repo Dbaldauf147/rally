@@ -1946,10 +1946,10 @@ export function EventDetail() {
       {showFinalize && (
         <div className={styles.modalOverlay} onClick={() => setShowFinalize(false)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '420px' }}>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem' }}>Finalize Event Date</h2>
-            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 1rem' }}>Select the confirmed date for this event.</p>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem' }}>{stage === 'finalized' ? 'Edit Event Date' : 'Finalize Event Date'}</h2>
+            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 1rem' }}>{stage === 'finalized' ? 'Adjust the confirmed date for this event.' : 'Select the confirmed date for this event.'}</p>
 
-            {allDateOptions.length > 0 && (
+            {stage !== 'finalized' && allDateOptions.length > 0 && (
               <div style={{ marginBottom: '1rem' }}>
                 <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Pick from voted dates</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '180px', overflowY: 'auto' }}>
