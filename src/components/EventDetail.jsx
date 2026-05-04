@@ -328,6 +328,11 @@ export function EventDetail() {
     await updateEvent(eventId, { altRanges: next });
   }
 
+  async function updateAltRange(id, partial) {
+    const next = (Array.isArray(event?.altRanges) ? event.altRanges : []).map(r => r.id === id ? { ...r, ...partial } : r);
+    await updateEvent(eventId, { altRanges: next });
+  }
+
   if (loading) return <div className={styles.loading}>Loading...</div>;
   if (!event) return <div className={styles.loading}>Event not found</div>;
 
@@ -1693,6 +1698,7 @@ export function EventDetail() {
             altRanges={Array.isArray(event.altRanges) ? event.altRanges : []}
             onAddAltRange={addAltRange}
             onRemoveAltRange={removeAltRange}
+            onUpdateAltRange={updateAltRange}
             onEditDate={(opt) => {
               setEditingOptionId(opt.id);
               setFinalizeDate(opt.startDate || '');

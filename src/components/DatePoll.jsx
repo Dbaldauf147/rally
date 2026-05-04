@@ -9,7 +9,7 @@ function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange, onEditDate }) {
+export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange, onUpdateAltRange, onEditDate }) {
   const isFinalized = stage === 'finalized';
   const { user } = useAuth();
   const [options, setOptions] = useState([]);
@@ -33,6 +33,10 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   const [newRangeLabel, setNewRangeLabel] = useState('');
   const [newRangeStart, setNewRangeStart] = useState('');
   const [newRangeEnd, setNewRangeEnd] = useState('');
+  const [editingRangeId, setEditingRangeId] = useState(null);
+  const [editRangeLabel, setEditRangeLabel] = useState('');
+  const [editRangeStart, setEditRangeStart] = useState('');
+  const [editRangeEnd, setEditRangeEnd] = useState('');
 
   // Get a valid access token, refreshing via refresh-token if expired
   async function getValidGoogleToken() {
@@ -669,19 +673,82 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                   const end = new Date((r.endDate || r.startDate) + 'T00:00:00');
                   const isRange = r.endDate && r.endDate !== r.startDate;
                   const dayCount = isRange ? eachDayOfInterval({ start, end }).length : 1;
+                  const isEditing = editingRangeId === r.id;
+                  const beginEdit = () => {
+                    setEditingRangeId(r.id);
+                    setEditRangeLabel(r.label || '');
+                    setEditRangeStart(r.startDate || '');
+                    setEditRangeEnd(r.endDate || r.startDate || '');
+                  };
+                  const cancelEdit = () => {
+                    setEditingRangeId(null);
+                    setEditRangeLabel('');
+                    setEditRangeStart('');
+                    setEditRangeEnd('');
+                  };
+                  const saveEdit = async () => {
+                    const label = editRangeLabel.trim();
+                    if (!editRangeStart || !label || !onUpdateAltRange) return;
+                    await onUpdateAltRange(r.id, {
+                      label,
+                      startDate: editRangeStart,
+                      endDate: editRangeEnd || editRangeStart,
+                    });
+                    cancelEdit();
+                  };
                   return (
                     <div key={r.id} className={styles.option}>
-                      <div className={styles.optionHeader}>
-                        <div className={styles.optionDates}>
-                          <div className={styles.altRangeLabel}>{r.label}</div>
-                          {isRange
-                            ? <span className={styles.dateRange}>{format(start, 'MMM d')} – {format(end, 'MMM d, yyyy')} <span className={styles.dayCount}>{dayCount} days</span></span>
-                            : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
+                      {isEditing ? (
+                        <div className={styles.altRangeForm} style={{ marginTop: 0, background: 'transparent', border: 'none', padding: 0 }}>
+                          <input
+                            type="text"
+                            value={editRangeLabel}
+                            onChange={e => setEditRangeLabel(e.target.value)}
+                            placeholder="Group name"
+                            className={styles.altRangeInput}
+                          />
+                          <div className={styles.altRangeFormRow}>
+                            <input
+                              type="date"
+                              value={editRangeStart}
+                              onChange={e => setEditRangeStart(e.target.value)}
+                              className={styles.altRangeDateInput}
+                            />
+                            <input
+                              type="date"
+                              value={editRangeEnd}
+                              min={editRangeStart}
+                              onChange={e => setEditRangeEnd(e.target.value)}
+                              className={styles.altRangeDateInput}
+                            />
+                            <button
+                              onClick={saveEdit}
+                              disabled={!editRangeStart || !editRangeLabel.trim()}
+                              className={styles.altRangeSubmit}
+                            >
+                              Save
+                            </button>
+                            <button onClick={cancelEdit} className={styles.altRangeCancel}>Cancel</button>
+                          </div>
                         </div>
-                        {canManage && onRemoveAltRange && (
-                          <button className={styles.deleteBtn} onClick={() => onRemoveAltRange(r.id)} title="Remove">×</button>
-                        )}
-                      </div>
+                      ) : (
+                        <div className={styles.optionHeader}>
+                          <div className={styles.optionDates}>
+                            <div className={styles.altRangeLabel}>{r.label}</div>
+                            {isRange
+                              ? <span className={styles.dateRange}>{format(start, 'MMM d')} – {format(end, 'MMM d, yyyy')} <span className={styles.dayCount}>{dayCount} days</span></span>
+                              : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                            {canManage && onUpdateAltRange && (
+                              <button className={styles.deleteBtn} onClick={beginEdit} title="Edit" style={{ fontSize: '0.95rem' }}>✏️</button>
+                            )}
+                            {canManage && onRemoveAltRange && (
+                              <button className={styles.deleteBtn} onClick={() => onRemoveAltRange(r.id)} title="Remove">×</button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
