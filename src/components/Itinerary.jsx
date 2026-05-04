@@ -818,24 +818,17 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                 {(() => {
                   const days = getDaysForHighlight(h);
                   if (days.length === 0) return null;
-                  const fmtShort = (d) => {
-                    const dt = new Date(d + 'T12:00:00');
-                    return `${dt.toLocaleDateString('en-US', { weekday: 'short' })} ${dt.getMonth() + 1}/${dt.getDate()}`;
-                  };
                   const fmtFull = (d) => {
                     const dt = new Date(d + 'T12:00:00');
                     return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
                   };
-                  const labels = days.map(fmtShort);
                   const fullList = days.map(fmtFull).join(', ');
-                  const display = days.length <= 4
-                    ? labels.join(', ')
-                    : `${labels.slice(0, 3).join(', ')} +${days.length - 3}`;
+                  const label = `${days.length} day${days.length !== 1 ? 's' : ''}`;
                   return (
                     <span
                       className={styles.highlightDayCount}
                       title={fullList}
-                    >📅 {display}</span>
+                    >📅 {label}</span>
                   );
                 })()}
                 {urls.map((u, i) => {
