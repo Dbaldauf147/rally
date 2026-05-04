@@ -68,6 +68,33 @@ function isTikTokUrl(url) {
   }
 }
 
+function InstagramGlyph({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="url(#ig-grad)" style={{ display: 'block' }}>
+      <defs>
+        <linearGradient id="ig-grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#f09433" />
+          <stop offset="25%" stopColor="#e6683c" />
+          <stop offset="50%" stopColor="#dc2743" />
+          <stop offset="75%" stopColor="#cc2366" />
+          <stop offset="100%" stopColor="#bc1888" />
+        </linearGradient>
+      </defs>
+      <path d="M12 2.2c3.2 0 3.6 0 4.8.07 3.25.15 4.77 1.69 4.92 4.92.06 1.27.07 1.65.07 4.85 0 3.2-.01 3.58-.07 4.85-.15 3.22-1.67 4.77-4.92 4.92-1.27.06-1.65.07-4.85.07-3.2 0-3.58-.01-4.85-.07-3.26-.15-4.77-1.7-4.92-4.92C2.13 15.62 2.12 15.24 2.12 12s.01-3.58.07-4.85c.15-3.23 1.67-4.77 4.92-4.92C8.42 2.21 8.8 2.2 12 2.2zm0-2.2C8.74 0 8.33.01 7.05.07 2.7.27.27 2.69.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.2 4.36 2.62 6.78 6.98 6.98 1.28.06 1.69.07 4.95.07 3.26 0 3.67-.01 4.95-.07 4.36-.2 6.78-2.62 6.98-6.98.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95C23.73 2.69 21.31.27 16.95.07 15.67.01 15.26 0 12 0zm0 5.84A6.16 6.16 0 1 0 12 18.16 6.16 6.16 0 0 0 12 5.84zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.41-11.85a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/>
+    </svg>
+  );
+}
+
+function TikTokGlyph({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block' }}>
+      <path fill="#25F4EE" d="M16.6 5.82a4.55 4.55 0 0 1-1.42-2.94h-2.75v11.27a2.6 2.6 0 1 1-1.84-2.49V8.85a5.44 5.44 0 1 0 4.6 5.38V8.97a7.36 7.36 0 0 0 4.27 1.36V7.6a4.51 4.51 0 0 1-2.86-1.78z"/>
+      <path fill="#FE2C55" d="M17.6 5.05a4.55 4.55 0 0 1-1.42-2.94h-.84a4.84 4.84 0 0 0 4.62 4.32V3.62a4.51 4.51 0 0 1-2.36 1.43z"/>
+      <path fill="currentColor" d="M16.6 5.82a4.55 4.55 0 0 1-1.42-2.94h-2.75v11.27a2.6 2.6 0 1 1-1.84-2.49V8.85a5.44 5.44 0 1 0 4.6 5.38V8.97a7.36 7.36 0 0 0 4.27 1.36V7.6a4.51 4.51 0 0 1-2.86-1.78z" opacity="0"/>
+    </svg>
+  );
+}
+
 // Strip share-tracking params (e.g. ?igsh=...) so the embed permalink is clean.
 function normalizeInstagramUrl(url) {
   try {
@@ -794,46 +821,49 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             </div>
           ) : (
             <>
-              {hideVoting ? (
-                <span className={styles.highlightText}>{h.text}</span>
-              ) : (
-                <span
-                  className={`${styles.highlightText} ${styles.highlightTextClickable}`}
-                  onClick={() => setExpandedVotersId(prev => prev === h.id ? null : h.id)}
-                  title="Click to see who voted"
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setExpandedVotersId(prev => prev === h.id ? null : h.id);
-                    }
-                  }}
-                >{h.text}</span>
-              )}
-              {(() => {
-                const days = getDaysForHighlight(h);
-                if (days.length === 0) return null;
-                const fmtFull = (d) => {
-                  const dt = new Date(d + 'T12:00:00');
-                  return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                };
-                const fullList = days.map(fmtFull).join(', ');
-                const label = `${days.length} day${days.length !== 1 ? 's' : ''}`;
-                return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+                {hideVoting ? (
+                  <span className={styles.highlightText} style={{ flex: 'none' }}>{h.text}</span>
+                ) : (
                   <span
-                    className={styles.highlightDayCount}
-                    title={fullList}
-                    style={{ marginLeft: '0.4rem' }}
-                  >📅 {label}</span>
-                );
-              })()}
+                    className={`${styles.highlightText} ${styles.highlightTextClickable}`}
+                    style={{ flex: 'none' }}
+                    onClick={() => setExpandedVotersId(prev => prev === h.id ? null : h.id)}
+                    title="Click to see who voted"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setExpandedVotersId(prev => prev === h.id ? null : h.id);
+                      }
+                    }}
+                  >{h.text}</span>
+                )}
+                {(() => {
+                  const days = getDaysForHighlight(h);
+                  if (days.length === 0) return null;
+                  const fmtFull = (d) => {
+                    const dt = new Date(d + 'T12:00:00');
+                    return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                  };
+                  const fullList = days.map(fmtFull).join(', ');
+                  const label = `${days.length} day${days.length !== 1 ? 's' : ''}`;
+                  return (
+                    <span
+                      className={styles.highlightDayCount}
+                      title={fullList}
+                    >📅 {label}</span>
+                  );
+                })()}
+              </div>
               <div className={styles.highlightRowEnd}>
                 {h.cost && (
                   <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
                 )}
                 {urls.map((u, i) => {
                   const ig = isInstagramUrl(u);
+                  const tt = isTikTokUrl(u);
                   return (
                     <a
                       key={`${u}-${i}`}
@@ -842,8 +872,8 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                       rel="noopener noreferrer"
                       className={styles.highlightLinkBtn}
                       title={u}
-                      aria-label={ig ? 'Open Instagram' : 'Open link'}
-                    >{ig ? '📱' : '🔗'}</a>
+                      aria-label={tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link'}
+                    >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
                   );
                 })}
                 {!hideVoting && (
@@ -1011,7 +1041,6 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                         {subUrls(s).map((u, i) => {
                           const ig = isInstagramUrl(u);
                           const tt = isTikTokUrl(u);
-                          const icon = tt ? '🎵' : ig ? '📱' : '🔗';
                           const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
                           return (
                             <a
@@ -1022,7 +1051,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                               className={styles.subHighlightLink}
                               title={u}
                               aria-label={label}
-                            >{icon}</a>
+                            >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
                           );
                         })}
                         {canEdit && (
