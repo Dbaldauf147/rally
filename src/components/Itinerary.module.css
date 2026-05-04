@@ -1971,6 +1971,25 @@
   font-size: 0.82rem;
   color: var(--color-text-secondary);
 }
+.subHighlightItemSkipped .subHighlightText {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+.subHighlightLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  text-decoration: none;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.subHighlightLink:hover { border-color: var(--color-accent); }
 .subHighlightDot { color: var(--color-text-muted); }
 .subHighlightText { flex: 1; }
 .subHighlightRemove {

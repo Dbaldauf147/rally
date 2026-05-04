@@ -59,6 +59,15 @@ function isInstagramUrl(url) {
   }
 }
 
+function isTikTokUrl(url) {
+  try {
+    const u = new URL(url);
+    return /(^|\.)tiktok\.com$/i.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 // Strip share-tracking params (e.g. ?igsh=...) so the embed permalink is clean.
 function normalizeInstagramUrl(url) {
   try {
@@ -453,7 +462,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editGroupName, setEditGroupName] = useState('');
   const [expandedVotersId, setExpandedVotersId] = useState(null);
-  const [subDraftById, setSubDraftById] = useState({}); // highlightId -> input text
+  const [subDraftById, setSubDraftById] = useState({}); // highlightId -> { text, url }
   const [collapsed, setCollapsed] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const hideVotingKey = `rally.tripHighlights.hideVoting.${event?.id || 'global'}`;
@@ -615,13 +624,15 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   // Cast or move the current user's rank vote on a highlight.
   // Each member can have at most one highlight per rank (1, 2, 3).
   // Clicking the same rank again removes their vote.
-  async function addSubHighlight(highlightId, text) {
+  async function addSubHighlight(highlightId, text, url) {
     const trimmed = (text || '').trim();
     if (!trimmed) return;
+    const cleanedUrl = (url || '').trim();
+    const urls = cleanedUrl ? [isInstagramUrl(cleanedUrl) ? normalizeInstagramUrl(cleanedUrl) : cleanedUrl] : [];
     const next = highlights.map(h => {
       if (h.id !== highlightId) return h;
       const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
-      return { ...h, subHighlights: [...subs, { id: crypto.randomUUID(), text: trimmed }] };
+      return { ...h, subHighlights: [...subs, { id: crypto.randomUUID(), text: trimmed, urls }] };
     });
     await onSave({ tripHighlights: next });
   }
@@ -631,6 +642,15 @@ function TripHighlightsList({ event, onSave, canEdit }) {
       if (h.id !== highlightId) return h;
       const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
       return { ...h, subHighlights: subs.filter(s => s.id !== subId) };
+    });
+    await onSave({ tripHighlights: next });
+  }
+
+  async function toggleSubHighlightSkipped(highlightId, subId) {
+    const next = highlights.map(h => {
+      if (h.id !== highlightId) return h;
+      const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+      return { ...h, subHighlights: subs.map(s => s.id === subId ? { ...s, skipped: !s.skipped } : s) };
     });
     await onSave({ tripHighlights: next });
   }
@@ -922,29 +942,56 @@ function TripHighlightsList({ event, onSave, canEdit }) {
         {(() => {
           const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
           if (subs.length === 0 && !canEdit) return null;
-          const draft = subDraftById[h.id] || '';
-          const setDraft = (v) => setSubDraftById(prev => ({ ...prev, [h.id]: v }));
+          const draft = subDraftById[h.id] || { text: '', url: '' };
+          const setDraft = (patch) => setSubDraftById(prev => ({ ...prev, [h.id]: { ...(prev[h.id] || { text: '', url: '' }), ...patch } }));
           const submit = async () => {
-            if (!draft.trim()) return;
-            await addSubHighlight(h.id, draft);
-            setDraft('');
+            if (!draft.text || !draft.text.trim()) return;
+            await addSubHighlight(h.id, draft.text, draft.url);
+            setSubDraftById(prev => ({ ...prev, [h.id]: { text: '', url: '' } }));
           };
+          const subUrls = (s) => Array.isArray(s.urls) ? s.urls.filter(Boolean) : [];
           return (
             <div className={styles.subHighlightWrap}>
               {subs.length > 0 && (
                 <ul className={styles.subHighlightList}>
                   {subs.map(s => (
-                    <li key={s.id} className={styles.subHighlightItem}>
+                    <li key={s.id} className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}>
                       <span className={styles.subHighlightDot}>•</span>
                       <span className={styles.subHighlightText}>{s.text}</span>
+                      {subUrls(s).map((u, i) => {
+                        const ig = isInstagramUrl(u);
+                        const tt = isTikTokUrl(u);
+                        const icon = tt ? '🎵' : ig ? '📱' : '🔗';
+                        const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
+                        return (
+                          <a
+                            key={`${u}-${i}`}
+                            href={u}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.subHighlightLink}
+                            title={u}
+                            aria-label={label}
+                          >{icon}</a>
+                        );
+                      })}
                       {canEdit && (
-                        <button
-                          type="button"
-                          className={styles.subHighlightRemove}
-                          onClick={() => removeSubHighlight(h.id, s.id)}
-                          title="Remove"
-                          aria-label="Remove sub-item"
-                        >×</button>
+                        <>
+                          <button
+                            type="button"
+                            className={styles.subHighlightRemove}
+                            onClick={() => toggleSubHighlightSkipped(h.id, s.id)}
+                            title={s.skipped ? 'Restore' : 'Skip — cross out without removing'}
+                            aria-label={s.skipped ? 'Restore sub-item' : 'Skip sub-item'}
+                          >{s.skipped ? '↺' : '⊘'}</button>
+                          <button
+                            type="button"
+                            className={styles.subHighlightRemove}
+                            onClick={() => removeSubHighlight(h.id, s.id)}
+                            title="Remove"
+                            aria-label="Remove sub-item"
+                          >×</button>
+                        </>
                       )}
                     </li>
                   ))}
@@ -955,13 +1002,24 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                   <input
                     type="text"
                     className={styles.subHighlightInput}
-                    value={draft}
+                    value={draft.text || ''}
                     placeholder="+ Add a thing to do here"
-                    onChange={e => setDraft(e.target.value)}
+                    onChange={e => setDraft({ text: e.target.value })}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
                   />
-                  {draft.trim() && (
-                    <button type="button" className={styles.subHighlightAddBtn} onClick={submit}>Add</button>
+                  {(draft.text || '').trim() && (
+                    <>
+                      <input
+                        type="url"
+                        className={styles.subHighlightInput}
+                        value={draft.url || ''}
+                        placeholder="TikTok / Instagram / link (optional)"
+                        onChange={e => setDraft({ url: e.target.value })}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+                        style={{ maxWidth: '60%' }}
+                      />
+                      <button type="button" className={styles.subHighlightAddBtn} onClick={submit}>Add</button>
+                    </>
                   )}
                 </div>
               )}
