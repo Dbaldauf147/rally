@@ -1181,7 +1181,7 @@ function TripHighlightsList({ event, onSave, canEdit }) {
               >+ Add group</button>
             )}
             {canEdit && !adding && (
-              <button className={styles.highlightsAddBtn} onClick={() => setAdding(true)}>+ Add highlight</button>
+              <button className={styles.highlightsAddBtn} onClick={() => setAdding(true)}>+ Key Destination</button>
             )}
           </div>
         )}
