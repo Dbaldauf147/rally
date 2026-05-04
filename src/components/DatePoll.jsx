@@ -28,7 +28,8 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   const [topPick, setTopPick] = useState(null); // optionId of user's top choice
   const [googleConnected, setGoogleConnected] = useState(() => !!localStorage.getItem('google-cal-token'));
   const [loadingGoogle, setLoadingGoogle] = useState(false);
-  const [otherEventDates, setOtherEventDates] = useState(new Map()); // dateStr -> [event titles]
+  const [otherEventDates, setOtherEventDates] = useState(new Map()); // dateStr -> [event titles] (voting stage)
+  const [finalizedEventDates, setFinalizedEventDates] = useState(new Map()); // dateStr -> [event titles] (finalized elsewhere)
   const [showAddRange, setShowAddRange] = useState(false);
   const [newRangeLabel, setNewRangeLabel] = useState('');
   const [newRangeStart, setNewRangeStart] = useState('');
@@ -114,8 +115,9 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     fetchGoogleBusy();
   }, [fetchGoogleBusy]);
 
-  // Fetch other voting-stage events the user is part of, to highlight
-  // dates that already have an open poll elsewhere as potential overlaps.
+  // Fetch other events the user is part of, to surface conflicts:
+  //   • voting-stage events → orange ring (a poll is open on those dates)
+  //   • finalized events    → red ring   (an event is locked in on those dates)
   useEffect(() => {
     if (!user || entityType !== 'events') return;
     let cancelled = false;
@@ -125,10 +127,27 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           collection(db, 'events'),
           where('memberUids', 'array-contains', user.uid)
         ));
-        const others = eventsSnap.docs.filter(d => d.id !== entityId && (d.data().stage || 'voting') === 'voting');
-        const map = new Map();
-        await Promise.all(others.map(async d => {
-          const title = d.data().title || 'Event';
+        const otherDocs = eventsSnap.docs.filter(d => d.id !== entityId);
+        const votingMap = new Map();
+        const finalizedMap = new Map();
+        await Promise.all(otherDocs.map(async d => {
+          const data = d.data();
+          const title = data.title || 'Event';
+          const stage = data.stage || 'voting';
+          if (stage === 'finalized' && !data.dateTBD) {
+            const start = data.date?.toDate?.() || (data.date ? new Date(data.date) : null);
+            const endRaw = data.endDate?.toDate?.() || (data.endDate ? new Date(data.endDate) : null);
+            if (!start || isNaN(start.getTime())) return;
+            const end = endRaw && !isNaN(endRaw.getTime()) ? endRaw : start;
+            for (const day of eachDayOfInterval({ start, end })) {
+              const ds = toDateStr(day);
+              const list = finalizedMap.get(ds) || [];
+              if (!list.includes(title)) list.push(title);
+              finalizedMap.set(ds, list);
+            }
+            return;
+          }
+          if (stage !== 'voting') return;
           try {
             const optsSnap = await getDocs(collection(db, 'events', d.id, 'dateOptions'));
             for (const optDoc of optsSnap.docs) {
@@ -139,14 +158,17 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
               if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
               for (const day of eachDayOfInterval({ start, end })) {
                 const ds = toDateStr(day);
-                const list = map.get(ds) || [];
+                const list = votingMap.get(ds) || [];
                 if (!list.includes(title)) list.push(title);
-                map.set(ds, list);
+                votingMap.set(ds, list);
               }
             }
           } catch {}
         }));
-        if (!cancelled) setOtherEventDates(map);
+        if (!cancelled) {
+          setOtherEventDates(votingMap);
+          setFinalizedEventDates(finalizedMap);
+        }
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -418,14 +440,19 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const busyEvents = googleEventMap[ds];
             const overlapTitles = otherEventDates.get(ds);
             const hasOverlap = !!overlapTitles && overlapTitles.length > 0;
+            const finalizedTitles = finalizedEventDates.get(ds);
+            const hasFinalizedConflict = !!finalizedTitles && finalizedTitles.length > 0;
+            const tooltipParts = [];
+            if (hasFinalizedConflict) tooltipParts.push(`Finalized elsewhere: ${finalizedTitles.join(', ')}`);
+            if (hasOverlap) tooltipParts.push(`Also being voted on: ${overlapTitles.join(', ')}`);
             return (
               <button
                 key={ds}
-                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasOverlap && !isSelected ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
-                title={hasOverlap ? `Also being voted on: ${overlapTitles.join(', ')}` : undefined}
+                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
+                title={tooltipParts.length > 0 ? tooltipParts.join(' · ') : undefined}
                 onClick={() => {
                   if (!isPast && !isFinalized) handleDayClick(day);
-                  if (isBusy || hasOverlap) setViewingDay(viewingDay === ds ? null : ds);
+                  if (isBusy || hasOverlap || hasFinalizedConflict) setViewingDay(viewingDay === ds ? null : ds);
                   else setViewingDay(null);
                 }}
                 disabled={isPast}
@@ -482,11 +509,12 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid var(--color-accent)', background: 'none' }} /> Today</span>
           {googleBusyDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #4285F4', background: 'none' }} /> Google Event</span>}
           {otherEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #f59e0b', background: 'none' }} /> Other Rally event voting</span>}
+          {finalizedEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #dc2626', background: 'none' }} /> Other Rally event finalized</span>}
         </div>
       </div>
 
       {/* Side panel — Google Calendar events and other Rally events for selected day */}
-      {viewingDay && (googleFullEvents[viewingDay] || otherEventDates.has(viewingDay)) && (
+      {viewingDay && (googleFullEvents[viewingDay] || otherEventDates.has(viewingDay) || finalizedEventDates.has(viewingDay)) && (
         <div className={styles.sidePanel}>
           <div className={styles.sidePanelHeader}>
             <h4 className={styles.sidePanelTitle}>{format(new Date(viewingDay + 'T00:00:00'), 'EEEE, MMM d')}</h4>
@@ -504,6 +532,12 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                 </div>
               );
             })}
+            {(finalizedEventDates.get(viewingDay) || []).map((title, i) => (
+              <div key={`f-${i}`} className={styles.sidePanelEvent} style={{ background: '#fef2f2', borderLeftColor: '#dc2626' }}>
+                <div className={styles.sidePanelTime} style={{ color: '#dc2626' }}>Rally event finalized</div>
+                <div className={styles.sidePanelEventTitle}>{title}</div>
+              </div>
+            ))}
             {(otherEventDates.get(viewingDay) || []).map((title, i) => (
               <div key={`r-${i}`} className={styles.sidePanelEvent} style={{ background: '#fffbeb', borderLeftColor: '#f59e0b' }}>
                 <div className={styles.sidePanelTime} style={{ color: '#d97706' }}>Rally event voting</div>

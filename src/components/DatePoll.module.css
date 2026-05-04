@@ -23,7 +23,9 @@
 .calDayOtherMonth { color: var(--color-text-muted); opacity: 0.4; }
 .calDayBusy { box-shadow: inset 0 0 0 2px #4285F4; border-radius: 50%; }
 .calDayOtherEvent { box-shadow: inset 0 0 0 2px #f59e0b; border-radius: 50%; }
+.calDayFinalizedElsewhere { box-shadow: inset 0 0 0 2px #dc2626; border-radius: 50%; }
 .calDayBusy.calDayOtherEvent { box-shadow: inset 0 0 0 2px #4285F4, inset 0 0 0 4px #f59e0b; }
+.calDayBusy.calDayFinalizedElsewhere { box-shadow: inset 0 0 0 2px #4285F4, inset 0 0 0 4px #dc2626; }
 .calDayViewing { box-shadow: inset 0 0 0 2px #4285F4, 0 0 0 2px #4285F4; border-radius: 50%; }
 .calDay:hover:not(:disabled) { background: var(--color-accent-light); color: var(--color-accent); }
 .calDayPast { color: var(--color-text-muted); opacity: 0.35; cursor: default; }
