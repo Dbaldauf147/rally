@@ -463,6 +463,9 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   const [editGroupName, setEditGroupName] = useState('');
   const [expandedVotersId, setExpandedVotersId] = useState(null);
   const [subDraftById, setSubDraftById] = useState({}); // highlightId -> { text, url }
+  const [editingSubKey, setEditingSubKey] = useState(null); // `${highlightId}::${subId}`
+  const [editSubText, setEditSubText] = useState('');
+  const [editSubUrl, setEditSubUrl] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const hideVotingKey = `rally.tripHighlights.hideVoting.${event?.id || 'global'}`;
@@ -642,6 +645,15 @@ function TripHighlightsList({ event, onSave, canEdit }) {
       if (h.id !== highlightId) return h;
       const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
       return { ...h, subHighlights: subs.filter(s => s.id !== subId) };
+    });
+    await onSave({ tripHighlights: next });
+  }
+
+  async function updateSubHighlight(highlightId, subId, patch) {
+    const next = highlights.map(h => {
+      if (h.id !== highlightId) return h;
+      const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+      return { ...h, subHighlights: subs.map(s => s.id === subId ? { ...s, ...patch } : s) };
     });
     await onSave({ tripHighlights: next });
   }
@@ -954,47 +966,103 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             <div className={styles.subHighlightWrap}>
               {subs.length > 0 && (
                 <ul className={styles.subHighlightList}>
-                  {subs.map(s => (
-                    <li key={s.id} className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}>
-                      <span className={styles.subHighlightDot}>•</span>
-                      <span className={styles.subHighlightText}>{s.text}</span>
-                      {subUrls(s).map((u, i) => {
-                        const ig = isInstagramUrl(u);
-                        const tt = isTikTokUrl(u);
-                        const icon = tt ? '🎵' : ig ? '📱' : '🔗';
-                        const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
-                        return (
-                          <a
-                            key={`${u}-${i}`}
-                            href={u}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={styles.subHighlightLink}
-                            title={u}
-                            aria-label={label}
-                          >{icon}</a>
-                        );
-                      })}
-                      {canEdit && (
-                        <>
-                          <button
-                            type="button"
-                            className={styles.subHighlightRemove}
-                            onClick={() => toggleSubHighlightSkipped(h.id, s.id)}
-                            title={s.skipped ? 'Restore' : 'Skip — cross out without removing'}
-                            aria-label={s.skipped ? 'Restore sub-item' : 'Skip sub-item'}
-                          >{s.skipped ? '↺' : '⊘'}</button>
-                          <button
-                            type="button"
-                            className={styles.subHighlightRemove}
-                            onClick={() => removeSubHighlight(h.id, s.id)}
-                            title="Remove"
-                            aria-label="Remove sub-item"
-                          >×</button>
-                        </>
-                      )}
-                    </li>
-                  ))}
+                  {subs.map(s => {
+                    const subKey = `${h.id}::${s.id}`;
+                    const isEditingSub = editingSubKey === subKey;
+                    if (isEditingSub) {
+                      const saveSubEdit = async () => {
+                        const text = editSubText.trim();
+                        if (!text) return;
+                        const trimmedUrl = (editSubUrl || '').trim();
+                        const urls = trimmedUrl ? [isInstagramUrl(trimmedUrl) ? normalizeInstagramUrl(trimmedUrl) : trimmedUrl] : [];
+                        await updateSubHighlight(h.id, s.id, { text, urls });
+                        setEditingSubKey(null);
+                        setEditSubText('');
+                        setEditSubUrl('');
+                      };
+                      const cancelSubEdit = () => {
+                        setEditingSubKey(null);
+                        setEditSubText('');
+                        setEditSubUrl('');
+                      };
+                      return (
+                        <li key={s.id} className={styles.subHighlightItem}>
+                          <span className={styles.subHighlightDot}>•</span>
+                          <input
+                            type="text"
+                            className={styles.subHighlightInput}
+                            value={editSubText}
+                            onChange={e => setEditSubText(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveSubEdit(); } if (e.key === 'Escape') cancelSubEdit(); }}
+                            autoFocus
+                          />
+                          <input
+                            type="url"
+                            className={styles.subHighlightInput}
+                            value={editSubUrl}
+                            onChange={e => setEditSubUrl(e.target.value)}
+                            placeholder="TikTok / Instagram / link"
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveSubEdit(); } if (e.key === 'Escape') cancelSubEdit(); }}
+                            style={{ maxWidth: '50%' }}
+                          />
+                          <button type="button" className={styles.subHighlightAddBtn} onClick={saveSubEdit}>Save</button>
+                          <button type="button" className={styles.subHighlightRemove} onClick={cancelSubEdit} title="Cancel" aria-label="Cancel edit">×</button>
+                        </li>
+                      );
+                    }
+                    return (
+                      <li key={s.id} className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}>
+                        <span className={styles.subHighlightDot}>•</span>
+                        <span className={styles.subHighlightText}>{s.text}</span>
+                        {subUrls(s).map((u, i) => {
+                          const ig = isInstagramUrl(u);
+                          const tt = isTikTokUrl(u);
+                          const icon = tt ? '🎵' : ig ? '📱' : '🔗';
+                          const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
+                          return (
+                            <a
+                              key={`${u}-${i}`}
+                              href={u}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.subHighlightLink}
+                              title={u}
+                              aria-label={label}
+                            >{icon}</a>
+                          );
+                        })}
+                        {canEdit && (
+                          <>
+                            <button
+                              type="button"
+                              className={styles.subHighlightRemove}
+                              onClick={() => {
+                                setEditingSubKey(subKey);
+                                setEditSubText(s.text || '');
+                                setEditSubUrl((Array.isArray(s.urls) && s.urls[0]) || '');
+                              }}
+                              title="Edit"
+                              aria-label="Edit sub-item"
+                            >✏️</button>
+                            <button
+                              type="button"
+                              className={styles.subHighlightRemove}
+                              onClick={() => toggleSubHighlightSkipped(h.id, s.id)}
+                              title={s.skipped ? 'Restore' : 'Skip — cross out without removing'}
+                              aria-label={s.skipped ? 'Restore sub-item' : 'Skip sub-item'}
+                            >{s.skipped ? '↺' : '⊘'}</button>
+                            <button
+                              type="button"
+                              className={styles.subHighlightRemove}
+                              onClick={() => removeSubHighlight(h.id, s.id)}
+                              title="Remove"
+                              aria-label="Remove sub-item"
+                            >×</button>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               {canEdit && (
