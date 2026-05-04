@@ -64,6 +64,7 @@ export function EventDetail() {
   const [showTextAll, setShowTextAll] = useState(false);
   const [phantomFriendVotes, setPhantomFriendVotes] = useState(null); // null=unchecked, number=vote count
   const [cleaningPhantom, setCleaningPhantom] = useState(false);
+  const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
@@ -513,6 +514,20 @@ export function EventDetail() {
     }
     try {
       await updateEvent(eventId, updates);
+      // If this save came from clicking ✏️ on a date option card, mirror
+      // the new start/end onto that option doc too so the card itself
+      // reflects the change (otherwise the card keeps rendering from the
+      // unchanged option doc and the edit looks like a no-op).
+      if (editingOptionId) {
+        const optUpdates = {
+          startDate: finalizeDate,
+          endDate: (finalizeEndDate && finalizeEndDate !== finalizeDate) ? finalizeEndDate : finalizeDate,
+        };
+        await updateDoc(doc(db, 'events', eventId, 'dateOptions', editingOptionId), optUpdates).catch(err => {
+          console.error('Option date sync failed:', err);
+        });
+      }
+      setEditingOptionId(null);
       setShowFinalize(false);
     } catch (err) {
       console.error('Finalize save failed:', err);
@@ -1679,6 +1694,7 @@ export function EventDetail() {
             onAddAltRange={addAltRange}
             onRemoveAltRange={removeAltRange}
             onEditDate={(opt) => {
+              setEditingOptionId(opt.id);
               setFinalizeDate(opt.startDate || '');
               setFinalizeEndDate(opt.endDate || opt.startDate || '');
               setShowFinalize(true);
@@ -1963,7 +1979,7 @@ export function EventDetail() {
       })()}
       {/* Edit member modal */}
       {showFinalize && (
-        <div className={styles.modalOverlay} onClick={() => setShowFinalize(false)}>
+        <div className={styles.modalOverlay} onClick={() => { setShowFinalize(false); setEditingOptionId(null); }}>
           <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '420px' }}>
             <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem' }}>{stage === 'finalized' ? 'Edit Event Date' : 'Finalize Event Date'}</h2>
             <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 1rem' }}>{stage === 'finalized' ? 'Adjust the confirmed date for this event.' : 'Select the confirmed date for this event.'}</p>
@@ -2024,7 +2040,7 @@ export function EventDetail() {
                 style={{ flex: 1, padding: '0.6rem', border: 'none', borderRadius: 'var(--radius-md)', background: finalizeDate ? 'var(--color-accent)' : 'var(--color-border)', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: finalizeDate ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}>
                 Confirm Date
               </button>
-              <button onClick={() => setShowFinalize(false)}
+              <button onClick={() => { setShowFinalize(false); setEditingOptionId(null); }}
                 style={{ padding: '0.6rem 1.25rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.9rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                 Cancel
               </button>
