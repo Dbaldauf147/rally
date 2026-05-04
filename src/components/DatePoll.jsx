@@ -457,7 +457,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             return (
               <button
                 key={ds}
-                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isFinalizedHere && !isSelected ? styles.calDayFinalizedHere : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
+                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth && !isFinalized ? styles.calDaySuggested : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isFinalizedHere && !isSelected ? styles.calDayFinalizedHere : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
                 title={tooltipParts.length > 0 ? tooltipParts.join(' · ') : undefined}
                 onClick={() => {
                   if (!isPast && !isFinalized) handleDayClick(day);
@@ -514,7 +514,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
 
         <div className={styles.calLegend}>
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: 'var(--color-accent)' }} /> Selected</span>
-          <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#BBF7D0' }} /> Suggested</span>
+          {!isFinalized && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#BBF7D0' }} /> Suggested</span>}
           {finalizedDates && finalizedDates.length > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#b45309' }} /> Finalized date</span>}
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid var(--color-accent)', background: 'none' }} /> Today</span>
           {googleBusyDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #4285F4', background: 'none' }} /> Google Event</span>}
