@@ -811,26 +811,27 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                   }}
                 >{h.text}</span>
               )}
+              {(() => {
+                const days = getDaysForHighlight(h);
+                if (days.length === 0) return null;
+                const fmtFull = (d) => {
+                  const dt = new Date(d + 'T12:00:00');
+                  return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                };
+                const fullList = days.map(fmtFull).join(', ');
+                const label = `${days.length} day${days.length !== 1 ? 's' : ''}`;
+                return (
+                  <span
+                    className={styles.highlightDayCount}
+                    title={fullList}
+                    style={{ marginLeft: '0.4rem' }}
+                  >📅 {label}</span>
+                );
+              })()}
               <div className={styles.highlightRowEnd}>
                 {h.cost && (
                   <span className={styles.highlightCost} title="Estimated cost">{h.cost}</span>
                 )}
-                {(() => {
-                  const days = getDaysForHighlight(h);
-                  if (days.length === 0) return null;
-                  const fmtFull = (d) => {
-                    const dt = new Date(d + 'T12:00:00');
-                    return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                  };
-                  const fullList = days.map(fmtFull).join(', ');
-                  const label = `${days.length} day${days.length !== 1 ? 's' : ''}`;
-                  return (
-                    <span
-                      className={styles.highlightDayCount}
-                      title={fullList}
-                    >📅 {label}</span>
-                  );
-                })()}
                 {urls.map((u, i) => {
                   const ig = isInstagramUrl(u);
                   return (
