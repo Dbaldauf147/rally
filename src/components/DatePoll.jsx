@@ -9,7 +9,7 @@ function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange }) {
+export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange, onEditDate }) {
   const isFinalized = stage === 'finalized';
   const { user } = useAuth();
   const [options, setOptions] = useState([]);
@@ -541,6 +541,16 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                       : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                    {isFinalized && canManage && !isReference && onEditDate && (
+                      <button
+                        className={styles.deleteBtn}
+                        onClick={() => onEditDate(opt)}
+                        title="Edit — change finalized date to this"
+                        style={{ fontSize: '0.95rem' }}
+                      >
+                        ✏️
+                      </button>
+                    )}
                     {canManage && !isReference && (
                       <button
                         className={styles.deleteBtn}

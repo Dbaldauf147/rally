@@ -1659,6 +1659,11 @@ export function EventDetail() {
             altRanges={Array.isArray(event.altRanges) ? event.altRanges : []}
             onAddAltRange={addAltRange}
             onRemoveAltRange={removeAltRange}
+            onEditDate={(opt) => {
+              setFinalizeDate(opt.startDate || '');
+              setFinalizeEndDate(opt.endDate || opt.startDate || '');
+              setShowFinalize(true);
+            }}
           />
 
           {isOwner && (
@@ -1666,17 +1671,6 @@ export function EventDetail() {
               <button className={styles.editBtn} onClick={toggleStage} style={{ background: stage === 'voting' ? 'var(--color-success-light)' : 'var(--color-warning-light)', borderColor: stage === 'voting' ? 'var(--color-success)' : 'var(--color-warning)', color: stage === 'voting' ? 'var(--color-success)' : 'var(--color-warning)' }}>
                 {stage === 'voting' ? '✓ Finalize Dates' : '↩ Reopen Voting'}
               </button>
-              {stage === 'finalized' && (
-                <button className={styles.editBtn} onClick={() => {
-                  const d = event.date?.toDate?.() || new Date(event.date);
-                  const ed = event.endDate?.toDate?.() || (event.endDate ? new Date(event.endDate) : null);
-                  setFinalizeDate(d instanceof Date && !isNaN(d) ? d.toISOString().split('T')[0] : '');
-                  setFinalizeEndDate(ed instanceof Date && !isNaN(ed) ? ed.toISOString().split('T')[0] : '');
-                  setShowFinalize(true);
-                }}>
-                  Edit Date
-                </button>
-              )}
               {stage === 'finalized' && (
                 <button
                   className={styles.editBtn}
