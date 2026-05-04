@@ -1699,6 +1699,21 @@ export function EventDetail() {
             onAddAltRange={addAltRange}
             onRemoveAltRange={removeAltRange}
             onUpdateAltRange={updateAltRange}
+            finalizedDates={(() => {
+              if (stage !== 'finalized' || event.dateTBD) return [];
+              const start = event.date?.toDate?.() || (event.date ? new Date(event.date) : null);
+              const endRaw = event.endDate?.toDate?.() || (event.endDate ? new Date(event.endDate) : null);
+              if (!start || isNaN(start.getTime())) return [];
+              const end = endRaw && !isNaN(endRaw.getTime()) ? endRaw : start;
+              const out = [];
+              const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+              const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+              while (cur <= last) {
+                out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
+                cur.setDate(cur.getDate() + 1);
+              }
+              return out;
+            })()}
             onEditDate={(opt) => {
               setEditingOptionId(opt.id);
               setFinalizeDate(opt.startDate || '');

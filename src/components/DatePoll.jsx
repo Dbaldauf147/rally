@@ -9,7 +9,7 @@ function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange, onUpdateAltRange, onEditDate }) {
+export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange, onUpdateAltRange, onEditDate, finalizedDates = [] }) {
   const isFinalized = stage === 'finalized';
   const { user } = useAuth();
   const [options, setOptions] = useState([]);
@@ -441,6 +441,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const isCurrentMonth = day.getMonth() === calMonth.getMonth();
             const isSuggested = suggestedDates.has(ds);
             const isClosedSuggestion = closedSuggestedDates.has(ds) && !isSuggested;
+            const isFinalizedHere = (Array.isArray(finalizedDates) ? finalizedDates : []).includes(ds);
             const isSelected = isInSelection(day);
             const isToday = isSameDay(day, today);
             const isPast = day < new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -456,7 +457,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             return (
               <button
                 key={ds}
-                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
+                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth ? styles.calDaySuggested : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isFinalizedHere && !isSelected ? styles.calDayFinalizedHere : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
                 title={tooltipParts.length > 0 ? tooltipParts.join(' · ') : undefined}
                 onClick={() => {
                   if (!isPast && !isFinalized) handleDayClick(day);
@@ -514,6 +515,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         <div className={styles.calLegend}>
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: 'var(--color-accent)' }} /> Selected</span>
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#BBF7D0' }} /> Suggested</span>
+          {finalizedDates && finalizedDates.length > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '3px solid #15803d', background: 'none' }} /> Finalized date</span>}
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid var(--color-accent)', background: 'none' }} /> Today</span>
           {googleBusyDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #4285F4', background: 'none' }} /> Google Event</span>}
           {otherEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #f59e0b', background: 'none' }} /> Other Rally event voting</span>}
