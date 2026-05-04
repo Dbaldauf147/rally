@@ -1091,9 +1091,12 @@ export function EventDetail() {
           const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
           const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
           const calendarLink = `${window.location.origin}${icsUrl}`;
+          const hasAnyVotes = Object.values(voteStats || {}).some(s => s && s.total > 0);
           const pollMsg = event.stage === 'finalized'
             ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails & RSVP: ${pollLink}`
-            : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
+            : hasAnyVotes
+              ? `People have suggested additional dates for ${event.title}. Would any of these new dates work for you?\n\nVote here: ${pollLink}`
+              : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
           const calMsg = `You're invited to ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}.\n\nAdd to your calendar: ${calendarLink}`;
           return (
             <>
