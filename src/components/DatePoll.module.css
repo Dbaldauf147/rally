@@ -2,7 +2,7 @@
 .title { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin: 0 0 1rem; }
 
 /* Calendar */
-.calendarCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.75rem; max-width: 340px; }
+.calendarCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.75rem; max-width: 480px; width: 100%; }
 .modeToggle { display: flex; gap: 0; margin-bottom: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); overflow: hidden; }
 .modeBtn, .modeActive { flex: 1; padding: 0.3rem 0; border: none; font-size: 0.72rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; }
 .modeBtn { background: var(--color-surface); color: var(--color-text-muted); }
@@ -63,7 +63,7 @@
 .refToggle { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.4rem; font-size: 0.72rem; color: var(--color-text-muted); cursor: pointer; user-select: none; }
 .refToggle input[type="checkbox"] { margin: 0; cursor: pointer; }
 
-.calLegend { display: flex; gap: 0.75rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--color-border-light); }
+.calLegend { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--color-border-light); }
 .legendItem { display: flex; align-items: center; gap: 0.3rem; font-size: 0.68rem; color: var(--color-text-muted); }
 .legendDot { width: 10px; height: 10px; border-radius: 50%; }
 
