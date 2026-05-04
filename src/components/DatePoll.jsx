@@ -541,7 +541,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                       : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                    {!isFinalized && canManage && !isReference && (
+                    {canManage && !isReference && (
                       <button
                         className={styles.deleteBtn}
                         onClick={() => handleToggleClosed(opt.id, true)}
@@ -745,11 +745,11 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                   <span className={styles.closedItemDate}>{label}</span>
                   {opt.note && <span className={styles.closedItemNote}> — {opt.note}</span>}
                   {opt.closedBy && <span className={styles.closedItemBy}> · closed by {opt.closedBy}</span>}
-                  {!isFinalized && canManage && (
+                  {canManage && (
                     <button
                       className={styles.closedItemReopen}
                       onClick={() => handleToggleClosed(opt.id, false)}
-                      title="Reopen for voting"
+                      title={isFinalized ? 'Restore — make available again' : 'Reopen for voting'}
                     >
                       ↻ Reopen
                     </button>
