@@ -1704,7 +1704,15 @@ export function EventDetail() {
               const start = event.date?.toDate?.() || (event.date ? new Date(event.date) : null);
               const endRaw = event.endDate?.toDate?.() || (event.endDate ? new Date(event.endDate) : null);
               if (!start || isNaN(start.getTime())) return [];
-              const end = endRaw && !isNaN(endRaw.getTime()) ? endRaw : start;
+              let end = endRaw && !isNaN(endRaw.getTime()) ? endRaw : start;
+              // Defensive: if a stale endDate is earlier than start, or wildly far
+              // apart, fall back to a single-day finalization on the start date so
+              // we always at least surface event.date as gold.
+              const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+              const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+              if (endDay < startDay) end = start;
+              const dayDiff = Math.floor((endDay - startDay) / 86400000);
+              if (dayDiff > 60) end = start;
               const out = [];
               const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
               const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
