@@ -64,10 +64,6 @@ export function EventDetail() {
   const [showTextAll, setShowTextAll] = useState(false);
   const [phantomFriendVotes, setPhantomFriendVotes] = useState(null); // null=unchecked, number=vote count
   const [cleaningPhantom, setCleaningPhantom] = useState(false);
-  const [showAddRange, setShowAddRange] = useState(false);
-  const [newRangeLabel, setNewRangeLabel] = useState('');
-  const [newRangeStart, setNewRangeStart] = useState('');
-  const [newRangeEnd, setNewRangeEnd] = useState('');
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
@@ -321,21 +317,9 @@ export function EventDetail() {
     }
   }
 
-  async function addAltRange() {
-    const label = newRangeLabel.trim();
-    if (!newRangeStart || !label) return;
-    const entry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      label,
-      startDate: newRangeStart,
-      endDate: newRangeEnd || newRangeStart,
-    };
+  async function addAltRange(entry) {
     const next = [...(Array.isArray(event?.altRanges) ? event.altRanges : []), entry];
     await updateEvent(eventId, { altRanges: next });
-    setShowAddRange(false);
-    setNewRangeLabel('');
-    setNewRangeStart('');
-    setNewRangeEnd('');
   }
 
   async function removeAltRange(id) {
@@ -885,89 +869,6 @@ export function EventDetail() {
           {event.location && <p className={styles.location}>📍 {event.location}</p>}
         </div>
       </div>
-
-      {stage === 'finalized' && (() => {
-        const ranges = Array.isArray(event.altRanges) ? event.altRanges : [];
-        if (ranges.length === 0 && !isOwner) return null;
-        const formatRange = (r) => {
-          const s = new Date(r.startDate + 'T00:00:00');
-          const e = new Date((r.endDate || r.startDate) + 'T00:00:00');
-          if (r.endDate && r.endDate !== r.startDate) {
-            return `${format(s, 'MMM d')} – ${format(e, 'MMM d, yyyy')}`;
-          }
-          return format(s, 'EEE, MMM d, yyyy');
-        };
-        return (
-          <div style={{ margin: '0.5rem 0 1rem', padding: '0.75rem 0.9rem', background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: ranges.length > 0 ? '0.5rem' : 0 }}>
-              Other group date ranges
-            </div>
-            {ranges.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                {ranges.map(r => (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)' }}>{r.label}</span>
-                    <span style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', flex: 1 }}>{formatRange(r)}</span>
-                    {isOwner && (
-                      <button
-                        onClick={() => removeAltRange(r.id)}
-                        title="Remove"
-                        style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '1.1rem', cursor: 'pointer', padding: '0 0.25rem', lineHeight: 1 }}
-                      >×</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {isOwner && !showAddRange && (
-              <button
-                onClick={() => setShowAddRange(true)}
-                style={{ marginTop: ranges.length > 0 ? '0.5rem' : 0, padding: '0.4rem 0.75rem', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-secondary)', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                + Add another date range
-              </button>
-            )}
-            {isOwner && showAddRange && (
-              <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
-                <input
-                  type="text"
-                  value={newRangeLabel}
-                  onChange={e => setNewRangeLabel(e.target.value)}
-                  placeholder="Group name (e.g. Sarah's family)"
-                  style={{ flex: '1 1 180px', padding: '0.4rem 0.55rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontFamily: 'inherit' }}
-                />
-                <input
-                  type="date"
-                  value={newRangeStart}
-                  onChange={e => setNewRangeStart(e.target.value)}
-                  style={{ padding: '0.35rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontFamily: 'inherit' }}
-                />
-                <input
-                  type="date"
-                  value={newRangeEnd}
-                  min={newRangeStart}
-                  onChange={e => setNewRangeEnd(e.target.value)}
-                  placeholder="End"
-                  style={{ padding: '0.35rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontFamily: 'inherit' }}
-                />
-                <button
-                  onClick={addAltRange}
-                  disabled={!newRangeStart || !newRangeLabel.trim()}
-                  style={{ padding: '0.4rem 0.85rem', border: 'none', borderRadius: 'var(--radius-md)', background: (!newRangeStart || !newRangeLabel.trim()) ? 'var(--color-border)' : 'var(--color-accent)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: (!newRangeStart || !newRangeLabel.trim()) ? 'default' : 'pointer', fontFamily: 'inherit' }}
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => { setShowAddRange(false); setNewRangeLabel(''); setNewRangeStart(''); setNewRangeEnd(''); }}
-                  style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {user?.uid && stage === 'finalized' && !event.dateTBD && (
         <div className={styles.rsvpSection} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.4rem' }}>
@@ -1749,7 +1650,16 @@ export function EventDetail() {
               </button>
             </div>
           )}
-          <DatePoll entityType="events" entityId={eventId} stage={stage} canManage={isOwner} members={members} />
+          <DatePoll
+            entityType="events"
+            entityId={eventId}
+            stage={stage}
+            canManage={isOwner}
+            members={members}
+            altRanges={Array.isArray(event.altRanges) ? event.altRanges : []}
+            onAddAltRange={addAltRange}
+            onRemoveAltRange={removeAltRange}
+          />
 
           {isOwner && (
             <div className={styles.ownerActions}>
