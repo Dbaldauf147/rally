@@ -493,12 +493,31 @@ export function EventDetail() {
   async function confirmFinalize() {
     if (!finalizeDate) return;
     const d = new Date(finalizeDate + 'T12:00:00');
+    if (isNaN(d.getTime())) {
+      alert('That start date is invalid. Try again.');
+      return;
+    }
     const updates = { stage: 'finalized', date: d };
     if (finalizeEndDate && finalizeEndDate !== finalizeDate) {
-      updates.endDate = new Date(finalizeEndDate + 'T12:00:00');
+      const ed = new Date(finalizeEndDate + 'T12:00:00');
+      if (isNaN(ed.getTime())) {
+        alert('That end date is invalid. Try again.');
+        return;
+      }
+      updates.endDate = ed;
+    } else {
+      // Edit collapsed the range to a single day — drop any stale endDate
+      // left over from a previously finalized range so the hero stops
+      // showing the old end.
+      updates.endDate = deleteField();
     }
-    await updateEvent(eventId, updates);
-    setShowFinalize(false);
+    try {
+      await updateEvent(eventId, updates);
+      setShowFinalize(false);
+    } catch (err) {
+      console.error('Finalize save failed:', err);
+      alert(`Couldn't save the date: ${err.message || err}`);
+    }
   }
 
   async function handleDelete() {
