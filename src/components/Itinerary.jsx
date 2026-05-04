@@ -1683,7 +1683,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const items = Array.isArray(event?.itinerary) ? event.itinerary : [];
   const [editingId, setEditingId] = useState(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [] });
+  const [form, setForm] = useState({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '' });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
@@ -1791,12 +1791,13 @@ export function Itinerary({ event, onSave, canEdit }) {
   }
 
   function startAdd() {
-    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [] });
+    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '' });
     setAdding(true);
     setEditingId(null);
   }
 
   function startEdit(item) {
+    const hasFlightDetails = !!(item.arrivalTime || item.airline || item.flightNumber || item.cost || item.isFlight);
     setForm({
       title: item.title || '',
       date: item.date || '',
@@ -1806,6 +1807,11 @@ export function Itinerary({ event, onSave, canEdit }) {
       type: item.type || 'activity',
       url: item.url || '',
       highlightIds: Array.isArray(item.highlightIds) ? item.highlightIds : [],
+      isFlight: hasFlightDetails || (item.type === 'travel' && inferTravelMode(item) === 'flying'),
+      arrivalTime: item.arrivalTime || '',
+      airline: item.airline || '',
+      flightNumber: item.flightNumber || '',
+      cost: item.cost || '',
     });
     setEditingId(item.id);
     setAdding(false);
@@ -2391,8 +2397,57 @@ export function Itinerary({ event, onSave, canEdit }) {
               type="time"
               value={form.time}
               onChange={e => setForm({ ...form, time: e.target.value })}
+              placeholder={form.isFlight ? 'Departure' : ''}
+              title={form.isFlight ? 'Departure time' : 'Time'}
             />
           </div>
+          {form.type === 'travel' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={form.isFlight}
+                onChange={e => setForm({ ...form, isFlight: e.target.checked })}
+              />
+              ✈️ This is a flight (add flight details)
+            </label>
+          )}
+          {form.type === 'travel' && form.isFlight && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.65rem 0.75rem', background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+                Arrival time
+                <input
+                  className={styles.input}
+                  type="time"
+                  value={form.arrivalTime}
+                  onChange={e => setForm({ ...form, arrivalTime: e.target.value })}
+                />
+              </label>
+              <div className={styles.row}>
+                <input
+                  className={styles.input}
+                  type="text"
+                  placeholder="Airline (e.g., Delta)"
+                  value={form.airline}
+                  onChange={e => setForm({ ...form, airline: e.target.value })}
+                />
+                <input
+                  className={styles.input}
+                  type="text"
+                  placeholder="Flight # (e.g., DL123)"
+                  value={form.flightNumber}
+                  onChange={e => setForm({ ...form, flightNumber: e.target.value })}
+                />
+              </div>
+              <input
+                className={styles.input}
+                type="text"
+                placeholder="Cost (e.g., $450)"
+                value={form.cost}
+                onChange={e => setForm({ ...form, cost: e.target.value })}
+                inputMode="decimal"
+              />
+            </div>
+          )}
           <input
             className={styles.input}
             type="text"
@@ -2569,7 +2624,22 @@ export function Itinerary({ event, onSave, canEdit }) {
                         </div>
                       )}
                     </div>
-                    {item.time && <div className={styles.itemTime}>{new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>}
+                    {item.time && (
+                      <div className={styles.itemTime}>
+                        {new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        {item.arrivalTime && ` → ${new Date('2000-01-01T' + item.arrivalTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+                      </div>
+                    )}
+                    {(item.airline || item.flightNumber || item.cost) && (
+                      <div className={styles.itemFlightDetails} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 0.85rem', fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
+                        {(item.airline || item.flightNumber) && (
+                          <span>✈️ {[item.airline, item.flightNumber].filter(Boolean).join(' ')}</span>
+                        )}
+                        {item.cost && (
+                          <span>💵 {/^[\d.]/.test(String(item.cost).trim()) ? `$${item.cost}` : item.cost}</span>
+                        )}
+                      </div>
+                    )}
                     {loc && <div className={styles.itemLocation}>📍 {loc}</div>}
                     {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
                     {item.url && <div className={styles.itemUrl}><a href={item.url} target="_blank" rel="noopener noreferrer">🔗 View details</a></div>}
