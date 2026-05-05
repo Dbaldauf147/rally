@@ -3487,7 +3487,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                       <div className={styles.modeSelectorBarCompact} style={{ marginBottom: '0.5rem' }}>
                         <ModeSelector value={ct.mode} onChange={m => updateItemMode(ct.toItemId, m)} />
                       </div>
-                      <div style={{ height: '180px' }}>
+                      <div className={styles.dayRouteMapWrap} style={{ height: '180px' }}>
                         <RouteMap
                           mapsKey={mapsKey}
                           origin={ct.from}
