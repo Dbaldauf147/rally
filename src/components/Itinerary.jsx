@@ -1458,6 +1458,28 @@ function extractStartEnd(item) {
   return { start: loc, end: loc };
 }
 
+// Classifies a day as a half-day or travel day based on its items.
+//   - "Travel day"  → no activities, only travel items (flights/trains/etc.).
+//   - "½ day (AM)"  → all timed activities end by ~noon (likely a departure day).
+//   - "½ day (PM)"  → all timed activities start at ~2 PM or later (likely an arrival day).
+//   - null          → full day or not enough signal to label.
+function classifyDay(itemsOnDay) {
+  const activities = itemsOnDay.filter(i => (i.type || 'activity') === 'activity');
+  const travels = itemsOnDay.filter(i => i.type === 'travel');
+  if (activities.length === 0 && travels.length > 0) return 'Travel day';
+  const timed = activities.filter(a => a.time);
+  if (timed.length === 0) return null;
+  let earliest = timed[0].time;
+  let latest = timed[0].time;
+  for (const a of timed) {
+    if (a.time < earliest) earliest = a.time;
+    if (a.time > latest) latest = a.time;
+  }
+  if (latest <= '12:00') return '½ day (AM)';
+  if (earliest >= '14:00') return '½ day (PM)';
+  return null;
+}
+
 function inferTravelMode(item) {
   if (item?.travelMode) return item.travelMode;
   const t = ((item?.title || '') + ' ' + (item?.type || '')).toLowerCase();
@@ -2986,6 +3008,7 @@ export function Itinerary({ event, onSave, canEdit }) {
             const dateLabel = dateKey === 'Unscheduled'
               ? 'Unscheduled'
               : new Date(dateKey + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+            const dayKind = dateKey === 'Unscheduled' ? null : classifyDay(dateItems);
 
             // Activities and lodging columns
             const activityItems = dateItems.filter(i => (i.type || 'activity') === 'activity');
@@ -3125,7 +3148,14 @@ export function Itinerary({ event, onSave, canEdit }) {
             if (activityItems.length === 0 && lodgingItems.length === 0) {
               return (
                 <div key={dateKey} className={styles.dateGroup}>
-                  <div className={styles.dateLabel}>{dateLabel}</div>
+                  <div className={styles.dateLabel}>
+                    {dateLabel}
+                    {dayKind && (
+                      <span style={{ marginLeft: '0.6rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 'normal' }}>
+                        {dayKind}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                     {travelItems.map(item => (
                       <div key={item.id}>
@@ -3223,6 +3253,11 @@ export function Itinerary({ event, onSave, canEdit }) {
               <div key={dateKey} className={styles.dateGroup}>
                 <div className={styles.dateLabel}>
                   {dateLabel}
+                  {dayKind && (
+                    <span style={{ marginLeft: '0.6rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 'normal' }}>
+                      {dayKind}
+                    </span>
+                  )}
                   {totalLabel && (
                     <span style={{ marginLeft: '0.6rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 'normal' }}>
                       🚗 {totalLabel}
