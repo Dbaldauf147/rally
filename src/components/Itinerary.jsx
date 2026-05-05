@@ -2635,6 +2635,49 @@ export function Itinerary({ event, onSave, canEdit }) {
     }
   }
 
+  // Cross-day transitions: when the location at the end of one day differs
+  // from the location at the start of the next day, surface that move as a
+  // route card at the top of the new day. We skip the case where today's
+  // first item is itself a travel item that already starts at yesterday's
+  // last location (the travel card on its own already covers it).
+  const crossDayByDate = {};
+  {
+    const datedKeys = sortedDates.filter(k => k !== 'Unscheduled');
+    let prevLoc = '';
+    let prevTitle = '';
+    for (const dateKey of datedKeys) {
+      const dayItems = groups[dateKey].slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      let firstWithLoc = null;
+      for (const it of dayItems) {
+        const loc = (extractStartEnd(it).start || it.location || '').trim();
+        if (loc) { firstWithLoc = it; break; }
+      }
+      if (firstWithLoc && prevLoc) {
+        const todayStart = (extractStartEnd(firstWithLoc).start || firstWithLoc.location || '').trim();
+        if (todayStart && !locationsEqual(prevLoc, todayStart)) {
+          const transition = {
+            from: prevLoc,
+            to: todayStart,
+            fromTitle: prevTitle,
+            toTitle: firstWithLoc.title || '',
+            mode: inferTravelMode(firstWithLoc),
+            fromItemId: '',
+            toItemId: firstWithLoc.id,
+            dateKey,
+            crossDay: true,
+          };
+          crossDayByDate[dateKey] = transition;
+          allTransitions.push(transition);
+        }
+      }
+      for (let i = dayItems.length - 1; i >= 0; i--) {
+        const it = dayItems[i];
+        const loc = (extractStartEnd(it).end || it.location || '').trim();
+        if (loc) { prevLoc = loc; prevTitle = it.title || ''; break; }
+      }
+    }
+  }
+
   // Travel items themselves (flights, trains, transfers). DirectionsService
   // can't route flights, so these get drawn as direct geodesic polylines.
   const allFlights = items
@@ -3425,6 +3468,39 @@ export function Itinerary({ event, onSave, canEdit }) {
                     </span>
                   )}
                 </div>
+                {crossDayByDate[dateKey] && mapsKey && (() => {
+                  const ct = crossDayByDate[dateKey];
+                  const ttKey = travelTimeKey(ct.from, ct.to, ct.mode);
+                  const tt = travelTimes[ttKey];
+                  const ttText = tt?.duration
+                    ? (tt.distance ? `${tt.duration} · ${tt.distance}` : tt.duration)
+                    : (tt?.error ? null : '…');
+                  return (
+                    <div style={{ marginBottom: '0.75rem', padding: '0.6rem 0.75rem', border: '1px dashed #cbd5e1', borderRadius: '8px', background: '#f8fafc' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: '#475569', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem' }}>
+                        <span>🧭 Travel from</span>
+                        <strong title={ct.fromTitle}>{ct.from}</strong>
+                        <span>→</span>
+                        <strong title={ct.toTitle}>{ct.to}</strong>
+                        {ttText && <span style={{ fontWeight: 400, color: '#64748b' }}>· {ttText}</span>}
+                      </div>
+                      <div className={styles.modeSelectorBarCompact} style={{ marginBottom: '0.5rem' }}>
+                        <ModeSelector value={ct.mode} onChange={m => updateItemMode(ct.toItemId, m)} />
+                      </div>
+                      <div style={{ height: '180px' }}>
+                        <RouteMap
+                          mapsKey={mapsKey}
+                          origin={ct.from}
+                          destination={ct.to}
+                          mode={ct.mode}
+                          savedZoom={null}
+                          savedCenter={null}
+                          onViewChange={() => {}}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div
                   className={styles.scheduleGrid}
                   style={{
