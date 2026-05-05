@@ -1458,6 +1458,25 @@ function extractStartEnd(item) {
   return { start: loc, end: loc };
 }
 
+const HIGHLIGHT_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'into', 'this', 'that', 'from',
+  'tour', 'trip', 'visit', 'walk', 'walking', 'time', 'place', 'places',
+  'best', 'good', 'great', 'optional', 'maybe', 'check',
+]);
+
+// Returns true when the highlight is plausibly described by `lowerText`
+// (the activity's title + location + notes, lowercased).
+function highlightMatchesText(highlight, lowerText) {
+  const ht = (highlight?.text || '').toLowerCase().trim();
+  if (!ht) return false;
+  if (lowerText.includes(ht)) return true;
+  const tokens = ht.split(/[\s,.\-/()&]+/).filter(t => t.length >= 4 && !HIGHLIGHT_STOP_WORDS.has(t));
+  for (const tok of tokens) {
+    if (lowerText.includes(tok)) return true;
+  }
+  return false;
+}
+
 // Classifies a day as a half-day or travel day based on its items.
 //   - "Travel day"  → no activities, only travel items (flights/trains/etc.).
 //   - "½ day (AM)"  → all timed activities end by ~noon (likely a departure day).
@@ -2053,11 +2072,40 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [emailResult, setEmailResult] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
+  // Highlights the user explicitly un-tagged in the current form session.
+  // The auto-tag effect skips these so user overrides aren't re-applied.
+  const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
 
   // Expose the latest items via a ref so async callbacks (like the map's debounced
   // zoom-save) don't write back with a stale items array and wipe newer additions.
   const itemsRef = useRef(items);
   useEffect(() => { itemsRef.current = items; }, [items]);
+
+  // Auto-tag highlights based on the form's title/location/notes. Runs only
+  // while the form is open. Adds matches; never removes — un-tagging is
+  // tracked in optedOutHighlightIds so the user's manual choice survives
+  // subsequent text edits.
+  useEffect(() => {
+    if (!adding && !editingId) return;
+    const tripHighlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+    if (tripHighlights.length === 0) return;
+    const text = `${form.title || ''} ${form.location || ''} ${form.notes || ''}`.toLowerCase();
+    if (!text.trim()) return;
+    const current = new Set(form.highlightIds || []);
+    let changed = false;
+    for (const h of tripHighlights) {
+      if (current.has(h.id)) continue;
+      if (optedOutHighlightIds.has(h.id)) continue;
+      if (highlightMatchesText(h, text)) {
+        current.add(h.id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      setForm(prev => ({ ...prev, highlightIds: Array.from(current) }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.title, form.location, form.notes, adding, editingId, optedOutHighlightIds, event?.tripHighlights]);
 
   function getMapMode(id, defaultMode) {
     return mapModes[id] || defaultMode;
@@ -2152,6 +2200,7 @@ export function Itinerary({ event, onSave, canEdit }) {
     setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '' });
     setAdding(true);
     setEditingId(null);
+    setOptedOutHighlightIds(new Set());
   }
 
   async function startAddFromInstagram() {
@@ -2187,6 +2236,7 @@ export function Itinerary({ event, onSave, canEdit }) {
     });
     setAdding(true);
     setEditingId(null);
+    setOptedOutHighlightIds(new Set());
   }
 
   function toggleVideoExpanded(id) {
@@ -2216,11 +2266,13 @@ export function Itinerary({ event, onSave, canEdit }) {
     });
     setEditingId(item.id);
     setAdding(false);
+    setOptedOutHighlightIds(new Set());
   }
 
   function cancel() {
     setAdding(false);
     setEditingId(null);
+    setOptedOutHighlightIds(new Set());
   }
 
   async function saveItem() {
@@ -2932,10 +2984,23 @@ export function Itinerary({ event, onSave, canEdit }) {
                       className={active ? styles.itemHighlightTagPillActive : styles.itemHighlightTagPill}
                       onClick={() => {
                         const cur = form.highlightIds || [];
-                        const next = cur.includes(h.id)
-                          ? cur.filter(x => x !== h.id)
-                          : [...cur, h.id];
-                        setForm({ ...form, highlightIds: next });
+                        if (cur.includes(h.id)) {
+                          // Manually un-tagging → record opt-out so auto-tag
+                          // doesn't re-add it on the next text change.
+                          setOptedOutHighlightIds(prev => {
+                            const n = new Set(prev);
+                            n.add(h.id);
+                            return n;
+                          });
+                          setForm({ ...form, highlightIds: cur.filter(x => x !== h.id) });
+                        } else {
+                          setOptedOutHighlightIds(prev => {
+                            const n = new Set(prev);
+                            n.delete(h.id);
+                            return n;
+                          });
+                          setForm({ ...form, highlightIds: [...cur, h.id] });
+                        }
                       }}
                     >{h.text}</button>
                   );
