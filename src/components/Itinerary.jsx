@@ -1464,15 +1464,21 @@ const HIGHLIGHT_STOP_WORDS = new Set([
   'best', 'good', 'great', 'optional', 'maybe', 'check',
 ]);
 
-// Returns true when the highlight is plausibly described by `lowerText`
-// (the activity's title + location + notes, lowercased).
-function highlightMatchesText(highlight, lowerText) {
-  const ht = (highlight?.text || '').toLowerCase().trim();
+// Lowercases and strips diacritics so "Málaga" / "Malaga" / "MALAGA" all match.
+const COMBINING_MARKS = new RegExp('[\\u0300-\\u036f]', 'g');
+function normalizeForMatch(s) {
+  return (s || '').toString().toLowerCase().normalize('NFD').replace(COMBINING_MARKS, '');
+}
+
+// Returns true when the highlight is plausibly described by `normalizedText`
+// (the activity's title + location + notes, run through normalizeForMatch).
+function highlightMatchesText(highlight, normalizedText) {
+  const ht = normalizeForMatch(highlight?.text || '').trim();
   if (!ht) return false;
-  if (lowerText.includes(ht)) return true;
+  if (normalizedText.includes(ht)) return true;
   const tokens = ht.split(/[\s,.\-/()&]+/).filter(t => t.length >= 4 && !HIGHLIGHT_STOP_WORDS.has(t));
   for (const tok of tokens) {
-    if (lowerText.includes(tok)) return true;
+    if (normalizedText.includes(tok)) return true;
   }
   return false;
 }
@@ -2089,7 +2095,7 @@ export function Itinerary({ event, onSave, canEdit }) {
     if (!adding && !editingId) return;
     const tripHighlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
     if (tripHighlights.length === 0) return;
-    const text = `${form.title || ''} ${form.location || ''} ${form.notes || ''}`.toLowerCase();
+    const text = normalizeForMatch(`${form.title || ''} ${form.location || ''} ${form.notes || ''}`);
     if (!text.trim()) return;
     const current = new Set(form.highlightIds || []);
     let changed = false;
