@@ -2707,6 +2707,51 @@ export function Itinerary({ event, onSave, canEdit }) {
     ? `${formatTotalDuration(tripTotalSeconds)}${tripPendingCount > 0 ? ' (+ pending)' : ''}`
     : (allTransitions.length > 0 ? '… calculating' : null);
 
+  // Schedule diagnostics: surfaces days with no activities, items dated
+  // outside the trip range, and undated items so the user can see why the
+  // per-day list might not span the full trip length.
+  const tripStartRaw = (() => {
+    const d = event?.startDate || event?.date;
+    if (!d) return null;
+    const x = d?.toDate ? d.toDate() : new Date(d);
+    return isNaN(x) ? null : x;
+  })();
+  const tripEndRaw = (() => {
+    const d = event?.endDate;
+    if (!d) return tripStartRaw;
+    const x = d?.toDate ? d.toDate() : new Date(d);
+    return isNaN(x) ? tripStartRaw : x;
+  })();
+  const missingDayKeys = [];
+  const outOfRangeItems = [];
+  const unscheduledItems = [];
+  if (tripStartRaw && tripEndRaw) {
+    const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
+    const e = new Date(tripEndRaw); e.setHours(0, 0, 0, 0);
+    const inRange = new Set();
+    const cursor = new Date(s);
+    while (cursor <= e) {
+      const y = cursor.getFullYear();
+      const m = String(cursor.getMonth() + 1).padStart(2, '0');
+      const d = String(cursor.getDate()).padStart(2, '0');
+      inRange.add(`${y}-${m}-${d}`);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    const datesWithItems = new Set();
+    for (const it of items) {
+      if (!it.date) { unscheduledItems.push(it); continue; }
+      if (inRange.has(it.date)) datesWithItems.add(it.date);
+      else outOfRangeItems.push(it);
+    }
+    for (const d of inRange) {
+      if (!datesWithItems.has(d)) missingDayKeys.push(d);
+    }
+    missingDayKeys.sort();
+  }
+  const fmtKeyShort = (k) => new Date(k + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const fmtKeyLong = (k) => new Date(k + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const showDiagnostics = missingDayKeys.length > 0 || outOfRangeItems.length > 0 || unscheduledItems.length > 0;
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -2795,6 +2840,39 @@ export function Itinerary({ event, onSave, canEdit }) {
       </div>
       {emailResult && (
         <div className={styles.aiMessage} style={{ marginBottom: '0.75rem' }}>{emailResult}</div>
+      )}
+
+      {showDiagnostics && (
+        <div
+          className={styles.aiMessage}
+          style={{ marginBottom: '0.75rem', fontSize: '0.85rem', lineHeight: 1.45 }}
+        >
+          {missingDayKeys.length > 0 && (
+            <div>
+              📅 <strong>{missingDayKeys.length}</strong> day{missingDayKeys.length === 1 ? '' : 's'} with no activities yet:{' '}
+              {missingDayKeys.map(fmtKeyShort).join(', ')}
+            </div>
+          )}
+          {outOfRangeItems.length > 0 && (
+            <div style={{ marginTop: missingDayKeys.length > 0 ? '0.4rem' : 0 }}>
+              ⚠ <strong>{outOfRangeItems.length}</strong> activit{outOfRangeItems.length === 1 ? 'y is' : 'ies are'} outside the trip dates:
+              <ul style={{ margin: '0.25rem 0 0 1.1rem', padding: 0 }}>
+                {outOfRangeItems.map(it => (
+                  <li key={it.id}>
+                    <strong>{it.title || '(untitled)'}</strong>
+                    {it.date && <> — {fmtKeyLong(it.date)}</>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {unscheduledItems.length > 0 && (
+            <div style={{ marginTop: (missingDayKeys.length > 0 || outOfRangeItems.length > 0) ? '0.4rem' : 0 }}>
+              🕒 <strong>{unscheduledItems.length}</strong> activit{unscheduledItems.length === 1 ? 'y has' : 'ies have'} no date set:{' '}
+              {unscheduledItems.map(it => it.title || '(untitled)').join(', ')}
+            </div>
+          )}
+        </div>
       )}
 
       {allTransitions.length > 0 && mapsKey && (
