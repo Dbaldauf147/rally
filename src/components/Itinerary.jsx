@@ -1486,6 +1486,26 @@ function buildPlaceEmbed(mapsKey, query) {
   return `https://www.google.com/maps/embed/v1/place?key=${mapsKey}&q=${encodeURIComponent(query)}`;
 }
 
+function parseInstagramUrl(rawUrl) {
+  if (!rawUrl) return null;
+  try {
+    const u = new URL(String(rawUrl).trim());
+    const host = u.hostname.replace(/^www\./, '');
+    if (host !== 'instagram.com' && host !== 'instagr.am') return null;
+    const m = u.pathname.match(/^\/(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/);
+    if (!m) return null;
+    return { kind: m[1] === 'reels' ? 'reel' : m[1], shortcode: m[2] };
+  } catch {
+    return null;
+  }
+}
+
+function instagramEmbedUrl(rawUrl) {
+  const parsed = parseInstagramUrl(rawUrl);
+  if (!parsed) return null;
+  return `https://www.instagram.com/${parsed.kind}/${parsed.shortcode}/embed/`;
+}
+
 // Google Maps JavaScript API loader — loads once per page, shared promise.
 let mapsApiPromise = null;
 function loadMapsAPI(key) {
@@ -1531,6 +1551,8 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
   const markersRef = useRef([]);
   const flightLinesRef = useRef([]);
   const flightMarkersRef = useRef([]);
+  const transitionBoundsRef = useRef(null);
+  const flightBoundsRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
   const [polylines, setPolylines] = useState({}); // depKey -> [{polyline, mode}]
@@ -1574,10 +1596,23 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
     flightLinesRef.current = [];
     for (const m of flightMarkersRef.current) m.setMap(null);
     flightMarkersRef.current = [];
+    flightBoundsRef.current = null;
     if (!flights || flights.length === 0) return;
     const geocoder = new google.maps.Geocoder();
     const flightBounds = new google.maps.LatLngBounds();
     let pendingFlights = flights.length;
+    const fitCombined = () => {
+      if (!mapRef.current) return;
+      flightBoundsRef.current = flightBounds;
+      const merged = new google.maps.LatLngBounds();
+      if (transitionBoundsRef.current && !transitionBoundsRef.current.isEmpty()) {
+        merged.union(transitionBoundsRef.current);
+      }
+      if (!flightBounds.isEmpty()) merged.union(flightBounds);
+      if (!merged.isEmpty()) {
+        mapRef.current.fitBounds(merged, { top: 60, right: 60, bottom: 60, left: 60 });
+      }
+    };
     flights.forEach(f => {
       Promise.all([
         new Promise(resolve => geocoder.geocode({ address: f.from }, (r, s) => resolve(s === 'OK' && r[0] ? r[0].geometry.location : null))),
@@ -1585,9 +1620,7 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
       ]).then(([fromLL, toLL]) => {
         pendingFlights -= 1;
         if (!fromLL || !toLL || !mapRef.current) {
-          if (pendingFlights === 0 && transitions.length === 0 && !flightBounds.isEmpty()) {
-            mapRef.current.fitBounds(flightBounds, { top: 60, right: 60, bottom: 60, left: 60 });
-          }
+          if (pendingFlights === 0) fitCombined();
           return;
         }
         flightBounds.extend(fromLL);
@@ -1620,9 +1653,7 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
           title: f.title || `${f.from} → ${f.to}`,
         });
         flightMarkersRef.current.push(marker);
-        if (pendingFlights === 0 && transitions.length === 0 && !flightBounds.isEmpty()) {
-          mapRef.current.fitBounds(flightBounds, { top: 60, right: 60, bottom: 60, left: 60 });
-        }
+        if (pendingFlights === 0) fitCombined();
       });
     });
   }, [ready, flightKey]);
@@ -1636,6 +1667,7 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
     for (const m of markersRef.current) m.setMap(null);
     markersRef.current = [];
 
+    transitionBoundsRef.current = null;
     const service = new google.maps.DirectionsService();
     const bounds = new google.maps.LatLngBounds();
     let remaining = transitions.length;
@@ -1718,8 +1750,14 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
           console.warn('Overview route failed:', status, 'for', t.from, '→', t.to);
         }
         if (remaining === 0) {
-          if (!bounds.isEmpty()) {
-            mapRef.current.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+          transitionBoundsRef.current = bounds;
+          const merged = new google.maps.LatLngBounds();
+          if (!bounds.isEmpty()) merged.union(bounds);
+          if (flightBoundsRef.current && !flightBoundsRef.current.isEmpty()) {
+            merged.union(flightBoundsRef.current);
+          }
+          if (!merged.isEmpty()) {
+            mapRef.current.fitBounds(merged, { top: 40, right: 40, bottom: 40, left: 40 });
           }
           setPolylines({ [depKey]: collected });
           placeMarkersIfReady();
@@ -1755,9 +1793,18 @@ function modeColorHex(mode) {
 }
 
 function buildStaticMapUrl(mapsKey, paths, size = '640x360') {
-  const pathParams = paths.map(p =>
-    `path=color:${modeColorHex(p.mode)}|weight:5|enc:${encodeURIComponent(p.polyline)}`
-  ).join('&');
+  const pathParams = paths.map(p => {
+    const color = modeColorHex(p.mode);
+    if (p.polyline) {
+      return `path=color:${color}|weight:5|enc:${encodeURIComponent(p.polyline)}`;
+    }
+    if (p.points && p.points.length >= 2) {
+      const geodesic = p.geodesic ? 'geodesic:true|' : '';
+      const pts = p.points.map(pt => `${pt.lat},${pt.lng}`).join('|');
+      return `path=${geodesic}color:${color}|weight:5|${pts}`;
+    }
+    return '';
+  }).filter(Boolean).join('&');
   return `https://maps.googleapis.com/maps/api/staticmap?size=${size}&${pathParams}&key=${mapsKey}`;
 }
 
@@ -1766,11 +1813,14 @@ function RouteMap({ mapsKey, origin, destination, mode, savedZoom, savedCenter, 
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const rendererRef = useRef(null);
+  const flightLineRef = useRef(null);
+  const flightMarkerRef = useRef(null);
   const saveTimerRef = useRef(null);
   const hasSavedView = typeof savedZoom === 'number' && savedCenter && typeof savedCenter.lat === 'number';
   const [mapReady, setMapReady] = useState(false);
   const [error, setError] = useState(null);
   const [polyline, setPolyline] = useState(null);
+  const [flightPoints, setFlightPoints] = useState(null);
 
   // Initialize map instance once.
   useEffect(() => {
@@ -1820,6 +1870,62 @@ function RouteMap({ mapsKey, origin, destination, mode, savedZoom, savedCenter, 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !rendererRef.current || !window.google?.maps) return;
     const google = window.google;
+
+    // Tear down any flight overlay from a previous render.
+    if (flightLineRef.current) { flightLineRef.current.setMap(null); flightLineRef.current = null; }
+    if (flightMarkerRef.current) { flightMarkerRef.current.setMap(null); flightMarkerRef.current = null; }
+
+    if (mode === 'flying') {
+      // DirectionsService can't route flights — draw a geodesic dotted line + ✈️ marker.
+      rendererRef.current.setMap(null);
+      setPolyline(null);
+      const geocoder = new google.maps.Geocoder();
+      Promise.all([
+        new Promise(resolve => geocoder.geocode({ address: origin }, (r, s) => resolve(s === 'OK' && r[0] ? r[0].geometry.location : null))),
+        new Promise(resolve => geocoder.geocode({ address: destination }, (r, s) => resolve(s === 'OK' && r[0] ? r[0].geometry.location : null))),
+      ]).then(([fromLL, toLL]) => {
+        if (!fromLL || !toLL || !mapRef.current) return;
+        flightLineRef.current = new google.maps.Polyline({
+          path: [fromLL, toLL],
+          geodesic: true,
+          strokeColor: MODE_COLOR.flying,
+          strokeOpacity: 0,
+          icons: [{
+            icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 3 },
+            offset: '0',
+            repeat: '12px',
+          }],
+          map: mapRef.current,
+        });
+        const midLat = (fromLL.lat() + toLL.lat()) / 2;
+        const midLng = (fromLL.lng() + toLL.lng()) / 2;
+        flightMarkerRef.current = new google.maps.Marker({
+          position: { lat: midLat, lng: midLng },
+          map: mapRef.current,
+          icon: { path: 'M -2,-2 L 2,-2 L 2,2 L -2,2 Z', scale: 0 },
+          label: { text: '✈️', fontSize: '16px' },
+          title: `${origin} → ${destination}`,
+        });
+        setFlightPoints({
+          from: { lat: fromLL.lat(), lng: fromLL.lng() },
+          to: { lat: toLL.lat(), lng: toLL.lng() },
+        });
+        if (hasSavedView) {
+          mapRef.current.setZoom(savedZoom);
+          mapRef.current.setCenter(savedCenter);
+        } else {
+          const bounds = new google.maps.LatLngBounds();
+          bounds.extend(fromLL);
+          bounds.extend(toLL);
+          mapRef.current.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+        }
+      });
+      return;
+    }
+
+    // Non-flying modes: re-attach the renderer (in case we just left flying mode) and use DirectionsService.
+    rendererRef.current.setMap(mapRef.current);
+    setFlightPoints(null);
     const service = new google.maps.DirectionsService();
     const travelMode = GOOGLE_TRAVEL_MODE[mode] || 'DRIVING';
     service.route({
@@ -1845,6 +1951,13 @@ function RouteMap({ mapsKey, origin, destination, mode, savedZoom, savedCenter, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin, destination, mode, mapReady]);
 
+  useEffect(() => {
+    return () => {
+      if (flightLineRef.current) flightLineRef.current.setMap(null);
+      if (flightMarkerRef.current) flightMarkerRef.current.setMap(null);
+    };
+  }, []);
+
   if (error) {
     return (
       <div className={styles.routeMapError}>
@@ -1853,8 +1966,11 @@ function RouteMap({ mapsKey, origin, destination, mode, savedZoom, savedCenter, 
       </div>
     );
   }
-  const staticUrl = mapsKey && polyline
-    ? buildStaticMapUrl(mapsKey, [{ polyline, mode }], '640x360')
+  const staticPath = (mode === 'flying' && flightPoints)
+    ? { points: [flightPoints.from, flightPoints.to], mode: 'flying', geodesic: true }
+    : (polyline ? { polyline, mode } : null);
+  const staticUrl = mapsKey && staticPath
+    ? buildStaticMapUrl(mapsKey, [staticPath], '640x360')
     : null;
   return (
     <>
@@ -1914,6 +2030,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const travelTimeFetchRef = useRef(new Set()); // keys we've already requested
   const [exportingPdf, setExportingPdf] = useState(false);
   const [emailResult, setEmailResult] = useState('');
+  const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
 
   // Expose the latest items via a ref so async callbacks (like the map's debounced
   // zoom-save) don't write back with a stale items array and wipe newer additions.
@@ -2013,6 +2130,49 @@ export function Itinerary({ event, onSave, canEdit }) {
     setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '' });
     setAdding(true);
     setEditingId(null);
+  }
+
+  async function startAddFromInstagram() {
+    let pasted = '';
+    try {
+      if (navigator.clipboard?.readText) {
+        pasted = await navigator.clipboard.readText();
+      }
+    } catch {}
+    if (!parseInstagramUrl(pasted)) {
+      pasted = window.prompt('Paste an Instagram post or reel link:') || '';
+    }
+    const trimmed = pasted.trim();
+    const parsed = parseInstagramUrl(trimmed);
+    if (!parsed) {
+      if (trimmed) alert("That doesn't look like an Instagram link.");
+      return;
+    }
+    setForm({
+      title: parsed.kind === 'reel' ? 'Instagram reel' : parsed.kind === 'tv' ? 'Instagram video' : 'Instagram post',
+      date: '',
+      time: '',
+      location: '',
+      notes: '',
+      type: 'activity',
+      url: trimmed,
+      highlightIds: [],
+      isFlight: false,
+      arrivalTime: '',
+      airline: '',
+      flightNumber: '',
+      cost: '',
+    });
+    setAdding(true);
+    setEditingId(null);
+  }
+
+  function toggleVideoExpanded(id) {
+    setExpandedVideoIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
   function startEdit(item) {
@@ -2446,6 +2606,33 @@ export function Itinerary({ event, onSave, canEdit }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transitionFetchDep]);
 
+  // Trip-wide travel-time total: sums every activity-to-activity transition.
+  // Flights aren't ground-routable, so they're not summed here — their explicit
+  // departure/arrival times already tell the user how long the flight takes.
+  let tripTotalSeconds = 0;
+  let tripPendingCount = 0;
+  let tripHasAnySeconds = false;
+  for (const t of allTransitions) {
+    const tt = travelTimes[travelTimeKey(t.from, t.to, t.mode)];
+    if (tt?.durationSeconds) {
+      tripTotalSeconds += tt.durationSeconds;
+      tripHasAnySeconds = true;
+    } else if (!tt?.error) {
+      tripPendingCount += 1;
+    }
+  }
+  const formatTotalDuration = (secs) => {
+    const mins = Math.round(secs / 60);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h === 0) return `${m} min`;
+    if (m === 0) return `${h} hr`;
+    return `${h} hr ${m} min`;
+  };
+  const tripTravelLabel = tripHasAnySeconds
+    ? `${formatTotalDuration(tripTotalSeconds)}${tripPendingCount > 0 ? ' (+ pending)' : ''}`
+    : (allTransitions.length > 0 ? '… calculating' : null);
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -2481,6 +2668,14 @@ export function Itinerary({ event, onSave, canEdit }) {
                   {days} day{days === 1 ? '' : 's'}
                 </span>
                 <span className={styles.tripDateRange} title="Trip dates">{range}</span>
+                {tripTravelLabel && (
+                  <span
+                    className={styles.tripDateRange}
+                    title="Total travel time across all routes (flights excluded)"
+                  >
+                    🚗 {tripTravelLabel}
+                  </span>
+                )}
               </>
             );
           })()}
@@ -2511,7 +2706,16 @@ export function Itinerary({ event, onSave, canEdit }) {
             </button>
           )}
           {canEdit && !adding && !editingId && (
-            <button className={styles.addBtn} onClick={startAdd}>+ Add Item</button>
+            <>
+              <button
+                className={styles.lodgingToggleBtn}
+                onClick={startAddFromInstagram}
+                title="Paste an Instagram link to add it as an itinerary item"
+              >
+                📸 Add from Instagram
+              </button>
+              <button className={styles.addBtn} onClick={startAdd}>+ Add Item</button>
+            </>
           )}
         </div>
       </div>
@@ -2866,7 +3070,39 @@ export function Itinerary({ event, onSave, canEdit }) {
                     )}
                     {loc && <div className={styles.itemLocation}>📍 {loc}</div>}
                     {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
-                    {item.url && <div className={styles.itemUrl}><a href={item.url} target="_blank" rel="noopener noreferrer">🔗 View details</a></div>}
+                    {item.url && (() => {
+                      const igEmbed = instagramEmbedUrl(item.url);
+                      if (!igEmbed) {
+                        return <div className={styles.itemUrl}><a href={item.url} target="_blank" rel="noopener noreferrer">🔗 View details</a></div>;
+                      }
+                      const open = expandedVideoIds.has(item.id);
+                      return (
+                        <div className={styles.itemUrl} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', alignItems: 'flex-start' }}>
+                          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => toggleVideoExpanded(item.id)}
+                              style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '6px', padding: '0.2rem 0.55rem', fontSize: '0.78rem', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+                            >
+                              {open ? '▾ Hide reel' : '📸 Watch Instagram'}
+                            </button>
+                            <a href={item.url} target="_blank" rel="noopener noreferrer">🔗 Open in Instagram</a>
+                          </div>
+                          {open && (
+                            <div style={{ width: '100%', maxWidth: '380px', borderRadius: '8px', overflow: 'hidden', background: '#fff', border: '1px solid #e5e7eb' }}>
+                              <iframe
+                                src={igEmbed}
+                                title={`Instagram: ${item.title || 'reel'}`}
+                                loading="lazy"
+                                allowFullScreen
+                                scrolling="no"
+                                style={{ width: '100%', height: '480px', border: 0, display: 'block' }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {outbound && (
                       <div className={styles.itemLeavingFooter}>
                         <span className={styles.itemLeavingIcon}>{modeIconFor(outbound.mode)}</span>
