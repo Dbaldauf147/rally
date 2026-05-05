@@ -2635,16 +2635,29 @@ export function Itinerary({ event, onSave, canEdit }) {
     }
   }
 
-  // Cross-day transitions: when the location at the end of one day differs
-  // from the location at the start of the next day, surface that move as a
-  // route card at the top of the new day. We skip the case where today's
-  // first item is itself a travel item that already starts at yesterday's
-  // last location (the travel card on its own already covers it).
+  // Cross-day transitions: when the Key Destination at the end of one day
+  // differs from the Key Destination at the start of the next, surface that
+  // move as a route card at the top of the new day. Destinations come from
+  // event.tripHighlights — the same list of "Key Destinations" the user
+  // curates above the itinerary. We fall back to raw location comparison
+  // when no destinations are matched.
+  const tripHighlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+  const inferItemDestination = (item) => {
+    if (!tripHighlights.length) return null;
+    const loc = normalizeForMatch(item?.location || '');
+    if (!loc) return null;
+    for (const h of tripHighlights) {
+      const ht = normalizeForMatch(h?.text || '').trim();
+      if (ht && loc.includes(ht)) return h.text;
+    }
+    return null;
+  };
   const crossDayByDate = {};
   {
     const datedKeys = sortedDates.filter(k => k !== 'Unscheduled');
     let prevLoc = '';
     let prevTitle = '';
+    let prevDest = null;
     for (const dateKey of datedKeys) {
       const dayItems = groups[dateKey].slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
       let firstWithLoc = null;
@@ -2654,12 +2667,20 @@ export function Itinerary({ event, onSave, canEdit }) {
       }
       if (firstWithLoc && prevLoc) {
         const todayStart = (extractStartEnd(firstWithLoc).start || firstWithLoc.location || '').trim();
-        if (todayStart && !locationsEqual(prevLoc, todayStart)) {
+        const todayDest = inferItemDestination(firstWithLoc);
+        const fromKey = prevDest ? normalizeForMatch(prevDest) : null;
+        const toKey = todayDest ? normalizeForMatch(todayDest) : null;
+        const changed = (fromKey && toKey)
+          ? fromKey !== toKey
+          : (todayStart && !locationsEqual(prevLoc, todayStart));
+        if (changed) {
           const transition = {
             from: prevLoc,
             to: todayStart,
             fromTitle: prevTitle,
             toTitle: firstWithLoc.title || '',
+            fromDest: prevDest,
+            toDest: todayDest,
             mode: inferTravelMode(firstWithLoc),
             fromItemId: '',
             toItemId: firstWithLoc.id,
@@ -2673,7 +2694,12 @@ export function Itinerary({ event, onSave, canEdit }) {
       for (let i = dayItems.length - 1; i >= 0; i--) {
         const it = dayItems[i];
         const loc = (extractStartEnd(it).end || it.location || '').trim();
-        if (loc) { prevLoc = loc; prevTitle = it.title || ''; break; }
+        if (loc) {
+          prevLoc = loc;
+          prevTitle = it.title || '';
+          prevDest = inferItemDestination(it);
+          break;
+        }
       }
     }
   }
@@ -3479,9 +3505,9 @@ export function Itinerary({ event, onSave, canEdit }) {
                     <div style={{ marginBottom: '0.75rem', padding: '0.6rem 0.75rem', border: '1px dashed #cbd5e1', borderRadius: '8px', background: '#f8fafc' }}>
                       <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: '#475569', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem' }}>
                         <span>🧭 Travel from</span>
-                        <strong title={ct.fromTitle}>{ct.from}</strong>
+                        <strong title={ct.fromDest ? ct.from : ct.fromTitle}>{ct.fromDest || ct.from}</strong>
                         <span>→</span>
-                        <strong title={ct.toTitle}>{ct.to}</strong>
+                        <strong title={ct.toDest ? ct.to : ct.toTitle}>{ct.toDest || ct.to}</strong>
                         {ttText && <span style={{ fontWeight: 400, color: '#64748b' }}>· {ttText}</span>}
                       </div>
                       <div className={styles.modeSelectorBarCompact} style={{ marginBottom: '0.5rem' }}>
