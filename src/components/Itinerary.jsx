@@ -3152,6 +3152,18 @@ export function Itinerary({ event, onSave, canEdit }) {
               ? 'Unscheduled'
               : new Date(dateKey + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
             const dayKind = dateKey === 'Unscheduled' ? null : classifyDay(dateItems);
+            // 1-based day index within the trip (Day 1 = trip start). Null for
+            // unscheduled or out-of-range dates so we don't print "Day -2".
+            let dayNum = null;
+            if (dateKey !== 'Unscheduled' && tripStartRaw && tripEndRaw) {
+              const ts = new Date(tripStartRaw); ts.setHours(0, 0, 0, 0);
+              const te = new Date(tripEndRaw); te.setHours(0, 0, 0, 0);
+              const dd = new Date(dateKey + 'T00:00');
+              if (dd >= ts && dd <= te) {
+                dayNum = Math.round((dd - ts) / 86400000) + 1;
+              }
+            }
+            const titleLabel = dayNum ? `Day ${dayNum} · ${dateLabel}` : dateLabel;
 
             // Activities and lodging columns
             const activityItems = dateItems.filter(i => (i.type || 'activity') === 'activity');
@@ -3292,7 +3304,7 @@ export function Itinerary({ event, onSave, canEdit }) {
               return (
                 <div key={dateKey} className={styles.dateGroup}>
                   <div className={styles.dateLabel}>
-                    {dateLabel}
+                    {titleLabel}
                     {dayKind && (
                       <span style={{ marginLeft: '0.6rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 'normal' }}>
                         {dayKind}
@@ -3395,7 +3407,7 @@ export function Itinerary({ event, onSave, canEdit }) {
             return (
               <div key={dateKey} className={styles.dateGroup}>
                 <div className={styles.dateLabel}>
-                  {dateLabel}
+                  {titleLabel}
                   {dayKind && (
                     <span style={{ marginLeft: '0.6rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 'normal' }}>
                       {dayKind}
