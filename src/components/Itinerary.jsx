@@ -2078,6 +2078,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [emailResult, setEmailResult] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
+  const [viewMode, setViewMode] = useState('schedule'); // 'schedule' | 'daily'
   // Highlights the user explicitly un-tagged in the current form session.
   // The auto-tag effect skips these so user overrides aren't re-applied.
   const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
@@ -2876,6 +2877,16 @@ export function Itinerary({ event, onSave, canEdit }) {
         </h3>
         <div className={styles.headerActions}>
           <button
+            className={viewMode === 'schedule' ? styles.addBtn : styles.lodgingToggleBtn}
+            onClick={() => setViewMode('schedule')}
+            title="Detailed day-by-day schedule"
+          >📅 Schedule</button>
+          <button
+            className={viewMode === 'daily' ? styles.addBtn : styles.lodgingToggleBtn}
+            onClick={() => setViewMode('daily')}
+            title="One-line per day: which destination you're in"
+          >🗺️ Daily</button>
+          <button
             className={styles.lodgingToggleBtn}
             onClick={() => setHideLodging(v => !v)}
             title={hideLodging ? 'Show lodging column' : 'Hide lodging column'}
@@ -3214,7 +3225,69 @@ export function Itinerary({ event, onSave, canEdit }) {
 
       <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
 
-      {items.length === 0 && !adding ? (
+      {viewMode === 'daily' && tripStartRaw && tripEndRaw && (() => {
+        const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
+        const e = new Date(tripEndRaw); e.setHours(0, 0, 0, 0);
+        const dayList = [];
+        const cursor = new Date(s);
+        let dayIndex = 1;
+        while (cursor <= e) {
+          const y = cursor.getFullYear();
+          const m = String(cursor.getMonth() + 1).padStart(2, '0');
+          const d = String(cursor.getDate()).padStart(2, '0');
+          const key = `${y}-${m}-${d}`;
+          const dayItems = (groups[key] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+          let destination = null;
+          for (const it of dayItems) {
+            const dest = inferItemDestination(it);
+            if (dest) { destination = dest; break; }
+          }
+          if (!destination && dayItems.length > 0) {
+            destination = dayItems[0].location || dayItems[0].title || null;
+          }
+          dayList.push({ key, dayIndex, destination, count: dayItems.length });
+          cursor.setDate(cursor.getDate() + 1);
+          dayIndex += 1;
+        }
+        return (
+          <div style={{ border: '1px solid var(--color-border)', borderRadius: '10px', overflow: 'hidden', marginTop: '0.5rem' }}>
+            {dayList.map((d, i) => {
+              const prev = i > 0 ? dayList[i - 1].destination : null;
+              const moved = prev && d.destination && normalizeForMatch(prev) !== normalizeForMatch(d.destination);
+              const isLast = i === dayList.length - 1;
+              return (
+                <div
+                  key={d.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.85rem',
+                    padding: '0.6rem 0.85rem',
+                    borderBottom: isLast ? 'none' : '1px solid var(--color-border)',
+                    background: moved ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, minWidth: '54px', color: 'var(--color-text)' }}>Day {d.dayIndex}</span>
+                  <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', minWidth: '120px' }}>
+                    {new Date(d.key + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                  <span style={{ flex: 1, fontWeight: 500 }}>
+                    {d.destination || <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>—</span>}
+                    {moved && <span style={{ marginLeft: '0.5rem', fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
+                  </span>
+                  {d.count > 0 && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                      {d.count} item{d.count === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {viewMode === 'schedule' && (items.length === 0 && !adding ? (
         <div className={styles.empty}>
           <p>No itinerary items yet.</p>
           {canEdit && <p className={styles.emptyHint}>Click "+ Add Item" to start planning your trip.</p>}
@@ -3589,7 +3662,7 @@ export function Itinerary({ event, onSave, canEdit }) {
             );
           })}
         </div>
-      )}
+      ))}
     </div>
   );
 }
