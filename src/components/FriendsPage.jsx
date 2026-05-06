@@ -5,6 +5,75 @@ import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import styles from './FriendsPage.module.css';
 
+// Field detectors mirroring handleFileSelect's logic, exposed here so the
+// paste-from-clipboard flow auto-maps the same way an uploaded file does.
+const PASTE_FIELD_DETECTORS = [
+  { key: 'name', match: k => (k.includes('name') && !k.includes('last') && !k.includes('group') && !k.includes('work') && !k.includes('business')) || k === 'full name' },
+  { key: 'firstName', match: k => k.includes('first') },
+  { key: 'lastName', match: k => k.includes('last') && k.includes('name') },
+  { key: 'email', match: k => (k.includes('email') || k.includes('e-mail')) && !k.includes('work') && !k.includes('business') && !k.includes('office') },
+  { key: 'workEmail', match: k => (k.includes('work') && (k.includes('email') || k.includes('e-mail'))) || k.includes('business email') || k.includes('office email') },
+  { key: 'phone', match: k => k.includes('phone') || k.includes('mobile') || k.includes('cell') },
+  { key: 'address', match: k => k === 'address' || k.includes('street') || k.includes('mailing') || k.includes('home address') },
+  { key: 'group', match: k => k === 'group' || k === 'category' },
+  { key: 'guest', match: k => k === 'guest' || k.includes('plus one') || k.includes('+1') || k.includes('partner') || k.includes('spouse') },
+  { key: 'tag', match: k => k === 'tag' || k === 'tags' || k === 'label' || k === 'labels' },
+  { key: 'instagram', match: k => k === 'instagram' || k === 'ig' || k.includes('insta') },
+];
+
+function autoDetectMapping(headers) {
+  const mapping = {};
+  for (const header of headers) {
+    const k = header.toLowerCase().trim();
+    const matched = PASTE_FIELD_DETECTORS.find(f => f.match(k));
+    mapping[header] = matched ? matched.key : '';
+  }
+  return mapping;
+}
+
+// Splits one CSV line, honoring "" quoted fields (which can contain commas).
+function splitCsvLine(line) {
+  const out = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { cur += ch; }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      out.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
+// Turns pasted spreadsheet content into header + row objects. Auto-detects
+// the column delimiter: tab (Excel/Sheets paste) is preferred, then comma.
+function parsePastedTable(text) {
+  const lines = (text || '').replace(/\r\n/g, '\n').split('\n').filter(l => l.trim() !== '');
+  if (lines.length === 0) return { headers: [], rows: [] };
+  const useTab = lines.some(l => l.includes('\t'));
+  const splitLine = useTab
+    ? (line) => line.split('\t').map(s => s.trim())
+    : splitCsvLine;
+  const headers = splitLine(lines[0]).map(h => h || '(unnamed)');
+  const rows = lines.slice(1).map(line => {
+    const cells = splitLine(line);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = cells[i] || ''; });
+    return obj;
+  });
+  return { headers, rows };
+}
+
 // Normalize a friend's addresses into an array of { label, value }.
 // Supports legacy friends with a single `address` string.
 function getFriendAddresses(friend) {
@@ -133,6 +202,8 @@ export function FriendsPage() {
   const [bulkRawRows, setBulkRawRows] = useState([]);
   const [bulkHeaders, setBulkHeaders] = useState([]);
   const [bulkMapping, setBulkMapping] = useState({});
+  const [showPaste, setShowPaste] = useState(false);
+  const [pasteText, setPasteText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
   const fileRef = useRef(null);
@@ -451,6 +522,21 @@ export function FriendsPage() {
     setTimeout(() => setResult(null), 5000);
   }
 
+  function handlePasteContinue() {
+    const { headers, rows } = parsePastedTable(pasteText);
+    if (headers.length === 0 || rows.length === 0) {
+      setResult({ type: 'error', message: 'No rows detected. Paste a header row plus at least one contact row.' });
+      setTimeout(() => setResult(null), 4500);
+      return;
+    }
+    setBulkRawRows(rows);
+    setBulkHeaders(headers);
+    setBulkMapping(autoDetectMapping(headers));
+    setShowPaste(false);
+    setPasteText('');
+    setShowBulk(true);
+  }
+
   function downloadTemplate() {
     const ws = XLSX.utils.aoa_to_sheet([
       ['Name', 'Email', 'Work Email', 'Phone', 'Address', 'Group', 'Guest', 'Tag', 'Instagram'],
@@ -461,6 +547,134 @@ export function FriendsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Contacts');
     XLSX.writeFile(wb, 'rally-contacts-template.xlsx');
+  }
+
+  // Polished Excel export of the friends list. Honors the active search and
+  // filter state — what the user sees in the table is what gets exported.
+  function exportFriendsExcel() {
+    const data = filtered.length > 0 ? filtered : friends;
+    if (data.length === 0) {
+      setResult({ type: 'error', message: 'No contacts to export.' });
+      setTimeout(() => setResult(null), 4000);
+      return;
+    }
+
+    const nameById = {};
+    for (const f of friends) nameById[f.id] = f.name || '(unnamed)';
+
+    const headers = [
+      'Name', 'Email', 'Work Email', 'Phone', 'Instagram',
+      'Group', 'Guest', 'Tags', 'Linked To', 'Addresses', 'Created',
+    ];
+    const rows = data.map(f => {
+      const addresses = getFriendAddresses(f)
+        .map(a => (a.label ? `${a.label}: ${a.value}` : a.value))
+        .join('\n');
+      const tags = (f.tag || '').split(';').map(t => t.trim()).filter(Boolean).join(', ');
+      const linkedName = f.linkedTo ? (nameById[f.linkedTo] || '') : '';
+      const created = f.createdAt
+        ? new Date(f.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+        : '';
+      return [
+        f.name || '',
+        f.email || '',
+        f.workEmail || '',
+        f.phone || '',
+        f.instagram || '',
+        f.group || '',
+        f.guest || '',
+        tags,
+        linkedName,
+        addresses,
+        created,
+      ];
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+    // Column widths tuned to typical contact field lengths.
+    ws['!cols'] = [
+      { wch: 24 }, // Name
+      { wch: 28 }, // Email
+      { wch: 28 }, // Work Email
+      { wch: 14 }, // Phone
+      { wch: 16 }, // Instagram
+      { wch: 18 }, // Group
+      { wch: 18 }, // Guest
+      { wch: 22 }, // Tags
+      { wch: 18 }, // Linked To
+      { wch: 40 }, // Addresses
+      { wch: 14 }, // Created
+    ];
+
+    // Header row + filter dropdowns + frozen first row.
+    const lastColLetter = XLSX.utils.encode_col(headers.length - 1);
+    ws['!autofilter'] = { ref: `A1:${lastColLetter}${rows.length + 1}` };
+    ws['!freeze'] = { ySplit: 1 };
+    ws['!rows'] = [{ hpt: 22 }];
+
+    // Hyperlinks: emails open mailto, Instagram opens the public profile.
+    for (let i = 0; i < rows.length; i++) {
+      const f = data[i];
+      const r = i + 1;
+      if (f.email) {
+        const a = XLSX.utils.encode_cell({ r, c: 1 });
+        if (ws[a]) ws[a].l = { Target: `mailto:${f.email}`, Tooltip: 'Email' };
+      }
+      if (f.workEmail) {
+        const a = XLSX.utils.encode_cell({ r, c: 2 });
+        if (ws[a]) ws[a].l = { Target: `mailto:${f.workEmail}`, Tooltip: 'Work email' };
+      }
+      if (f.instagram) {
+        const handle = f.instagram.replace(/^@/, '').trim();
+        if (handle) {
+          const a = XLSX.utils.encode_cell({ r, c: 4 });
+          if (ws[a]) ws[a].l = { Target: `https://instagram.com/${handle}`, Tooltip: 'Instagram' };
+        }
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    // Summary sheet: counts by group and tag, plus quick stats.
+    const groupCounts = {};
+    const tagCounts = {};
+    for (const f of data) {
+      const fGroups = groupTokens(f.group);
+      if (fGroups.length === 0) groupCounts['(no group)'] = (groupCounts['(no group)'] || 0) + 1;
+      for (const g of fGroups) groupCounts[g] = (groupCounts[g] || 0) + 1;
+      const fTags = (f.tag || '').split(';').map(t => t.trim()).filter(Boolean);
+      for (const t of fTags) tagCounts[t] = (tagCounts[t] || 0) + 1;
+    }
+    const sortByCountDesc = (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]);
+    const withEmail = data.filter(f => f.email).length;
+    const withPhone = data.filter(f => f.phone).length;
+    const withIG = data.filter(f => f.instagram).length;
+    const withAddress = data.filter(f => getFriendAddresses(f).length > 0).length;
+
+    const summaryAoa = [
+      ['Rally — Contacts Export'],
+      [`Generated ${new Date().toLocaleString()}`],
+      [`Total contacts: ${data.length}`],
+      [`With email: ${withEmail}`],
+      [`With phone: ${withPhone}`],
+      [`With Instagram: ${withIG}`],
+      [`With address: ${withAddress}`],
+      [],
+      ['Group', 'Count'],
+      ...Object.entries(groupCounts).sort(sortByCountDesc),
+      [],
+      ['Tag', 'Count'],
+      ...Object.entries(tagCounts).sort(sortByCountDesc),
+    ];
+    const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
+    summaryWs['!cols'] = [{ wch: 30 }, { wch: 10 }];
+
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+    XLSX.utils.book_append_sheet(wb, ws, 'Contacts');
+
+    const datestamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `rally-contacts-${datestamp}.xlsx`);
   }
 
   const [selectMode, setSelectMode] = useState(false);
@@ -514,7 +728,13 @@ export function FriendsPage() {
           <button className={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add Contact</button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileSelect} />
           <button className={styles.uploadBtn} onClick={() => fileRef.current?.click()}>Upload Excel</button>
+          <button
+            className={styles.uploadBtn}
+            onClick={() => { setPasteText(''); setShowPaste(true); }}
+            title="Paste a range from Excel, Google Sheets, or any CSV/TSV — you'll map columns next"
+          >📋 Paste Data</button>
           <button className={styles.templateBtn} onClick={downloadTemplate}>Download Template</button>
+          <button className={styles.templateBtn} onClick={exportFriendsExcel} title="Download all visible contacts as a polished Excel file">⬇ Export Excel</button>
         </div>
       </div>
 
@@ -890,6 +1110,43 @@ export function FriendsPage() {
                   <button onClick={() => setShowSingleAddToEvent(false)} style={{ marginTop: '0.4rem', background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Paste contact data — first stage; column mapping happens in the bulk-upload modal once parsed. */}
+      {showPaste && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowPaste(false); setPasteText(''); } }}
+        >
+          <div style={{ background: 'var(--color-surface)', borderRadius: '12px', maxWidth: '720px', width: '100%', maxHeight: '90vh', overflow: 'auto', padding: '1.25rem 1.5rem', boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
+            <h2 style={{ margin: '0 0 0.25rem', fontSize: '1.1rem' }}>Paste contact data</h2>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+              Copy a range from Excel, Google Sheets, Numbers, or any spreadsheet — include the header row. Tab-separated and comma-separated both work.
+            </p>
+            <textarea
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+              placeholder={'Name\tEmail\tPhone\tGroup\nJohn Smith\tjohn@email.com\t555-1234\tCollege Friends\nJane Doe\tjane@email.com\t555-5678\tFamily'}
+              style={{ width: '100%', minHeight: '220px', padding: '0.6rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: '8px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.82rem', resize: 'vertical', background: 'var(--color-surface-alt)' }}
+              autoFocus
+            />
+            <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+              {pasteText.trim() ? (() => {
+                const { headers, rows } = parsePastedTable(pasteText);
+                if (headers.length === 0) return 'No data detected.';
+                return `Detected ${headers.length} column${headers.length === 1 ? '' : 's'} and ${rows.length} row${rows.length === 1 ? '' : 's'}. Click Continue to map columns.`;
+              })() : 'Paste a header row followed by your contacts.'}
+            </div>
+            <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button className={styles.templateBtn} onClick={() => { setShowPaste(false); setPasteText(''); }}>Cancel</button>
+              <button
+                className={styles.addBtn}
+                onClick={handlePasteContinue}
+                disabled={!pasteText.trim()}
+              >Continue → Map columns</button>
             </div>
           </div>
         </div>
