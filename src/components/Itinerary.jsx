@@ -2311,6 +2311,17 @@ export function Itinerary({ event, onSave, canEdit }) {
     await onSave({ itinerary: next });
   }
 
+  // Manual override of a day's destination in the Daily view. Empty string
+  // (or null) clears the override and falls back to the auto-detected value.
+  async function setDailyDestinationOverride(dateKey, highlightId) {
+    const current = (event?.dailyDestinations && typeof event.dailyDestinations === 'object')
+      ? { ...event.dailyDestinations }
+      : {};
+    if (highlightId) current[dateKey] = highlightId;
+    else delete current[dateKey];
+    await onSave({ dailyDestinations: current });
+  }
+
   function emailItinerary() {
     const members = event?.members || {};
     const seen = new Set();
@@ -3228,6 +3239,9 @@ export function Itinerary({ event, onSave, canEdit }) {
       {viewMode === 'daily' && tripStartRaw && tripEndRaw && (() => {
         const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
         const e = new Date(tripEndRaw); e.setHours(0, 0, 0, 0);
+        const overrides = (event?.dailyDestinations && typeof event.dailyDestinations === 'object')
+          ? event.dailyDestinations
+          : {};
         const dayList = [];
         const cursor = new Date(s);
         let dayIndex = 1;
@@ -3237,24 +3251,28 @@ export function Itinerary({ event, onSave, canEdit }) {
           const d = String(cursor.getDate()).padStart(2, '0');
           const key = `${y}-${m}-${d}`;
           const dayItems = (groups[key] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-          let destination = null;
+          let autoDest = null;
           for (const it of dayItems) {
             const dest = inferItemDestination(it);
-            if (dest) { destination = dest; break; }
+            if (dest) { autoDest = dest; break; }
           }
-          if (!destination && dayItems.length > 0) {
-            destination = dayItems[0].location || dayItems[0].title || null;
+          if (!autoDest && dayItems.length > 0) {
+            autoDest = dayItems[0].location || dayItems[0].title || null;
           }
-          dayList.push({ key, dayIndex, destination, count: dayItems.length });
+          const overrideId = overrides[key] || null;
+          const overrideHighlight = overrideId ? tripHighlights.find(h => h.id === overrideId) : null;
+          const finalDest = overrideHighlight ? overrideHighlight.text : autoDest;
+          dayList.push({ key, dayIndex, autoDest, overrideId, overrideHighlight, finalDest, count: dayItems.length });
           cursor.setDate(cursor.getDate() + 1);
           dayIndex += 1;
         }
         return (
           <div style={{ border: '1px solid var(--color-border)', borderRadius: '10px', overflow: 'hidden', marginTop: '0.5rem' }}>
             {dayList.map((d, i) => {
-              const prev = i > 0 ? dayList[i - 1].destination : null;
-              const moved = prev && d.destination && normalizeForMatch(prev) !== normalizeForMatch(d.destination);
+              const prev = i > 0 ? dayList[i - 1].finalDest : null;
+              const moved = prev && d.finalDest && normalizeForMatch(prev) !== normalizeForMatch(d.finalDest);
               const isLast = i === dayList.length - 1;
+              const isOverride = !!d.overrideHighlight;
               return (
                 <div
                   key={d.key}
@@ -3271,9 +3289,36 @@ export function Itinerary({ event, onSave, canEdit }) {
                   <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', minWidth: '120px' }}>
                     {new Date(d.key + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                   </span>
-                  <span style={{ flex: 1, fontWeight: 500 }}>
-                    {d.destination || <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>—</span>}
-                    {moved && <span style={{ marginLeft: '0.5rem', fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
+                  <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {canEdit && tripHighlights.length > 0 ? (
+                      <select
+                        value={d.overrideId || ''}
+                        onChange={ev => setDailyDestinationOverride(d.key, ev.target.value)}
+                        style={{
+                          padding: '0.3rem 0.5rem',
+                          border: `1px solid ${isOverride ? '#6366F1' : 'var(--color-border)'}`,
+                          borderRadius: '6px',
+                          fontSize: '0.85rem',
+                          fontFamily: 'inherit',
+                          fontWeight: 500,
+                          color: isOverride ? '#4f46e5' : 'var(--color-text)',
+                          background: isOverride ? 'rgba(99, 102, 241, 0.06)' : 'var(--color-surface)',
+                          minWidth: '180px',
+                        }}
+                        title={isOverride ? 'Manually set — pick "Auto" to clear' : 'Pick a Key Destination to override'}
+                      >
+                        <option value="">Auto: {d.autoDest || '—'}</option>
+                        {tripHighlights.map(h => (
+                          <option key={h.id} value={h.id}>{h.text}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span style={{ fontWeight: 500 }}>
+                        {d.finalDest || <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>—</span>}
+                      </span>
+                    )}
+                    {moved && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
+                    {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
                   </span>
                   {d.count > 0 && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
