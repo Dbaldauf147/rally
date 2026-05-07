@@ -3481,7 +3481,6 @@ export function Itinerary({ event, onSave, canEdit }) {
                       return null;
                     })()}
                     <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {moved && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
                       {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
                       {canEdit && tripHighlights.length > 0 ? (
                         <select
