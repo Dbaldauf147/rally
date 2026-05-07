@@ -447,28 +447,59 @@ function TripHighlightsList({ event, onSave, canEdit }) {
     return out;
   })();
 
+  // Mirror the Daily-view's destination resolution so highlight day counts
+  // match exactly what the user sees in that view: per-day override first,
+  // then auto-detect the destination from the day's first item that maps to
+  // a highlight, then fall back to that item's location/title.
   function getDaysForHighlight(h) {
-    if (Array.isArray(h?.dates) && h.dates.length > 0) {
-      return h.dates.slice().sort();
-    }
-    const dates = new Set();
-    // Items explicitly tagged to this highlight from the item form.
+    if (!tripDates.length) return [];
+    const overrides = (event?.dailyDestinations && typeof event.dailyDestinations === 'object')
+      ? event.dailyDestinations
+      : {};
+    const itemsByDate = new Map();
     for (const it of itineraryItems) {
       if (!it?.date) continue;
-      if (Array.isArray(it.highlightIds) && it.highlightIds.includes(h.id)) {
-        dates.add(it.date);
+      if (!itemsByDate.has(it.date)) itemsByDate.set(it.date, []);
+      itemsByDate.get(it.date).push(it);
+    }
+    const inferDest = (item) => {
+      if (!highlights.length) return null;
+      const loc = normalizeForMatch(item?.location || '');
+      if (!loc) return null;
+      for (const hh of highlights) {
+        const ht = normalizeForMatch(hh?.text || '').trim();
+        if (ht && loc.includes(ht)) return hh.text;
+      }
+      return null;
+    };
+    const myKey = normalizeForMatch(h?.text || '').trim();
+    const days = [];
+    for (const dateKey of tripDates) {
+      const overrideId = overrides[dateKey] || null;
+      if (overrideId) {
+        if (overrideId === h.id) days.push(dateKey);
+        continue;
+      }
+      if (!myKey) continue;
+      const dayItems = (itemsByDate.get(dateKey) || [])
+        .slice()
+        .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      let autoDest = null;
+      for (const it of dayItems) {
+        const dest = inferDest(it);
+        if (dest) { autoDest = dest; break; }
+      }
+      if (!autoDest && dayItems.length > 0) {
+        autoDest = dayItems[0].location || dayItems[0].title || null;
+      }
+      if (autoDest) {
+        const dn = normalizeForMatch(autoDest);
+        if (dn === myKey || dn.includes(myKey) || myKey.includes(dn)) {
+          days.push(dateKey);
+        }
       }
     }
-    if (dates.size > 0) return Array.from(dates).sort();
-    // Fallback: text match on title/location/notes.
-    const needle = (h?.text || '').trim().toLowerCase();
-    if (!needle) return [];
-    for (const it of itineraryItems) {
-      if (!it?.date) continue;
-      const haystack = ((it.title || '') + ' ' + (it.location || '') + ' ' + (it.notes || '')).toLowerCase();
-      if (haystack.includes(needle)) dates.add(it.date);
-    }
-    return Array.from(dates).sort();
+    return days;
   }
   function countDaysForHighlight(h) {
     return getDaysForHighlight(h).length;
@@ -975,148 +1006,6 @@ function TripHighlightsList({ event, onSave, canEdit }) {
             </>
           )}
         </div>
-        {(() => {
-          const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
-          if (subs.length === 0 && !canEdit) return null;
-          const draft = subDraftById[h.id] || { text: '', url: '' };
-          const setDraft = (patch) => setSubDraftById(prev => ({ ...prev, [h.id]: { ...(prev[h.id] || { text: '', url: '' }), ...patch } }));
-          const submit = async () => {
-            if (!draft.text || !draft.text.trim()) return;
-            await addSubHighlight(h.id, draft.text, draft.url);
-            setSubDraftById(prev => ({ ...prev, [h.id]: { text: '', url: '' } }));
-          };
-          const subUrls = (s) => Array.isArray(s.urls) ? s.urls.filter(Boolean) : [];
-          return (
-            <div className={styles.subHighlightWrap}>
-              {subs.length > 0 && (
-                <ul className={styles.subHighlightList}>
-                  {subs.map(s => {
-                    const subKey = `${h.id}::${s.id}`;
-                    const isEditingSub = editingSubKey === subKey;
-                    if (isEditingSub) {
-                      const saveSubEdit = async () => {
-                        const text = editSubText.trim();
-                        if (!text) return;
-                        const trimmedUrl = (editSubUrl || '').trim();
-                        const urls = trimmedUrl ? [isInstagramUrl(trimmedUrl) ? normalizeInstagramUrl(trimmedUrl) : trimmedUrl] : [];
-                        await updateSubHighlight(h.id, s.id, { text, urls });
-                        setEditingSubKey(null);
-                        setEditSubText('');
-                        setEditSubUrl('');
-                      };
-                      const cancelSubEdit = () => {
-                        setEditingSubKey(null);
-                        setEditSubText('');
-                        setEditSubUrl('');
-                      };
-                      return (
-                        <li key={s.id} className={styles.subHighlightItem}>
-                          <span className={styles.subHighlightDot}>•</span>
-                          <input
-                            type="text"
-                            className={styles.subHighlightInput}
-                            value={editSubText}
-                            onChange={e => setEditSubText(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveSubEdit(); } if (e.key === 'Escape') cancelSubEdit(); }}
-                            autoFocus
-                          />
-                          <input
-                            type="url"
-                            className={styles.subHighlightInput}
-                            value={editSubUrl}
-                            onChange={e => setEditSubUrl(e.target.value)}
-                            placeholder="TikTok / Instagram / link"
-                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveSubEdit(); } if (e.key === 'Escape') cancelSubEdit(); }}
-                            style={{ maxWidth: '50%' }}
-                          />
-                          <button type="button" className={styles.subHighlightAddBtn} onClick={saveSubEdit}>Save</button>
-                          <button type="button" className={styles.subHighlightRemove} onClick={cancelSubEdit} title="Cancel" aria-label="Cancel edit">×</button>
-                        </li>
-                      );
-                    }
-                    return (
-                      <li key={s.id} className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}>
-                        <span className={styles.subHighlightDot}>•</span>
-                        <span className={styles.subHighlightText}>{s.text}</span>
-                        {subUrls(s).map((u, i) => {
-                          const ig = isInstagramUrl(u);
-                          const tt = isTikTokUrl(u);
-                          const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
-                          return (
-                            <a
-                              key={`${u}-${i}`}
-                              href={u}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={styles.subHighlightLink}
-                              title={u}
-                              aria-label={label}
-                            >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
-                          );
-                        })}
-                        {canEdit && (
-                          <>
-                            <button
-                              type="button"
-                              className={styles.subHighlightRemove}
-                              onClick={() => {
-                                setEditingSubKey(subKey);
-                                setEditSubText(s.text || '');
-                                setEditSubUrl((Array.isArray(s.urls) && s.urls[0]) || '');
-                              }}
-                              title="Edit"
-                              aria-label="Edit sub-item"
-                            >✏️</button>
-                            <button
-                              type="button"
-                              className={styles.subHighlightRemove}
-                              onClick={() => toggleSubHighlightSkipped(h.id, s.id)}
-                              title={s.skipped ? 'Restore' : 'Skip — cross out without removing'}
-                              aria-label={s.skipped ? 'Restore sub-item' : 'Skip sub-item'}
-                            >{s.skipped ? '↺' : '⊘'}</button>
-                            <button
-                              type="button"
-                              className={styles.subHighlightRemove}
-                              onClick={() => removeSubHighlight(h.id, s.id)}
-                              title="Remove"
-                              aria-label="Remove sub-item"
-                            >×</button>
-                          </>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              {canEdit && (
-                <div className={styles.subHighlightAddRow}>
-                  <input
-                    type="text"
-                    className={styles.subHighlightInput}
-                    value={draft.text || ''}
-                    placeholder="+ Add a thing to do here"
-                    onChange={e => setDraft({ text: e.target.value })}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
-                  />
-                  {(draft.text || '').trim() && (
-                    <>
-                      <input
-                        type="url"
-                        className={styles.subHighlightInput}
-                        value={draft.url || ''}
-                        placeholder="TikTok / Instagram / link (optional)"
-                        onChange={e => setDraft({ url: e.target.value })}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
-                        style={{ maxWidth: '60%' }}
-                      />
-                      <button type="button" className={styles.subHighlightAddBtn} onClick={submit}>Add</button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })()}
         {!hideVoting && expandedVotersId === h.id && editingId !== h.id && (
           <div className={styles.highlightVotersPanel}>
             {[1, 2, 3].map(rank => {
@@ -1591,7 +1480,17 @@ const MODE_COLOR = {
 };
 
 // Overview map showing every leg on one canvas, each in its own mode color.
-function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
+function TripOverviewMap({ mapsKey, transitions, flights = [], tripStartRaw = null }) {
+  // Convert YYYY-MM-DD into a 1-based trip-day index (Day 1 = trip start).
+  // Returns null if trip start is unknown or the date isn't parseable.
+  const toDayIndex = (dateKey) => {
+    if (!tripStartRaw || !dateKey) return null;
+    const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
+    const d = new Date(dateKey + 'T00:00');
+    if (isNaN(d)) return null;
+    const diff = Math.round((d - s) / 86400000);
+    return diff >= 0 ? diff + 1 : null;
+  };
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const renderersRef = useRef([]);
@@ -1689,6 +1588,8 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
         // Add a small plane marker at the midpoint as a hint
         const midLat = (fromLL.lat() + toLL.lat()) / 2;
         const midLng = (fromLL.lng() + toLL.lng()) / 2;
+        const flightDay = toDayIndex(f.dateKey);
+        const baseTitle = f.title || `${f.from} → ${f.to}`;
         const marker = new google.maps.Marker({
           position: { lat: midLat, lng: midLng },
           map: mapRef.current,
@@ -1696,8 +1597,8 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
             path: 'M -2,-2 L 2,-2 L 2,2 L -2,2 Z',
             scale: 0,
           },
-          label: { text: '✈️', fontSize: '16px' },
-          title: f.title || `${f.from} → ${f.to}`,
+          label: { text: flightDay != null ? `✈️ ${flightDay}` : '✈️', fontSize: '14px', fontWeight: '700' },
+          title: flightDay != null ? `Day ${flightDay} · ${baseTitle}` : baseTitle,
         });
         flightMarkersRef.current.push(marker);
         if (pendingFlights === 0) fitCombined();
@@ -1721,19 +1622,33 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
     if (remaining === 0) return;
     const collected = [];
 
-    // Build the ordered list of unique stops so each gets one numbered marker.
+    // Build the ordered list of unique stops so each gets one marker. Each
+    // stop is labeled with the earliest trip-day it's visited (Day 1 = trip
+    // start) instead of a sequential 1..N counter, so the map ties back to
+    // the day-by-day itinerary.
     const stopOrder = [];
     const stopIndex = new Map();
-    const addStop = (loc, title) => {
+    const stopDayMin = []; // parallel to stopOrder: smallest dayIndex seen
+    const addStop = (loc, title, dayIndex) => {
       const key = (loc || '').trim().toLowerCase();
       if (!key) return;
-      if (stopIndex.has(key)) return;
-      stopIndex.set(key, stopOrder.length);
-      stopOrder.push({ loc, title });
+      if (!stopIndex.has(key)) {
+        stopIndex.set(key, stopOrder.length);
+        stopOrder.push({ loc, title });
+        stopDayMin.push(dayIndex != null ? dayIndex : null);
+        return;
+      }
+      const i = stopIndex.get(key);
+      if (dayIndex != null && (stopDayMin[i] == null || dayIndex < stopDayMin[i])) {
+        stopDayMin[i] = dayIndex;
+      }
     };
     for (const t of transitions) {
-      addStop(t.from, t.fromTitle);
-      addStop(t.to, t.toTitle);
+      const day = toDayIndex(t.dateKey);
+      // The "from" stop of a route is reached on or before the route's day,
+      // so use the same day index — both endpoints belong to that day.
+      addStop(t.from, t.fromTitle, day);
+      addStop(t.to, t.toTitle, day);
     }
     const stopLatLngs = new Array(stopOrder.length).fill(null);
 
@@ -1743,11 +1658,14 @@ function TripOverviewMap({ mapsKey, transitions, flights = [] }) {
       markersRef.current = [];
       stopLatLngs.forEach((ll, i) => {
         if (!ll) return;
+        const dayLabel = stopDayMin[i] != null ? String(stopDayMin[i]) : String(i + 1);
         const marker = new google.maps.Marker({
           position: ll,
           map: mapRef.current,
-          label: { text: String(i + 1), color: '#fff', fontWeight: '700', fontSize: '12px' },
-          title: stopOrder[i].title || '',
+          label: { text: dayLabel, color: '#fff', fontWeight: '700', fontSize: '12px' },
+          title: stopDayMin[i] != null
+            ? `Day ${stopDayMin[i]}${stopOrder[i].title ? ` · ${stopOrder[i].title}` : ''}`
+            : (stopOrder[i].title || ''),
         });
         markersRef.current.push(marker);
       });
@@ -2078,7 +1996,6 @@ export function Itinerary({ event, onSave, canEdit }) {
   const viewSettingsKey = `rally.itineraryView.${event?.id || 'global'}`;
   const VIEW_SETTINGS_DEFAULTS = {
     showFlightCosts: true,
-    showFlightSummary: true,
     showHighlights: true,
     showRouteMap: true,
     showLodging: false,
@@ -2123,7 +2040,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [emailResult, setEmailResult] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
-  const [viewMode, setViewMode] = useState('schedule'); // 'schedule' | 'daily'
+  const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily'
   // Highlights the user explicitly un-tagged in the current form session.
   // The auto-tag effect skips these so user overrides aren't re-applied.
   const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
@@ -2366,6 +2283,77 @@ export function Itinerary({ event, onSave, canEdit }) {
     else delete current[dateKey];
     await onSave({ dailyDestinations: current });
   }
+
+  // Optional human name for a day in the Daily view (e.g. "Arrival",
+  // "Beach day"). Empty string clears the name.
+  async function setDayName(dateKey, name) {
+    const current = (event?.dailyNames && typeof event.dailyNames === 'object')
+      ? { ...event.dailyNames }
+      : {};
+    const trimmed = (name || '').trim();
+    if (trimmed) current[dateKey] = trimmed;
+    else delete current[dateKey];
+    await onSave({ dailyNames: current });
+  }
+  // Local draft so typing doesn't write to Firestore on every keystroke.
+  const [dayNameDrafts, setDayNameDrafts] = useState({});
+  const [editingDayNameKey, setEditingDayNameKey] = useState(null);
+
+  // Per-day chosen sub-bullets in the Daily view. Map of YYYY-MM-DD -> [subId].
+  // Storing only sub-IDs (UUIDs) lets the destination change without needing to
+  // re-key; bullets that no longer match the day's destination just stop showing.
+  async function setDayBullets(dateKey, subIds) {
+    const current = (event?.dailyBullets && typeof event.dailyBullets === 'object')
+      ? { ...event.dailyBullets }
+      : {};
+    if (subIds && subIds.length > 0) current[dateKey] = subIds;
+    else delete current[dateKey];
+    await onSave({ dailyBullets: current });
+  }
+  function toggleDayBullet(dateKey, subId) {
+    const dailyBullets = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? event.dailyBullets : {};
+    const cur = Array.isArray(dailyBullets[dateKey]) ? dailyBullets[dateKey] : [];
+    const next = cur.includes(subId) ? cur.filter(x => x !== subId) : [...cur, subId];
+    return setDayBullets(dateKey, next);
+  }
+  // Create a new bullet on a destination highlight and auto-select it for the
+  // given day. Bullets remain stored under the highlight's subHighlights so
+  // the same bullet can be reused on another day with the same destination.
+  async function addBulletToDayDest(dateKey, highlightId, text, url) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    const cleanedUrl = (url || '').trim();
+    const urls = cleanedUrl ? [isInstagramUrl(cleanedUrl) ? normalizeInstagramUrl(cleanedUrl) : cleanedUrl] : [];
+    const newSubId = crypto.randomUUID();
+    const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+    const nextHighlights = highlights.map(h => {
+      if (h.id !== highlightId) return h;
+      const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+      return { ...h, subHighlights: [...subs, { id: newSubId, text: trimmed, urls }] };
+    });
+    const dailyBullets = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? { ...event.dailyBullets } : {};
+    const cur = Array.isArray(dailyBullets[dateKey]) ? dailyBullets[dateKey] : [];
+    dailyBullets[dateKey] = [...cur, newSubId];
+    await onSave({ tripHighlights: nextHighlights, dailyBullets });
+  }
+  const [bulletDraftByKey, setBulletDraftByKey] = useState({});
+  const [bulletPickerOpenKey, setBulletPickerOpenKey] = useState(null);
+  const bulletPickerRef = useRef(null);
+  useEffect(() => {
+    if (!bulletPickerOpenKey) return;
+    function onDocClick(e) {
+      if (bulletPickerRef.current && !bulletPickerRef.current.contains(e.target)) {
+        setBulletPickerOpenKey(null);
+      }
+    }
+    function onKey(e) { if (e.key === 'Escape') setBulletPickerOpenKey(null); }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [bulletPickerOpenKey]);
 
   async function shareItineraryLink() {
     const link = event?.shareToken
@@ -2808,6 +2796,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         to,
         title: i.title || '',
         mode: inferTravelMode(i),
+        dateKey: i.date || '',
       };
     })
     .filter(Boolean);
@@ -2998,7 +2987,6 @@ export function Itinerary({ event, onSave, canEdit }) {
                 <div className={styles.settingsList}>
                   {[
                     { key: 'showFlightCosts',   label: '✈️ Flight Costs', hint: 'Track flight prices between cities' },
-                    { key: 'showFlightSummary', label: '💰 Flight summary bar', hint: 'Cheapest / total / starred pick' },
                     { key: 'showRouteMap',      label: '🗺️ Trip Route Overview', hint: 'Map of all routes across the trip' },
                     { key: 'showHighlights',    label: '⭐ Trip Highlights', hint: 'Voted-on must-do list' },
                     { key: 'showLodging',       label: '🏨 Lodging column', hint: 'Show the lodging column in the schedule' },
@@ -3049,16 +3037,7 @@ export function Itinerary({ event, onSave, canEdit }) {
             </button>
           )}
           {canEdit && !adding && !editingId && (
-            <>
-              <button
-                className={styles.lodgingToggleBtn}
-                onClick={startAddFromInstagram}
-                title="Paste an Instagram link to add it as an itinerary item"
-              >
-                📸 Add from Instagram
-              </button>
-              <button className={styles.addBtn} onClick={startAdd}>+ Add Item</button>
-            </>
+            <button className={styles.addBtn} onClick={startAdd}>+ Add Item</button>
           )}
         </div>
       </div>
@@ -3110,7 +3089,7 @@ export function Itinerary({ event, onSave, canEdit }) {
               {allTransitions.length} {allTransitions.length === 1 ? 'route' : 'routes'}
             </span>
           </div>
-          <TripOverviewMap mapsKey={mapsKey} transitions={allTransitions} flights={allFlights} />
+          <TripOverviewMap mapsKey={mapsKey} transitions={allTransitions} flights={allFlights} tripStartRaw={tripStartRaw} />
         </div>
       )}
 
@@ -3324,48 +3303,6 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {viewSettings.showFlightSummary && (() => {
-        const flights = Array.isArray(event?.flightCosts) ? event.flightCosts : [];
-        if (flights.length === 0) return null;
-        const parseCost = (v) => {
-          if (typeof v !== 'string') return NaN;
-          const cleaned = v.replace(/[^\d.]/g, '');
-          if (!cleaned) return NaN;
-          const n = parseFloat(cleaned);
-          return isNaN(n) ? NaN : n;
-        };
-        const numericCosts = flights.map(f => parseCost(f.cost)).filter(n => !isNaN(n));
-        const cheapest = numericCosts.length ? Math.min(...numericCosts) : null;
-        const total = numericCosts.length ? numericCosts.reduce((a, b) => a + b, 0) : null;
-        const starred = flights.find(f => f.starred);
-        const fmt = (n) => `$${Math.round(n).toLocaleString()}`;
-        return (
-          <div className={styles.flightSummary}>
-            <span className={styles.flightSummaryItem}>
-              <strong>{flights.length}</strong> flight{flights.length === 1 ? '' : 's'} tracked
-            </span>
-            {cheapest !== null && (
-              <span className={styles.flightSummaryItem}>
-                Cheapest <strong>{fmt(cheapest)}</strong>
-              </span>
-            )}
-            {total !== null && flights.length > 1 && (
-              <span className={styles.flightSummaryItem}>
-                Total <strong>{fmt(total)}</strong>
-              </span>
-            )}
-            {starred && (
-              <span className={styles.flightSummaryStarred}>
-                ⭐ {starred.from || '?'} → {starred.to || starred.city || '?'}
-                {starred.cost ? ` · ${starred.cost}` : ''}
-                {starred.tripType === 'one-way' ? ' · one way' : ''}
-                {typeof starred.stops === 'number' && starred.stops === 0 ? ' · direct' : ''}
-              </span>
-            )}
-          </div>
-        );
-      })()}
-
       {viewSettings.showHighlights && (
         <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
       )}
@@ -3418,9 +3355,14 @@ export function Itinerary({ event, onSave, canEdit }) {
               const moved = prev && d.finalDest && normalizeForMatch(prev) !== normalizeForMatch(d.finalDest);
               const isLast = i === dayList.length - 1;
               const isOverride = !!d.overrideHighlight;
-              const destSubs = Array.isArray(d.destHighlight?.subHighlights)
+              const allDestSubs = Array.isArray(d.destHighlight?.subHighlights)
                 ? d.destHighlight.subHighlights.filter(s => s && s.text)
                 : [];
+              const dailyBullets = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? event.dailyBullets : {};
+              const selectedSubIds = Array.isArray(dailyBullets[d.key]) ? dailyBullets[d.key] : [];
+              // Render in the order the bullets exist on the highlight, not pick-order.
+              const destSubs = allDestSubs.filter(s => selectedSubIds.includes(s.id));
+              const pickerOpen = bulletPickerOpenKey === d.key;
               return (
                 <div
                   key={d.key}
@@ -3438,6 +3380,87 @@ export function Itinerary({ event, onSave, canEdit }) {
                     <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', minWidth: '120px' }}>
                       {new Date(d.key + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                     </span>
+                    {(() => {
+                      const dailyNames = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
+                      const savedName = dailyNames[d.key] || '';
+                      const isEditingName = editingDayNameKey === d.key;
+                      const draft = dayNameDrafts[d.key] !== undefined ? dayNameDrafts[d.key] : savedName;
+                      const commit = async () => {
+                        await setDayName(d.key, draft);
+                        setEditingDayNameKey(null);
+                        setDayNameDrafts(prev => { const c = { ...prev }; delete c[d.key]; return c; });
+                      };
+                      const cancel = () => {
+                        setEditingDayNameKey(null);
+                        setDayNameDrafts(prev => { const c = { ...prev }; delete c[d.key]; return c; });
+                      };
+                      if (isEditingName && canEdit) {
+                        return (
+                          <input
+                            type="text"
+                            value={draft}
+                            autoFocus
+                            placeholder='Name this day (e.g. "Arrival")'
+                            onChange={e => setDayNameDrafts(prev => ({ ...prev, [d.key]: e.target.value }))}
+                            onBlur={commit}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                              else if (e.key === 'Escape') cancel();
+                            }}
+                            style={{
+                              padding: '0.25rem 0.5rem',
+                              border: '1px solid var(--color-accent)',
+                              borderRadius: '6px',
+                              fontSize: '0.85rem',
+                              fontFamily: 'inherit',
+                              fontWeight: 600,
+                              minWidth: '160px',
+                            }}
+                          />
+                        );
+                      }
+                      if (savedName) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => canEdit && setEditingDayNameKey(d.key)}
+                            disabled={!canEdit}
+                            title={canEdit ? 'Rename this day' : savedName}
+                            style={{
+                              background: 'rgba(134, 59, 255, 0.1)',
+                              border: '1px solid rgba(134, 59, 255, 0.3)',
+                              color: 'var(--color-accent)',
+                              borderRadius: 'var(--radius-full)',
+                              padding: '0.2rem 0.6rem',
+                              fontSize: '0.8rem',
+                              fontWeight: 600,
+                              fontFamily: 'inherit',
+                              cursor: canEdit ? 'pointer' : 'default',
+                            }}
+                          >🏷️ {savedName}</button>
+                        );
+                      }
+                      if (canEdit) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => setEditingDayNameKey(d.key)}
+                            title="Name this day"
+                            style={{
+                              background: 'transparent',
+                              border: '1px dashed var(--color-border)',
+                              color: 'var(--color-text-muted)',
+                              borderRadius: 'var(--radius-full)',
+                              padding: '0.2rem 0.55rem',
+                              fontSize: '0.75rem',
+                              fontFamily: 'inherit',
+                              cursor: 'pointer',
+                            }}
+                          >+ Name day</button>
+                        );
+                      }
+                      return null;
+                    })()}
                     <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {canEdit && tripHighlights.length > 0 ? (
                         <select
@@ -3475,41 +3498,187 @@ export function Itinerary({ event, onSave, canEdit }) {
                       </span>
                     )}
                   </div>
-                  {destSubs.length > 0 && (
-                    <ul
-                      className={styles.subHighlightList}
-                      style={{ marginLeft: '174px', paddingLeft: '0.5rem', borderLeft: '2px solid var(--color-border)' }}
-                      title={`From "${d.destHighlight.text}"`}
-                    >
-                      {destSubs.map(s => {
-                        const urls = Array.isArray(s.urls) ? s.urls.filter(Boolean) : [];
-                        return (
-                          <li
-                            key={s.id}
-                            className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}
-                          >
-                            <span className={styles.subHighlightDot}>•</span>
-                            <span className={styles.subHighlightText}>{s.text}</span>
-                            {urls.map((u, i) => {
-                              const ig = isInstagramUrl(u);
-                              const tt = isTikTokUrl(u);
-                              const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
-                              return (
-                                <a
-                                  key={`${u}-${i}`}
-                                  href={u}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className={styles.subHighlightLink}
-                                  title={u}
-                                  aria-label={label}
-                                >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
-                              );
-                            })}
-                          </li>
-                        );
-                      })}
-                    </ul>
+                  {(destSubs.length > 0 || (canEdit && d.destHighlight)) && (
+                    <div style={{ marginLeft: '174px', paddingLeft: '0.5rem', borderLeft: '2px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      {destSubs.length > 0 && (
+                        <ul className={styles.subHighlightList} title={`From "${d.destHighlight.text}"`}>
+                          {destSubs.map(s => {
+                            const urls = Array.isArray(s.urls) ? s.urls.filter(Boolean) : [];
+                            return (
+                              <li
+                                key={s.id}
+                                className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}
+                              >
+                                <span className={styles.subHighlightDot}>•</span>
+                                <span className={styles.subHighlightText}>{s.text}</span>
+                                {urls.map((u, i) => {
+                                  const ig = isInstagramUrl(u);
+                                  const tt = isTikTokUrl(u);
+                                  const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
+                                  return (
+                                    <a
+                                      key={`${u}-${i}`}
+                                      href={u}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={styles.subHighlightLink}
+                                      title={u}
+                                      aria-label={label}
+                                    >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
+                                  );
+                                })}
+                                {canEdit && (
+                                  <button
+                                    type="button"
+                                    className={styles.subHighlightRemove}
+                                    onClick={() => toggleDayBullet(d.key, s.id)}
+                                    title="Remove from this day"
+                                    aria-label="Remove from this day"
+                                  >×</button>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                      {canEdit && d.destHighlight && (
+                        <div style={{ position: 'relative' }} ref={pickerOpen ? bulletPickerRef : null}>
+                          <button
+                            type="button"
+                            onClick={() => setBulletPickerOpenKey(pickerOpen ? null : d.key)}
+                            style={{
+                              background: 'transparent',
+                              border: '1px dashed var(--color-border)',
+                              borderRadius: 'var(--radius-md)',
+                              color: 'var(--color-text-muted)',
+                              padding: '0.2rem 0.55rem',
+                              fontSize: '0.75rem',
+                              fontFamily: 'inherit',
+                              cursor: 'pointer',
+                            }}
+                            title={`Add or pick things to do for this day in ${d.destHighlight.text}`}
+                            aria-expanded={pickerOpen}
+                          >+ {destSubs.length === 0 ? 'Add things to do' : 'Edit things to do'} ({d.destHighlight.text})</button>
+                          {pickerOpen && (() => {
+                            const draft = bulletDraftByKey[d.key] || { text: '', url: '' };
+                            const setDraft = (patch) => setBulletDraftByKey(prev => ({ ...prev, [d.key]: { ...(prev[d.key] || { text: '', url: '' }), ...patch } }));
+                            const submitNew = async () => {
+                              if (!draft.text || !draft.text.trim()) return;
+                              await addBulletToDayDest(d.key, d.destHighlight.id, draft.text, draft.url);
+                              setBulletDraftByKey(prev => ({ ...prev, [d.key]: { text: '', url: '' } }));
+                            };
+                            return (
+                              <div
+                                role="dialog"
+                                aria-label="Things to do on this day"
+                                style={{
+                                  position: 'absolute',
+                                  top: 'calc(100% + 0.3rem)',
+                                  left: 0,
+                                  zIndex: 100,
+                                  width: '320px',
+                                  maxWidth: 'calc(100vw - 2rem)',
+                                  background: 'var(--color-surface)',
+                                  border: '1px solid var(--color-border)',
+                                  borderRadius: 'var(--radius-lg)',
+                                  boxShadow: '0 10px 32px rgba(0, 0, 0, 0.14)',
+                                  padding: '0.5rem 0.6rem',
+                                  maxHeight: '360px',
+                                  overflowY: 'auto',
+                                }}
+                              >
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', paddingBottom: '0.4rem', marginBottom: '0.4rem', borderBottom: '1px solid var(--color-border)' }}>
+                                  <input
+                                    type="text"
+                                    value={draft.text || ''}
+                                    placeholder="+ Add a thing to do"
+                                    onChange={e => setDraft({ text: e.target.value })}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitNew(); } }}
+                                    style={{
+                                      padding: '0.35rem 0.5rem',
+                                      fontSize: '0.82rem',
+                                      border: '1px solid var(--color-border)',
+                                      borderRadius: 'var(--radius-md)',
+                                      fontFamily: 'inherit',
+                                    }}
+                                  />
+                                  {(draft.text || '').trim() && (
+                                    <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                      <input
+                                        type="url"
+                                        value={draft.url || ''}
+                                        placeholder="Link (optional)"
+                                        onChange={e => setDraft({ url: e.target.value })}
+                                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitNew(); } }}
+                                        style={{
+                                          flex: 1,
+                                          padding: '0.3rem 0.5rem',
+                                          fontSize: '0.78rem',
+                                          border: '1px solid var(--color-border)',
+                                          borderRadius: 'var(--radius-md)',
+                                          fontFamily: 'inherit',
+                                        }}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={submitNew}
+                                        style={{
+                                          padding: '0.3rem 0.6rem',
+                                          fontSize: '0.78rem',
+                                          fontFamily: 'inherit',
+                                          fontWeight: 600,
+                                          background: 'var(--color-accent)',
+                                          color: '#fff',
+                                          border: 'none',
+                                          borderRadius: 'var(--radius-md)',
+                                          cursor: 'pointer',
+                                        }}
+                                      >Add</button>
+                                    </div>
+                                  )}
+                                </div>
+                                {allDestSubs.length === 0 ? (
+                                  <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', padding: '0.35rem 0.4rem' }}>
+                                    No bullets yet. Add one above.
+                                  </div>
+                                ) : (
+                                  allDestSubs.map(s => {
+                                    const checked = selectedSubIds.includes(s.id);
+                                    return (
+                                      <label
+                                        key={s.id}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'flex-start',
+                                          gap: '0.5rem',
+                                          padding: '0.35rem 0.4rem',
+                                          borderRadius: 'var(--radius-md)',
+                                          cursor: 'pointer',
+                                          fontSize: '0.82rem',
+                                          color: 'var(--color-text)',
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'var(--color-surface-alt)'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={() => toggleDayBullet(d.key, s.id)}
+                                          style={{ marginTop: '0.15rem', accentColor: 'var(--color-accent)' }}
+                                        />
+                                        <span style={{ flex: 1, textDecoration: s.skipped ? 'line-through' : 'none', opacity: s.skipped ? 0.6 : 1 }}>
+                                          {s.text}
+                                        </span>
+                                      </label>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               );
