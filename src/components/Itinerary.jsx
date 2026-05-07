@@ -978,9 +978,9 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                         <button
                           type="button"
                           className={styles.highlightIconBtn}
-                          onClick={() => remove(h.id)}
-                          title="Remove"
-                          aria-label="Remove"
+                          onClick={() => toggleHidden(h.id)}
+                          title={h.hidden ? 'Unhide this highlight' : 'Hide this highlight (data is kept)'}
+                          aria-label={h.hidden ? 'Unhide highlight' : 'Hide highlight'}
                         >🗑️</button>
                       </>
                     )}
