@@ -1381,7 +1381,7 @@ export function EventDetail() {
                         onDragLeave={() => { if (dropTargetUid === uid) setDropTargetUid(null); }}
                         onDrop={e => { e.preventDefault(); e.stopPropagation(); if (dragMemberUid && dragMemberUid !== uid) handleDragMerge(dragMemberUid, uid); setDragMemberUid(null); setDropTargetUid(null); }}
                         onDragEnd={() => { setDragMemberUid(null); setDropTargetUid(null); }}
-                        onClick={isOwner ? () => { if (!dragMemberUid) { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } } : undefined}
+                        onClick={isOwner ? () => { if (!dragMemberUid) { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } } : undefined}
                         style={{ ...(isOwner ? { cursor: dragMemberUid ? 'grabbing' : 'grab' } : {}), ...(isDupe ? { background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 'var(--radius-md)' } : {}), ...(dropTargetUid === uid ? { background: '#DBEAFE', border: '2px solid #3B82F6', borderRadius: 'var(--radius-md)' } : {}), ...(dragMemberUid === uid ? { opacity: 0.4 } : {}) }}
                       >
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1391,6 +1391,7 @@ export function EventDetail() {
                           </span>
                           <div style={{ display: 'flex', gap: '0.3rem', marginTop: '1px', alignItems: 'center', flexWrap: 'wrap' }}>
                             {(m.email || uid.includes('@')) && <span title={m.email || uid} style={{ fontSize: '0.7rem' }}>✉️</span>}
+                            {m.email2 && <span title={`Secondary email: ${m.email2}`} style={{ fontSize: '0.7rem', opacity: 0.75 }}>✉️</span>}
                             {m.phone && <span title={m.phone} style={{ fontSize: '0.7rem' }}>💬</span>}
                             {isOwner && uid !== user?.uid && (() => {
                               if (m._friendMatch) {
@@ -2097,6 +2098,10 @@ export function EventDetail() {
               <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
                 Email
                 <input type="email" value={editMemberFields.email} onChange={e => setEditMemberFields(p => ({ ...p, email: e.target.value }))} style={{ padding: '0.55rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', outline: 'none', fontFamily: 'inherit' }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                Email (secondary)
+                <input type="email" value={editMemberFields.email2 || ''} onChange={e => setEditMemberFields(p => ({ ...p, email2: e.target.value }))} placeholder="optional second email" style={{ padding: '0.55rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', outline: 'none', fontFamily: 'inherit' }} />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
                 Phone
