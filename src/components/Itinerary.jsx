@@ -2072,11 +2072,56 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [aiError, setAiError] = useState('');
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [mapModes, setMapModes] = useState({}); // mapId -> mode override
-  const [hideLodging, setHideLodging] = useState(true);
+
+  // Per-event view settings: which sections are visible. Persisted to
+  // localStorage so each user's preference sticks across reloads.
+  const viewSettingsKey = `rally.itineraryView.${event?.id || 'global'}`;
+  const VIEW_SETTINGS_DEFAULTS = {
+    showFlightCosts: true,
+    showFlightSummary: true,
+    showHighlights: true,
+    showRouteMap: true,
+    showLodging: false,
+    showAiAssistant: true,
+    showDiagnostics: true,
+  };
+  const [viewSettings, setViewSettings] = useState(() => {
+    if (typeof window === 'undefined') return VIEW_SETTINGS_DEFAULTS;
+    try {
+      const raw = localStorage.getItem(viewSettingsKey);
+      if (!raw) return VIEW_SETTINGS_DEFAULTS;
+      const parsed = JSON.parse(raw);
+      return { ...VIEW_SETTINGS_DEFAULTS, ...parsed };
+    } catch { return VIEW_SETTINGS_DEFAULTS; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(viewSettingsKey, JSON.stringify(viewSettings)); }
+    catch { /* ignore */ }
+  }, [viewSettingsKey, viewSettings]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef(null);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function onDocClick(e) {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setSettingsOpen(false);
+      }
+    }
+    function onKey(e) { if (e.key === 'Escape') setSettingsOpen(false); }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [settingsOpen]);
+  const toggleSetting = (key) => setViewSettings(prev => ({ ...prev, [key]: !prev[key] }));
+  const hideLodging = !viewSettings.showLodging;
   const [travelTimes, setTravelTimes] = useState({}); // key -> { duration, distance, error }
   const travelTimeFetchRef = useRef(new Set()); // keys we've already requested
   const [exportingPdf, setExportingPdf] = useState(false);
   const [emailResult, setEmailResult] = useState('');
+  const [shareStatus, setShareStatus] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
   const [viewMode, setViewMode] = useState('schedule'); // 'schedule' | 'daily'
   // Highlights the user explicitly un-tagged in the current form session.
@@ -2320,6 +2365,38 @@ export function Itinerary({ event, onSave, canEdit }) {
     if (highlightId) current[dateKey] = highlightId;
     else delete current[dateKey];
     await onSave({ dailyDestinations: current });
+  }
+
+  async function shareItineraryLink() {
+    const link = event?.shareToken
+      ? `${window.location.origin}/invite/${event.shareToken}?tab=itinerary`
+      : window.location.href;
+    const title = event?.title ? `Itinerary — ${event.title}` : 'Trip itinerary';
+    setShareStatus('');
+    // Prefer the native share sheet on mobile so users can pick Messages /
+    // WhatsApp / etc. Fall back to clipboard, then to a prompt as last resort.
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title, url: link });
+        setShareStatus('🔗 Shared!');
+      } else if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+        setShareStatus('🔗 Link copied to clipboard');
+      } else {
+        window.prompt('Copy this link:', link);
+        setShareStatus('');
+      }
+    } catch (err) {
+      // AbortError = user dismissed the share sheet; don't treat as a failure.
+      if (err?.name === 'AbortError') return;
+      try {
+        await navigator.clipboard.writeText(link);
+        setShareStatus('🔗 Link copied to clipboard');
+      } catch {
+        window.prompt('Copy this link:', link);
+      }
+    }
+    setTimeout(() => setShareStatus(s => (s ? '' : s)), 3000);
   }
 
   function emailItinerary() {
@@ -2897,13 +2974,56 @@ export function Itinerary({ event, onSave, canEdit }) {
             onClick={() => setViewMode('daily')}
             title="One-line per day: which destination you're in"
           >🗺️ Daily</button>
-          <button
-            className={styles.lodgingToggleBtn}
-            onClick={() => setHideLodging(v => !v)}
-            title={hideLodging ? 'Show lodging column' : 'Hide lodging column'}
-          >
-            {hideLodging ? '🏨 Show lodging' : '🏨 Hide lodging'}
-          </button>
+          <div className={styles.settingsWrap} ref={settingsRef}>
+            <button
+              className={styles.lodgingToggleBtn}
+              onClick={() => setSettingsOpen(v => !v)}
+              title="Choose which sections show on the itinerary"
+              aria-expanded={settingsOpen}
+              aria-haspopup="dialog"
+            >
+              ⚙️ View settings
+            </button>
+            {settingsOpen && (
+              <div className={styles.settingsPopover} role="dialog" aria-label="Itinerary view settings">
+                <div className={styles.settingsHeader}>
+                  <span className={styles.settingsTitle}>Show on itinerary</span>
+                  <button
+                    type="button"
+                    className={styles.settingsResetBtn}
+                    onClick={() => setViewSettings(VIEW_SETTINGS_DEFAULTS)}
+                    title="Restore default visibility"
+                  >Reset</button>
+                </div>
+                <div className={styles.settingsList}>
+                  {[
+                    { key: 'showFlightCosts',   label: '✈️ Flight Costs', hint: 'Track flight prices between cities' },
+                    { key: 'showFlightSummary', label: '💰 Flight summary bar', hint: 'Cheapest / total / starred pick' },
+                    { key: 'showRouteMap',      label: '🗺️ Trip Route Overview', hint: 'Map of all routes across the trip' },
+                    { key: 'showHighlights',    label: '⭐ Trip Highlights', hint: 'Voted-on must-do list' },
+                    { key: 'showLodging',       label: '🏨 Lodging column', hint: 'Show the lodging column in the schedule' },
+                    { key: 'showDiagnostics',   label: '⚠️ Schedule diagnostics', hint: 'Empty days and out-of-range items' },
+                    { key: 'showAiAssistant',   label: '✨ AI assistant', hint: 'Floating Plan with AI button (admins only)' },
+                  ].map(opt => (
+                    <label key={opt.key} className={styles.settingsRow}>
+                      <input
+                        type="checkbox"
+                        checked={!!viewSettings[opt.key]}
+                        onChange={() => toggleSetting(opt.key)}
+                      />
+                      <span className={styles.settingsRowText}>
+                        <span className={styles.settingsRowLabel}>{opt.label}</span>
+                        <span className={styles.settingsRowHint}>{opt.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className={styles.settingsFooter}>
+                  Saved on this device for this trip.
+                </div>
+              </div>
+            )}
+          </div>
           <button
             className={styles.lodgingToggleBtn}
             onClick={exportPDF}
@@ -2911,6 +3031,13 @@ export function Itinerary({ event, onSave, canEdit }) {
             title="Export itinerary as a PDF"
           >
             {exportingPdf ? '⏳ Generating…' : '⬇ Download PDF'}
+          </button>
+          <button
+            className={styles.lodgingToggleBtn}
+            onClick={shareItineraryLink}
+            title={event?.shareToken ? 'Share a link to this itinerary' : 'Share this page'}
+          >
+            🔗 Share link
           </button>
           {canEdit && (
             <button
@@ -2938,8 +3065,11 @@ export function Itinerary({ event, onSave, canEdit }) {
       {emailResult && (
         <div className={styles.aiMessage} style={{ marginBottom: '0.75rem' }}>{emailResult}</div>
       )}
+      {shareStatus && (
+        <div className={styles.aiMessage} style={{ marginBottom: '0.75rem' }}>{shareStatus}</div>
+      )}
 
-      {showDiagnostics && (
+      {showDiagnostics && viewSettings.showDiagnostics && (
         <div
           className={styles.aiMessage}
           style={{ marginBottom: '0.75rem', fontSize: '0.85rem', lineHeight: 1.45 }}
@@ -2972,7 +3102,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {allTransitions.length > 0 && mapsKey && (
+      {viewSettings.showRouteMap && allTransitions.length > 0 && mapsKey && (
         <div className={styles.overviewMapSection}>
           <div className={styles.overviewMapHeader}>
             <span className={styles.overviewMapTitle}>🗺️ Trip Route Overview</span>
@@ -2984,9 +3114,11 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
-      <FlightCosts event={event} onSave={onSave} canEdit={canEdit} />
+      {viewSettings.showFlightCosts && (
+        <FlightCosts event={event} onSave={onSave} canEdit={canEdit} />
+      )}
 
-      {canEdit && isAdmin && (
+      {viewSettings.showAiAssistant && canEdit && isAdmin && (
         aiPanelOpen ? (
           <div className={styles.aiPanelDocked}>
             <button
@@ -3192,7 +3324,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {(() => {
+      {viewSettings.showFlightSummary && (() => {
         const flights = Array.isArray(event?.flightCosts) ? event.flightCosts : [];
         if (flights.length === 0) return null;
         const parseCost = (v) => {
@@ -3234,7 +3366,9 @@ export function Itinerary({ event, onSave, canEdit }) {
         );
       })()}
 
-      <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
+      {viewSettings.showHighlights && (
+        <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
+      )}
 
       {viewMode === 'daily' && tripStartRaw && tripEndRaw && (() => {
         const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
@@ -3262,7 +3396,18 @@ export function Itinerary({ event, onSave, canEdit }) {
           const overrideId = overrides[key] || null;
           const overrideHighlight = overrideId ? tripHighlights.find(h => h.id === overrideId) : null;
           const finalDest = overrideHighlight ? overrideHighlight.text : autoDest;
-          dayList.push({ key, dayIndex, autoDest, overrideId, overrideHighlight, finalDest, count: dayItems.length });
+          // Resolve the destination back to a Trip Highlight so we can surface
+          // its sub-bullets on this day. Override wins; otherwise match the
+          // auto-detected destination text against highlight names.
+          let destHighlight = overrideHighlight || null;
+          if (!destHighlight && finalDest) {
+            const needle = normalizeForMatch(finalDest);
+            destHighlight = tripHighlights.find(h => {
+              const ht = normalizeForMatch(h.text || '');
+              return ht && (ht === needle || needle.includes(ht) || ht.includes(needle));
+            }) || null;
+          }
+          dayList.push({ key, dayIndex, autoDest, overrideId, overrideHighlight, destHighlight, finalDest, count: dayItems.length });
           cursor.setDate(cursor.getDate() + 1);
           dayIndex += 1;
         }
@@ -3273,57 +3418,98 @@ export function Itinerary({ event, onSave, canEdit }) {
               const moved = prev && d.finalDest && normalizeForMatch(prev) !== normalizeForMatch(d.finalDest);
               const isLast = i === dayList.length - 1;
               const isOverride = !!d.overrideHighlight;
+              const destSubs = Array.isArray(d.destHighlight?.subHighlights)
+                ? d.destHighlight.subHighlights.filter(s => s && s.text)
+                : [];
               return (
                 <div
                   key={d.key}
                   style={{
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.85rem',
+                    flexDirection: 'column',
+                    gap: '0.4rem',
                     padding: '0.6rem 0.85rem',
                     borderBottom: isLast ? 'none' : '1px solid var(--color-border)',
                     background: moved ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
                   }}
                 >
-                  <span style={{ fontWeight: 700, minWidth: '54px', color: 'var(--color-text)' }}>Day {d.dayIndex}</span>
-                  <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', minWidth: '120px' }}>
-                    {new Date(d.key + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                  </span>
-                  <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    {canEdit && tripHighlights.length > 0 ? (
-                      <select
-                        value={d.overrideId || ''}
-                        onChange={ev => setDailyDestinationOverride(d.key, ev.target.value)}
-                        style={{
-                          padding: '0.3rem 0.5rem',
-                          border: `1px solid ${isOverride ? '#6366F1' : 'var(--color-border)'}`,
-                          borderRadius: '6px',
-                          fontSize: '0.85rem',
-                          fontFamily: 'inherit',
-                          fontWeight: 500,
-                          color: isOverride ? '#4f46e5' : 'var(--color-text)',
-                          background: isOverride ? 'rgba(99, 102, 241, 0.06)' : 'var(--color-surface)',
-                          minWidth: '180px',
-                        }}
-                        title={isOverride ? 'Manually set — pick "Auto" to clear' : 'Pick a Key Destination to override'}
-                      >
-                        <option value="">Auto: {d.autoDest || '—'}</option>
-                        {tripHighlights.map(h => (
-                          <option key={h.id} value={h.id}>{h.text}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span style={{ fontWeight: 500 }}>
-                        {d.finalDest || <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>—</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                    <span style={{ fontWeight: 700, minWidth: '54px', color: 'var(--color-text)' }}>Day {d.dayIndex}</span>
+                    <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', minWidth: '120px' }}>
+                      {new Date(d.key + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </span>
+                    <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {canEdit && tripHighlights.length > 0 ? (
+                        <select
+                          value={d.overrideId || ''}
+                          onChange={ev => setDailyDestinationOverride(d.key, ev.target.value)}
+                          style={{
+                            padding: '0.3rem 0.5rem',
+                            border: `1px solid ${isOverride ? '#6366F1' : 'var(--color-border)'}`,
+                            borderRadius: '6px',
+                            fontSize: '0.85rem',
+                            fontFamily: 'inherit',
+                            fontWeight: 500,
+                            color: isOverride ? '#4f46e5' : 'var(--color-text)',
+                            background: isOverride ? 'rgba(99, 102, 241, 0.06)' : 'var(--color-surface)',
+                            minWidth: '180px',
+                          }}
+                          title={isOverride ? 'Manually set — pick "Auto" to clear' : 'Pick a Key Destination to override'}
+                        >
+                          <option value="">Auto: {d.autoDest || '—'}</option>
+                          {tripHighlights.map(h => (
+                            <option key={h.id} value={h.id}>{h.text}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span style={{ fontWeight: 500 }}>
+                          {d.finalDest || <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>—</span>}
+                        </span>
+                      )}
+                      {moved && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
+                      {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
+                    </span>
+                    {d.count > 0 && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                        {d.count} item{d.count === 1 ? '' : 's'}
                       </span>
                     )}
-                    {moved && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
-                    {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
-                  </span>
-                  {d.count > 0 && (
-                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                      {d.count} item{d.count === 1 ? '' : 's'}
-                    </span>
+                  </div>
+                  {destSubs.length > 0 && (
+                    <ul
+                      className={styles.subHighlightList}
+                      style={{ marginLeft: '174px', paddingLeft: '0.5rem', borderLeft: '2px solid var(--color-border)' }}
+                      title={`From "${d.destHighlight.text}"`}
+                    >
+                      {destSubs.map(s => {
+                        const urls = Array.isArray(s.urls) ? s.urls.filter(Boolean) : [];
+                        return (
+                          <li
+                            key={s.id}
+                            className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}
+                          >
+                            <span className={styles.subHighlightDot}>•</span>
+                            <span className={styles.subHighlightText}>{s.text}</span>
+                            {urls.map((u, i) => {
+                              const ig = isInstagramUrl(u);
+                              const tt = isTikTokUrl(u);
+                              const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
+                              return (
+                                <a
+                                  key={`${u}-${i}`}
+                                  href={u}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={styles.subHighlightLink}
+                                  title={u}
+                                  aria-label={label}
+                                >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
+                              );
+                            })}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </div>
               );

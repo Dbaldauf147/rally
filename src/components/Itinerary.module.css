@@ -34,6 +34,99 @@
   color: #d97706;
 }
 
+.settingsWrap {
+  position: relative;
+  display: inline-block;
+}
+.settingsPopover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 100;
+  width: 320px;
+  max-width: calc(100vw - 2rem);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.14);
+  padding: 0.75rem 0.85rem 0.65rem;
+}
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.settingsTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.settingsResetBtn {
+  background: transparent;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--radius-sm);
+}
+.settingsResetBtn:hover {
+  background: var(--color-surface-alt);
+}
+.settingsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.settingsRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.45rem 0.4rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.settingsRow:hover {
+  background: var(--color-surface-alt);
+}
+.settingsRow input[type="checkbox"] {
+  margin-top: 0.15rem;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.settingsRowText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.settingsRowLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+.settingsRowHint {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
+.settingsFooter {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
 .heading {
   margin: 0;
   font-size: 1.2rem;
