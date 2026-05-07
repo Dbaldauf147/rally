@@ -2284,6 +2284,25 @@ export function Itinerary({ event, onSave, canEdit }) {
     const next = cur.includes(subId) ? cur.filter(x => x !== subId) : [...cur, subId];
     return setDayBullets(dateKey, next);
   }
+  // Move a bullet from one day's selected list to another in a single write.
+  // Used by the drag-and-drop interaction in the Daily view.
+  async function moveBulletBetweenDays(subId, fromDateKey, toDateKey) {
+    if (!subId || !fromDateKey || !toDateKey || fromDateKey === toDateKey) return;
+    const current = (event?.dailyBullets && typeof event.dailyBullets === 'object')
+      ? { ...event.dailyBullets }
+      : {};
+    const fromList = Array.isArray(current[fromDateKey]) ? current[fromDateKey].filter(x => x !== subId) : [];
+    if (fromList.length > 0) current[fromDateKey] = fromList;
+    else delete current[fromDateKey];
+    const toList = Array.isArray(current[toDateKey]) ? current[toDateKey] : [];
+    if (!toList.includes(subId)) current[toDateKey] = [...toList, subId];
+    await onSave({ dailyBullets: current });
+  }
+  // Track the bullet being dragged so day rows can decide whether they're a
+  // valid drop target (must share the same source highlight). Stored as state
+  // so the target day can re-render its highlight when valid.
+  const [dragBullet, setDragBullet] = useState(null); // { subId, fromDateKey, highlightId }
+  const [dragOverDateKey, setDragOverDateKey] = useState(null);
   // Create a new bullet on a destination highlight and auto-select it for the
   // given day. Bullets remain stored under the highlight's subHighlights so
   // the same bullet can be reused on another day with the same destination.
@@ -3382,16 +3401,46 @@ export function Itinerary({ event, onSave, canEdit }) {
               }
               const pickableDestSubs = allDestSubs.filter(s => !usedOnOtherDays.has(s.id));
               const pickerOpen = bulletPickerOpenKey === d.key;
+              const isDropTarget = canEdit
+                && dragBullet
+                && dragBullet.fromDateKey !== d.key
+                && d.destHighlight
+                && d.destHighlight.id === dragBullet.highlightId;
+              const isHovering = isDropTarget && dragOverDateKey === d.key;
               return (
                 <div
                   key={d.key}
+                  onDragOver={(e) => {
+                    if (!isDropTarget) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverDateKey !== d.key) setDragOverDateKey(d.key);
+                  }}
+                  onDragLeave={(e) => {
+                    if (e.currentTarget.contains(e.relatedTarget)) return;
+                    if (dragOverDateKey === d.key) setDragOverDateKey(null);
+                  }}
+                  onDrop={async (e) => {
+                    if (!isDropTarget) return;
+                    e.preventDefault();
+                    const subId = dragBullet.subId;
+                    const fromDateKey = dragBullet.fromDateKey;
+                    setDragOverDateKey(null);
+                    setDragBullet(null);
+                    await moveBulletBetweenDays(subId, fromDateKey, d.key);
+                  }}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.4rem',
                     padding: '0.6rem 0.85rem',
                     borderBottom: isLast ? 'none' : '1px solid var(--color-border)',
-                    background: moved ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
+                    background: isHovering
+                      ? 'rgba(134, 59, 255, 0.08)'
+                      : moved ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
+                    outline: isHovering ? '2px dashed var(--color-accent)' : 'none',
+                    outlineOffset: '-4px',
+                    transition: 'background 0.12s ease',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
@@ -3558,10 +3607,27 @@ export function Itinerary({ event, onSave, canEdit }) {
                                 </li>
                               );
                             }
+                            const isBeingDragged = dragBullet && dragBullet.subId === s.id && dragBullet.fromDateKey === d.key;
                             return (
                               <li
                                 key={s.id}
                                 className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}
+                                draggable={canEdit}
+                                onDragStart={(e) => {
+                                  if (!canEdit) return;
+                                  setDragBullet({ subId: s.id, fromDateKey: d.key, highlightId: d.destHighlight.id });
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  try { e.dataTransfer.setData('text/plain', s.text || ''); } catch { /* ignore */ }
+                                }}
+                                onDragEnd={() => {
+                                  setDragBullet(null);
+                                  setDragOverDateKey(null);
+                                }}
+                                style={{
+                                  cursor: canEdit ? 'grab' : undefined,
+                                  opacity: isBeingDragged ? 0.4 : 1,
+                                }}
+                                title={canEdit ? 'Drag to another day with the same destination' : undefined}
                               >
                                 <span className={styles.subHighlightDot}>•</span>
                                 <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flexWrap: 'wrap' }}>
