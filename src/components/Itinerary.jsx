@@ -2336,6 +2336,20 @@ export function Itinerary({ event, onSave, canEdit }) {
     dailyBullets[dateKey] = [...cur, newSubId];
     await onSave({ tripHighlights: nextHighlights, dailyBullets });
   }
+  // Toggle the "crossed out / done" flag on a bullet. Storage stays on the
+  // subHighlight (s.skipped) so the strikethrough class kicks in everywhere
+  // the bullet is rendered. Each bullet only lives on one day at a time, so
+  // this is effectively per-day.
+  async function toggleBulletSkipped(highlightId, subId) {
+    const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+    const nextHighlights = highlights.map(h => {
+      if (h.id !== highlightId) return h;
+      const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+      return { ...h, subHighlights: subs.map(s => s.id === subId ? { ...s, skipped: !s.skipped } : s) };
+    });
+    await onSave({ tripHighlights: nextHighlights });
+  }
+
   // Update an existing bullet's link list (used by the Daily-view picker so
   // you can attach an Instagram / TikTok / generic URL to a bullet after
   // creating it). Pass an empty array to clear all links.
@@ -3539,7 +3553,12 @@ export function Itinerary({ event, onSave, canEdit }) {
                                 className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}
                               >
                                 <span className={styles.subHighlightDot}>•</span>
-                                <span className={styles.subHighlightText}>{s.text}</span>
+                                <span
+                                  className={styles.subHighlightText}
+                                  onClick={canEdit ? () => toggleBulletSkipped(d.destHighlight.id, s.id) : undefined}
+                                  style={canEdit ? { cursor: 'pointer' } : undefined}
+                                  title={canEdit ? (s.skipped ? 'Click to un-cross-out' : 'Click to cross out') : undefined}
+                                >{s.text}</span>
                                 {urls.map((u, i) => {
                                   const ig = isInstagramUrl(u);
                                   const tt = isTikTokUrl(u);
@@ -3557,13 +3576,22 @@ export function Itinerary({ event, onSave, canEdit }) {
                                   );
                                 })}
                                 {canEdit && (
-                                  <button
-                                    type="button"
-                                    className={styles.subHighlightRemove}
-                                    onClick={() => toggleDayBullet(d.key, s.id)}
-                                    title="Remove from this day"
-                                    aria-label="Remove from this day"
-                                  >×</button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      className={styles.subHighlightRemove}
+                                      onClick={() => toggleBulletSkipped(d.destHighlight.id, s.id)}
+                                      title={s.skipped ? 'Restore' : 'Cross out — mark as done/skipped'}
+                                      aria-label={s.skipped ? 'Restore' : 'Cross out'}
+                                    >{s.skipped ? '↺' : '⊘'}</button>
+                                    <button
+                                      type="button"
+                                      className={styles.subHighlightRemove}
+                                      onClick={() => toggleDayBullet(d.key, s.id)}
+                                      title="Remove from this day"
+                                      aria-label="Remove from this day"
+                                    >×</button>
+                                  </>
                                 )}
                               </li>
                             );
