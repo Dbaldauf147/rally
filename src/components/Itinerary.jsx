@@ -2336,7 +2336,26 @@ export function Itinerary({ event, onSave, canEdit }) {
     dailyBullets[dateKey] = [...cur, newSubId];
     await onSave({ tripHighlights: nextHighlights, dailyBullets });
   }
+  // Update an existing bullet's link list (used by the Daily-view picker so
+  // you can attach an Instagram / TikTok / generic URL to a bullet after
+  // creating it). Pass an empty array to clear all links.
+  async function updateBulletLinks(highlightId, subId, urls) {
+    const cleaned = (urls || [])
+      .map(u => (u || '').trim())
+      .filter(Boolean)
+      .map(u => isInstagramUrl(u) ? normalizeInstagramUrl(u) : u);
+    const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+    const nextHighlights = highlights.map(h => {
+      if (h.id !== highlightId) return h;
+      const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+      return { ...h, subHighlights: subs.map(s => s.id === subId ? { ...s, urls: cleaned } : s) };
+    });
+    await onSave({ tripHighlights: nextHighlights });
+  }
   const [bulletDraftByKey, setBulletDraftByKey] = useState({});
+  // Per-bullet inline link editor: { subId, draft }
+  const [editingLinkForSubId, setEditingLinkForSubId] = useState(null);
+  const [editingLinkDraft, setEditingLinkDraft] = useState('');
   const [bulletPickerOpenKey, setBulletPickerOpenKey] = useState(null);
   const bulletPickerRef = useRef(null);
   useEffect(() => {
@@ -3656,32 +3675,140 @@ export function Itinerary({ event, onSave, canEdit }) {
                                 ) : (
                                   pickableDestSubs.map(s => {
                                     const checked = selectedSubIds.includes(s.id);
+                                    const subUrls = Array.isArray(s.urls) ? s.urls.filter(Boolean) : [];
+                                    const isEditingLink = editingLinkForSubId === s.id;
+                                    const saveLink = async () => {
+                                      const v = (editingLinkDraft || '').trim();
+                                      const next = v ? [v] : [];
+                                      await updateBulletLinks(d.destHighlight.id, s.id, next);
+                                      setEditingLinkForSubId(null);
+                                      setEditingLinkDraft('');
+                                    };
+                                    const cancelLink = () => {
+                                      setEditingLinkForSubId(null);
+                                      setEditingLinkDraft('');
+                                    };
                                     return (
-                                      <label
+                                      <div
                                         key={s.id}
                                         style={{
                                           display: 'flex',
-                                          alignItems: 'flex-start',
-                                          gap: '0.5rem',
+                                          flexDirection: 'column',
+                                          gap: '0.25rem',
                                           padding: '0.35rem 0.4rem',
                                           borderRadius: 'var(--radius-md)',
-                                          cursor: 'pointer',
                                           fontSize: '0.82rem',
                                           color: 'var(--color-text)',
                                         }}
                                         onMouseEnter={e => e.currentTarget.style.background = 'var(--color-surface-alt)'}
                                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                                       >
-                                        <input
-                                          type="checkbox"
-                                          checked={checked}
-                                          onChange={() => toggleDayBullet(d.key, s.id)}
-                                          style={{ marginTop: '0.15rem', accentColor: 'var(--color-accent)' }}
-                                        />
-                                        <span style={{ flex: 1, textDecoration: s.skipped ? 'line-through' : 'none', opacity: s.skipped ? 0.6 : 1 }}>
-                                          {s.text}
-                                        </span>
-                                      </label>
+                                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={() => toggleDayBullet(d.key, s.id)}
+                                            style={{ marginTop: '0.15rem', accentColor: 'var(--color-accent)' }}
+                                          />
+                                          <span style={{ flex: 1, textDecoration: s.skipped ? 'line-through' : 'none', opacity: s.skipped ? 0.6 : 1 }}>
+                                            {s.text}
+                                          </span>
+                                          {subUrls.map((u, i) => {
+                                            const ig = isInstagramUrl(u);
+                                            const tt = isTikTokUrl(u);
+                                            return (
+                                              <a
+                                                key={`${u}-${i}`}
+                                                href={u}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={styles.subHighlightLink}
+                                                title={u}
+                                                onClick={e => e.stopPropagation()}
+                                                aria-label={tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link'}
+                                              >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
+                                            );
+                                          })}
+                                          <button
+                                            type="button"
+                                            onClick={e => {
+                                              e.preventDefault();
+                                              if (isEditingLink) cancelLink();
+                                              else {
+                                                setEditingLinkForSubId(s.id);
+                                                setEditingLinkDraft(subUrls[0] || '');
+                                              }
+                                            }}
+                                            title={subUrls.length > 0 ? 'Edit link' : 'Add Instagram / TikTok / link'}
+                                            style={{
+                                              background: 'transparent',
+                                              border: 'none',
+                                              color: 'var(--color-text-muted)',
+                                              cursor: 'pointer',
+                                              fontSize: '0.85rem',
+                                              padding: '0 0.2rem',
+                                            }}
+                                          >{subUrls.length > 0 ? '✏️' : '🔗'}</button>
+                                        </label>
+                                        {isEditingLink && (
+                                          <div style={{ display: 'flex', gap: '0.3rem', marginLeft: '1.6rem' }}>
+                                            <input
+                                              type="url"
+                                              value={editingLinkDraft}
+                                              autoFocus
+                                              placeholder="Paste an Instagram, TikTok, or any link"
+                                              onChange={e => setEditingLinkDraft(e.target.value)}
+                                              onKeyDown={e => {
+                                                if (e.key === 'Enter') { e.preventDefault(); saveLink(); }
+                                                else if (e.key === 'Escape') cancelLink();
+                                              }}
+                                              style={{
+                                                flex: 1,
+                                                padding: '0.3rem 0.5rem',
+                                                fontSize: '0.78rem',
+                                                border: '1px solid var(--color-border)',
+                                                borderRadius: 'var(--radius-md)',
+                                                fontFamily: 'inherit',
+                                              }}
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={saveLink}
+                                              style={{
+                                                padding: '0.3rem 0.6rem',
+                                                fontSize: '0.78rem',
+                                                fontFamily: 'inherit',
+                                                fontWeight: 600,
+                                                background: 'var(--color-accent)',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderRadius: 'var(--radius-md)',
+                                                cursor: 'pointer',
+                                              }}
+                                            >Save</button>
+                                            {subUrls.length > 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={async () => {
+                                                  await updateBulletLinks(d.destHighlight.id, s.id, []);
+                                                  cancelLink();
+                                                }}
+                                                title="Remove link"
+                                                style={{
+                                                  padding: '0.3rem 0.5rem',
+                                                  fontSize: '0.78rem',
+                                                  fontFamily: 'inherit',
+                                                  background: 'transparent',
+                                                  color: 'var(--color-text-muted)',
+                                                  border: '1px solid var(--color-border)',
+                                                  borderRadius: 'var(--radius-md)',
+                                                  cursor: 'pointer',
+                                                }}
+                                              >×</button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
                                     );
                                   })
                                 )}
