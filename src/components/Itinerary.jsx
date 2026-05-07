@@ -962,22 +962,6 @@ function TripHighlightsList({ event, onSave, canEdit }) {
                     <button
                       type="button"
                       className={styles.highlightIconBtn}
-                      onClick={() => move(h.id, -1)}
-                      disabled={withinGroupIdx === 0}
-                      title="Move up"
-                      aria-label="Move up"
-                    >↑</button>
-                    <button
-                      type="button"
-                      className={styles.highlightIconBtn}
-                      onClick={() => move(h.id, 1)}
-                      disabled={withinGroupIdx === withinGroupCount - 1}
-                      title="Move down"
-                      aria-label="Move down"
-                    >↓</button>
-                    <button
-                      type="button"
-                      className={styles.highlightIconBtn}
                       onClick={() => toggleHidden(h.id)}
                       title={h.hidden ? 'Show this highlight' : 'Hide this highlight'}
                       aria-label={h.hidden ? 'Show highlight' : 'Hide highlight'}
@@ -1067,22 +1051,6 @@ function TripHighlightsList({ event, onSave, canEdit }) {
               <span className={styles.highlightGroupCount}>{listForGroup.length}</span>
               {canEdit && groupId && (
                 <div className={styles.highlightGroupActions}>
-                  <button
-                    type="button"
-                    className={styles.highlightIconBtn}
-                    onClick={() => moveGroup(groupId, -1)}
-                    disabled={groups.findIndex(g => g.id === groupId) === 0}
-                    title="Move group up"
-                    aria-label="Move group up"
-                  >↑</button>
-                  <button
-                    type="button"
-                    className={styles.highlightIconBtn}
-                    onClick={() => moveGroup(groupId, 1)}
-                    disabled={groups.findIndex(g => g.id === groupId) === groups.length - 1}
-                    title="Move group down"
-                    aria-label="Move group down"
-                  >↓</button>
                   <button
                     type="button"
                     className={styles.highlightIconBtn}
@@ -2350,26 +2318,34 @@ export function Itinerary({ event, onSave, canEdit }) {
     await onSave({ tripHighlights: nextHighlights });
   }
 
-  // Update an existing bullet's link list (used by the Daily-view picker so
-  // you can attach an Instagram / TikTok / generic URL to a bullet after
-  // creating it). Pass an empty array to clear all links.
-  async function updateBulletLinks(highlightId, subId, urls) {
-    const cleaned = (urls || [])
-      .map(u => (u || '').trim())
-      .filter(Boolean)
-      .map(u => isInstagramUrl(u) ? normalizeInstagramUrl(u) : u);
+  // Update an existing bullet's text and/or links. Pass an empty array to
+  // clear all links. Used by the Daily-view picker (link editor) and the
+  // per-day bullet row (edit text + link).
+  async function updateBullet(highlightId, subId, patch) {
+    const cleanedPatch = { ...patch };
+    if (Array.isArray(cleanedPatch.urls)) {
+      cleanedPatch.urls = cleanedPatch.urls
+        .map(u => (u || '').trim())
+        .filter(Boolean)
+        .map(u => isInstagramUrl(u) ? normalizeInstagramUrl(u) : u);
+    }
     const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
     const nextHighlights = highlights.map(h => {
       if (h.id !== highlightId) return h;
       const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
-      return { ...h, subHighlights: subs.map(s => s.id === subId ? { ...s, urls: cleaned } : s) };
+      return { ...h, subHighlights: subs.map(s => s.id === subId ? { ...s, ...cleanedPatch } : s) };
     });
     await onSave({ tripHighlights: nextHighlights });
   }
+  const updateBulletLinks = (highlightId, subId, urls) => updateBullet(highlightId, subId, { urls });
   const [bulletDraftByKey, setBulletDraftByKey] = useState({});
-  // Per-bullet inline link editor: { subId, draft }
+  // Per-bullet inline link editor (in the picker dropdown).
   const [editingLinkForSubId, setEditingLinkForSubId] = useState(null);
   const [editingLinkDraft, setEditingLinkDraft] = useState('');
+  // Inline full editor for a bullet rendered under a specific day.
+  // Key: `${dateKey}::${subId}`; Draft holds text and url inputs.
+  const [editingBulletKey, setEditingBulletKey] = useState(null);
+  const [editingBulletDraft, setEditingBulletDraft] = useState({ text: '', url: '' });
   const [bulletPickerOpenKey, setBulletPickerOpenKey] = useState(null);
   const bulletPickerRef = useRef(null);
   useEffect(() => {
@@ -3504,11 +3480,6 @@ export function Itinerary({ event, onSave, canEdit }) {
                       }
                       return null;
                     })()}
-                    {d.count > 0 && (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                        {d.count} item{d.count === 1 ? '' : 's'}
-                      </span>
-                    )}
                     <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {moved && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
                       {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
@@ -3547,34 +3518,76 @@ export function Itinerary({ event, onSave, canEdit }) {
                         <ul className={styles.subHighlightList} title={`From "${d.destHighlight.text}"`}>
                           {destSubs.map(s => {
                             const urls = Array.isArray(s.urls) ? s.urls.filter(Boolean) : [];
+                            const editKey = `${d.key}::${s.id}`;
+                            const isEditingBullet = editingBulletKey === editKey;
+                            const saveBullet = async () => {
+                              const text = (editingBulletDraft.text || '').trim();
+                              if (!text) { setEditingBulletKey(null); return; }
+                              const url = (editingBulletDraft.url || '').trim();
+                              const next = { text, urls: url ? [url] : [] };
+                              await updateBullet(d.destHighlight.id, s.id, next);
+                              setEditingBulletKey(null);
+                              setEditingBulletDraft({ text: '', url: '' });
+                            };
+                            const cancelBullet = () => {
+                              setEditingBulletKey(null);
+                              setEditingBulletDraft({ text: '', url: '' });
+                            };
+                            if (isEditingBullet && canEdit) {
+                              return (
+                                <li key={s.id} className={styles.subHighlightItem}>
+                                  <span className={styles.subHighlightDot}>•</span>
+                                  <input
+                                    type="text"
+                                    className={styles.subHighlightInput}
+                                    value={editingBulletDraft.text}
+                                    autoFocus
+                                    onChange={e => setEditingBulletDraft(prev => ({ ...prev, text: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveBullet(); } if (e.key === 'Escape') cancelBullet(); }}
+                                  />
+                                  <input
+                                    type="url"
+                                    className={styles.subHighlightInput}
+                                    value={editingBulletDraft.url}
+                                    placeholder="Instagram / TikTok / link (optional)"
+                                    onChange={e => setEditingBulletDraft(prev => ({ ...prev, url: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveBullet(); } if (e.key === 'Escape') cancelBullet(); }}
+                                    style={{ maxWidth: '50%' }}
+                                  />
+                                  <button type="button" className={styles.subHighlightAddBtn} onClick={saveBullet}>Save</button>
+                                  <button type="button" className={styles.subHighlightRemove} onClick={cancelBullet} title="Cancel" aria-label="Cancel edit">×</button>
+                                </li>
+                              );
+                            }
                             return (
                               <li
                                 key={s.id}
                                 className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}
                               >
                                 <span className={styles.subHighlightDot}>•</span>
-                                <span
-                                  className={styles.subHighlightText}
-                                  onClick={canEdit ? () => toggleBulletSkipped(d.destHighlight.id, s.id) : undefined}
-                                  style={canEdit ? { cursor: 'pointer' } : undefined}
-                                  title={canEdit ? (s.skipped ? 'Click to un-cross-out' : 'Click to cross out') : undefined}
-                                >{s.text}</span>
-                                {urls.map((u, i) => {
-                                  const ig = isInstagramUrl(u);
-                                  const tt = isTikTokUrl(u);
-                                  const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
-                                  return (
-                                    <a
-                                      key={`${u}-${i}`}
-                                      href={u}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className={styles.subHighlightLink}
-                                      title={u}
-                                      aria-label={label}
-                                    >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
-                                  );
-                                })}
+                                <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flexWrap: 'wrap' }}>
+                                  <span
+                                    onClick={canEdit ? () => toggleBulletSkipped(d.destHighlight.id, s.id) : undefined}
+                                    style={canEdit ? { cursor: 'pointer' } : undefined}
+                                    title={canEdit ? (s.skipped ? 'Click to un-cross-out' : 'Click to cross out') : undefined}
+                                  >{s.text}</span>
+                                  {urls.map((u, i) => {
+                                    const ig = isInstagramUrl(u);
+                                    const tt = isTikTokUrl(u);
+                                    const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
+                                    return (
+                                      <a
+                                        key={`${u}-${i}`}
+                                        href={u}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={styles.subHighlightLink}
+                                        title={u}
+                                        aria-label={label}
+                                      >{ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}</a>
+                                    );
+                                  })}
+                                </span>
                                 {canEdit && (
                                   <>
                                     <button
@@ -3584,6 +3597,16 @@ export function Itinerary({ event, onSave, canEdit }) {
                                       title={s.skipped ? 'Restore' : 'Cross out — mark as done/skipped'}
                                       aria-label={s.skipped ? 'Restore' : 'Cross out'}
                                     >{s.skipped ? '↺' : '⊘'}</button>
+                                    <button
+                                      type="button"
+                                      className={styles.subHighlightRemove}
+                                      onClick={() => {
+                                        setEditingBulletKey(editKey);
+                                        setEditingBulletDraft({ text: s.text || '', url: urls[0] || '' });
+                                      }}
+                                      title="Edit bullet text and link"
+                                      aria-label="Edit bullet"
+                                    >✏️</button>
                                     <button
                                       type="button"
                                       className={styles.subHighlightRemove}
