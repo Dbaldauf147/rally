@@ -2252,6 +2252,20 @@ export function Itinerary({ event, onSave, canEdit }) {
     await onSave({ dailyDestinations: current });
   }
 
+  // Hidden days are removed from the Daily view but the underlying
+  // itinerary items remain on the Schedule view. Stored as an array of
+  // YYYY-MM-DD strings on the event so the choice persists across users.
+  async function setDayHidden(dateKey, hidden) {
+    const current = Array.isArray(event?.hiddenDailyKeys) ? [...event.hiddenDailyKeys] : [];
+    const has = current.includes(dateKey);
+    let next = current;
+    if (hidden && !has) next = [...current, dateKey];
+    else if (!hidden && has) next = current.filter(k => k !== dateKey);
+    else return;
+    await onSave({ hiddenDailyKeys: next });
+  }
+  const [showHiddenDays, setShowHiddenDays] = useState(false);
+
   // Optional human name for a day in the Daily view (e.g. "Arrival",
   // "Beach day"). Empty string clears the name.
   async function setDayName(dateKey, name) {
@@ -3341,6 +3355,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         const overrides = (event?.dailyDestinations && typeof event.dailyDestinations === 'object')
           ? event.dailyDestinations
           : {};
+        const hiddenKeys = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
         const dayList = [];
         const cursor = new Date(s);
         let dayIndex = 1;
@@ -3372,16 +3387,18 @@ export function Itinerary({ event, onSave, canEdit }) {
               return ht && (ht === needle || needle.includes(ht) || ht.includes(needle));
             }) || null;
           }
-          dayList.push({ key, dayIndex, autoDest, overrideId, overrideHighlight, destHighlight, finalDest, count: dayItems.length });
+          dayList.push({ key, dayIndex, autoDest, overrideId, overrideHighlight, destHighlight, finalDest, count: dayItems.length, hidden: hiddenKeys.has(key) });
           cursor.setDate(cursor.getDate() + 1);
           dayIndex += 1;
         }
+        const visibleDayList = showHiddenDays ? dayList : dayList.filter(d => !d.hidden);
+        const hiddenCount = dayList.length - dayList.filter(d => !d.hidden).length;
         return (
           <div style={{ border: '1px solid var(--color-border)', borderRadius: '10px', overflow: 'hidden', marginTop: '0.5rem' }}>
-            {dayList.map((d, i) => {
-              const prev = i > 0 ? dayList[i - 1].finalDest : null;
+            {visibleDayList.map((d, i) => {
+              const prev = i > 0 ? visibleDayList[i - 1].finalDest : null;
               const moved = prev && d.finalDest && normalizeForMatch(prev) !== normalizeForMatch(d.finalDest);
-              const isLast = i === dayList.length - 1;
+              const isLast = i === visibleDayList.length - 1 && hiddenCount === 0;
               const isOverride = !!d.overrideHighlight;
               const allDestSubs = Array.isArray(d.destHighlight?.subHighlights)
                 ? d.destHighlight.subHighlights.filter(s => s && s.text)
@@ -3437,7 +3454,10 @@ export function Itinerary({ event, onSave, canEdit }) {
                     borderBottom: isLast ? 'none' : '1px solid var(--color-border)',
                     background: isHovering
                       ? 'rgba(134, 59, 255, 0.08)'
-                      : moved ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
+                      : d.hidden ? 'repeating-linear-gradient(45deg, var(--color-surface-alt), var(--color-surface-alt) 10px, transparent 10px, transparent 20px)'
+                      : moved ? 'rgba(99, 102, 241, 0.06)'
+                      : 'transparent',
+                    opacity: d.hidden ? 0.6 : 1,
                     outline: isHovering ? '2px dashed var(--color-accent)' : 'none',
                     outlineOffset: '-4px',
                     transition: 'background 0.12s ease',
@@ -3557,6 +3577,25 @@ export function Itinerary({ event, onSave, canEdit }) {
                         <span style={{ fontWeight: 500 }}>
                           {d.finalDest || <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>—</span>}
                         </span>
+                      )}
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setDayHidden(d.key, !d.hidden)}
+                          title={d.hidden ? 'Restore this day' : 'Remove this day from the Daily view'}
+                          aria-label={d.hidden ? 'Restore day' : 'Remove day'}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--color-text-muted)',
+                            cursor: 'pointer',
+                            fontSize: '0.95rem',
+                            padding: '0.1rem 0.35rem',
+                            lineHeight: 1,
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--color-danger, #dc2626)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
+                        >{d.hidden ? '↺' : '🗑️'}</button>
                       )}
                     </span>
                   </div>
@@ -3938,6 +3977,39 @@ export function Itinerary({ event, onSave, canEdit }) {
                 </div>
               );
             })}
+            {hiddenCount > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.5rem 0.85rem',
+                  background: 'var(--color-surface-alt)',
+                  fontSize: '0.78rem',
+                  color: 'var(--color-text-muted)',
+                  borderTop: '1px solid var(--color-border)',
+                }}
+              >
+                <span>
+                  {hiddenCount} day{hiddenCount === 1 ? '' : 's'} hidden from this view
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowHiddenDays(v => !v)}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--color-border)',
+                    color: 'var(--color-text)',
+                    borderRadius: 'var(--radius-full)',
+                    padding: '0.2rem 0.6rem',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  }}
+                >{showHiddenDays ? 'Hide them' : 'Show them'}</button>
+              </div>
+            )}
           </div>
         );
       })()}
