@@ -3362,6 +3362,16 @@ export function Itinerary({ event, onSave, canEdit }) {
               const selectedSubIds = Array.isArray(dailyBullets[d.key]) ? dailyBullets[d.key] : [];
               // Render in the order the bullets exist on the highlight, not pick-order.
               const destSubs = allDestSubs.filter(s => selectedSubIds.includes(s.id));
+              // Bullets already used on a different day are off-limits here —
+              // each bullet can only live on one day at a time. Move it by
+              // unchecking on the original day first.
+              const usedOnOtherDays = new Set();
+              for (const [dk, ids] of Object.entries(dailyBullets)) {
+                if (dk === d.key) continue;
+                if (!Array.isArray(ids)) continue;
+                for (const id of ids) usedOnOtherDays.add(id);
+              }
+              const pickableDestSubs = allDestSubs.filter(s => !usedOnOtherDays.has(s.id));
               const pickerOpen = bulletPickerOpenKey === d.key;
               return (
                 <div
@@ -3461,7 +3471,14 @@ export function Itinerary({ event, onSave, canEdit }) {
                       }
                       return null;
                     })()}
-                    <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {d.count > 0 && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                        {d.count} item{d.count === 1 ? '' : 's'}
+                      </span>
+                    )}
+                    <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {moved && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
+                      {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
                       {canEdit && tripHighlights.length > 0 ? (
                         <select
                           value={d.overrideId || ''}
@@ -3489,14 +3506,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                           {d.finalDest || <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>—</span>}
                         </span>
                       )}
-                      {moved && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6366F1' }}>↪ moved</span>}
-                      {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
                     </span>
-                    {d.count > 0 && (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                        {d.count} item{d.count === 1 ? '' : 's'}
-                      </span>
-                    )}
                   </div>
                   {(destSubs.length > 0 || (canEdit && d.destHighlight)) && (
                     <div style={{ marginLeft: '174px', paddingLeft: '0.5rem', borderLeft: '2px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -3637,12 +3647,14 @@ export function Itinerary({ event, onSave, canEdit }) {
                                     </div>
                                   )}
                                 </div>
-                                {allDestSubs.length === 0 ? (
+                                {pickableDestSubs.length === 0 ? (
                                   <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', padding: '0.35rem 0.4rem' }}>
-                                    No bullets yet. Add one above.
+                                    {allDestSubs.length === 0
+                                      ? 'No bullets yet. Add one above.'
+                                      : 'All bullets for this destination are used on other days.'}
                                   </div>
                                 ) : (
-                                  allDestSubs.map(s => {
+                                  pickableDestSubs.map(s => {
                                     const checked = selectedSubIds.includes(s.id);
                                     return (
                                       <label
