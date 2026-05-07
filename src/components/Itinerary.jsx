@@ -2967,7 +2967,24 @@ export function Itinerary({ event, onSave, canEdit }) {
             s.setHours(0, 0, 0, 0);
             e.setHours(0, 0, 0, 0);
             const ms = e - s;
-            const days = Math.max(1, Math.round(ms / 86400000) + 1);
+            const totalDays = Math.max(1, Math.round(ms / 86400000) + 1);
+            const hiddenSet = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
+            // Visible-day count mirrors what the Daily view actually shows:
+            // total trip length minus any days the user hid.
+            let visibleDays = totalDays;
+            if (hiddenSet.size > 0) {
+              const cur = new Date(s);
+              let hiddenInRange = 0;
+              while (cur <= e) {
+                const y = cur.getFullYear();
+                const m = String(cur.getMonth() + 1).padStart(2, '0');
+                const dd = String(cur.getDate()).padStart(2, '0');
+                if (hiddenSet.has(`${y}-${m}-${dd}`)) hiddenInRange += 1;
+                cur.setDate(cur.getDate() + 1);
+              }
+              visibleDays = Math.max(1, totalDays - hiddenInRange);
+            }
+            const days = visibleDays;
             const sameYear = s.getFullYear() === e.getFullYear();
             const fmtShort = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             const fmtFull = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -2978,7 +2995,12 @@ export function Itinerary({ event, onSave, canEdit }) {
                 : `${fmtFull(s)} – ${fmtFull(e)}`;
             return (
               <>
-                <span className={styles.tripDaysBadge} title="Total trip length">
+                <span
+                  className={styles.tripDaysBadge}
+                  title={hiddenSet.size > 0
+                    ? `${days} day${days === 1 ? '' : 's'} shown (${totalDays - days} hidden of ${totalDays})`
+                    : 'Total trip length'}
+                >
                   {days} day{days === 1 ? '' : 's'}
                 </span>
                 <span className={styles.tripDateRange} title="Trip dates">{range}</span>
