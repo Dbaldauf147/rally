@@ -1024,6 +1024,16 @@
   flex: 1;
   min-width: 0;
 }
+.urlInputBlocked {
+  border-color: #dc2626 !important;
+  background: #fef2f2;
+}
+.urlRowError {
+  font-size: 0.75rem;
+  color: #b91c1c;
+  margin-top: 0.2rem;
+  margin-left: 0.1rem;
+}
 .urlRemoveBtn {
   background: transparent;
   border: 1px solid var(--color-border);

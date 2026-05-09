@@ -386,33 +386,43 @@ function UrlInputList({ urls, setUrls, autoFocus = false }) {
   return (
     <div className={styles.urlList}>
       <div className={styles.urlListLabel}>Links / Videos</div>
-      {list.map((u, i) => (
-        <div key={i} className={styles.urlRow}>
-          <input
-            type="text"
-            inputMode="url"
-            autoComplete="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            className={styles.highlightsInput}
-            placeholder={i === 0
-              ? 'Paste an Instagram, YouTube, or any link'
-              : 'Another link'}
-            value={u}
-            onChange={e => update(i, e.target.value)}
-            autoFocus={autoFocus && i === 0}
-          />
-          {(list.length > 1 || u) && (
-            <button
-              type="button"
-              className={styles.urlRemoveBtn}
-              onClick={() => removeAt(i)}
-              title="Remove link"
-              aria-label="Remove link"
-            >✕</button>
-          )}
-        </div>
-      ))}
+      {list.map((u, i) => {
+        const blocked = !!u && isInstagramUrl(u);
+        return (
+          <div key={i}>
+            <div className={styles.urlRow}>
+              <input
+                type="text"
+                inputMode="url"
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                className={`${styles.highlightsInput} ${blocked ? styles.urlInputBlocked : ''}`}
+                placeholder={i === 0
+                  ? 'Paste a YouTube or any link (no Instagram)'
+                  : 'Another link'}
+                value={u}
+                onChange={e => update(i, e.target.value)}
+                autoFocus={autoFocus && i === 0}
+              />
+              {(list.length > 1 || u) && (
+                <button
+                  type="button"
+                  className={styles.urlRemoveBtn}
+                  onClick={() => removeAt(i)}
+                  title="Remove link"
+                  aria-label="Remove link"
+                >✕</button>
+              )}
+            </div>
+            {blocked && (
+              <div className={styles.urlRowError}>
+                Instagram links aren't allowed in Key Destinations.
+              </div>
+            )}
+          </div>
+        );
+      })}
       <button
         type="button"
         className={styles.urlAddBtn}
@@ -547,6 +557,10 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   async function add() {
     const text = draftText.trim();
     if (!text) return;
+    if (draftUrls.some(u => u && isInstagramUrl(u))) {
+      alert("Instagram links aren't allowed in Key Destinations. Please remove them and try again.");
+      return;
+    }
     const newH = {
       id: crypto.randomUUID(),
       text,
@@ -598,6 +612,10 @@ function TripHighlightsList({ event, onSave, canEdit }) {
   async function saveEdit() {
     const text = editText.trim();
     if (!text || !editingId) { cancelEdit(); return; }
+    if (editUrls.some(u => u && isInstagramUrl(u))) {
+      alert("Instagram links aren't allowed in Key Destinations. Please remove them and try again.");
+      return;
+    }
     const urls = cleanUrlList(editUrls);
     const dates = Array.isArray(editDates) ? editDates.slice().sort() : [];
     await onSave({
