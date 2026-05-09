@@ -1040,12 +1040,6 @@ export function EventDetail() {
 
       {user?.email === 'baldaufdan@gmail.com' && (
       <div className={styles.rsvpSection}>
-        <button className={styles.shareBtn} onClick={() => window.open(googleCalUrl, '_blank')}>
-          📅 Add to Google Calendar
-        </button>
-        <a href={icsUrl} className={styles.shareBtn} style={{ textDecoration: 'none', display: 'inline-flex' }}>
-          📅 Download .ics
-        </a>
         <button className={styles.shareBtn} onClick={handleCopyLink}>
           {inviteCopied ? '✓ Link copied!' : '🔗 Copy link'}
         </button>
