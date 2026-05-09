@@ -15,6 +15,9 @@ export function NavBar() {
           <NavLink to="/calendar" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Calendar</NavLink>
           <NavLink to="/plans" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Plans</NavLink>
           <NavLink to="/friends" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Friends</NavLink>
+          {user?.email === 'baldaufdan@gmail.com' && (
+            <NavLink to="/wedding" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Wedding</NavLink>
+          )}
         </div>
         <div className={styles.right}>
           <span className={styles.userName}>{user?.displayName || user?.email}</span>

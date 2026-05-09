@@ -10,6 +10,7 @@ import { InvitePage } from './components/InvitePage';
 import { PollPage } from './components/PollPage';
 import { FriendsPage } from './components/FriendsPage';
 import { SharePage } from './components/SharePage';
+import { WeddingPage } from './components/WeddingPage';
 import { NavBar } from './components/NavBar';
 import { UpdateBanner } from './components/UpdateBanner';
 import { GoogleCalendarAutoSyncRunner } from './hooks/useGoogleCalendarAutoSync';
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/calendar" element={<ProtectedRoute><CalendarView /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
+        <Route path="/wedding" element={<ProtectedRoute><WeddingPage /></ProtectedRoute>} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/event/:eventId" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/trip/:tripId" element={<ProtectedRoute><TripDetail /></ProtectedRoute>} />
