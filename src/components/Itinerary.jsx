@@ -2026,7 +2026,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [emailResult, setEmailResult] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
-  const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily'
+  const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily' | 'calendar'
   // Highlights the user explicitly un-tagged in the current form session.
   // The auto-tag effect skips these so user overrides aren't re-applied.
   const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
@@ -3045,6 +3045,11 @@ export function Itinerary({ event, onSave, canEdit }) {
             onClick={() => setViewMode('daily')}
             title="One-line per day: which destination you're in"
           >🗺️ Daily</button>
+          <button
+            className={viewMode === 'calendar' ? styles.addBtn : styles.lodgingToggleBtn}
+            onClick={() => setViewMode('calendar')}
+            title="Month-style calendar grid of the trip"
+          >🗓️ Calendar</button>
           <div className={styles.settingsWrap} ref={settingsRef}>
             <button
               className={styles.lodgingToggleBtn}
@@ -4050,6 +4055,214 @@ export function Itinerary({ event, onSave, canEdit }) {
                 >{showHiddenDays ? 'Hide them' : 'Show them'}</button>
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {viewMode === 'calendar' && tripStartRaw && tripEndRaw && (() => {
+        const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
+        const e = new Date(tripEndRaw); e.setHours(0, 0, 0, 0);
+        const overrides = (event?.dailyDestinations && typeof event.dailyDestinations === 'object')
+          ? event.dailyDestinations
+          : {};
+        const hiddenKeys = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
+        const dailyNamesMap = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
+        const dailyBulletsMap = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? event.dailyBullets : {};
+
+        // Start the grid on the Monday of the week containing the trip start,
+        // and end on the Sunday of the week containing the trip end.
+        const startWeek = new Date(s);
+        const sDow = startWeek.getDay();
+        startWeek.setDate(startWeek.getDate() - (sDow === 0 ? 6 : sDow - 1));
+        const endWeek = new Date(e);
+        const eDow = endWeek.getDay();
+        endWeek.setDate(endWeek.getDate() + (eDow === 0 ? 0 : 7 - eDow));
+
+        // Build the calendar cells. Track the last in-trip destination across
+        // cells so we can render "FROM → TO" on transition days, mirroring
+        // the spreadsheet pattern.
+        const weeks = [];
+        let lastDest = null;
+        const cursor = new Date(startWeek);
+        while (cursor <= endWeek) {
+          const week = [];
+          for (let i = 0; i < 7; i++) {
+            const y = cursor.getFullYear();
+            const m = String(cursor.getMonth() + 1).padStart(2, '0');
+            const d = String(cursor.getDate()).padStart(2, '0');
+            const key = `${y}-${m}-${d}`;
+            const inTrip = cursor >= s && cursor <= e;
+            const hidden = hiddenKeys.has(key);
+            const dayItems = inTrip
+              ? (groups[key] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+              : [];
+
+            let autoDest = null;
+            for (const it of dayItems) {
+              const dest = inferItemDestination(it);
+              if (dest) { autoDest = dest; break; }
+            }
+            if (!autoDest && dayItems.length > 0) {
+              autoDest = dayItems[0].location || dayItems[0].title || null;
+            }
+            const overrideId = overrides[key] || null;
+            const overrideHighlight = overrideId ? tripHighlights.find(h => h.id === overrideId) : null;
+            const finalDest = overrideHighlight ? overrideHighlight.text : autoDest;
+
+            let destHighlight = overrideHighlight || null;
+            if (!destHighlight && finalDest) {
+              const needle = normalizeForMatch(finalDest);
+              destHighlight = tripHighlights.find(h => {
+                const ht = normalizeForMatch(h.text || '');
+                return ht && (ht === needle || needle.includes(ht) || ht.includes(needle));
+              }) || null;
+            }
+            const allDestSubs = Array.isArray(destHighlight?.subHighlights)
+              ? destHighlight.subHighlights.filter(x => x && x.text)
+              : [];
+            const selectedSubIds = Array.isArray(dailyBulletsMap[key]) ? dailyBulletsMap[key] : [];
+            const destSubs = allDestSubs.filter(x => selectedSubIds.includes(x.id));
+
+            let movedFrom = null;
+            if (inTrip && !hidden && finalDest) {
+              if (lastDest && normalizeForMatch(lastDest) !== normalizeForMatch(finalDest)) {
+                movedFrom = lastDest;
+              }
+              lastDest = finalDest;
+            }
+
+            week.push({
+              key,
+              dateNum: cursor.getDate(),
+              inTrip,
+              hidden,
+              finalDest,
+              movedFrom,
+              dayName: dailyNamesMap[key] || '',
+              items: dayItems,
+              destSubs,
+            });
+            cursor.setDate(cursor.getDate() + 1);
+          }
+          weeks.push(week);
+        }
+
+        const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+        return (
+          <div style={{ marginTop: '0.5rem', border: '1px solid var(--color-border)', borderRadius: '10px', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', background: 'rgba(134, 59, 255, 0.12)' }}>
+              {weekdayNames.map((name, idx) => (
+                <div
+                  key={name}
+                  style={{
+                    padding: '0.45rem 0.5rem',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color: 'var(--color-accent)',
+                    textAlign: 'center',
+                    borderRight: idx < 6 ? '1px solid var(--color-border)' : 'none',
+                  }}
+                >{name}</div>
+              ))}
+            </div>
+            {weeks.map((week, wi) => (
+              <div
+                key={wi}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+                  borderTop: '1px solid var(--color-border)',
+                }}
+              >
+                {week.map((cell, ci) => {
+                  const showContent = cell.inTrip && !cell.hidden;
+                  const hasAny = cell.items.length > 0 || cell.destSubs.length > 0;
+                  return (
+                    <div
+                      key={cell.key}
+                      style={{
+                        minHeight: '140px',
+                        padding: '0.5rem 0.55rem',
+                        borderRight: ci < 6 ? '1px solid var(--color-border)' : 'none',
+                        background: !cell.inTrip
+                          ? 'var(--color-surface-alt)'
+                          : cell.hidden
+                            ? 'repeating-linear-gradient(45deg, var(--color-surface-alt), var(--color-surface-alt) 10px, transparent 10px, transparent 20px)'
+                            : cell.movedFrom
+                              ? 'rgba(99, 102, 241, 0.06)'
+                              : 'transparent',
+                        opacity: cell.hidden ? 0.55 : 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.3rem',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <span style={{
+                          fontWeight: 700,
+                          fontSize: '0.85rem',
+                          color: cell.inTrip ? 'var(--color-text)' : 'var(--color-text-muted)',
+                        }}>{cell.dateNum}</span>
+                        {showContent && cell.finalDest && (
+                          <span style={{
+                            fontWeight: 700,
+                            color: 'var(--color-accent)',
+                            textTransform: 'uppercase',
+                            fontSize: '0.74rem',
+                            letterSpacing: '0.02em',
+                            wordBreak: 'break-word',
+                          }}>
+                            {cell.movedFrom
+                              ? `${cell.movedFrom.toUpperCase()} → ${cell.finalDest.toUpperCase()}`
+                              : cell.finalDest}
+                          </span>
+                        )}
+                        {showContent && cell.dayName && (
+                          <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>· {cell.dayName}</span>
+                        )}
+                      </div>
+                      {showContent && hasAny && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          {cell.items.map(it => (
+                            <div
+                              key={it.id}
+                              style={{
+                                fontSize: '0.75rem',
+                                color: 'var(--color-text)',
+                                lineHeight: 1.3,
+                                wordBreak: 'break-word',
+                              }}
+                              title={[it.time, it.title, it.location].filter(Boolean).join(' · ')}
+                            >
+                              {it.time && (
+                                <span style={{ color: 'var(--color-text-muted)', marginRight: '0.3rem' }}>{it.time}</span>
+                              )}
+                              {it.title || it.location || '(untitled)'}
+                            </div>
+                          ))}
+                          {cell.destSubs.map(sub => (
+                            <div
+                              key={sub.id}
+                              style={{
+                                fontSize: '0.74rem',
+                                color: 'var(--color-text)',
+                                textDecoration: sub.skipped ? 'line-through' : 'none',
+                                opacity: sub.skipped ? 0.6 : 1,
+                                lineHeight: 1.3,
+                                wordBreak: 'break-word',
+                              }}
+                              title={sub.text}
+                            >- {sub.text}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         );
       })()}
