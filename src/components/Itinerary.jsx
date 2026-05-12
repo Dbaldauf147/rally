@@ -4140,6 +4140,7 @@ export function Itinerary({ event, onSave, canEdit }) {
               movedFrom,
               dayName: dailyNamesMap[key] || '',
               destSubs,
+              destHighlight,
             });
             cursor.setDate(cursor.getDate() + 1);
           }
@@ -4239,6 +4240,64 @@ export function Itinerary({ event, onSave, canEdit }) {
                           ))}
                         </div>
                       )}
+                      {showContent && canEdit && cell.destHighlight && (() => {
+                        const inputKey = `cal::${cell.key}`;
+                        const isOpen = bulletPickerOpenKey === inputKey;
+                        const draft = bulletDraftByKey[inputKey]?.text || '';
+                        const submit = async () => {
+                          if (!draft.trim()) return;
+                          await addBulletToDayDest(cell.key, cell.destHighlight.id, draft, '');
+                          setBulletDraftByKey(prev => ({ ...prev, [inputKey]: { text: '', url: '' } }));
+                        };
+                        if (!isOpen) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setBulletPickerOpenKey(inputKey)}
+                              style={{
+                                alignSelf: 'flex-start',
+                                marginTop: '0.15rem',
+                                background: 'transparent',
+                                border: '1px dashed var(--color-border)',
+                                borderRadius: 'var(--radius-md)',
+                                color: 'var(--color-text-muted)',
+                                padding: '0.15rem 0.4rem',
+                                fontSize: '0.7rem',
+                                fontFamily: 'inherit',
+                                cursor: 'pointer',
+                              }}
+                              title={`Add a bullet to this day in ${cell.destHighlight.text}`}
+                            >+ Add bullet</button>
+                          );
+                        }
+                        return (
+                          <input
+                            type="text"
+                            value={draft}
+                            autoFocus
+                            placeholder="+ Add a thing to do"
+                            onChange={ev => setBulletDraftByKey(prev => ({
+                              ...prev,
+                              [inputKey]: { ...(prev[inputKey] || { text: '', url: '' }), text: ev.target.value },
+                            }))}
+                            onKeyDown={ev => {
+                              if (ev.key === 'Enter') { ev.preventDefault(); submit(); }
+                              else if (ev.key === 'Escape') { setBulletPickerOpenKey(null); }
+                            }}
+                            onBlur={() => { submit(); setBulletPickerOpenKey(null); }}
+                            style={{
+                              marginTop: '0.15rem',
+                              padding: '0.25rem 0.4rem',
+                              fontSize: '0.74rem',
+                              border: '1px solid var(--color-accent)',
+                              borderRadius: 'var(--radius-md)',
+                              fontFamily: 'inherit',
+                              width: '100%',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        );
+                      })()}
                     </div>
                   );
                 })}
