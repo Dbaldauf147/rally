@@ -4139,7 +4139,6 @@ export function Itinerary({ event, onSave, canEdit }) {
               finalDest,
               movedFrom,
               dayName: dailyNamesMap[key] || '',
-              items: dayItems,
               destSubs,
             });
             cursor.setDate(cursor.getDate() + 1);
@@ -4177,7 +4176,6 @@ export function Itinerary({ event, onSave, canEdit }) {
               >
                 {week.map((cell, ci) => {
                   const showContent = cell.inTrip && !cell.hidden;
-                  const hasAny = cell.items.length > 0 || cell.destSubs.length > 0;
                   return (
                     <div
                       key={cell.key}
@@ -4223,25 +4221,8 @@ export function Itinerary({ event, onSave, canEdit }) {
                           <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>· {cell.dayName}</span>
                         )}
                       </div>
-                      {showContent && hasAny && (
+                      {showContent && cell.destSubs.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                          {cell.items.map(it => (
-                            <div
-                              key={it.id}
-                              style={{
-                                fontSize: '0.75rem',
-                                color: 'var(--color-text)',
-                                lineHeight: 1.3,
-                                wordBreak: 'break-word',
-                              }}
-                              title={[it.time, it.title, it.location].filter(Boolean).join(' · ')}
-                            >
-                              {it.time && (
-                                <span style={{ color: 'var(--color-text-muted)', marginRight: '0.3rem' }}>{it.time}</span>
-                              )}
-                              {it.title || it.location || '(untitled)'}
-                            </div>
-                          ))}
                           {cell.destSubs.map(sub => (
                             <div
                               key={sub.id}
