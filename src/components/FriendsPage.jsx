@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
@@ -191,6 +191,176 @@ function ComesWithPicker({ friends, editFriendId, value, onChange }) {
   );
 }
 
+// Table view: pick one of your events, then RSVP each contact for it in a
+// single column. Renders inside the Friends & Contacts page on the "Event
+// Roster" sub-tab.
+function RosterTable({
+  friends, events, rosterEventId, setRosterEventId,
+  rosterEvent, rosterSearch, setRosterSearch,
+  setRosterRsvp, removeFromRoster, sanitizeKey,
+}) {
+  const members = (rosterEvent && rosterEvent.members && typeof rosterEvent.members === 'object')
+    ? rosterEvent.members
+    : {};
+
+  const sortedFriends = [...friends].sort((a, b) =>
+    (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+  );
+  const q = rosterSearch.trim().toLowerCase();
+  const visibleFriends = q
+    ? sortedFriends.filter(f =>
+        (f.name || '').toLowerCase().includes(q) ||
+        (f.email || '').toLowerCase().includes(q)
+      )
+    : sortedFriends;
+
+  const rsvpOptions = [
+    { key: 'yes', label: 'Going', bg: 'var(--color-success-light)', color: 'var(--color-success)' },
+    { key: 'maybe', label: 'Maybe', bg: 'var(--color-warning-light)', color: 'var(--color-warning)' },
+    { key: 'no', label: 'No', bg: 'var(--color-danger-light)', color: 'var(--color-danger)' },
+  ];
+
+  const totals = { yes: 0, maybe: 0, no: 0, pending: 0 };
+  for (const m of Object.values(members)) {
+    if (!m || typeof m !== 'object') continue;
+    const r = ['yes', 'maybe', 'no'].includes(m.rsvp) ? m.rsvp : 'pending';
+    totals[r] = (totals[r] || 0) + 1;
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
+          Event
+          <select
+            value={rosterEventId}
+            onChange={e => setRosterEventId(e.target.value)}
+            style={{ padding: '0.5rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', minWidth: '260px', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+          >
+            <option value="">— Pick an event —</option>
+            {events.map(evt => {
+              const d = evt.date?.toDate ? evt.date.toDate() : (evt.date ? new Date(evt.date) : null);
+              const dateStr = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+              return (
+                <option key={evt.id} value={evt.id}>
+                  {evt.title}{dateStr ? ` · ${dateStr}` : ''}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+        {rosterEventId && (
+          <input
+            type="text"
+            value={rosterSearch}
+            onChange={e => setRosterSearch(e.target.value)}
+            placeholder="Search contacts…"
+            style={{ flex: 1, minWidth: '200px', padding: '0.55rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', alignSelf: 'flex-end' }}
+          />
+        )}
+      </div>
+
+      {!rosterEventId ? (
+        <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-lg)', color: 'var(--color-text-muted)' }}>
+          {events.length === 0
+            ? 'No events found. Create one from the Dashboard first.'
+            : 'Pick an event above to start building its roster.'}
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.6rem', fontSize: '0.78rem' }}>
+            <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', background: 'var(--color-success-light)', color: 'var(--color-success)', fontWeight: 600 }}>Going {totals.yes}</span>
+            <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', background: 'var(--color-warning-light)', color: 'var(--color-warning)', fontWeight: 600 }}>Maybe {totals.maybe}</span>
+            <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', background: 'var(--color-danger-light)', color: 'var(--color-danger)', fontWeight: 600 }}>No {totals.no}</span>
+            {totals.pending > 0 && (
+              <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', background: 'var(--color-surface-alt)', color: 'var(--color-text-muted)', fontWeight: 600 }}>Pending {totals.pending}</span>
+            )}
+          </div>
+          <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: 'var(--color-surface)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(180px, 1.8fr) minmax(260px, auto)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', background: 'var(--color-surface-alt)', padding: '0.55rem 0.85rem', borderBottom: '1px solid var(--color-border)' }}>
+              <div>Contact</div>
+              <div>Email</div>
+              <div>Status</div>
+            </div>
+            {visibleFriends.length === 0 ? (
+              <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+                {friends.length === 0 ? 'No contacts yet — add some on the Contacts tab.' : 'No matches.'}
+              </div>
+            ) : (
+              visibleFriends.map(f => {
+                const key = sanitizeKey(f.email || f.id);
+                const member = members[key];
+                const isMember = !!member;
+                const currentRsvp = isMember && ['yes', 'maybe', 'no'].includes(member.rsvp) ? member.rsvp : (isMember ? 'pending' : null);
+                return (
+                  <div
+                    key={f.id}
+                    style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(180px, 1.8fr) minmax(260px, auto)', alignItems: 'center', padding: '0.55rem 0.85rem', borderBottom: '1px solid var(--color-border)', fontSize: '0.85rem', background: isMember ? 'var(--color-accent-light)' : 'transparent' }}
+                  >
+                    <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>
+                      {f.name || '(unnamed)'}
+                      {isMember && currentRsvp === 'pending' && (
+                        <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>· no reply</span>
+                      )}
+                    </div>
+                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.email || ''}>
+                      {f.email || <span style={{ fontStyle: 'italic' }}>no email</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {rsvpOptions.map(opt => {
+                        const active = currentRsvp === opt.key;
+                        return (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => setRosterRsvp(f, opt.key)}
+                            style={{
+                              padding: '0.25rem 0.65rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              fontFamily: 'inherit',
+                              borderRadius: 'var(--radius-full)',
+                              cursor: 'pointer',
+                              background: active ? opt.bg : 'var(--color-surface)',
+                              color: active ? opt.color : 'var(--color-text-secondary)',
+                              border: active ? `1px solid ${opt.color}` : '1px solid var(--color-border)',
+                            }}
+                            title={isMember ? `Set RSVP to ${opt.label}` : `Add ${f.name || 'contact'} as ${opt.label}`}
+                          >{opt.label}</button>
+                        );
+                      })}
+                      {isMember && (
+                        <button
+                          type="button"
+                          onClick={() => removeFromRoster(f)}
+                          title="Remove from event"
+                          aria-label="Remove from event"
+                          style={{
+                            marginLeft: '0.15rem',
+                            padding: '0.2rem 0.45rem',
+                            fontSize: '0.85rem',
+                            lineHeight: 1,
+                            fontFamily: 'inherit',
+                            borderRadius: 'var(--radius-md)',
+                            background: 'transparent',
+                            color: 'var(--color-text-muted)',
+                            border: '1px solid var(--color-border)',
+                            cursor: 'pointer',
+                          }}
+                        >×</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function FriendsPage() {
   const { user } = useAuth();
   const [friends, setFriends] = useState([]);
@@ -377,6 +547,42 @@ export function FriendsPage() {
     setSelectedIds(new Set());
     setResult({ type: 'success', message: `${selectedFriends.length} contact${selectedFriends.length !== 1 ? 's' : ''} added to event!` });
     setTimeout(() => setResult(null), 3000);
+  }
+
+  // Add a friend to the roster event with an explicit RSVP, or update the
+  // RSVP if they're already a member. Same write shape addContactsToEvent
+  // uses so the member shows up identically on the event detail page.
+  async function setRosterRsvp(friend, rsvp) {
+    if (!user || !rosterEventId || !friend) return;
+    const key = sanitizeKey(friend.email || friend.id);
+    const isMember = rosterEvent?.members && Object.prototype.hasOwnProperty.call(rosterEvent.members, key);
+    if (isMember) {
+      await updateDoc(doc(db, 'events', rosterEventId), {
+        [`members.${key}.rsvp`]: rsvp,
+      }).catch(err => console.error('Set RSVP error:', err));
+    } else {
+      await updateDoc(doc(db, 'events', rosterEventId), {
+        [`members.${key}`]: {
+          role: 'viewer',
+          rsvp,
+          name: friend.name || '',
+          email: friend.email || '',
+          phone: friend.phone || '',
+        },
+        memberUids: arrayUnion(key),
+      }).catch(err => console.error('Add roster member error:', err));
+    }
+  }
+
+  // Remove a friend from the roster event. Deletes the member entry and
+  // pulls the uid from memberUids so EventDetail's count stays correct.
+  async function removeFromRoster(friend) {
+    if (!user || !rosterEventId || !friend) return;
+    const key = sanitizeKey(friend.email || friend.id);
+    await updateDoc(doc(db, 'events', rosterEventId), {
+      [`members.${key}`]: deleteField(),
+      memberUids: arrayRemove(key),
+    }).catch(err => console.error('Remove roster member error:', err));
   }
 
   function toggleSelect(id) {
@@ -685,6 +891,28 @@ export function FriendsPage() {
   const [showSingleAddToEvent, setShowSingleAddToEvent] = useState(false);
   const [events, setEvents] = useState([]);
   const [addingToTrip, setAddingToTrip] = useState(false);
+  const [viewTab, setViewTab] = useState('cards'); // 'cards' | 'roster'
+  const [rosterEventId, setRosterEventId] = useState('');
+  const [rosterEvent, setRosterEvent] = useState(null);
+  const [rosterSearch, setRosterSearch] = useState('');
+
+  // Load events list once the roster tab opens.
+  useEffect(() => {
+    if (viewTab !== 'roster' || !user) return;
+    if (events.length > 0) return;
+    loadEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTab, user]);
+
+  // Live subscribe to the picked roster event so RSVP edits show up
+  // immediately without a manual refetch.
+  useEffect(() => {
+    if (!user || !rosterEventId) { setRosterEvent(null); return; }
+    const unsub = onSnapshot(doc(db, 'events', rosterEventId), (snap) => {
+      setRosterEvent(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+    }, () => setRosterEvent(null));
+    return unsub;
+  }, [user, rosterEventId]);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({ group: [], tag: [], guest: [], hasEmail: '', hasPhone: '', hasInstagram: '' });
   const activeFilterCount = filters.group.length + filters.tag.length + filters.guest.length + (filters.hasEmail ? 1 : 0) + (filters.hasPhone ? 1 : 0) + (filters.hasInstagram ? 1 : 0);
@@ -742,6 +970,36 @@ export function FriendsPage() {
         <div className={`${styles.result} ${styles[`result_${result.type}`]}`}>{result.message}</div>
       )}
 
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid var(--color-border)', marginBottom: '1rem' }}>
+        {[
+          { key: 'cards', label: 'Contacts' },
+          { key: 'roster', label: 'Event Roster' },
+        ].map(t => {
+          const active = viewTab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setViewTab(t.key)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: '0.55rem 0.85rem',
+                marginBottom: '-1px',
+                fontSize: '0.88rem',
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                borderBottom: active ? '2px solid var(--color-accent)' : '2px solid transparent',
+                cursor: 'pointer',
+              }}
+            >{t.label}</button>
+          );
+        })}
+      </div>
+
+      {viewTab === 'cards' && (<>
       {/* Search */}
       <input
         className={styles.search}
@@ -989,6 +1247,22 @@ export function FriendsPage() {
             return items;
           })()}
         </div>
+      )}
+      </>)}
+
+      {viewTab === 'roster' && (
+        <RosterTable
+          friends={friends}
+          events={events}
+          rosterEventId={rosterEventId}
+          setRosterEventId={setRosterEventId}
+          rosterEvent={rosterEvent}
+          rosterSearch={rosterSearch}
+          setRosterSearch={setRosterSearch}
+          setRosterRsvp={setRosterRsvp}
+          removeFromRoster={removeFromRoster}
+          sanitizeKey={sanitizeKey}
+        />
       )}
 
       {/* Add single contact modal */}
