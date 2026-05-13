@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField, addDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
@@ -197,7 +197,7 @@ function ComesWithPicker({ friends, editFriendId, value, onChange }) {
 function RosterTable({
   friends, events, rosterEventId, setRosterEventId,
   rosterEvent, rosterSearch, setRosterSearch,
-  setRosterRsvp, removeFromRoster, sanitizeKey,
+  setRosterRsvp, removeFromRoster, sanitizeKey, onNewEvent,
 }) {
   const members = (rosterEvent && rosterEvent.members && typeof rosterEvent.members === 'object')
     ? rosterEvent.members
@@ -232,22 +232,30 @@ function RosterTable({
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
           Event
-          <select
-            value={rosterEventId}
-            onChange={e => setRosterEventId(e.target.value)}
-            style={{ padding: '0.5rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', minWidth: '260px', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-          >
-            <option value="">— Pick an event —</option>
-            {events.map(evt => {
-              const d = evt.date?.toDate ? evt.date.toDate() : (evt.date ? new Date(evt.date) : null);
-              const dateStr = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-              return (
-                <option key={evt.id} value={evt.id}>
-                  {evt.title}{dateStr ? ` · ${dateStr}` : ''}
-                </option>
-              );
-            })}
-          </select>
+          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'stretch' }}>
+            <select
+              value={rosterEventId}
+              onChange={e => setRosterEventId(e.target.value)}
+              style={{ padding: '0.5rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', minWidth: '260px', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+            >
+              <option value="">— Pick an event —</option>
+              {events.map(evt => {
+                const d = evt.date?.toDate ? evt.date.toDate() : (evt.date ? new Date(evt.date) : null);
+                const dateStr = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                return (
+                  <option key={evt.id} value={evt.id}>
+                    {evt.title}{dateStr ? ` · ${dateStr}` : ''}
+                  </option>
+                );
+              })}
+            </select>
+            <button
+              type="button"
+              onClick={onNewEvent}
+              style={{ padding: '0 0.85rem', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--color-accent)', color: '#fff', fontSize: '0.85rem', fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              title="Create a new event and open its roster"
+            >+ Event</button>
+          </div>
         </label>
         {rosterEventId && (
           <input
@@ -895,6 +903,60 @@ export function FriendsPage() {
   const [rosterEventId, setRosterEventId] = useState('');
   const [rosterEvent, setRosterEvent] = useState(null);
   const [rosterSearch, setRosterSearch] = useState('');
+  const [showNewEvent, setShowNewEvent] = useState(false);
+  const [newEventTitle, setNewEventTitle] = useState('');
+  const [newEventDate, setNewEventDate] = useState('');
+  const [newEventLocation, setNewEventLocation] = useState('');
+  const [creatingEvent, setCreatingEvent] = useState(false);
+
+  // Create an event from the roster tab and immediately pick it as the
+  // active roster. Mirrors createEvent in hooks/useEvents.js so the new
+  // event shows up everywhere else (Dashboard, EventDetail) with the same
+  // shape.
+  async function createRosterEvent(e) {
+    e?.preventDefault?.();
+    if (!user || !newEventTitle.trim()) return;
+    setCreatingEvent(true);
+    try {
+      const payload = {
+        title: newEventTitle.trim(),
+        location: newEventLocation.trim(),
+        createdBy: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        memberUids: [user.uid],
+        members: {
+          [user.uid]: { role: 'owner', rsvp: 'yes', name: user.displayName || user.email || '' },
+        },
+        visibility: 'private',
+        shareToken: crypto.randomUUID().replace(/-/g, '').slice(0, 12),
+      };
+      if (newEventDate) {
+        payload.date = Timestamp.fromDate(new Date(newEventDate));
+        payload.dateTBD = false;
+      } else {
+        payload.dateTBD = true;
+        payload.date = Timestamp.fromDate(new Date());
+      }
+      const ref = await addDoc(collection(db, 'events'), payload);
+      // Refresh the local events list so the picker shows the new entry,
+      // then select it.
+      await loadEvents();
+      setRosterEventId(ref.id);
+      setShowNewEvent(false);
+      setNewEventTitle('');
+      setNewEventDate('');
+      setNewEventLocation('');
+      setResult({ type: 'success', message: `${payload.title} created` });
+      setTimeout(() => setResult(null), 3000);
+    } catch (err) {
+      console.error('Create event error:', err);
+      setResult({ type: 'error', message: 'Could not create event: ' + err.message });
+      setTimeout(() => setResult(null), 4000);
+    } finally {
+      setCreatingEvent(false);
+    }
+  }
 
   // Load events list once the roster tab opens.
   useEffect(() => {
@@ -1262,7 +1324,53 @@ export function FriendsPage() {
           setRosterRsvp={setRosterRsvp}
           removeFromRoster={removeFromRoster}
           sanitizeKey={sanitizeKey}
+          onNewEvent={() => setShowNewEvent(true)}
         />
+      )}
+
+      {showNewEvent && (
+        <div className={styles.overlay} onClick={() => setShowNewEvent(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '420px' }}>
+            <h2 className={styles.modalTitle}>New Event</h2>
+            <form className={styles.form} onSubmit={createRosterEvent}>
+              <label className={styles.label}>
+                Title *
+                <input
+                  className={styles.input}
+                  value={newEventTitle}
+                  onChange={e => setNewEventTitle(e.target.value)}
+                  placeholder="Spain trip, game night, birthday dinner…"
+                  autoFocus
+                  required
+                />
+              </label>
+              <label className={styles.label}>
+                Date <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional — leave blank for TBD)</span>
+                <input
+                  className={styles.input}
+                  type="datetime-local"
+                  value={newEventDate}
+                  onChange={e => setNewEventDate(e.target.value)}
+                />
+              </label>
+              <label className={styles.label}>
+                Location
+                <input
+                  className={styles.input}
+                  value={newEventLocation}
+                  onChange={e => setNewEventLocation(e.target.value)}
+                  placeholder="Address or venue (optional)"
+                />
+              </label>
+              <div className={styles.formActions}>
+                <button className={styles.saveBtn} type="submit" disabled={!newEventTitle.trim() || creatingEvent}>
+                  {creatingEvent ? 'Creating…' : 'Create & open roster'}
+                </button>
+                <button className={styles.cancelBtn} type="button" onClick={() => setShowNewEvent(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Add single contact modal */}
