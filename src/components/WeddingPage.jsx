@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
+import { collection, doc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './WeddingPage.module.css';
 
-const CONTACTS = [
+const SEED_CONTACTS = [
   { firstName: 'Skyler', lastName: 'Marinoff', address: '1661 Sacramento Street', city: 'San Francisco', state: 'CA', zip: '94109', phone: '(631) 418-6458', email: 'Skyler.marinoff@gmail.com' },
   { firstName: 'Brian', lastName: 'Mulligan', address: '47 Twin Oaks Drive', city: 'Kings Park', state: 'NY', zip: '11754', phone: '(631) 873-7978', email: 'Btmulligan91@gmail.com' },
   { firstName: 'Ally', lastName: 'Mulligan', address: '47 Twin Oaks Drive', city: 'Kings Park', state: 'NY', zip: '11754', phone: '(631) 512-0794', email: '' },
@@ -130,7 +132,7 @@ const CONTACTS = [
 ];
 
 const COLUMNS = [
-  { key: 'name', label: 'Name', sortBy: (c) => `${c.lastName} ${c.firstName}`.toLowerCase() },
+  { key: 'name', label: 'Name', sortBy: (c) => `${c.lastName || ''} ${c.firstName || ''}`.toLowerCase() },
   { key: 'email', label: 'Email', sortBy: (c) => (c.email || '').toLowerCase() },
   { key: 'phone', label: 'Phone', sortBy: (c) => c.phone || '' },
   { key: 'address', label: 'Address', sortBy: (c) => (c.address || '').toLowerCase() },
@@ -139,25 +141,78 @@ const COLUMNS = [
   { key: 'zip', label: 'Zip', sortBy: (c) => c.zip || '' },
 ];
 
+const EDITABLE_FIELDS = [
+  { key: 'firstName', label: 'First Name' },
+  { key: 'lastName', label: 'Last Name' },
+  { key: 'address', label: 'Address' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
+  { key: 'zip', label: 'Zip' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'email', label: 'Email' },
+];
+
+const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
+
 export function WeddingPage() {
   const { user } = useAuth();
+  const [contacts, setContacts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('');
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkField, setBulkField] = useState('city');
+  const [bulkValue, setBulkValue] = useState('');
+  const seedAttempted = useRef(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const ref = collection(db, 'users', user.uid, 'weddingContacts');
+    const unsub = onSnapshot(
+      ref,
+      async (snap) => {
+        const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setContacts(docs);
+        setLoading(false);
+        if (
+          !seedAttempted.current &&
+          docs.length === 0 &&
+          user.email === 'baldaufdan@gmail.com' &&
+          !localStorage.getItem(SEED_FLAG_KEY)
+        ) {
+          seedAttempted.current = true;
+          try {
+            const batch = writeBatch(db);
+            SEED_CONTACTS.forEach((c, i) => {
+              const id = `seed-${String(i).padStart(3, '0')}`;
+              batch.set(doc(db, 'users', user.uid, 'weddingContacts', id), c);
+            });
+            await batch.commit();
+            localStorage.setItem(SEED_FLAG_KEY, '1');
+          } catch (err) {
+            console.error('Failed to seed wedding contacts:', err);
+          }
+        }
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [user]);
 
   const states = useMemo(() => {
-    const set = new Set(CONTACTS.map((c) => c.state).filter(Boolean));
+    const set = new Set(contacts.map((c) => c.state).filter(Boolean));
     return Array.from(set).sort();
-  }, []);
+  }, [contacts]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let rows = CONTACTS;
+    let rows = contacts;
     if (stateFilter) rows = rows.filter((c) => c.state === stateFilter);
     if (q) {
       rows = rows.filter((c) => {
-        const hay = `${c.firstName} ${c.lastName} ${c.email} ${c.phone} ${c.address} ${c.city} ${c.state} ${c.zip}`.toLowerCase();
+        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
@@ -170,7 +225,7 @@ export function WeddingPage() {
       return 0;
     });
     return sorted;
-  }, [search, stateFilter, sortKey, sortDir]);
+  }, [contacts, search, stateFilter, sortKey, sortDir]);
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -179,13 +234,58 @@ export function WeddingPage() {
     else { setSortKey(key); setSortDir('asc'); }
   };
 
+  const toggleSelected = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const visibleIds = filtered.map((c) => c.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selected.has(id));
+
+  const toggleSelectAllVisible = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const applyBulkEdit = async () => {
+    if (!user || selected.size === 0) return;
+    const batch = writeBatch(db);
+    selected.forEach((id) => {
+      batch.update(doc(db, 'users', user.uid, 'weddingContacts', id), { [bulkField]: bulkValue });
+    });
+    await batch.commit();
+    setBulkValue('');
+  };
+
+  const deleteSelected = async () => {
+    if (!user || selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} contact${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    const batch = writeBatch(db);
+    selected.forEach((id) => {
+      batch.delete(doc(db, 'users', user.uid, 'weddingContacts', id));
+    });
+    await batch.commit();
+    clearSelection();
+  };
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>Wedding</h1>
-        <div className={styles.count}>{filtered.length} of {CONTACTS.length} contacts</div>
+        <div className={styles.count}>{filtered.length} of {contacts.length} contacts</div>
       </div>
-      <p className={styles.subtitle}>Guest contact list.</p>
+      <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>
 
       <div className={styles.toolbar}>
         <input
@@ -200,11 +300,41 @@ export function WeddingPage() {
         </select>
       </div>
 
+      {selected.size > 0 && (
+        <div className={styles.bulkBar}>
+          <span className={styles.bulkCount}>{selected.size} selected</span>
+          <span className={styles.bulkLabel}>Set</span>
+          <select className={styles.bulkInput} value={bulkField} onChange={(e) => setBulkField(e.target.value)} style={{ minWidth: 0 }}>
+            {EDITABLE_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+          </select>
+          <span className={styles.bulkLabel}>to</span>
+          <input
+            className={styles.bulkInput}
+            value={bulkValue}
+            placeholder="New value (leave blank to clear)"
+            onChange={(e) => setBulkValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') applyBulkEdit(); }}
+          />
+          <button className={styles.bulkApply} onClick={applyBulkEdit}>Apply</button>
+          <button className={styles.bulkDelete} onClick={deleteSelected}>Delete</button>
+          <button className={styles.bulkClear} onClick={clearSelection}>Clear</button>
+        </div>
+      )}
+
       <div className={styles.tableWrap}>
         <div className={styles.tableScroll}>
           <table className={styles.table}>
             <thead>
               <tr>
+                <th className={styles.checkCell}>
+                  <input
+                    type="checkbox"
+                    className={styles.checkbox}
+                    checked={allVisibleSelected}
+                    ref={(el) => { if (el) el.indeterminate = !allVisibleSelected && someVisibleSelected; }}
+                    onChange={toggleSelectAllVisible}
+                  />
+                </th>
                 {COLUMNS.map((col) => (
                   <th key={col.key} onClick={() => setSort(col.key)}>
                     {col.label}
@@ -214,11 +344,22 @@ export function WeddingPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
-                <tr><td colSpan={COLUMNS.length} className={styles.empty}>No contacts match.</td></tr>
+              {loading && (
+                <tr><td colSpan={COLUMNS.length + 1} className={styles.loadingState}>Loading…</td></tr>
               )}
-              {filtered.map((c, i) => (
-                <tr key={`${c.lastName}-${c.firstName}-${c.address}-${i}`}>
+              {!loading && filtered.length === 0 && (
+                <tr><td colSpan={COLUMNS.length + 1} className={styles.empty}>No contacts match.</td></tr>
+              )}
+              {!loading && filtered.map((c) => (
+                <tr key={c.id}>
+                  <td className={styles.checkCell}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={selected.has(c.id)}
+                      onChange={() => toggleSelected(c.id)}
+                    />
+                  </td>
                   <td className={styles.nameCell}>{c.firstName} {c.lastName}</td>
                   <td>{c.email ? <a className={styles.link} href={`mailto:${c.email}`}>{c.email}</a> : <span className={styles.muted}>—</span>}</td>
                   <td className={styles.mono}>{c.phone ? <a className={styles.link} href={`tel:${c.phone.replace(/[^+\d]/g, '')}`}>{c.phone}</a> : <span className={styles.muted}>—</span>}</td>
