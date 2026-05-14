@@ -1,0 +1,26 @@
+.page { max-width: 1200px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+.header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; flex-wrap: wrap; }
+.title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+.count { font-size: 0.85rem; color: var(--color-text-muted); }
+.subtitle { color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+
+.toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+.search { flex: 1; min-width: 220px; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.9rem; }
+.search:focus { outline: none; border-color: var(--color-accent); }
+.select { padding: 0.5rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; color: var(--color-text); }
+
+.tableWrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
+.tableScroll { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.table thead th { text-align: left; padding: 0.7rem 0.85rem; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); background: var(--color-surface-alt); border-bottom: 1px solid var(--color-border); cursor: pointer; user-select: none; white-space: nowrap; }
+.table thead th:hover { color: var(--color-text); }
+.sortArrow { margin-left: 0.3rem; color: var(--color-accent); font-size: 0.7rem; }
+.table tbody td { padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--color-border-light); color: var(--color-text); vertical-align: top; }
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr:hover { background: var(--color-surface-alt); }
+.nameCell { font-weight: 600; white-space: nowrap; }
+.muted { color: var(--color-text-muted); }
+.mono { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.link { color: var(--color-accent); text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.empty { padding: 2rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem; }
