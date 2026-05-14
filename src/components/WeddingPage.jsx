@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { collection, doc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './WeddingPage.module.css';
@@ -169,37 +169,47 @@ export function WeddingPage() {
 
   useEffect(() => {
     if (!user) return;
-    const ref = collection(db, 'users', user.uid, 'weddingContacts');
+    const ref = doc(db, 'users', user.uid);
     const unsub = onSnapshot(
       ref,
       async (snap) => {
-        const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setContacts(docs);
+        const data = snap.exists() ? snap.data() : {};
+        const stored = Array.isArray(data.weddingContacts) ? data.weddingContacts : null;
         setLoading(false);
+        if (stored) {
+          setContacts(stored);
+          return;
+        }
         if (
           !seedAttempted.current &&
-          docs.length === 0 &&
           user.email === 'baldaufdan@gmail.com' &&
           !localStorage.getItem(SEED_FLAG_KEY)
         ) {
           seedAttempted.current = true;
           try {
-            const batch = writeBatch(db);
-            SEED_CONTACTS.forEach((c, i) => {
-              const id = `seed-${String(i).padStart(3, '0')}`;
-              batch.set(doc(db, 'users', user.uid, 'weddingContacts', id), c);
-            });
-            await batch.commit();
+            const seeded = SEED_CONTACTS.map((c, i) => ({ id: `seed-${String(i).padStart(3, '0')}`, ...c }));
+            await setDoc(ref, { weddingContacts: seeded }, { merge: true });
             localStorage.setItem(SEED_FLAG_KEY, '1');
           } catch (err) {
             console.error('Failed to seed wedding contacts:', err);
+            setContacts(SEED_CONTACTS.map((c, i) => ({ id: `seed-${String(i).padStart(3, '0')}`, ...c })));
           }
+        } else {
+          setContacts([]);
         }
       },
-      () => setLoading(false),
+      (err) => {
+        console.error('Wedding contacts snapshot error:', err);
+        setLoading(false);
+      },
     );
     return unsub;
   }, [user]);
+
+  const persistContacts = async (next) => {
+    if (!user) return;
+    await setDoc(doc(db, 'users', user.uid), { weddingContacts: next }, { merge: true });
+  };
 
   const states = useMemo(() => {
     const set = new Set(contacts.map((c) => c.state).filter(Boolean));
@@ -260,22 +270,16 @@ export function WeddingPage() {
 
   const applyBulkEdit = async () => {
     if (!user || selected.size === 0) return;
-    const batch = writeBatch(db);
-    selected.forEach((id) => {
-      batch.update(doc(db, 'users', user.uid, 'weddingContacts', id), { [bulkField]: bulkValue });
-    });
-    await batch.commit();
+    const next = contacts.map((c) => (selected.has(c.id) ? { ...c, [bulkField]: bulkValue } : c));
+    await persistContacts(next);
     setBulkValue('');
   };
 
   const deleteSelected = async () => {
     if (!user || selected.size === 0) return;
     if (!confirm(`Delete ${selected.size} contact${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) return;
-    const batch = writeBatch(db);
-    selected.forEach((id) => {
-      batch.delete(doc(db, 'users', user.uid, 'weddingContacts', id));
-    });
-    await batch.commit();
+    const next = contacts.filter((c) => !selected.has(c.id));
+    await persistContacts(next);
     clearSelection();
   };
 
