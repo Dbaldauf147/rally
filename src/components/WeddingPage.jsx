@@ -393,6 +393,20 @@ export function WeddingPage() {
     persistGroups(nextSaved);
   };
 
+  const handleRowGroupChange = async (id, val) => {
+    let groupName = val;
+    if (val === NEW_GROUP_SENTINEL) {
+      const name = (prompt('New group name?') || '').trim();
+      if (!name) return;
+      const nextSaved = Array.from(new Set([...savedGroups, name])).sort((a, b) => a.localeCompare(b));
+      setSavedGroups(nextSaved);
+      persistGroups(nextSaved);
+      groupName = name;
+    }
+    const next = contacts.map((c) => (c.id === id ? { ...c, group: groupName } : c));
+    await persistContacts(next);
+  };
+
   const startResize = (e, key) => {
     e.preventDefault();
     e.stopPropagation();
@@ -554,7 +568,17 @@ export function WeddingPage() {
                         (col.key === 'phone' || col.key === 'zip') ? styles.mono : '',
                       ].filter(Boolean).join(' ')}
                     >
-                      {renderCell(col, c)}
+                      {col.key === 'group' ? (
+                        <select
+                          className={styles.cellSelect}
+                          value={c.group || ''}
+                          onChange={(e) => handleRowGroupChange(c.id, e.target.value)}
+                        >
+                          <option value="">— None —</option>
+                          {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+                          <option value={NEW_GROUP_SENTINEL}>+ New group…</option>
+                        </select>
+                      ) : renderCell(col, c)}
                     </td>
                   ))}
                 </tr>
