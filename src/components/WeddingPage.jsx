@@ -131,19 +131,25 @@ const SEED_CONTACTS = [
   { firstName: 'JoAnn', lastName: 'Wildermuth', address: '72 Accabonac Road', city: 'East Hampton', state: 'NY', zip: '11937', phone: '', email: '' },
 ];
 
-const COLUMNS = [
-  { key: 'name', label: 'Name', sortBy: (c) => `${c.lastName || ''} ${c.firstName || ''}`.toLowerCase() },
-  { key: 'email', label: 'Email', sortBy: (c) => (c.email || '').toLowerCase() },
-  { key: 'phone', label: 'Phone', sortBy: (c) => c.phone || '' },
-  { key: 'address', label: 'Address', sortBy: (c) => (c.address || '').toLowerCase() },
-  { key: 'city', label: 'City', sortBy: (c) => (c.city || '').toLowerCase() },
-  { key: 'state', label: 'State', sortBy: (c) => (c.state || '').toLowerCase() },
-  { key: 'zip', label: 'Zip', sortBy: (c) => c.zip || '' },
+const ALL_COLUMNS = [
+  { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => `${c.lastName || ''} ${c.firstName || ''}`.toLowerCase() },
+  { key: 'group', label: 'Group', defaultWidth: 140, sortBy: (c) => (c.group || '').toLowerCase() },
+  { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
+  { key: 'email', label: 'Email', defaultWidth: 220, sortBy: (c) => (c.email || '').toLowerCase() },
+  { key: 'phone', label: 'Phone', defaultWidth: 140, sortBy: (c) => c.phone || '' },
+  { key: 'address', label: 'Address', defaultWidth: 220, sortBy: (c) => (c.address || '').toLowerCase() },
+  { key: 'city', label: 'City', defaultWidth: 140, sortBy: (c) => (c.city || '').toLowerCase() },
+  { key: 'state', label: 'State', defaultWidth: 80, sortBy: (c) => (c.state || '').toLowerCase() },
+  { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
+
+const DEFAULT_VISIBLE = ['name', 'group', 'guestOf', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
   { key: 'lastName', label: 'Last Name' },
+  { key: 'group', label: 'Group' },
+  { key: 'guestOf', label: 'Guest Of' },
   { key: 'address', label: 'Address' },
   { key: 'city', label: 'City' },
   { key: 'state', label: 'State' },
@@ -152,20 +158,45 @@ const EDITABLE_FIELDS = [
   { key: 'email', label: 'Email' },
 ];
 
+const NEW_GROUP_SENTINEL = '__new_group__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
+
+function renderCell(col, c) {
+  switch (col.key) {
+    case 'name': return <>{c.firstName} {c.lastName}</>;
+    case 'group': return c.group ? <span className={styles.groupBadge}>{c.group}</span> : <span className={styles.muted}>—</span>;
+    case 'guestOf': return c.guestOf || <span className={styles.muted}>—</span>;
+    case 'email': return c.email ? <a className={styles.link} href={`mailto:${c.email}`}>{c.email}</a> : <span className={styles.muted}>—</span>;
+    case 'phone': return c.phone ? <a className={styles.link} href={`tel:${c.phone.replace(/[^+\d]/g, '')}`}>{c.phone}</a> : <span className={styles.muted}>—</span>;
+    case 'address': return c.address || <span className={styles.muted}>—</span>;
+    case 'city': return c.city || <span className={styles.muted}>—</span>;
+    case 'state': return c.state || <span className={styles.muted}>—</span>;
+    case 'zip': return c.zip || <span className={styles.muted}>—</span>;
+    default: return null;
+  }
+}
 
 export function WeddingPage() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState([]);
+  const [savedGroups, setSavedGroups] = useState([]);
+  const [columnConfig, setColumnConfig] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [selected, setSelected] = useState(() => new Set());
-  const [bulkField, setBulkField] = useState('city');
+  const [bulkField, setBulkField] = useState('group');
   const [bulkValue, setBulkValue] = useState('');
+  const [showColumnsMenu, setShowColumnsMenu] = useState(false);
   const seedAttempted = useRef(false);
+  const columnsMenuRef = useRef(null);
+  const columnConfigRef = useRef({});
+  const dragRef = useRef(null);
+
+  useEffect(() => { columnConfigRef.current = columnConfig; }, [columnConfig]);
 
   useEffect(() => {
     if (!user) return;
@@ -174,6 +205,8 @@ export function WeddingPage() {
       ref,
       async (snap) => {
         const data = snap.exists() ? snap.data() : {};
+        setSavedGroups(Array.isArray(data.weddingGroups) ? data.weddingGroups : []);
+        setColumnConfig(data.weddingColumnConfig && typeof data.weddingColumnConfig === 'object' ? data.weddingColumnConfig : {});
         const stored = Array.isArray(data.weddingContacts) ? data.weddingContacts : null;
         setLoading(false);
         if (stored) {
@@ -206,27 +239,70 @@ export function WeddingPage() {
     return unsub;
   }, [user]);
 
+  useEffect(() => {
+    if (!showColumnsMenu) return;
+    const onClick = (e) => {
+      if (columnsMenuRef.current && !columnsMenuRef.current.contains(e.target)) {
+        setShowColumnsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [showColumnsMenu]);
+
   const persistContacts = async (next) => {
     if (!user) return;
     await setDoc(doc(db, 'users', user.uid), { weddingContacts: next }, { merge: true });
   };
+
+  const persistGroups = async (next) => {
+    if (!user) return;
+    await setDoc(doc(db, 'users', user.uid), { weddingGroups: next }, { merge: true });
+  };
+
+  const persistColumnConfig = async (next) => {
+    if (!user) return;
+    await setDoc(doc(db, 'users', user.uid), { weddingColumnConfig: next }, { merge: true });
+  };
+
+  const groups = useMemo(() => {
+    const set = new Set(savedGroups.filter(Boolean));
+    contacts.forEach((c) => { if (c.group) set.add(c.group); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [contacts, savedGroups]);
 
   const states = useMemo(() => {
     const set = new Set(contacts.map((c) => c.state).filter(Boolean));
     return Array.from(set).sort();
   }, [contacts]);
 
+  const visibleColumns = useMemo(() => {
+    return ALL_COLUMNS.filter((col) => {
+      const cfg = columnConfig[col.key];
+      if (cfg && typeof cfg.visible === 'boolean') return cfg.visible;
+      return DEFAULT_VISIBLE.includes(col.key);
+    });
+  }, [columnConfig]);
+
+  const widthFor = (key) => {
+    const cfg = columnConfig[key];
+    const fallback = ALL_COLUMNS.find((c) => c.key === key)?.defaultWidth || 140;
+    return (cfg && typeof cfg.width === 'number' && cfg.width > 0) ? cfg.width : fallback;
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     let rows = contacts;
     if (stateFilter) rows = rows.filter((c) => c.state === stateFilter);
+    if (groupFilter === '__none__') rows = rows.filter((c) => !c.group);
+    else if (groupFilter) rows = rows.filter((c) => c.group === groupFilter);
     if (q) {
       rows = rows.filter((c) => {
-        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''}`.toLowerCase();
+        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.guestOf || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
-    const col = COLUMNS.find((c) => c.key === sortKey) || COLUMNS[0];
+    const col = ALL_COLUMNS.find((c) => c.key === sortKey) || ALL_COLUMNS[0];
     const sorted = [...rows].sort((a, b) => {
       const av = col.sortBy(a);
       const bv = col.sortBy(b);
@@ -235,7 +311,7 @@ export function WeddingPage() {
       return 0;
     });
     return sorted;
-  }, [contacts, search, stateFilter, sortKey, sortDir]);
+  }, [contacts, search, stateFilter, groupFilter, sortKey, sortDir]);
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -268,6 +344,24 @@ export function WeddingPage() {
 
   const clearSelection = () => setSelected(new Set());
 
+  const handleBulkFieldChange = (val) => {
+    setBulkField(val);
+    setBulkValue('');
+  };
+
+  const handleBulkGroupChange = (val) => {
+    if (val === NEW_GROUP_SENTINEL) {
+      const name = (prompt('New group name?') || '').trim();
+      if (!name) return;
+      const nextSaved = Array.from(new Set([...savedGroups, name])).sort((a, b) => a.localeCompare(b));
+      setSavedGroups(nextSaved);
+      persistGroups(nextSaved);
+      setBulkValue(name);
+      return;
+    }
+    setBulkValue(val);
+  };
+
   const applyBulkEdit = async () => {
     if (!user || selected.size === 0) return;
     const next = contacts.map((c) => (selected.has(c.id) ? { ...c, [bulkField]: bulkValue } : c));
@@ -283,6 +377,48 @@ export function WeddingPage() {
     clearSelection();
   };
 
+  const toggleColumn = (key) => {
+    const isVisible = visibleColumns.some((c) => c.key === key);
+    const next = { ...columnConfig, [key]: { ...columnConfig[key], visible: !isVisible } };
+    setColumnConfig(next);
+    persistColumnConfig(next);
+  };
+
+  const createGroup = () => {
+    const name = (prompt('New group name?') || '').trim();
+    if (!name) return;
+    if (savedGroups.includes(name)) return;
+    const nextSaved = Array.from(new Set([...savedGroups, name])).sort((a, b) => a.localeCompare(b));
+    setSavedGroups(nextSaved);
+    persistGroups(nextSaved);
+  };
+
+  const startResize = (e, key) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = widthFor(key);
+    dragRef.current = { key, startX, startWidth };
+    document.body.classList.add('rally-col-resizing');
+    const onMove = (ev) => {
+      if (!dragRef.current) return;
+      const { key: k, startX: sx, startWidth: sw } = dragRef.current;
+      const next = Math.max(60, sw + (ev.clientX - sx));
+      setColumnConfig((prev) => ({ ...prev, [k]: { ...prev[k], width: next } }));
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('rally-col-resizing');
+      persistColumnConfig(columnConfigRef.current);
+      dragRef.current = null;
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  const totalWidth = 36 + visibleColumns.reduce((sum, col) => sum + widthFor(col.key), 0);
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -294,7 +430,7 @@ export function WeddingPage() {
       <div className={styles.toolbar}>
         <input
           className={styles.search}
-          placeholder="Search by name, email, address, city…"
+          placeholder="Search by name, email, address, group…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -302,23 +438,55 @@ export function WeddingPage() {
           <option value="">All states</option>
           {states.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
+        <select className={styles.select} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+          <option value="">All groups</option>
+          <option value="__none__">No group</option>
+          {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
+        <div className={styles.colMenu} ref={columnsMenuRef}>
+          <button className={styles.toolButton} type="button" onClick={() => setShowColumnsMenu((s) => !s)}>
+            Columns ▾
+          </button>
+          {showColumnsMenu && (
+            <div className={styles.colMenuPopover}>
+              {ALL_COLUMNS.map((col) => {
+                const isVisible = visibleColumns.some((c) => c.key === col.key);
+                return (
+                  <label key={col.key} className={styles.colMenuItem}>
+                    <input type="checkbox" checked={isVisible} onChange={() => toggleColumn(col.key)} />
+                    {col.label}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {selected.size > 0 && (
         <div className={styles.bulkBar}>
           <span className={styles.bulkCount}>{selected.size} selected</span>
           <span className={styles.bulkLabel}>Set</span>
-          <select className={styles.bulkInput} value={bulkField} onChange={(e) => setBulkField(e.target.value)} style={{ minWidth: 0 }}>
+          <select className={styles.bulkInput} value={bulkField} onChange={(e) => handleBulkFieldChange(e.target.value)} style={{ minWidth: 0 }}>
             {EDITABLE_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
           <span className={styles.bulkLabel}>to</span>
-          <input
-            className={styles.bulkInput}
-            value={bulkValue}
-            placeholder="New value (leave blank to clear)"
-            onChange={(e) => setBulkValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') applyBulkEdit(); }}
-          />
+          {bulkField === 'group' ? (
+            <select className={styles.bulkInput} value={bulkValue} onChange={(e) => handleBulkGroupChange(e.target.value)}>
+              <option value="">— (clear)</option>
+              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+              <option value={NEW_GROUP_SENTINEL}>+ New group…</option>
+            </select>
+          ) : (
+            <input
+              className={styles.bulkInput}
+              value={bulkValue}
+              placeholder="New value (leave blank to clear)"
+              onChange={(e) => setBulkValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyBulkEdit(); }}
+            />
+          )}
           <button className={styles.bulkApply} onClick={applyBulkEdit}>Apply</button>
           <button className={styles.bulkDelete} onClick={deleteSelected}>Delete</button>
           <button className={styles.bulkClear} onClick={clearSelection}>Clear</button>
@@ -327,7 +495,13 @@ export function WeddingPage() {
 
       <div className={styles.tableWrap}>
         <div className={styles.tableScroll}>
-          <table className={styles.table}>
+          <table className={styles.table} style={{ tableLayout: 'fixed', width: totalWidth }}>
+            <colgroup>
+              <col style={{ width: 36 }} />
+              {visibleColumns.map((col) => (
+                <col key={col.key} style={{ width: widthFor(col.key) }} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 <th className={styles.checkCell}>
@@ -339,20 +513,28 @@ export function WeddingPage() {
                     onChange={toggleSelectAllVisible}
                   />
                 </th>
-                {COLUMNS.map((col) => (
-                  <th key={col.key} onClick={() => setSort(col.key)}>
-                    {col.label}
-                    {sortKey === col.key && <span className={styles.sortArrow}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                {visibleColumns.map((col) => (
+                  <th key={col.key} className={styles.resizable} onClick={() => setSort(col.key)}>
+                    <span className={styles.thLabel}>
+                      {col.label}
+                      {sortKey === col.key && <span className={styles.sortArrow}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                    </span>
+                    <span
+                      className={styles.resizer}
+                      onMouseDown={(e) => startResize(e, col.key)}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Drag to resize"
+                    />
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={COLUMNS.length + 1} className={styles.loadingState}>Loading…</td></tr>
+                <tr><td colSpan={visibleColumns.length + 1} className={styles.loadingState}>Loading…</td></tr>
               )}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={COLUMNS.length + 1} className={styles.empty}>No contacts match.</td></tr>
+                <tr><td colSpan={visibleColumns.length + 1} className={styles.empty}>No contacts match.</td></tr>
               )}
               {!loading && filtered.map((c) => (
                 <tr key={c.id}>
@@ -364,13 +546,17 @@ export function WeddingPage() {
                       onChange={() => toggleSelected(c.id)}
                     />
                   </td>
-                  <td className={styles.nameCell}>{c.firstName} {c.lastName}</td>
-                  <td>{c.email ? <a className={styles.link} href={`mailto:${c.email}`}>{c.email}</a> : <span className={styles.muted}>—</span>}</td>
-                  <td className={styles.mono}>{c.phone ? <a className={styles.link} href={`tel:${c.phone.replace(/[^+\d]/g, '')}`}>{c.phone}</a> : <span className={styles.muted}>—</span>}</td>
-                  <td>{c.address}</td>
-                  <td>{c.city}</td>
-                  <td>{c.state}</td>
-                  <td className={styles.mono}>{c.zip}</td>
+                  {visibleColumns.map((col) => (
+                    <td
+                      key={col.key}
+                      className={[
+                        col.key === 'name' ? styles.nameCell : '',
+                        (col.key === 'phone' || col.key === 'zip') ? styles.mono : '',
+                      ].filter(Boolean).join(' ')}
+                    >
+                      {renderCell(col, c)}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>

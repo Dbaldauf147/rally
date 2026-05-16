@@ -8,14 +8,28 @@
 .search { flex: 1; min-width: 220px; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.9rem; }
 .search:focus { outline: none; border-color: var(--color-accent); }
 .select { padding: 0.5rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; color: var(--color-text); }
+.toolButton { padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; color: var(--color-text); cursor: pointer; white-space: nowrap; }
+.toolButton:hover { background: var(--color-surface-alt); }
+
+.colMenu { position: relative; }
+.colMenuPopover { position: absolute; top: calc(100% + 4px); right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 0.35rem 0; min-width: 160px; z-index: 50; }
+.colMenuItem { display: flex; align-items: center; gap: 0.55rem; padding: 0.4rem 0.85rem; font-size: 0.85rem; color: var(--color-text); cursor: pointer; user-select: none; }
+.colMenuItem:hover { background: var(--color-surface-alt); }
+.colMenuItem input { accent-color: var(--color-accent); cursor: pointer; }
 
 .tableWrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
 .tableScroll { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-.table thead th { text-align: left; padding: 0.7rem 0.85rem; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); background: var(--color-surface-alt); border-bottom: 1px solid var(--color-border); cursor: pointer; user-select: none; white-space: nowrap; }
+.table thead th { text-align: left; padding: 0.7rem 0.85rem; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); background: var(--color-surface-alt); border-bottom: 1px solid var(--color-border); cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .table thead th:hover { color: var(--color-text); }
+.resizable { position: relative; padding-right: 1.1rem !important; }
+.thLabel { display: inline-flex; align-items: center; }
+.resizer { position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: col-resize; user-select: none; }
+.resizer:hover { background: var(--color-accent); opacity: 0.35; }
+:global(body.rally-col-resizing) { cursor: col-resize; user-select: none; }
+:global(body.rally-col-resizing) * { cursor: col-resize !important; }
 .sortArrow { margin-left: 0.3rem; color: var(--color-accent); font-size: 0.7rem; }
-.table tbody td { padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--color-border-light); color: var(--color-text); vertical-align: top; }
+.table tbody td { padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--color-border-light); color: var(--color-text); vertical-align: top; overflow: hidden; text-overflow: ellipsis; word-break: break-word; }
 .table tbody tr:last-child td { border-bottom: none; }
 .table tbody tr:hover { background: var(--color-surface-alt); }
 .nameCell { font-weight: 600; white-space: nowrap; }
@@ -42,4 +56,6 @@
 .bulkClear:hover { color: var(--color-text); }
 
 .loadingState { padding: 3rem; text-align: center; color: var(--color-text-muted); }
+
+.groupBadge { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--color-accent-light); color: var(--color-accent); font-size: 0.78rem; font-weight: 500; }
 
