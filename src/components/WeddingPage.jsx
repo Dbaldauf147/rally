@@ -533,31 +533,59 @@ export function WeddingPage() {
       alert('No Friends contacts found. Add some on the Friends page first.');
       return;
     }
-    const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const byName = new Map();
-    const ambiguous = new Set();
-    friends.forEach((f) => {
-      const key = norm(f.name);
+    const normName = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normEmail = (s) => (s || '').toLowerCase().trim();
+    const normPhone = (s) => {
+      const digits = (s || '').replace(/\D/g, '');
+      return digits.length >= 10 ? digits.slice(-10) : digits;
+    };
+    const addToIndex = (map, ambig, key, id) => {
       if (!key) return;
-      if (byName.has(key)) ambiguous.add(key);
-      else byName.set(key, f.id);
+      if (map.has(key) && map.get(key) !== id) ambig.add(key);
+      else map.set(key, id);
+    };
+    const byName = new Map(); const ambigName = new Set();
+    const byEmail = new Map(); const ambigEmail = new Set();
+    const byPhone = new Map(); const ambigPhone = new Set();
+    friends.forEach((f) => {
+      addToIndex(byName, ambigName, normName(f.name), f.id);
+      addToIndex(byEmail, ambigEmail, normEmail(f.email), f.id);
+      addToIndex(byEmail, ambigEmail, normEmail(f.workEmail), f.id);
+      const ph = normPhone(f.phone);
+      if (ph.length >= 10) addToIndex(byPhone, ambigPhone, ph, f.id);
     });
+    const lookup = (map, ambig, key, minLen = 1) => {
+      if (!key || key.length < minLen) return null;
+      if (ambig.has(key)) return null;
+      return map.get(key) || null;
+    };
     let matched = 0;
+    const byStrategy = { name: 0, email: 0, phone: 0 };
     const next = contacts.map((c) => {
-      if (c.friendId) return c;
-      const key = norm(`${c.firstName || ''}${c.lastName || ''}`);
-      if (!key || ambiguous.has(key)) return c;
-      const fid = byName.get(key);
-      if (!fid) return c;
+      if (c.friendId && friendsById.has(c.friendId)) return c;
+      const nameKey = normName(`${c.firstName || ''}${c.lastName || ''}`);
+      const emailKey = normEmail(c.email);
+      const phoneKey = normPhone(c.phone);
+      const hit =
+        lookup(byName, ambigName, nameKey) ||
+        lookup(byEmail, ambigEmail, emailKey) ||
+        lookup(byPhone, ambigPhone, phoneKey, 10);
+      if (!hit) return c;
       matched += 1;
-      return { ...c, friendId: fid };
+      if (lookup(byName, ambigName, nameKey)) byStrategy.name += 1;
+      else if (lookup(byEmail, ambigEmail, emailKey)) byStrategy.email += 1;
+      else byStrategy.phone += 1;
+      return { ...c, friendId: hit };
     });
     if (matched === 0) {
       alert('No new matches found.');
       return;
     }
     await persistContacts(next);
-    alert(`Matched ${matched} contact${matched === 1 ? '' : 's'} to Friends.`);
+    alert(
+      `Matched ${matched} contact${matched === 1 ? '' : 's'} to Friends ` +
+      `(${byStrategy.name} by name, ${byStrategy.email} by email, ${byStrategy.phone} by phone).`,
+    );
   };
 
   const startResize = (e, key) => {
