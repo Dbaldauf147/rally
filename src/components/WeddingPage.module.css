@@ -63,3 +63,32 @@
 .cellSelect:hover { border-color: var(--color-border); background: var(--color-surface); }
 .cellSelect:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
 
+.modalOverlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+.modal { background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); width: min(880px, 100%); max-height: 90vh; display: flex; flex-direction: column; }
+.modalHeader { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); }
+.modalTitle { font-size: 1.1rem; font-weight: 600; color: var(--color-text); margin: 0; }
+.modalClose { background: none; border: none; color: var(--color-text-muted); font-size: 1.4rem; line-height: 1; cursor: pointer; padding: 0 0.4rem; }
+.modalClose:hover { color: var(--color-text); }
+.modalBody { padding: 1rem 1.25rem; overflow-y: auto; flex: 1; }
+.modalHint { font-size: 0.85rem; color: var(--color-text-muted); margin: 0 0 0.75rem; }
+.modalTextarea { width: 100%; padding: 0.65rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; resize: vertical; min-height: 110px; }
+.modalTextarea:focus { outline: none; border-color: var(--color-accent); }
+.modalCheckRow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text); margin: 0.85rem 0 0.5rem; cursor: pointer; }
+.modalCheckRow input { accent-color: var(--color-accent); }
+.mapScroll { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.mapTable { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.mapTable th, .mapTable td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--color-border-light); border-right: 1px solid var(--color-border-light); white-space: nowrap; vertical-align: top; }
+.mapTable th:last-child, .mapTable td:last-child { border-right: none; }
+.mapTable tbody tr:last-child td { border-bottom: none; }
+.mapTable thead tr:first-child th { background: var(--color-surface-alt); }
+.mapHeaderCell { background: var(--color-surface-alt); color: var(--color-text-muted); font-size: 0.78rem; font-weight: 500; }
+.mapSelect { padding: 0.3rem 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-size: 0.8rem; color: var(--color-text); min-width: 130px; }
+.mapSelect:focus { outline: none; border-color: var(--color-accent); }
+.modalFooter { display: flex; align-items: center; gap: 0.5rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-border); }
+.modalCount { font-size: 0.85rem; color: var(--color-text-muted); margin-right: auto; }
+.modalPrimary { padding: 0.5rem 1rem; background: var(--color-accent); color: white; border: none; border-radius: var(--radius-sm); font-size: 0.88rem; font-weight: 500; cursor: pointer; }
+.modalPrimary:hover { background: var(--color-accent-hover); }
+.modalPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+.modalSecondary { padding: 0.5rem 0.95rem; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.88rem; cursor: pointer; }
+.modalSecondary:hover { background: var(--color-surface-alt); }
+

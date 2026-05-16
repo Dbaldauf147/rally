@@ -160,6 +160,78 @@ const EDITABLE_FIELDS = [
 
 const NEW_GROUP_SENTINEL = '__new_group__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
+const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
+
+const IMPORT_FIELDS = [
+  { key: '', label: '— Skip —' },
+  { key: 'fullName', label: 'Full Name (auto-split)' },
+  { key: 'firstName', label: 'First Name' },
+  { key: 'lastName', label: 'Last Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'address', label: 'Address' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
+  { key: 'zip', label: 'Zip' },
+  { key: 'group', label: 'Group' },
+  { key: 'guestOf', label: 'Guest Of' },
+];
+
+const FIELD_PATTERNS = [
+  { key: 'firstName', patterns: [/^first\s*(name)?$/i, /^fname$/i, /^given/i] },
+  { key: 'lastName', patterns: [/^last\s*(name)?$/i, /^lname$/i, /^surname$/i, /^family/i] },
+  { key: 'fullName', patterns: [/^(full\s*)?name$/i, /^contact$/i] },
+  { key: 'email', patterns: [/^e[-\s]?mail/i] },
+  { key: 'phone', patterns: [/^phone/i, /^mobile/i, /^cell/i, /^tel/i, /number/i] },
+  { key: 'address', patterns: [/^address/i, /^street/i, /^addr/i] },
+  { key: 'city', patterns: [/^city$/i, /^town$/i] },
+  { key: 'state', patterns: [/^state/i, /^province/i, /^region/i] },
+  { key: 'zip', patterns: [/^zip/i, /^postal/i, /^post\s*code$/i] },
+  { key: 'group', patterns: [/^group/i, /^category/i, /^tag/i] },
+  { key: 'guestOf', patterns: [/^guest\s*of/i, /^plus\s*one/i, /^\+1$/i] },
+];
+
+function parseTSV(text) {
+  if (!text) return [];
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => line.split('\t'));
+}
+
+function autoDetectMappings(headerRow) {
+  return headerRow.map((h) => {
+    const cleaned = (h || '').trim();
+    if (!cleaned) return '';
+    for (const f of FIELD_PATTERNS) {
+      if (f.patterns.some((re) => re.test(cleaned))) return f.key;
+    }
+    return '';
+  });
+}
+
+function buildImportedContacts(rows, mappings, hasHeader) {
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+  const now = Date.now();
+  return dataRows
+    .map((row, i) => {
+      const c = { id: `import-${now}-${i}-${Math.random().toString(36).slice(2, 8)}` };
+      mappings.forEach((field, colIdx) => {
+        if (!field) return;
+        const val = (row[colIdx] || '').trim();
+        if (field === 'fullName') {
+          const parts = val.split(/\s+/);
+          c.firstName = parts[0] || c.firstName || '';
+          c.lastName = parts.slice(1).join(' ') || c.lastName || '';
+        } else {
+          c[field] = val;
+        }
+      });
+      return c;
+    })
+    .filter((c) => c.firstName || c.lastName || c.email || c.phone);
+}
 
 function renderCell(col, c) {
   switch (col.key) {
@@ -191,6 +263,10 @@ export function WeddingPage() {
   const [bulkField, setBulkField] = useState('group');
   const [bulkValue, setBulkValue] = useState('');
   const [showColumnsMenu, setShowColumnsMenu] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importHasHeader, setImportHasHeader] = useState(true);
+  const [importMappings, setImportMappings] = useState([]);
   const seedAttempted = useRef(false);
   const columnsMenuRef = useRef(null);
   const columnConfigRef = useRef({});
@@ -289,6 +365,12 @@ export function WeddingPage() {
     const fallback = ALL_COLUMNS.find((c) => c.key === key)?.defaultWidth || 140;
     return (cfg && typeof cfg.width === 'number' && cfg.width > 0) ? cfg.width : fallback;
   };
+
+  const importRows = useMemo(() => parseTSV(importText), [importText]);
+  const importableCount = useMemo(
+    () => (importRows.length === 0 ? 0 : buildImportedContacts(importRows, importMappings, importHasHeader).length),
+    [importRows, importMappings, importHasHeader],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -407,6 +489,11 @@ export function WeddingPage() {
     await persistContacts(next);
   };
 
+  const handleRowGuestOfChange = async (id, val) => {
+    const next = contacts.map((c) => (c.id === id ? { ...c, guestOf: val } : c));
+    await persistContacts(next);
+  };
+
   const startResize = (e, key) => {
     e.preventDefault();
     e.stopPropagation();
@@ -432,6 +519,49 @@ export function WeddingPage() {
   };
 
   const totalWidth = 36 + visibleColumns.reduce((sum, col) => sum + widthFor(col.key), 0);
+  const importColCount = importRows.reduce((m, r) => Math.max(m, r.length), 0);
+  const importPreviewRows = importHasHeader ? importRows.slice(1) : importRows;
+
+  const openImport = () => {
+    setImportOpen(true);
+    setImportText('');
+    setImportHasHeader(true);
+    setImportMappings([]);
+  };
+  const closeImport = () => setImportOpen(false);
+
+  const handleImportTextChange = (val) => {
+    setImportText(val);
+    const rows = parseTSV(val);
+    const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+    if (rows.length === 0 || cols === 0) {
+      setImportMappings([]);
+      return;
+    }
+    const header = rows[0] || [];
+    const detected = autoDetectMappings(header);
+    const filled = Array.from({ length: cols }, (_, i) => detected[i] || '');
+    setImportMappings(filled);
+    const looksLikeHeader = header.some((h) => /[a-z]/i.test(h || '')) && detected.some(Boolean);
+    setImportHasHeader(looksLikeHeader);
+  };
+
+  const setImportMapping = (colIdx, field) => {
+    setImportMappings((prev) => {
+      const next = [...prev];
+      while (next.length < colIdx + 1) next.push('');
+      next[colIdx] = field;
+      return next;
+    });
+  };
+
+  const performImport = async () => {
+    const newContacts = buildImportedContacts(importRows, importMappings, importHasHeader);
+    if (newContacts.length === 0) return;
+    const next = [...contacts, ...newContacts];
+    await persistContacts(next);
+    setImportOpen(false);
+  };
 
   return (
     <div className={styles.page}>
@@ -458,6 +588,7 @@ export function WeddingPage() {
           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
+        <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
         <div className={styles.colMenu} ref={columnsMenuRef}>
           <button className={styles.toolButton} type="button" onClick={() => setShowColumnsMenu((s) => !s)}>
             Columns ▾
@@ -492,6 +623,11 @@ export function WeddingPage() {
               {groups.map((g) => <option key={g} value={g}>{g}</option>)}
               <option value={NEW_GROUP_SENTINEL}>+ New group…</option>
             </select>
+          ) : bulkField === 'guestOf' ? (
+            <select className={styles.bulkInput} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}>
+              <option value="">— (clear)</option>
+              {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
           ) : (
             <input
               className={styles.bulkInput}
@@ -504,6 +640,96 @@ export function WeddingPage() {
           <button className={styles.bulkApply} onClick={applyBulkEdit}>Apply</button>
           <button className={styles.bulkDelete} onClick={deleteSelected}>Delete</button>
           <button className={styles.bulkClear} onClick={clearSelection}>Clear</button>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className={styles.modalOverlay} onClick={closeImport}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Import contacts</h2>
+              <button className={styles.modalClose} type="button" onClick={closeImport} aria-label="Close">×</button>
+            </div>
+            <div className={styles.modalBody}>
+              <p className={styles.modalHint}>
+                Copy a range of cells from Google Sheets (or Excel) and paste below. Columns will be tab-separated automatically.
+              </p>
+              <textarea
+                className={styles.modalTextarea}
+                value={importText}
+                onChange={(e) => handleImportTextChange(e.target.value)}
+                placeholder={'Paste here — e.g.\nFirst\tLast\tEmail\tPhone\nJane\tDoe\tjane@example.com\t(555) 123-4567'}
+                rows={6}
+                autoFocus
+              />
+              {importRows.length > 0 && importColCount > 0 && (
+                <>
+                  <label className={styles.modalCheckRow}>
+                    <input
+                      type="checkbox"
+                      checked={importHasHeader}
+                      onChange={(e) => setImportHasHeader(e.target.checked)}
+                    />
+                    First row is a header
+                  </label>
+                  <div className={styles.mapScroll}>
+                    <table className={styles.mapTable}>
+                      <thead>
+                        <tr>
+                          {Array.from({ length: importColCount }).map((_, ci) => (
+                            <th key={ci}>
+                              <select
+                                className={styles.mapSelect}
+                                value={importMappings[ci] || ''}
+                                onChange={(e) => setImportMapping(ci, e.target.value)}
+                              >
+                                {IMPORT_FIELDS.map((f) => (
+                                  <option key={f.key} value={f.key}>{f.label}</option>
+                                ))}
+                              </select>
+                            </th>
+                          ))}
+                        </tr>
+                        {importHasHeader && importRows[0] && (
+                          <tr>
+                            {Array.from({ length: importColCount }).map((_, ci) => (
+                              <th key={ci} className={styles.mapHeaderCell}>{importRows[0][ci] || ''}</th>
+                            ))}
+                          </tr>
+                        )}
+                      </thead>
+                      <tbody>
+                        {importPreviewRows.slice(0, 5).map((row, ri) => (
+                          <tr key={ri}>
+                            {Array.from({ length: importColCount }).map((_, ci) => (
+                              <td key={ci}>{row[ci] || ''}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {importPreviewRows.length > 5 && (
+                    <div className={styles.modalHint}>…and {importPreviewRows.length - 5} more rows</div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalCount}>
+                {importableCount > 0 ? `${importableCount} contact${importableCount === 1 ? '' : 's'} ready to import` : 'Paste data to begin'}
+              </span>
+              <button className={styles.modalSecondary} type="button" onClick={closeImport}>Cancel</button>
+              <button
+                className={styles.modalPrimary}
+                type="button"
+                onClick={performImport}
+                disabled={importableCount === 0}
+              >
+                Import {importableCount > 0 ? importableCount : ''}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -577,6 +803,15 @@ export function WeddingPage() {
                           <option value="">— None —</option>
                           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
                           <option value={NEW_GROUP_SENTINEL}>+ New group…</option>
+                        </select>
+                      ) : col.key === 'guestOf' ? (
+                        <select
+                          className={styles.cellSelect}
+                          value={c.guestOf || ''}
+                          onChange={(e) => handleRowGuestOfChange(c.id, e.target.value)}
+                        >
+                          <option value="">— None —</option>
+                          {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
                         </select>
                       ) : renderCell(col, c)}
                     </td>
