@@ -1,4 +1,4 @@
-.page { max-width: 1200px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+.page { max-width: 96vw; width: 100%; margin: 0 auto; padding: 2rem 2vw 4rem; box-sizing: border-box; }
 .header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; flex-wrap: wrap; }
 .title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
 .count { font-size: 0.85rem; color: var(--color-text-muted); }
