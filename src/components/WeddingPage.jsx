@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './WeddingPage.module.css';
@@ -135,6 +135,7 @@ const ALL_COLUMNS = [
   { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => `${c.lastName || ''} ${c.firstName || ''}`.toLowerCase() },
   { key: 'group', label: 'Group', defaultWidth: 140, sortBy: (c) => (c.group || '').toLowerCase() },
   { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
+  { key: 'friend', label: 'Friend', defaultWidth: 180, sortBy: (c) => c.friendId || '' },
   { key: 'email', label: 'Email', defaultWidth: 220, sortBy: (c) => (c.email || '').toLowerCase() },
   { key: 'phone', label: 'Phone', defaultWidth: 140, sortBy: (c) => c.phone || '' },
   { key: 'address', label: 'Address', defaultWidth: 220, sortBy: (c) => (c.address || '').toLowerCase() },
@@ -143,7 +144,7 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
 
-const DEFAULT_VISIBLE = ['name', 'group', 'guestOf', 'email', 'phone', 'city', 'state'];
+const DEFAULT_VISIBLE = ['name', 'group', 'guestOf', 'friend', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
@@ -251,6 +252,7 @@ function renderCell(col, c) {
 export function WeddingPage() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState([]);
+  const [friends, setFriends] = useState([]);
   const [savedGroups, setSavedGroups] = useState([]);
   const [columnConfig, setColumnConfig] = useState({});
   const [loading, setLoading] = useState(true);
@@ -316,6 +318,16 @@ export function WeddingPage() {
   }, [user]);
 
   useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(
+      collection(db, 'users', user.uid, 'friends'),
+      (snap) => setFriends(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error('Friends snapshot error:', err),
+    );
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
     if (!showColumnsMenu) return;
     const onClick = (e) => {
       if (columnsMenuRef.current && !columnsMenuRef.current.contains(e.target)) {
@@ -340,6 +352,17 @@ export function WeddingPage() {
     if (!user) return;
     await setDoc(doc(db, 'users', user.uid), { weddingColumnConfig: next }, { merge: true });
   };
+
+  const friendsById = useMemo(() => {
+    const m = new Map();
+    friends.forEach((f) => m.set(f.id, f));
+    return m;
+  }, [friends]);
+
+  const friendsSorted = useMemo(
+    () => [...friends].sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [friends],
+  );
 
   const groups = useMemo(() => {
     const set = new Set(savedGroups.filter(Boolean));
@@ -386,14 +409,20 @@ export function WeddingPage() {
     }
     const col = ALL_COLUMNS.find((c) => c.key === sortKey) || ALL_COLUMNS[0];
     const sorted = [...rows].sort((a, b) => {
-      const av = col.sortBy(a);
-      const bv = col.sortBy(b);
+      let av, bv;
+      if (sortKey === 'friend') {
+        av = (friendsById.get(a.friendId)?.name || '').toLowerCase();
+        bv = (friendsById.get(b.friendId)?.name || '').toLowerCase();
+      } else {
+        av = col.sortBy(a);
+        bv = col.sortBy(b);
+      }
       if (av < bv) return sortDir === 'asc' ? -1 : 1;
       if (av > bv) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
     return sorted;
-  }, [contacts, search, stateFilter, groupFilter, sortKey, sortDir]);
+  }, [contacts, search, stateFilter, groupFilter, sortKey, sortDir, friendsById]);
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -494,6 +523,43 @@ export function WeddingPage() {
     await persistContacts(next);
   };
 
+  const handleRowFriendChange = async (id, val) => {
+    const next = contacts.map((c) => (c.id === id ? { ...c, friendId: val } : c));
+    await persistContacts(next);
+  };
+
+  const autoMatchFriends = async () => {
+    if (friends.length === 0) {
+      alert('No Friends contacts found. Add some on the Friends page first.');
+      return;
+    }
+    const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const byName = new Map();
+    const ambiguous = new Set();
+    friends.forEach((f) => {
+      const key = norm(f.name);
+      if (!key) return;
+      if (byName.has(key)) ambiguous.add(key);
+      else byName.set(key, f.id);
+    });
+    let matched = 0;
+    const next = contacts.map((c) => {
+      if (c.friendId) return c;
+      const key = norm(`${c.firstName || ''}${c.lastName || ''}`);
+      if (!key || ambiguous.has(key)) return c;
+      const fid = byName.get(key);
+      if (!fid) return c;
+      matched += 1;
+      return { ...c, friendId: fid };
+    });
+    if (matched === 0) {
+      alert('No new matches found.');
+      return;
+    }
+    await persistContacts(next);
+    alert(`Matched ${matched} contact${matched === 1 ? '' : 's'} to Friends.`);
+  };
+
   const startResize = (e, key) => {
     e.preventDefault();
     e.stopPropagation();
@@ -589,6 +655,7 @@ export function WeddingPage() {
         </select>
         <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
         <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
+        <button className={styles.toolButton} type="button" onClick={autoMatchFriends}>Auto-match Friends</button>
         <div className={styles.colMenu} ref={columnsMenuRef}>
           <button className={styles.toolButton} type="button" onClick={() => setShowColumnsMenu((s) => !s)}>
             Columns ▾
@@ -812,6 +879,20 @@ export function WeddingPage() {
                         >
                           <option value="">— None —</option>
                           {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      ) : col.key === 'friend' ? (
+                        <select
+                          className={styles.cellSelect}
+                          value={c.friendId && friendsById.has(c.friendId) ? c.friendId : ''}
+                          onChange={(e) => handleRowFriendChange(c.id, e.target.value)}
+                        >
+                          <option value="">— None —</option>
+                          {c.friendId && !friendsById.has(c.friendId) && (
+                            <option value={c.friendId} disabled>(missing friend)</option>
+                          )}
+                          {friendsSorted.map((f) => (
+                            <option key={f.id} value={f.id}>{f.name || f.email || f.id}</option>
+                          ))}
                         </select>
                       ) : renderCell(col, c)}
                     </td>
