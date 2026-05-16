@@ -134,6 +134,7 @@ const SEED_CONTACTS = [
 const ALL_COLUMNS = [
   { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => `${c.lastName || ''} ${c.firstName || ''}`.toLowerCase() },
   { key: 'group', label: 'Group', defaultWidth: 140, sortBy: (c) => (c.group || '').toLowerCase() },
+  { key: 'category', label: 'Category', defaultWidth: 140, sortBy: (c) => (c.category || '').toLowerCase() },
   { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
   { key: 'friend', label: 'Friend', defaultWidth: 180, sortBy: (c) => c.friendId || '' },
   { key: 'email', label: 'Email', defaultWidth: 220, sortBy: (c) => (c.email || '').toLowerCase() },
@@ -144,12 +145,13 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
 
-const DEFAULT_VISIBLE = ['name', 'group', 'guestOf', 'friend', 'email', 'phone', 'city', 'state'];
+const DEFAULT_VISIBLE = ['name', 'group', 'category', 'guestOf', 'friend', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
   { key: 'lastName', label: 'Last Name' },
   { key: 'group', label: 'Group' },
+  { key: 'category', label: 'Category' },
   { key: 'guestOf', label: 'Guest Of' },
   { key: 'address', label: 'Address' },
   { key: 'city', label: 'City' },
@@ -160,6 +162,7 @@ const EDITABLE_FIELDS = [
 ];
 
 const NEW_GROUP_SENTINEL = '__new_group__';
+const NEW_CATEGORY_SENTINEL = '__new_category__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
 const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
 
@@ -175,6 +178,7 @@ const IMPORT_FIELDS = [
   { key: 'state', label: 'State' },
   { key: 'zip', label: 'Zip' },
   { key: 'group', label: 'Group' },
+  { key: 'category', label: 'Category' },
   { key: 'guestOf', label: 'Guest Of' },
 ];
 
@@ -188,7 +192,8 @@ const FIELD_PATTERNS = [
   { key: 'city', patterns: [/^city$/i, /^town$/i] },
   { key: 'state', patterns: [/^state/i, /^province/i, /^region/i] },
   { key: 'zip', patterns: [/^zip/i, /^postal/i, /^post\s*code$/i] },
-  { key: 'group', patterns: [/^group/i, /^category/i, /^tag/i] },
+  { key: 'group', patterns: [/^group/i, /^tag/i] },
+  { key: 'category', patterns: [/^category/i, /^type$/i] },
   { key: 'guestOf', patterns: [/^guest\s*of/i, /^plus\s*one/i, /^\+1$/i] },
 ];
 
@@ -254,6 +259,7 @@ export function WeddingPage() {
   const [contacts, setContacts] = useState([]);
   const [friends, setFriends] = useState([]);
   const [savedGroups, setSavedGroups] = useState([]);
+  const [savedCategories, setSavedCategories] = useState([]);
   const [columnConfig, setColumnConfig] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -284,6 +290,7 @@ export function WeddingPage() {
       async (snap) => {
         const data = snap.exists() ? snap.data() : {};
         setSavedGroups(Array.isArray(data.weddingGroups) ? data.weddingGroups : []);
+        setSavedCategories(Array.isArray(data.weddingCategories) ? data.weddingCategories : []);
         setColumnConfig(data.weddingColumnConfig && typeof data.weddingColumnConfig === 'object' ? data.weddingColumnConfig : {});
         const stored = Array.isArray(data.weddingContacts) ? data.weddingContacts : null;
         setLoading(false);
@@ -348,6 +355,11 @@ export function WeddingPage() {
     await setDoc(doc(db, 'users', user.uid), { weddingGroups: next }, { merge: true });
   };
 
+  const persistCategories = async (next) => {
+    if (!user) return;
+    await setDoc(doc(db, 'users', user.uid), { weddingCategories: next }, { merge: true });
+  };
+
   const persistColumnConfig = async (next) => {
     if (!user) return;
     await setDoc(doc(db, 'users', user.uid), { weddingColumnConfig: next }, { merge: true });
@@ -369,6 +381,12 @@ export function WeddingPage() {
     contacts.forEach((c) => { if (c.group) set.add(c.group); });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [contacts, savedGroups]);
+
+  const categories = useMemo(() => {
+    const set = new Set(savedCategories.filter(Boolean));
+    contacts.forEach((c) => { if (c.category) set.add(c.category); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [contacts, savedCategories]);
 
   const states = useMemo(() => {
     const set = new Set(contacts.map((c) => c.state).filter(Boolean));
@@ -403,7 +421,7 @@ export function WeddingPage() {
     else if (groupFilter) rows = rows.filter((c) => c.group === groupFilter);
     if (q) {
       rows = rows.filter((c) => {
-        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.guestOf || ''}`.toLowerCase();
+        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.guestOf || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
@@ -473,6 +491,19 @@ export function WeddingPage() {
     setBulkValue(val);
   };
 
+  const handleBulkCategoryChange = (val) => {
+    if (val === NEW_CATEGORY_SENTINEL) {
+      const name = (prompt('New category name?') || '').trim();
+      if (!name) return;
+      const nextSaved = Array.from(new Set([...savedCategories, name])).sort((a, b) => a.localeCompare(b));
+      setSavedCategories(nextSaved);
+      persistCategories(nextSaved);
+      setBulkValue(name);
+      return;
+    }
+    setBulkValue(val);
+  };
+
   const applyBulkEdit = async () => {
     if (!user || selected.size === 0) return;
     const next = contacts.map((c) => (selected.has(c.id) ? { ...c, [bulkField]: bulkValue } : c));
@@ -504,6 +535,15 @@ export function WeddingPage() {
     persistGroups(nextSaved);
   };
 
+  const createCategory = () => {
+    const name = (prompt('New category name?') || '').trim();
+    if (!name) return;
+    if (savedCategories.includes(name)) return;
+    const nextSaved = Array.from(new Set([...savedCategories, name])).sort((a, b) => a.localeCompare(b));
+    setSavedCategories(nextSaved);
+    persistCategories(nextSaved);
+  };
+
   const handleRowGroupChange = async (id, val) => {
     let groupName = val;
     if (val === NEW_GROUP_SENTINEL) {
@@ -515,6 +555,20 @@ export function WeddingPage() {
       groupName = name;
     }
     const next = contacts.map((c) => (c.id === id ? { ...c, group: groupName } : c));
+    await persistContacts(next);
+  };
+
+  const handleRowCategoryChange = async (id, val) => {
+    let catName = val;
+    if (val === NEW_CATEGORY_SENTINEL) {
+      const name = (prompt('New category name?') || '').trim();
+      if (!name) return;
+      const nextSaved = Array.from(new Set([...savedCategories, name])).sort((a, b) => a.localeCompare(b));
+      setSavedCategories(nextSaved);
+      persistCategories(nextSaved);
+      catName = name;
+    }
+    const next = contacts.map((c) => (c.id === id ? { ...c, category: catName } : c));
     await persistContacts(next);
   };
 
@@ -682,6 +736,7 @@ export function WeddingPage() {
           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
+        <button className={styles.toolButton} type="button" onClick={createCategory}>+ Category</button>
         <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
         <button className={styles.toolButton} type="button" onClick={autoMatchFriends}>Auto-match Friends</button>
         <div className={styles.colMenu} ref={columnsMenuRef}>
@@ -717,6 +772,12 @@ export function WeddingPage() {
               <option value="">— (clear)</option>
               {groups.map((g) => <option key={g} value={g}>{g}</option>)}
               <option value={NEW_GROUP_SENTINEL}>+ New group…</option>
+            </select>
+          ) : bulkField === 'category' ? (
+            <select className={styles.bulkInput} value={bulkValue} onChange={(e) => handleBulkCategoryChange(e.target.value)}>
+              <option value="">— (clear)</option>
+              {categories.map((g) => <option key={g} value={g}>{g}</option>)}
+              <option value={NEW_CATEGORY_SENTINEL}>+ New category…</option>
             </select>
           ) : bulkField === 'guestOf' ? (
             <select className={styles.bulkInput} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}>
@@ -898,6 +959,16 @@ export function WeddingPage() {
                           <option value="">— None —</option>
                           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
                           <option value={NEW_GROUP_SENTINEL}>+ New group…</option>
+                        </select>
+                      ) : col.key === 'category' ? (
+                        <select
+                          className={styles.cellSelect}
+                          value={c.category || ''}
+                          onChange={(e) => handleRowCategoryChange(c.id, e.target.value)}
+                        >
+                          <option value="">— None —</option>
+                          {categories.map((g) => <option key={g} value={g}>{g}</option>)}
+                          <option value={NEW_CATEGORY_SENTINEL}>+ New category…</option>
                         </select>
                       ) : col.key === 'guestOf' ? (
                         <select
