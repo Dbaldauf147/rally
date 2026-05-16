@@ -26,6 +26,11 @@
 .thLabel { display: inline-flex; align-items: center; }
 .resizer { position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: col-resize; user-select: none; }
 .resizer:hover { background: var(--color-accent); opacity: 0.35; }
+
+.filterRow th { padding: 0.35rem 0.5rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); cursor: default; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.filterCell { font-size: 0.85rem; }
+.filterInput, .filterSelect { width: 100%; padding: 0.3rem 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-size: 0.8rem; color: var(--color-text); box-sizing: border-box; }
+.filterInput:focus, .filterSelect:focus { outline: none; border-color: var(--color-accent); }
 :global(body.rally-col-resizing) { cursor: col-resize; user-select: none; }
 :global(body.rally-col-resizing) * { cursor: col-resize !important; }
 .sortArrow { margin-left: 0.3rem; color: var(--color-accent); font-size: 0.7rem; }

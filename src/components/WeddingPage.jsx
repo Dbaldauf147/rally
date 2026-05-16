@@ -263,8 +263,7 @@ export function WeddingPage() {
   const [columnConfig, setColumnConfig] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [stateFilter, setStateFilter] = useState('');
-  const [groupFilter, setGroupFilter] = useState('');
+  const [columnFilters, setColumnFilters] = useState({});
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [selected, setSelected] = useState(() => new Set());
@@ -415,10 +414,38 @@ export function WeddingPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const containsCi = (haystack, needle) => (haystack || '').toLowerCase().includes(needle.toLowerCase());
+    const passes = (c, key, val) => {
+      if (!val) return true;
+      switch (key) {
+        case 'name': return containsCi(`${c.firstName || ''} ${c.lastName || ''}`, val);
+        case 'group':
+          if (val === '__none__') return !c.group;
+          return c.group === val;
+        case 'category':
+          if (val === '__none__') return !c.category;
+          return c.category === val;
+        case 'guestOf':
+          if (val === '__none__') return !c.guestOf;
+          return c.guestOf === val;
+        case 'state': return c.state === val;
+        case 'friend':
+          if (val === '__linked__') return !!(c.friendId && friendsById.has(c.friendId));
+          if (val === '__unlinked__') return !c.friendId || !friendsById.has(c.friendId);
+          return c.friendId === val;
+        case 'email': return containsCi(c.email, val);
+        case 'phone': return containsCi(c.phone, val);
+        case 'address': return containsCi(c.address, val);
+        case 'city': return containsCi(c.city, val);
+        case 'zip': return containsCi(c.zip, val);
+        default: return true;
+      }
+    };
     let rows = contacts;
-    if (stateFilter) rows = rows.filter((c) => c.state === stateFilter);
-    if (groupFilter === '__none__') rows = rows.filter((c) => !c.group);
-    else if (groupFilter) rows = rows.filter((c) => c.group === groupFilter);
+    const activeKeys = Object.keys(columnFilters).filter((k) => columnFilters[k]);
+    if (activeKeys.length) {
+      rows = rows.filter((c) => activeKeys.every((k) => passes(c, k, columnFilters[k])));
+    }
     if (q) {
       rows = rows.filter((c) => {
         const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.guestOf || ''}`.toLowerCase();
@@ -440,7 +467,7 @@ export function WeddingPage() {
       return 0;
     });
     return sorted;
-  }, [contacts, search, stateFilter, groupFilter, sortKey, sortDir, friendsById]);
+  }, [contacts, search, columnFilters, sortKey, sortDir, friendsById]);
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -667,6 +694,72 @@ export function WeddingPage() {
   };
 
   const totalWidth = 36 + visibleColumns.reduce((sum, col) => sum + widthFor(col.key), 0);
+
+  const setColumnFilter = (key, val) => {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      if (val) next[key] = val;
+      else delete next[key];
+      return next;
+    });
+  };
+
+  const renderFilterCell = (col) => {
+    const v = columnFilters[col.key] || '';
+    const onSel = (e) => setColumnFilter(col.key, e.target.value);
+    const onTxt = (e) => setColumnFilter(col.key, e.target.value);
+    switch (col.key) {
+      case 'group':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__none__">— None —</option>
+            {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        );
+      case 'category':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__none__">— None —</option>
+            {categories.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        );
+      case 'guestOf':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__none__">— None —</option>
+            {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        );
+      case 'state':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            {states.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        );
+      case 'friend':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__linked__">Linked</option>
+            <option value="__unlinked__">Unlinked</option>
+            {friendsSorted.map((f) => <option key={f.id} value={f.id}>{f.name || f.email || f.id}</option>)}
+          </select>
+        );
+      default:
+        return (
+          <input
+            className={styles.filterInput}
+            value={v}
+            onChange={onTxt}
+            placeholder="Filter…"
+          />
+        );
+    }
+  };
   const importColCount = importRows.reduce((m, r) => Math.max(m, r.length), 0);
   const importPreviewRows = importHasHeader ? importRows.slice(1) : importRows;
 
@@ -726,15 +819,9 @@ export function WeddingPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select className={styles.select} value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
-          <option value="">All states</option>
-          {states.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select className={styles.select} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
-          <option value="">All groups</option>
-          <option value="__none__">No group</option>
-          {groups.map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
+        {Object.values(columnFilters).some(Boolean) && (
+          <button className={styles.toolButton} type="button" onClick={() => setColumnFilters({})}>Clear filters</button>
+        )}
         <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
         <button className={styles.toolButton} type="button" onClick={createCategory}>+ Category</button>
         <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
@@ -921,6 +1008,14 @@ export function WeddingPage() {
                       onClick={(e) => e.stopPropagation()}
                       title="Drag to resize"
                     />
+                  </th>
+                ))}
+              </tr>
+              <tr className={styles.filterRow}>
+                <th className={styles.checkCell} />
+                {visibleColumns.map((col) => (
+                  <th key={col.key} className={styles.filterCell} onClick={(e) => e.stopPropagation()}>
+                    {renderFilterCell(col)}
                   </th>
                 ))}
               </tr>
