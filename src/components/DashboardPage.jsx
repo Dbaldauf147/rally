@@ -60,10 +60,12 @@ export function DashboardPage() {
           // Filter out null/invalid entries (EventDetail does the same at line 300)
           const memberEntries = Object.entries(merged).filter(([, m]) => m != null && typeof m === 'object');
           // Per-member own status, then apply plus-one inheritance (matches EventDetail getGroup)
+          // Voted = voted on every open option, so a newly suggested date drops the bar
+          // until everyone has weighed in on it.
           const ownStatus = {};
           for (const [uid, m] of memberEntries) {
             if (m.skipVote) ownStatus[uid] = 'skip';
-            else if ((userOpenVoteCount[uid] || 0) > 0) ownStatus[uid] = 'voted';
+            else if (openDocs.length > 0 && (userOpenVoteCount[uid] || 0) >= openDocs.length) ownStatus[uid] = 'voted';
             else ownStatus[uid] = 'waiting';
           }
           const priority = { voted: 0, skip: 1, waiting: 2 };
