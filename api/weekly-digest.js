@@ -43,12 +43,24 @@ export default async function handler(req, res) {
   } catch {
     return res.status(200).json({ sent: false, reason: `No Firebase user for ${ownerFilter}` });
   }
+  // Mirror the frontend sanitizeKey so we catch events where the user was invited
+  // by email before signing up.
+  const emailKey = ownerFilter.replace(/[.@#$/\[\]]/g, '_');
 
   try {
-    const eventsSnap = await db.collection('events').where('createdBy', '==', ownerUid).get();
+    const eventsCol = db.collection('events');
+    const [createdSnap, memberSnap, emailSnap] = await Promise.all([
+      eventsCol.where('createdBy', '==', ownerUid).get(),
+      eventsCol.where('memberUids', 'array-contains', ownerUid).get(),
+      eventsCol.where('memberUids', 'array-contains', emailKey).get(),
+    ]);
+    const eventsById = new Map();
+    for (const snap of [createdSnap, memberSnap, emailSnap]) {
+      for (const d of snap.docs) eventsById.set(d.id, d);
+    }
     const unscheduled = [];
 
-    for (const eventDoc of eventsSnap.docs) {
+    for (const eventDoc of eventsById.values()) {
       const event = eventDoc.data();
       if (event.stage === 'finalized') continue;
 
