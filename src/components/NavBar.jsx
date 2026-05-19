@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './NavBar.module.css';
@@ -5,6 +6,7 @@ import styles from './NavBar.module.css';
 export function NavBar() {
   const { user, logOut } = useAuth();
   const navigate = useNavigate();
+  const [showEmail, setShowEmail] = useState(false);
 
   return (
     <nav className={styles.nav}>
@@ -23,7 +25,14 @@ export function NavBar() {
           )}
         </div>
         <div className={styles.right}>
-          <span className={styles.userName}>{user?.displayName || user?.email}</span>
+          <button
+            type="button"
+            className={styles.userName}
+            onClick={() => setShowEmail(v => !v)}
+            title={showEmail ? 'Hide email' : 'Show email'}
+          >
+            {showEmail ? (user?.email || '—') : (user?.displayName || user?.email)}
+          </button>
           <button className={styles.logoutBtn} onClick={async () => { await logOut(); navigate('/login'); }}>Sign out</button>
         </div>
       </div>

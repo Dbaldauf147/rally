@@ -11,7 +11,7 @@ if (!getApps().length) {
   }
 }
 
-const DEFAULT_RECIPIENT = 'baldaufdanwork@gmail.com';
+const DEFAULT_RECIPIENT = 'baldaufdan@gmail.com';
 const APP_URL = 'https://rally-seven-theta.vercel.app';
 
 export default async function handler(req, res) {

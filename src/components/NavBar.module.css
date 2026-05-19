@@ -6,6 +6,7 @@
 .link:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .linkActive { background: var(--color-accent-light); color: var(--color-accent); }
 .right { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
-.userName { font-size: 0.82rem; color: var(--color-text-secondary); }
+.userName { font-size: 0.82rem; color: var(--color-text-secondary); background: none; border: none; padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; }
+.userName:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .logoutBtn { background: none; border: none; color: var(--color-text-muted); font-size: 0.82rem; cursor: pointer; padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); }
 .logoutBtn:hover { color: var(--color-danger); background: var(--color-danger-light); }
