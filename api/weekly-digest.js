@@ -195,6 +195,9 @@ export default async function handler(req, res) {
           <tbody>${rows}</tbody>
         </table>
         <a href="${APP_URL}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.6rem 1.25rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 1.5rem;">Open Rally</a>
+        <div style="margin-top: 1.5rem; padding: 0.9rem 1rem; background: #eef2ff; border-left: 3px solid #4f46e5; border-radius: 6px; color: #1f2937; font-size: 0.82rem; line-height: 1.45;">
+          <strong>✈️ Flight booking tip:</strong> Best time to book is <strong>30–45 days out</strong> for domestic flights and <strong>3–6 months out</strong> for international.
+        </div>
         <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">Sent weekly on Sundays. Reply to unsubscribe.</p>
       </div>`;
 
