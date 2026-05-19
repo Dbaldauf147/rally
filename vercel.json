@@ -1,4 +1,7 @@
 {
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
-  "crons": [{ "path": "/api/check-reminders", "schedule": "0 14 * * *" }]
+  "crons": [
+    { "path": "/api/check-reminders", "schedule": "0 14 * * *" },
+    { "path": "/api/weekly-digest", "schedule": "0 14 * * 0" }
+  ]
 }
