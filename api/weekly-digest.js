@@ -60,31 +60,67 @@ export default async function handler(req, res) {
     }
     const unscheduled = [];
 
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
     for (const eventDoc of eventsById.values()) {
       const event = eventDoc.data();
       if (event.stage === 'finalized') continue;
 
       const members = event.members || {};
 
-      // Tally open date options and votes so the digest shows progress
       const dateOptsSnap = await db.collection('events').doc(eventDoc.id).collection('dateOptions').get();
-      const openOpts = dateOptsSnap.docs.filter(d => !d.data().closed);
-      const voterUids = new Set();
-      for (const d of openOpts) {
-        const votes = d.data().votes || {};
+      const openOpts = dateOptsSnap.docs
+        .map(d => d.data())
+        .filter(d => !d.closed && !d.noVote);
+
+      // Earliest start across open options that hasn't already passed
+      let closestStart = null;
+      for (const opt of openOpts) {
+        if (!opt.startDate) continue;
+        const start = new Date(opt.startDate + 'T00:00:00');
+        if (isNaN(start) || start < startOfToday) continue;
+        if (!closestStart || start < closestStart) closestStart = start;
+      }
+      const daysOut = closestStart
+        ? Math.round((closestStart - startOfToday) / (1000 * 60 * 60 * 24))
+        : null;
+
+      // Per-uid count of open options they've voted on (anything but 'none')
+      const userOpenVoteCount = {};
+      for (const opt of openOpts) {
+        const votes = opt.votes || {};
         for (const [uid, v] of Object.entries(votes)) {
-          if (v.vote && v.vote !== 'none') voterUids.add(uid);
+          if (v?.vote && v.vote !== 'none') {
+            userOpenVoteCount[uid] = (userOpenVoteCount[uid] || 0) + 1;
+          }
         }
       }
-      const memberCount = Object.values(members).filter(m => m && typeof m === 'object' && !m.skipVote).length;
+
+      // Voting members = anyone in members{} who isn't skipVote and isn't a null marker
+      const votingMembers = Object.entries(members).filter(
+        ([, m]) => m && typeof m === 'object' && !m.skipVote
+      );
+      const totalVoters = votingMembers.length;
+      const fullyVotedUids = new Set(
+        votingMembers
+          .filter(([uid]) => openOpts.length > 0 && (userOpenVoteCount[uid] || 0) >= openOpts.length)
+          .map(([uid]) => uid)
+      );
+      const waitingOn = votingMembers
+        .filter(([uid]) => !fullyVotedUids.has(uid))
+        .map(([, m]) => m.name || m.email || 'Unnamed');
 
       unscheduled.push({
         id: eventDoc.id,
         title: event.title || 'Untitled event',
         location: event.location || '',
         dateOptionsCount: openOpts.length,
-        voted: voterUids.size,
-        memberCount,
+        daysOut,
+        closestStart,
+        votedCount: fullyVotedUids.size,
+        totalVoters,
+        waitingOn,
         createdAt: event.createdAt?.toDate?.() || null,
       });
     }
@@ -93,36 +129,71 @@ export default async function handler(req, res) {
       return res.status(200).json({ sent: false, reason: 'No unscheduled events', recipient });
     }
 
+    // Sort: events with a closest date first (soonest first), then no-date events by createdAt
     unscheduled.sort((a, b) => {
+      if (a.daysOut != null && b.daysOut != null) return a.daysOut - b.daysOut;
+      if (a.daysOut != null) return -1;
+      if (b.daysOut != null) return 1;
       const at = a.createdAt?.getTime?.() || 0;
       const bt = b.createdAt?.getTime?.() || 0;
       return at - bt;
     });
 
+    const cellStyle = 'padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 0.88rem; color: #1f2937;';
+    const headStyle = 'padding: 10px 12px; border-bottom: 2px solid #d1d5db; text-align: left; font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; background: #f9fafb;';
+
+    const formatDate = (d) =>
+      d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
+    const formatDaysOut = (n) => {
+      if (n == null) return '<span style="color:#9ca3af;">no upcoming option</span>';
+      if (n === 0) return '<strong style="color:#dc2626;">today</strong>';
+      if (n === 1) return '<strong style="color:#dc2626;">tomorrow</strong>';
+      const color = n <= 7 ? '#dc2626' : n <= 30 ? '#d97706' : '#1f2937';
+      return `<strong style="color:${color};">${n} day${n === 1 ? '' : 's'}</strong>`;
+    };
+
     const rows = unscheduled.map(e => {
       const link = `${APP_URL}/event/${e.id}`;
-      const meta = [
-        e.location ? `📍 ${e.location}` : null,
-        e.dateOptionsCount > 0
-          ? `🗓 ${e.dateOptionsCount} date option${e.dateOptionsCount === 1 ? '' : 's'} · ${e.voted}/${e.memberCount} voted`
-          : `🗓 No date options yet`,
-      ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+      const titleCell = `
+        <a href="${link}" style="font-weight:600; color:#1a1a1a; text-decoration:none;">${escapeHtml(e.title)}</a>
+        ${e.location ? `<div style="color:#6b7280; font-size:0.78rem; margin-top:2px;">📍 ${escapeHtml(e.location)}</div>` : ''}`;
+      const dateCell = e.closestStart
+        ? `${formatDaysOut(e.daysOut)}<div style="color:#6b7280; font-size:0.78rem; margin-top:2px;">${escapeHtml(formatDate(e.closestStart))}</div>`
+        : (e.dateOptionsCount === 0
+          ? '<span style="color:#9ca3af;">No date options yet</span>'
+          : formatDaysOut(null));
+      const voteCell = e.totalVoters > 0
+        ? `${e.votedCount}/${e.totalVoters} <span style="color:#6b7280;">voted on all</span>`
+        : '<span style="color:#9ca3af;">No members</span>';
+      const waitingCell = e.waitingOn.length === 0
+        ? '<span style="color:#16a34a;">Everyone voted ✓</span>'
+        : escapeHtml(e.waitingOn.join(', '));
       return `
         <tr>
-          <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
-            <a href="${link}" style="font-size: 1rem; font-weight: 600; color: #1a1a1a; text-decoration: none;">${escapeHtml(e.title)}</a>
-            <div style="color: #6b7280; font-size: 0.85rem; margin-top: 4px;">${meta}</div>
-          </td>
+          <td style="${cellStyle}">${titleCell}</td>
+          <td style="${cellStyle}">${dateCell}</td>
+          <td style="${cellStyle} white-space: nowrap;">${voteCell}</td>
+          <td style="${cellStyle} color:#374151;">${waitingCell}</td>
         </tr>`;
     }).join('');
 
     const subject = `Rally: ${unscheduled.length} event${unscheduled.length === 1 ? '' : 's'} still need${unscheduled.length === 1 ? 's' : ''} a date`;
 
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 560px; margin: 0 auto; padding: 2rem;">
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 760px; margin: 0 auto; padding: 2rem;">
         <h1 style="font-size: 1.5rem; color: #4f46e5; margin: 0 0 0.25rem;">Rally weekly digest</h1>
         <p style="color: #525252; margin: 0 0 1.5rem;">${unscheduled.length} event${unscheduled.length === 1 ? '' : 's'} still waiting on a date.</p>
-        <table style="width: 100%; border-collapse: collapse;">${rows}</table>
+        <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+          <thead>
+            <tr>
+              <th style="${headStyle}">Event</th>
+              <th style="${headStyle}">Closest date</th>
+              <th style="${headStyle}">Voted</th>
+              <th style="${headStyle}">Waiting on</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
         <a href="${APP_URL}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.6rem 1.25rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 1.5rem;">Open Rally</a>
         <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">Sent weekly on Sundays. Reply to unsubscribe.</p>
       </div>`;
