@@ -2,6 +2,7 @@
 // have a finalized date yet (where the configured recipient is the owner).
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -36,8 +37,15 @@ export default async function handler(req, res) {
     return res.status(200).json({ skipped: true, reason: 'Firebase Admin not configured. Set FIREBASE_SERVICE_ACCOUNT env var.' });
   }
 
+  let ownerUid;
   try {
-    const eventsSnap = await db.collection('events').get();
+    ownerUid = (await getAuth().getUserByEmail(ownerFilter)).uid;
+  } catch {
+    return res.status(200).json({ sent: false, reason: `No Firebase user for ${ownerFilter}` });
+  }
+
+  try {
+    const eventsSnap = await db.collection('events').where('createdBy', '==', ownerUid).get();
     const unscheduled = [];
 
     for (const eventDoc of eventsSnap.docs) {
@@ -45,9 +53,6 @@ export default async function handler(req, res) {
       if (event.stage === 'finalized') continue;
 
       const members = event.members || {};
-      const ownerEntry = Object.entries(members).find(([, m]) => m?.role === 'owner');
-      const ownerEmail = ownerEntry?.[1]?.email?.toLowerCase();
-      if (ownerEmail !== ownerFilter) continue;
 
       // Tally open date options and votes so the digest shows progress
       const dateOptsSnap = await db.collection('events').doc(eventDoc.id).collection('dateOptions').get();
