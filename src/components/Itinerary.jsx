@@ -3696,7 +3696,6 @@ export function Itinerary({ event, onSave, canEdit }) {
                               <li
                                 key={s.id}
                                 className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}
-                                draggable={canEdit}
                                 onDragStart={(e) => {
                                   if (!canEdit) return;
                                   setDragBullet({ subId: s.id, fromDateKey: d.key, highlightId: d.destHighlight.id });
@@ -3708,12 +3707,15 @@ export function Itinerary({ event, onSave, canEdit }) {
                                   setDragOverDateKey(null);
                                 }}
                                 style={{
-                                  cursor: canEdit ? 'grab' : undefined,
                                   opacity: isBeingDragged ? 0.4 : 1,
                                 }}
-                                title={canEdit ? 'Drag to another day with the same destination' : undefined}
                               >
-                                <span className={styles.subHighlightDot}>•</span>
+                                <span
+                                  className={styles.subHighlightDot}
+                                  draggable={canEdit}
+                                  title={canEdit ? 'Drag to another day with the same destination' : undefined}
+                                  style={canEdit ? { cursor: 'grab', userSelect: 'none' } : undefined}
+                                >{canEdit ? '⋮⋮' : '•'}</span>
                                 <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flexWrap: 'wrap' }}>
                                   <span
                                     onClick={canEdit ? () => toggleBulletSkipped(d.destHighlight.id, s.id) : undefined}
