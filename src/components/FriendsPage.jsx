@@ -611,7 +611,6 @@ export function FriendsPage() {
       await deleteDoc(doc(db, 'users', user.uid, 'friends', id)).catch(() => {});
     }
     setSelectedIds(new Set());
-    setSelectMode(false);
     setResult({ type: 'success', message: `${selectedIds.size} contacts deleted` });
     setTimeout(() => setResult(null), 3000);
   }
@@ -891,7 +890,6 @@ export function FriendsPage() {
     XLSX.writeFile(wb, `rally-contacts-${datestamp}.xlsx`);
   }
 
-  const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkAction, setShowBulkAction] = useState(null); // null | 'delete' | 'group' | 'tag'
   const [bulkValue, setBulkValue] = useState('');
@@ -1012,9 +1010,6 @@ export function FriendsPage() {
           <p className={styles.desc}>{friends.length} contact{friends.length !== 1 ? 's' : ''}{groups.length > 0 && ` in ${groups.length} group${groups.length !== 1 ? 's' : ''}`}</p>
         </div>
         <div className={styles.actions}>
-          <button className={selectMode ? styles.addBtn : styles.templateBtn} onClick={() => { setSelectMode(p => !p); setSelectedIds(new Set()); }}>
-            {selectMode ? 'Done' : 'Select'}
-          </button>
           <button className={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add Contact</button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileSelect} />
           <button className={styles.uploadBtn} onClick={() => fileRef.current?.click()}>Upload Excel</button>
@@ -1149,12 +1144,12 @@ export function FriendsPage() {
         );
       })()}
 
-      {/* Select mode toolbar */}
-      {selectMode && (
+      {/* Bulk-action toolbar — visible whenever any contact is selected */}
+      {selectedIds.size > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.75rem', background: 'var(--color-accent-light)', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-accent)' }}>{selectedIds.size} selected</span>
           <button onClick={selectAll} style={{ background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>Select All ({filtered.length})</button>
-          {selectedIds.size > 0 && <button onClick={selectNone} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit' }}>Clear</button>}
+          <button onClick={selectNone} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit' }}>Clear</button>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
             <button onClick={() => { setShowAddToTrip(true); loadEvents(); }} disabled={selectedIds.size === 0} style={{ padding: '0.3rem 0.65rem', border: '1px solid var(--color-accent)', borderRadius: '6px', background: 'var(--color-accent)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', color: '#fff', opacity: selectedIds.size === 0 ? 0.4 : 1 }}>Add to Event</button>
             <button onClick={() => setShowBulkAction('group')} disabled={selectedIds.size === 0} style={{ padding: '0.3rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: '6px', background: 'var(--color-surface)', fontSize: '0.75rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--color-text-secondary)', opacity: selectedIds.size === 0 ? 0.4 : 1 }}>Set Group</button>
@@ -1266,7 +1261,18 @@ export function FriendsPage() {
           <table className={styles.table}>
             <thead>
               <tr>
-                {selectMode && <th className={styles.thCheckbox} />}
+                <th className={styles.thCheckbox}>
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(f => selectedIds.has(f.id))}
+                    onChange={() => {
+                      const allSelected = filtered.length > 0 && filtered.every(f => selectedIds.has(f.id));
+                      if (allSelected) selectNone(); else selectAll();
+                    }}
+                    title="Select all visible"
+                    style={{ accentColor: 'var(--color-accent)' }}
+                  />
+                </th>
                 <th className={styles.th}>Name</th>
                 <th className={styles.th}>Email</th>
                 <th className={styles.th}>Phone</th>
@@ -1288,18 +1294,16 @@ export function FriendsPage() {
                   <tr
                     key={f.id}
                     className={`${styles.tr} ${selected ? styles.trSelected : ''}`}
-                    onClick={() => selectMode ? toggleSelect(f.id) : openEdit(f)}
+                    onClick={() => openEdit(f)}
                   >
-                    {selectMode && (
-                      <td className={styles.tdCheckbox} onClick={e => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={() => toggleSelect(f.id)}
-                          style={{ accentColor: 'var(--color-accent)' }}
-                        />
-                      </td>
-                    )}
+                    <td className={styles.tdCheckbox} onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleSelect(f.id)}
+                        style={{ accentColor: 'var(--color-accent)' }}
+                      />
+                    </td>
                     <td className={`${styles.td} ${styles.tdName}`}>{f.name || <span className={styles.tdMuted}>—</span>}</td>
                     <td className={styles.td}>{f.email || <span className={styles.tdMuted}>—</span>}</td>
                     <td className={styles.td}>{f.phone || <span className={styles.tdMuted}>—</span>}</td>
