@@ -1262,52 +1262,72 @@ export function FriendsPage() {
           </div>
         </div>
       ) : (
-        <div className={styles.grid}>
-          {(() => {
-            // Group linked pairs together, render singles separately
-            const rendered = new Set();
-            const items = [];
-
-            function renderCard(f) {
-              return (
-                <div key={f.id} className={styles.card} onClick={() => selectMode ? toggleSelect(f.id) : openEdit(f)} style={{ cursor: 'pointer', outline: selectedIds.has(f.id) ? '2px solid var(--color-accent)' : 'none' }}>
-                  {selectMode && (
-                    <input type="checkbox" checked={selectedIds.has(f.id)} onChange={() => toggleSelect(f.id)} onClick={e => e.stopPropagation()} style={{ accentColor: 'var(--color-accent)', flexShrink: 0 }} />
-                  )}
-                  <div className={styles.cardInfo}>
-                    <div className={styles.cardName}>{f.name}</div>
-                  </div>
-                  <button className={styles.cardDelete} onClick={e => { e.stopPropagation(); removeFriend(f.id); }} title="Remove">&times;</button>
-                </div>
-              );
-            }
-
-            for (const f of filtered) {
-              if (rendered.has(f.id)) continue;
-              rendered.add(f.id);
-              // Find linked partner
-              const partner = f.linkedTo ? filtered.find(x => x.id === f.linkedTo) : null;
-              const reversePartner = !partner ? filtered.find(x => x.linkedTo === f.id && !rendered.has(x.id)) : null;
-              const linked = partner || reversePartner;
-
-              if (linked && !rendered.has(linked.id)) {
-                rendered.add(linked.id);
-                items.push(
-                  <div key={`pair-${f.id}`} className={styles.pair}>
-                    {renderCard(f)}
-                    {renderCard(linked)}
-                  </div>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                {selectMode && <th className={styles.thCheckbox} />}
+                <th className={styles.th}>Name</th>
+                <th className={styles.th}>Email</th>
+                <th className={styles.th}>Phone</th>
+                <th className={styles.th}>Group</th>
+                <th className={styles.th}>Guest</th>
+                <th className={styles.th}>Tags</th>
+                <th className={styles.th}>Linked</th>
+                <th className={styles.thAction} />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(f => {
+                const partner = f.linkedTo ? filtered.find(x => x.id === f.linkedTo) : null;
+                const reversePartner = !partner ? friends.find(x => x.linkedTo === f.id) : null;
+                const linked = partner || reversePartner;
+                const tags = (f.tag || '').split(';').map(t => t.trim()).filter(Boolean);
+                const selected = selectedIds.has(f.id);
+                return (
+                  <tr
+                    key={f.id}
+                    className={`${styles.tr} ${selected ? styles.trSelected : ''}`}
+                    onClick={() => selectMode ? toggleSelect(f.id) : openEdit(f)}
+                  >
+                    {selectMode && (
+                      <td className={styles.tdCheckbox} onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleSelect(f.id)}
+                          style={{ accentColor: 'var(--color-accent)' }}
+                        />
+                      </td>
+                    )}
+                    <td className={`${styles.td} ${styles.tdName}`}>{f.name || <span className={styles.tdMuted}>—</span>}</td>
+                    <td className={styles.td}>{f.email || <span className={styles.tdMuted}>—</span>}</td>
+                    <td className={styles.td}>{f.phone || <span className={styles.tdMuted}>—</span>}</td>
+                    <td className={styles.td}>
+                      {f.group ? <span className={styles.cardGroup}>{f.group}</span> : <span className={styles.tdMuted}>—</span>}
+                    </td>
+                    <td className={styles.td}>{f.guest || <span className={styles.tdMuted}>—</span>}</td>
+                    <td className={styles.td}>
+                      {tags.length === 0
+                        ? <span className={styles.tdMuted}>—</span>
+                        : tags.map((t, i) => <span key={i} className={styles.tagChip}>{t}</span>)}
+                    </td>
+                    <td className={styles.td}>
+                      {linked ? <span className={styles.linkedChip}>↔ {linked.name}</span> : <span className={styles.tdMuted}>—</span>}
+                    </td>
+                    <td className={styles.tdAction} onClick={e => e.stopPropagation()}>
+                      <button
+                        className={styles.rowDelete}
+                        onClick={() => removeFriend(f.id)}
+                        title="Remove"
+                        aria-label="Remove"
+                      >&times;</button>
+                    </td>
+                  </tr>
                 );
-              } else {
-                items.push(
-                  <div key={`single-${f.id}`} className={styles.single}>
-                    {renderCard(f)}
-                  </div>
-                );
-              }
-            }
-            return items;
-          })()}
+              })}
+            </tbody>
+          </table>
         </div>
       )}
       </>)}
