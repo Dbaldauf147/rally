@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,6 +10,7 @@ const SLOT_MIN = 30;
 const SLOT_COUNT = (DAY_END_MIN - DAY_START_MIN) / SLOT_MIN;
 
 const DEFAULT_TEMPLATES = [
+  { id: 'tpl-breakfast', name: 'Breakfast', durationMin: 60 },
   { id: 'tpl-workout', name: 'Workout', durationMin: 90 },
   { id: 'tpl-lunch', name: 'Lunch', durationMin: 60 },
   { id: 'tpl-dinner', name: 'Dinner', durationMin: 60 },
@@ -17,6 +18,7 @@ const DEFAULT_TEMPLATES = [
 ];
 
 const DEFAULT_ITEMS_FOR_TODAY = [
+  { startMin: 8 * 60, durationMin: 60, label: 'Breakfast' },
   { startMin: 12 * 60, durationMin: 60, label: 'Lunch' },
   { startMin: 18 * 60, durationMin: 60, label: 'Dinner' },
 ];
@@ -52,15 +54,12 @@ function formatDateHeading(d = new Date()) {
   });
 }
 
-function buildSlotMap(items) {
+function buildStartMap(items) {
   const map = new Map();
   items.forEach((item) => {
-    const start = item.startMin;
-    const end = start + item.durationMin;
-    for (let t = start; t < end; t += SLOT_MIN) {
-      if (t < DAY_START_MIN || t >= DAY_END_MIN) continue;
-      map.set(t, { item, isStart: t === start });
-    }
+    const arr = map.get(item.startMin) || [];
+    arr.push(item);
+    map.set(item.startMin, arr);
   });
   return map;
 }
@@ -74,13 +73,15 @@ export function TodayPage() {
   const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTemplateId, setActiveTemplateId] = useState(null);
   const [editingSlot, setEditingSlot] = useState(null);
   const [draft, setDraft] = useState('');
   const [tplName, setTplName] = useState('');
   const [tplHours, setTplHours] = useState('');
   const [tplMins, setTplMins] = useState('30');
-  const [seedAttempted, setSeedAttempted] = useState(false);
+  const [dragOverSlot, setDragOverSlot] = useState(null);
+  const seedRanRef = useRef(false);
+  const migrationRanRef = useRef(false);
+  const dragRef = useRef(null);
 
   const dateKey = todayKey();
 
@@ -97,21 +98,20 @@ export function TodayPage() {
           : {};
         const todayItems = Array.isArray(schedules[dateKey]?.items) ? schedules[dateKey].items : null;
 
-        if (tpls) {
-          setTemplates(tpls);
-        } else if (!seedAttempted) {
-          setSeedAttempted(true);
+        // First-time seed for brand-new users / days
+        if (!tpls && !seedRanRef.current) {
+          seedRanRef.current = true;
           try {
             await setDoc(ref, { todayTemplates: DEFAULT_TEMPLATES }, { merge: true });
           } catch (err) {
             console.error('Failed to seed today templates:', err);
             setTemplates(DEFAULT_TEMPLATES);
           }
+        } else if (tpls) {
+          setTemplates(tpls);
         }
 
-        if (todayItems) {
-          setItems(todayItems);
-        } else if (!seedAttempted) {
+        if (!todayItems && !seedRanRef.current) {
           try {
             const seeded = DEFAULT_ITEMS_FOR_TODAY.map((it) => ({ id: newId(), ...it }));
             await setDoc(
@@ -123,6 +123,47 @@ export function TodayPage() {
             console.error('Failed to seed today schedule:', err);
             setItems(DEFAULT_ITEMS_FOR_TODAY.map((it) => ({ id: newId(), ...it })));
           }
+        } else if (todayItems) {
+          setItems(todayItems);
+        }
+
+        // One-off migrations for users who seeded before Breakfast was a default
+        if (!migrationRanRef.current && (tpls || todayItems)) {
+          migrationRanRef.current = true;
+          const patch = {};
+          if (tpls) {
+            const existingNames = new Set(tpls.map((t) => (t.name || '').toLowerCase()));
+            const missing = DEFAULT_TEMPLATES.filter(
+              (t) => !existingNames.has(t.name.toLowerCase())
+            );
+            if (missing.length > 0) {
+              patch.todayTemplates = [...tpls, ...missing];
+            }
+          }
+          if (todayItems) {
+            const hasBreakfast = todayItems.some(
+              (it) => (it.label || '').toLowerCase() === 'breakfast'
+            );
+            const hasItemAt8 = todayItems.some((it) => it.startMin === DAY_START_MIN);
+            if (!hasBreakfast && !hasItemAt8) {
+              patch.todaySchedules = {
+                ...schedules,
+                [dateKey]: {
+                  items: [
+                    ...todayItems,
+                    { id: newId(), startMin: DAY_START_MIN, durationMin: 60, label: 'Breakfast' },
+                  ],
+                },
+              };
+            }
+          }
+          if (Object.keys(patch).length > 0) {
+            try {
+              await setDoc(ref, patch, { merge: true });
+            } catch (err) {
+              console.error('Today migration failed:', err);
+            }
+          }
         }
 
         setLoading(false);
@@ -133,9 +174,9 @@ export function TodayPage() {
       },
     );
     return unsub;
-  }, [user, dateKey, seedAttempted]);
+  }, [user, dateKey]);
 
-  const slotMap = useMemo(() => buildSlotMap(items), [items]);
+  const startMap = useMemo(() => buildStartMap(items), [items]);
 
   async function persistItems(next) {
     setItems(next);
@@ -153,36 +194,19 @@ export function TodayPage() {
     await setDoc(doc(db, 'users', user.uid), { todayTemplates: next }, { merge: true });
   }
 
-  function slotsFitFrom(startMin, durationMin, ignoreItemId = null) {
-    const end = startMin + durationMin;
-    if (end > DAY_END_MIN) return false;
-    for (const it of items) {
-      if (it.id === ignoreItemId) continue;
-      const a = it.startMin;
-      const b = it.startMin + it.durationMin;
-      if (startMin < b && end > a) return false;
-    }
-    return true;
-  }
-
-  function handleSlotClick(slotStart) {
-    const slot = slotMap.get(slotStart);
-    if (slot) return;
-    if (activeTemplateId) {
-      const tpl = templates.find((t) => t.id === activeTemplateId);
-      if (!tpl) {
-        setActiveTemplateId(null);
-        return;
-      }
-      if (!slotsFitFrom(slotStart, tpl.durationMin)) {
-        alert(`"${tpl.name}" (${durationToLabel(tpl.durationMin)}) doesn't fit here — overlaps another item or runs past the day.`);
-        return;
-      }
-      const next = [...items, { id: newId(), startMin: slotStart, durationMin: tpl.durationMin, label: tpl.name }];
-      persistItems(next);
-      setActiveTemplateId(null);
+  function addItemFromTemplate(slotStart, tpl) {
+    if (slotStart + tpl.durationMin > DAY_END_MIN) {
+      alert(`"${tpl.name}" (${durationToLabel(tpl.durationMin)}) runs past the end of the day.`);
       return;
     }
+    const next = [
+      ...items,
+      { id: newId(), startMin: slotStart, durationMin: tpl.durationMin, label: tpl.name },
+    ];
+    persistItems(next);
+  }
+
+  function startEditing(slotStart) {
     setEditingSlot(slotStart);
     setDraft('');
   }
@@ -195,7 +219,10 @@ export function TodayPage() {
       setDraft('');
       return;
     }
-    const next = [...items, { id: newId(), startMin: editingSlot, durationMin: SLOT_MIN, label: text }];
+    const next = [
+      ...items,
+      { id: newId(), startMin: editingSlot, durationMin: SLOT_MIN, label: text },
+    ];
     persistItems(next);
     setEditingSlot(null);
     setDraft('');
@@ -217,11 +244,22 @@ export function TodayPage() {
   function changeDuration(itemId, durationMin) {
     const it = items.find((x) => x.id === itemId);
     if (!it) return;
-    if (!slotsFitFrom(it.startMin, durationMin, itemId)) {
-      alert(`Can't extend to ${durationToLabel(durationMin)} — would overlap another item or run past the day.`);
+    if (it.startMin + durationMin > DAY_END_MIN) {
+      alert(`Can't extend to ${durationToLabel(durationMin)} — runs past the end of the day.`);
       return;
     }
     persistItems(items.map((x) => (x.id === itemId ? { ...x, durationMin } : x)));
+  }
+
+  function moveItem(itemId, newStartMin) {
+    const it = items.find((x) => x.id === itemId);
+    if (!it) return;
+    if (newStartMin + it.durationMin > DAY_END_MIN) {
+      alert(`Can't move ${it.label || 'item'} there — its ${durationToLabel(it.durationMin)} runs past the end of the day.`);
+      return;
+    }
+    if (it.startMin === newStartMin) return;
+    persistItems(items.map((x) => (x.id === itemId ? { ...x, startMin: newStartMin } : x)));
   }
 
   function addTemplate(e) {
@@ -242,7 +280,6 @@ export function TodayPage() {
 
   function deleteTemplate(id) {
     persistTemplates(templates.filter((t) => t.id !== id));
-    if (activeTemplateId === id) setActiveTemplateId(null);
   }
 
   function clearAll() {
@@ -250,13 +287,46 @@ export function TodayPage() {
     persistItems([]);
   }
 
+  // Drag-and-drop
+  function onTemplateDragStart(tpl, e) {
+    dragRef.current = { type: 'template', id: tpl.id };
+    try { e.dataTransfer.effectAllowed = 'copy'; } catch {}
+    try { e.dataTransfer.setData('text/plain', tpl.name); } catch {}
+  }
+  function onItemDragStart(item, e) {
+    dragRef.current = { type: 'item', id: item.id };
+    try { e.dataTransfer.effectAllowed = 'move'; } catch {}
+    try { e.dataTransfer.setData('text/plain', item.label || ''); } catch {}
+  }
+  function onDragEnd() {
+    dragRef.current = null;
+    setDragOverSlot(null);
+  }
+  function onSlotDragOver(slotStart, e) {
+    if (!dragRef.current) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = dragRef.current.type === 'item' ? 'move' : 'copy'; } catch {}
+    if (dragOverSlot !== slotStart) setDragOverSlot(slotStart);
+  }
+  function onSlotDrop(slotStart, e) {
+    e.preventDefault();
+    const payload = dragRef.current;
+    dragRef.current = null;
+    setDragOverSlot(null);
+    if (!payload) return;
+    if (payload.type === 'item') {
+      moveItem(payload.id, slotStart);
+    } else if (payload.type === 'template') {
+      const tpl = templates.find((t) => t.id === payload.id);
+      if (tpl) addItemFromTemplate(slotStart, tpl);
+    }
+  }
+
   const slotRows = [];
   for (let i = 0; i < SLOT_COUNT; i++) {
     const startMin = DAY_START_MIN + i * SLOT_MIN;
     slotRows.push(startMin);
   }
-
-  const activeTpl = templates.find((t) => t.id === activeTemplateId) || null;
 
   if (!user) return null;
 
@@ -272,45 +342,47 @@ export function TodayPage() {
         </div>
       </div>
 
-      {activeTpl && (
-        <div className={styles.bannerActive}>
-          <span>Click a time to drop <strong>{activeTpl.name}</strong> ({durationToLabel(activeTpl.durationMin)})</span>
-          <button className={styles.bannerCancel} onClick={() => setActiveTemplateId(null)}>Cancel</button>
-        </div>
-      )}
-
       <div className={styles.grid}>
         <div className={styles.scheduleCol}>
           <div className={styles.scheduleHeader}>
             <span className={styles.colTime}>Time</span>
-            <span className={styles.colLabel}>Task</span>
+            <span className={styles.colLabel}>Tasks</span>
           </div>
           <div className={styles.schedule}>
             {loading ? (
               <div className={styles.empty}>Loading...</div>
             ) : (
               slotRows.map((startMin) => {
-                const cell = slotMap.get(startMin);
-                const item = cell?.item;
-                const isContinuation = cell && !cell.isStart;
+                const itemsHere = startMap.get(startMin) || [];
                 const isEditing = editingSlot === startMin;
+                const isDropTarget = dragOverSlot === startMin;
                 return (
                   <div
                     key={startMin}
-                    className={`${styles.row} ${item ? styles.rowFilled : ''} ${isContinuation ? styles.rowContinuation : ''}`}
+                    className={`${styles.row} ${isDropTarget ? styles.rowDropTarget : ''}`}
+                    onDragOver={(e) => onSlotDragOver(startMin, e)}
+                    onDrop={(e) => onSlotDrop(startMin, e)}
                   >
                     <span className={styles.colTime}>{minutesToLabel(startMin)}</span>
-                    {isContinuation ? (
-                      <span className={styles.continuation} aria-hidden />
-                    ) : item ? (
-                      <div className={styles.itemBlock}>
-                        <input
-                          className={styles.itemInput}
-                          value={item.label}
-                          onChange={(e) => renameItem(item.id, e.target.value)}
-                          placeholder="(untitled)"
-                        />
-                        <div className={styles.itemMeta}>
+                    <div className={styles.rowContent}>
+                      {itemsHere.map((item) => (
+                        <div key={item.id} className={styles.itemBlock}>
+                          <span
+                            className={styles.dragHandle}
+                            draggable
+                            onDragStart={(e) => onItemDragStart(item, e)}
+                            onDragEnd={onDragEnd}
+                            title="Drag to a different time"
+                            aria-label="Drag to reschedule"
+                          >
+                            ⋮⋮
+                          </span>
+                          <input
+                            className={styles.itemInput}
+                            value={item.label}
+                            onChange={(e) => renameItem(item.id, e.target.value)}
+                            placeholder="(untitled)"
+                          />
                           <select
                             className={styles.durationSelect}
                             value={item.durationMin}
@@ -329,30 +401,33 @@ export function TodayPage() {
                             ×
                           </button>
                         </div>
-                      </div>
-                    ) : isEditing ? (
-                      <div className={styles.editor}>
-                        <input
-                          className={styles.editorInput}
-                          value={draft}
-                          onChange={(e) => setDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveDraft();
-                            if (e.key === 'Escape') cancelDraft();
-                          }}
-                          onBlur={saveDraft}
-                          autoFocus
-                          placeholder="What's the task?"
-                        />
-                      </div>
-                    ) : (
-                      <button
-                        className={styles.emptyCell}
-                        onClick={() => handleSlotClick(startMin)}
-                      >
-                        {activeTpl ? `+ Drop ${activeTpl.name} here` : ''}
-                      </button>
-                    )}
+                      ))}
+
+                      {isEditing ? (
+                        <div className={styles.editor}>
+                          <input
+                            className={styles.editorInput}
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveDraft();
+                              if (e.key === 'Escape') cancelDraft();
+                            }}
+                            onBlur={saveDraft}
+                            autoFocus
+                            placeholder="What's the task?"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          className={`${styles.emptyCell} ${itemsHere.length > 0 ? styles.emptyCellInline : ''}`}
+                          onClick={() => startEditing(startMin)}
+                          title={itemsHere.length > 0 ? 'Add another at this time' : 'Add task'}
+                        >
+                          {itemsHere.length > 0 ? '+' : '+ Add task'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })
@@ -363,32 +438,32 @@ export function TodayPage() {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarSection}>
             <h2 className={styles.sidebarTitle}>Templates</h2>
-            <p className={styles.sidebarHelp}>Click a template, then click a time slot to add it.</p>
+            <p className={styles.sidebarHelp}>Drag a template onto a time slot — or click a slot and type directly.</p>
             <div className={styles.tplList}>
               {templates.length === 0 && (
                 <div className={styles.tplEmpty}>No templates yet.</div>
               )}
-              {templates.map((t) => {
-                const active = t.id === activeTemplateId;
-                return (
-                  <div key={t.id} className={`${styles.tplRow} ${active ? styles.tplRowActive : ''}`}>
-                    <button
-                      className={styles.tplBtn}
-                      onClick={() => setActiveTemplateId(active ? null : t.id)}
-                    >
-                      <span className={styles.tplName}>{t.name}</span>
-                      <span className={styles.tplDur}>{durationToLabel(t.durationMin)}</span>
-                    </button>
-                    <button
-                      className={styles.tplDelete}
-                      onClick={() => deleteTemplate(t.id)}
-                      title="Delete template"
-                    >
-                      ×
-                    </button>
+              {templates.map((t) => (
+                <div key={t.id} className={styles.tplRow}>
+                  <div
+                    className={styles.tplBtn}
+                    draggable
+                    onDragStart={(e) => onTemplateDragStart(t, e)}
+                    onDragEnd={onDragEnd}
+                    title={`Drag ${t.name} onto a time slot`}
+                  >
+                    <span className={styles.tplName}>{t.name}</span>
+                    <span className={styles.tplDur}>{durationToLabel(t.durationMin)}</span>
                   </div>
-                );
-              })}
+                  <button
+                    className={styles.tplDelete}
+                    onClick={() => deleteTemplate(t.id)}
+                    title="Delete template"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
 
