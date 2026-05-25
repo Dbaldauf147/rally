@@ -12,6 +12,7 @@ import { FriendsPage } from './components/FriendsPage';
 import { SharePage } from './components/SharePage';
 import { WeddingPage } from './components/WeddingPage';
 import { TravelListPage } from './components/TravelListPage';
+import { TodayPage } from './components/TodayPage';
 import { NavBar } from './components/NavBar';
 import { UpdateBanner } from './components/UpdateBanner';
 import { GoogleCalendarAutoSyncRunner } from './hooks/useGoogleCalendarAutoSync';
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/poll/:eventId" element={<PollPage />} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+        <Route path="/today" element={<ProtectedRoute><TodayPage /></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarView /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />

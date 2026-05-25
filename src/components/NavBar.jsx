@@ -14,6 +14,7 @@ export function NavBar() {
         <NavLink to="/" className={styles.logo}>Rally</NavLink>
         <div className={styles.links}>
           <NavLink to="/" end className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Dashboard</NavLink>
+          <NavLink to="/today" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Today</NavLink>
           <NavLink to="/calendar" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Calendar</NavLink>
           <NavLink to="/plans" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Plans</NavLink>
           <NavLink to="/friends" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Friends</NavLink>
