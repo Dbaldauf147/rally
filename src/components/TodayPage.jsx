@@ -39,6 +39,24 @@ function minutesToLabel(min) {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
+function shortTime(min) {
+  const h24 = Math.floor(min / 60);
+  const m = min % 60;
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(m).padStart(2, '0')}`;
+}
+
+function timeRangeLabel(startMin, durationMin) {
+  const endMin = startMin + durationMin;
+  const startIsPm = Math.floor(startMin / 60) >= 12;
+  const endIsPm = Math.floor((endMin - 1) / 60) >= 12;
+  if (startIsPm === endIsPm) {
+    const period = startIsPm ? 'PM' : 'AM';
+    return `${shortTime(startMin)}–${shortTime(endMin)} ${period}`;
+  }
+  return `${minutesToLabel(startMin)} – ${minutesToLabel(endMin)}`;
+}
+
 function durationToLabel(min) {
   if (min < 60) return `${min}m`;
   const h = Math.floor(min / 60);
@@ -113,8 +131,9 @@ export function TodayPage() {
   const [tplMins, setTplMins] = useState('30');
   const [dragOverSlot, setDragOverSlot] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-  const seedRanRef = useRef(false);
-  const migrationRanRef = useRef(false);
+  const [resizingPreview, setResizingPreview] = useState(null); // { id, duration }
+  const tplsSeededRef = useRef(false);
+  const itemsSeededRef = useRef(false);
   const dragRef = useRef(null);
 
   const dateKey = todayKey();
@@ -132,19 +151,22 @@ export function TodayPage() {
           : {};
         const todayItems = Array.isArray(schedules[dateKey]?.items) ? schedules[dateKey].items : null;
 
-        if (!tpls && !seedRanRef.current) {
-          seedRanRef.current = true;
+        if (tpls) {
+          setTemplates(tpls);
+        } else if (!tplsSeededRef.current) {
+          tplsSeededRef.current = true;
           try {
             await setDoc(ref, { todayTemplates: DEFAULT_TEMPLATES }, { merge: true });
           } catch (err) {
             console.error('Failed to seed today templates:', err);
             setTemplates(DEFAULT_TEMPLATES);
           }
-        } else if (tpls) {
-          setTemplates(tpls);
         }
 
-        if (!todayItems && !seedRanRef.current) {
+        if (todayItems) {
+          setItems(todayItems);
+        } else if (!itemsSeededRef.current) {
+          itemsSeededRef.current = true;
           try {
             const seeded = DEFAULT_ITEMS_FOR_TODAY.map((it) => ({ id: newId(), ...it }));
             await setDoc(
@@ -155,44 +177,6 @@ export function TodayPage() {
           } catch (err) {
             console.error('Failed to seed today schedule:', err);
             setItems(DEFAULT_ITEMS_FOR_TODAY.map((it) => ({ id: newId(), ...it })));
-          }
-        } else if (todayItems) {
-          setItems(todayItems);
-        }
-
-        if (!migrationRanRef.current && (tpls || todayItems)) {
-          migrationRanRef.current = true;
-          const patch = {};
-          if (tpls) {
-            const existingNames = new Set(tpls.map((t) => (t.name || '').toLowerCase()));
-            const missing = DEFAULT_TEMPLATES.filter(
-              (t) => !existingNames.has(t.name.toLowerCase())
-            );
-            if (missing.length > 0) patch.todayTemplates = [...tpls, ...missing];
-          }
-          if (todayItems) {
-            const hasBreakfast = todayItems.some(
-              (it) => (it.label || '').toLowerCase() === 'breakfast'
-            );
-            const hasItemAt8 = todayItems.some((it) => it.startMin === DAY_START_MIN);
-            if (!hasBreakfast && !hasItemAt8) {
-              patch.todaySchedules = {
-                ...schedules,
-                [dateKey]: {
-                  items: [
-                    ...todayItems,
-                    { id: newId(), startMin: DAY_START_MIN, durationMin: 60, label: 'Breakfast' },
-                  ],
-                },
-              };
-            }
-          }
-          if (Object.keys(patch).length > 0) {
-            try {
-              await setDoc(ref, patch, { merge: true });
-            } catch (err) {
-              console.error('Today migration failed:', err);
-            }
           }
         }
 
@@ -352,6 +336,44 @@ export function TodayPage() {
     }
   }
 
+  function onResizeStart(e, item) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const startDuration = item.durationMin;
+    const startMin = item.startMin;
+    const itemId = item.id;
+    const itemsAtStart = items;
+    let currentDuration = startDuration;
+    setResizingPreview({ id: itemId, duration: startDuration });
+
+    function onMove(ev) {
+      const deltaY = ev.clientY - startY;
+      const deltaSlots = Math.round(deltaY / ROW_HEIGHT);
+      let nd = startDuration + deltaSlots * SLOT_MIN;
+      if (nd < SLOT_MIN) nd = SLOT_MIN;
+      const maxDuration = DAY_END_MIN - startMin;
+      if (nd > maxDuration) nd = maxDuration;
+      if (nd !== currentDuration) {
+        currentDuration = nd;
+        setResizingPreview({ id: itemId, duration: nd });
+      }
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      setResizingPreview(null);
+      if (currentDuration !== startDuration) {
+        const next = itemsAtStart.map((x) =>
+          x.id === itemId ? { ...x, durationMin: currentDuration } : x
+        );
+        persistItems(next);
+      }
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
   const slotRows = [];
   for (let i = 0; i < SLOT_COUNT; i++) {
     slotRows.push(DAY_START_MIN + i * SLOT_MIN);
@@ -413,14 +435,17 @@ export function TodayPage() {
                   <div className={`${styles.itemsLayer} ${isDragging ? styles.itemsLayerDragging : ''}`}>
                     {items.map((item) => {
                       const place = layout.get(item.id) || { lane: 0, totalLanes: 1 };
+                      const previewDuration =
+                        resizingPreview?.id === item.id ? resizingPreview.duration : item.durationMin;
                       const topPx = ((item.startMin - DAY_START_MIN) / SLOT_MIN) * ROW_HEIGHT + 2;
-                      const heightPx = (item.durationMin / SLOT_MIN) * ROW_HEIGHT - 4;
+                      const heightPx = (previewDuration / SLOT_MIN) * ROW_HEIGHT - 4;
                       const leftPct = (place.lane / place.totalLanes) * 100;
                       const widthPct = (1 / place.totalLanes) * 100;
+                      const isResizing = resizingPreview?.id === item.id;
                       return (
                         <div
                           key={item.id}
-                          className={styles.itemBlock}
+                          className={`${styles.itemBlock} ${isResizing ? styles.itemBlockResizing : ''}`}
                           style={{
                             top: topPx,
                             height: heightPx,
@@ -446,6 +471,9 @@ export function TodayPage() {
                               placeholder="(untitled)"
                             />
                             <div className={styles.itemMeta}>
+                              <span className={styles.itemTime}>
+                                {timeRangeLabel(item.startMin, previewDuration)}
+                              </span>
                               <select
                                 className={styles.durationSelect}
                                 value={item.durationMin}
@@ -465,6 +493,12 @@ export function TodayPage() {
                               </button>
                             </div>
                           </div>
+                          <span
+                            className={styles.resizeHandle}
+                            onMouseDown={(e) => onResizeStart(e, item)}
+                            title="Drag to resize"
+                            aria-label="Drag to resize"
+                          />
                         </div>
                       );
                     })}
