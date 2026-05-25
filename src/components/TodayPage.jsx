@@ -19,10 +19,12 @@ const DEFAULT_TEMPLATES = [
 ];
 
 const DEFAULT_ITEMS_FOR_TODAY = [
-  { startMin: 8 * 60, durationMin: 60, label: 'Breakfast' },
-  { startMin: 12 * 60, durationMin: 60, label: 'Lunch' },
-  { startMin: 18 * 60, durationMin: 60, label: 'Dinner' },
+  { id: 'default-breakfast', startMin: 8 * 60, durationMin: 60, label: 'Breakfast' },
+  { id: 'default-lunch', startMin: 12 * 60, durationMin: 60, label: 'Lunch' },
+  { id: 'default-dinner', startMin: 18 * 60, durationMin: 60, label: 'Dinner' },
 ];
+
+const SEED_FLAG_KEY = 'rally.today.seeded.v1';
 
 function todayKey(d = new Date()) {
   const y = d.getFullYear();
@@ -132,8 +134,8 @@ export function TodayPage() {
   const [dragOverSlot, setDragOverSlot] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [resizingPreview, setResizingPreview] = useState(null); // { id, duration }
-  const tplsSeededRef = useRef(false);
-  const itemsSeededRef = useRef(false);
+  const seedAttemptedRef = useRef(false);
+  const initFlagSetRef = useRef(false);
   const dragRef = useRef(null);
 
   const dateKey = todayKey();
@@ -151,33 +153,46 @@ export function TodayPage() {
           : {};
         const todayItems = Array.isArray(schedules[dateKey]?.items) ? schedules[dateKey].items : null;
 
+        // Seed gating: NEVER auto-write to Firestore if we've already seeded once
+        // (tracked via a Firestore flag AND a browser localStorage flag, belt-and-braces).
+        // This guarantees that a spurious empty snapshot cannot overwrite real data.
+        const alreadySeeded =
+          data.todayInitialized === true || !!localStorage.getItem(SEED_FLAG_KEY);
+
         if (tpls) {
           setTemplates(tpls);
-        } else if (!tplsSeededRef.current) {
-          tplsSeededRef.current = true;
+          if (!data.todayInitialized && !initFlagSetRef.current) {
+            initFlagSetRef.current = true;
+            localStorage.setItem(SEED_FLAG_KEY, '1');
+            setDoc(ref, { todayInitialized: true }, { merge: true }).catch((err) =>
+              console.error('Failed to set today init flag:', err)
+            );
+          }
+        } else if (!alreadySeeded && !seedAttemptedRef.current) {
+          seedAttemptedRef.current = true;
+          initFlagSetRef.current = true;
+          localStorage.setItem(SEED_FLAG_KEY, '1');
           try {
-            await setDoc(ref, { todayTemplates: DEFAULT_TEMPLATES }, { merge: true });
+            await setDoc(
+              ref,
+              { todayTemplates: DEFAULT_TEMPLATES, todayInitialized: true },
+              { merge: true }
+            );
           } catch (err) {
             console.error('Failed to seed today templates:', err);
             setTemplates(DEFAULT_TEMPLATES);
           }
+        } else {
+          // Doc was seeded before but tpls is missing — show defaults locally,
+          // do NOT write to Firestore.
+          setTemplates(DEFAULT_TEMPLATES);
         }
 
         if (todayItems) {
           setItems(todayItems);
-        } else if (!itemsSeededRef.current) {
-          itemsSeededRef.current = true;
-          try {
-            const seeded = DEFAULT_ITEMS_FOR_TODAY.map((it) => ({ id: newId(), ...it }));
-            await setDoc(
-              ref,
-              { todaySchedules: { ...schedules, [dateKey]: { items: seeded } } },
-              { merge: true }
-            );
-          } catch (err) {
-            console.error('Failed to seed today schedule:', err);
-            setItems(DEFAULT_ITEMS_FOR_TODAY.map((it) => ({ id: newId(), ...it })));
-          }
+        } else {
+          // No items for today in Firestore — render defaults locally, no auto-write.
+          setItems(DEFAULT_ITEMS_FOR_TODAY);
         }
 
         setLoading(false);

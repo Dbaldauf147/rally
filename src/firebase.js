@@ -1,6 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  memoryLocalCache,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBTTVm567ysbP-dVcTng0QkK373zLW2_cY",
@@ -14,5 +19,15 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = initializeFirestore(app, { localCache: memoryLocalCache() });
+// Persistent IndexedDB cache so writes survive page refresh / brief offline.
+// Falls back to in-memory if IndexedDB is unavailable (e.g. some private modes).
+let _db;
+try {
+  _db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
+} catch {
+  _db = initializeFirestore(app, { localCache: memoryLocalCache() });
+}
+export const db = _db;
 export const googleProvider = new GoogleAuthProvider();
