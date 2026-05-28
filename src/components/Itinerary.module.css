@@ -2135,3 +2135,140 @@
   font-family: inherit;
 }
 
+/* Daily view */
+.dailyList {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+.dailyRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+  transition: background 0.12s ease;
+}
+.dailyRowLast { border-bottom: none; }
+.dailyRowHidden {
+  opacity: 0.6;
+  background: repeating-linear-gradient(45deg, var(--color-surface-alt), var(--color-surface-alt) 10px, transparent 10px, transparent 20px);
+}
+.dailyRowMoved { background: rgba(99, 102, 241, 0.06); }
+.dailyRowHovering {
+  background: rgba(134, 59, 255, 0.08);
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -4px;
+}
+.dailyHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+.dailyDayLabel {
+  font-weight: 700;
+  min-width: 54px;
+  color: var(--color-text);
+}
+.dailyDate {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  min-width: 120px;
+}
+.dailyDestWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.dailyDestSelect {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--color-text);
+  background: var(--color-surface);
+  min-width: 180px;
+  max-width: 100%;
+}
+.dailyDestSelectOverride {
+  border-color: #6366F1;
+  color: #4f46e5;
+  background: rgba(99, 102, 241, 0.06);
+}
+.dailyDayNameInput {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  font-weight: 600;
+  min-width: 160px;
+}
+.dailySubsWrap {
+  margin-left: 174px;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.dailyHiddenFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.85rem;
+  background: var(--color-surface-alt);
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 600px) {
+  .dailyRow {
+    padding: 0.6rem 0.7rem;
+    gap: 0.5rem;
+  }
+  .dailyHeader {
+    gap: 0.4rem 0.6rem;
+  }
+  .dailyDayLabel {
+    min-width: 0;
+    font-size: 0.95rem;
+  }
+  .dailyDate {
+    min-width: 0;
+    font-size: 0.8rem;
+  }
+  .dailyDestWrap {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    gap: 0.4rem;
+  }
+  .dailyDestSelect {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+    font-size: 0.95rem;
+    padding: 0.45rem 0.55rem;
+  }
+  .dailyDayNameInput {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  .dailySubsWrap {
+    margin-left: 0;
+    padding-left: 0.6rem;
+  }
+}
+

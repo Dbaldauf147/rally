@@ -1981,7 +1981,6 @@ export function Itinerary({ event, onSave, canEdit }) {
   // localStorage so each user's preference sticks across reloads.
   const viewSettingsKey = `rally.itineraryView.${event?.id || 'global'}`;
   const VIEW_SETTINGS_DEFAULTS = {
-    showFlightCosts: true,
     showRouteMap: true,
     showLodging: false,
     showAiAssistant: true,
@@ -2025,7 +2024,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [emailResult, setEmailResult] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
-  const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily' | 'calendar' | 'destinations'
+  const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily' | 'calendar' | 'destinations' | 'flights'
   // Highlights the user explicitly un-tagged in the current form session.
   // The auto-tag effect skips these so user overrides aren't re-applied.
   const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
@@ -3054,6 +3053,11 @@ export function Itinerary({ event, onSave, canEdit }) {
             onClick={() => setViewMode('destinations')}
             title="Key Destinations and voting"
           >✨ Key Destinations</button>
+          <button
+            className={viewMode === 'flights' ? styles.addBtn : styles.lodgingToggleBtn}
+            onClick={() => setViewMode('flights')}
+            title="Flight cost comparison"
+          >✈️ Flight Costs</button>
           <div className={styles.settingsWrap} ref={settingsRef}>
             <button
               className={styles.lodgingToggleBtn}
@@ -3077,7 +3081,6 @@ export function Itinerary({ event, onSave, canEdit }) {
                 </div>
                 <div className={styles.settingsList}>
                   {[
-                    { key: 'showFlightCosts',   label: '✈️ Flight Costs', hint: 'Track flight prices between cities' },
                     { key: 'showRouteMap',      label: '🗺️ Trip Route Overview', hint: 'Map of all routes across the trip' },
                     { key: 'showLodging',       label: '🏨 Lodging column', hint: 'Show the lodging column in the schedule' },
                     { key: 'showDiagnostics',   label: '⚠️ Schedule diagnostics', hint: 'Empty days and out-of-range items' },
@@ -3183,7 +3186,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {viewSettings.showFlightCosts && (
+      {viewMode === 'flights' && (
         <FlightCosts event={event} onSave={onSave} canEdit={canEdit} />
       )}
 
@@ -3442,7 +3445,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         const visibleDayList = showHiddenDays ? dayList : dayList.filter(d => !d.hidden);
         const hiddenCount = dayList.length - dayList.filter(d => !d.hidden).length;
         return (
-          <div style={{ border: '1px solid var(--color-border)', borderRadius: '10px', overflow: 'hidden', marginTop: '0.5rem' }}>
+          <div className={styles.dailyList}>
             {visibleDayList.map((d, i) => {
               const prev = i > 0 ? visibleDayList[i - 1].finalDest : null;
               const moved = prev && d.finalDest && normalizeForMatch(prev) !== normalizeForMatch(d.finalDest);
@@ -3472,9 +3475,15 @@ export function Itinerary({ event, onSave, canEdit }) {
                 && d.destHighlight
                 && d.destHighlight.id === dragBullet.highlightId;
               const isHovering = isDropTarget && dragOverDateKey === d.key;
+              const rowClasses = [
+                styles.dailyRow,
+                isLast ? styles.dailyRowLast : '',
+                isHovering ? styles.dailyRowHovering : (d.hidden ? styles.dailyRowHidden : (moved ? styles.dailyRowMoved : '')),
+              ].filter(Boolean).join(' ');
               return (
                 <div
                   key={d.key}
+                  className={rowClasses}
                   onDragOver={(e) => {
                     if (!isDropTarget) return;
                     e.preventDefault();
@@ -3494,26 +3503,10 @@ export function Itinerary({ event, onSave, canEdit }) {
                     setDragBullet(null);
                     await moveBulletBetweenDays(subId, fromDateKey, d.key);
                   }}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.4rem',
-                    padding: '0.6rem 0.85rem',
-                    borderBottom: isLast ? 'none' : '1px solid var(--color-border)',
-                    background: isHovering
-                      ? 'rgba(134, 59, 255, 0.08)'
-                      : d.hidden ? 'repeating-linear-gradient(45deg, var(--color-surface-alt), var(--color-surface-alt) 10px, transparent 10px, transparent 20px)'
-                      : moved ? 'rgba(99, 102, 241, 0.06)'
-                      : 'transparent',
-                    opacity: d.hidden ? 0.6 : 1,
-                    outline: isHovering ? '2px dashed var(--color-accent)' : 'none',
-                    outlineOffset: '-4px',
-                    transition: 'background 0.12s ease',
-                  }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                    <span style={{ fontWeight: 700, minWidth: '54px', color: 'var(--color-text)' }}>Day {d.dayIndex}</span>
-                    <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', minWidth: '120px' }}>
+                  <div className={styles.dailyHeader}>
+                    <span className={styles.dailyDayLabel}>Day {d.dayIndex}</span>
+                    <span className={styles.dailyDate}>
                       {new Date(d.key + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                     </span>
                     {(() => {
@@ -3543,15 +3536,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                               if (e.key === 'Enter') { e.preventDefault(); commit(); }
                               else if (e.key === 'Escape') cancel();
                             }}
-                            style={{
-                              padding: '0.25rem 0.5rem',
-                              border: '1px solid var(--color-accent)',
-                              borderRadius: '6px',
-                              fontSize: '0.85rem',
-                              fontFamily: 'inherit',
-                              fontWeight: 600,
-                              minWidth: '160px',
-                            }}
+                            className={styles.dailyDayNameInput}
                           />
                         );
                       }
@@ -3597,23 +3582,13 @@ export function Itinerary({ event, onSave, canEdit }) {
                       }
                       return null;
                     })()}
-                    <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span className={styles.dailyDestWrap}>
                       {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
                       {canEdit && tripHighlights.length > 0 ? (
                         <select
                           value={d.overrideId || ''}
                           onChange={ev => setDailyDestinationOverride(d.key, ev.target.value)}
-                          style={{
-                            padding: '0.3rem 0.5rem',
-                            border: `1px solid ${isOverride ? '#6366F1' : 'var(--color-border)'}`,
-                            borderRadius: '6px',
-                            fontSize: '0.85rem',
-                            fontFamily: 'inherit',
-                            fontWeight: 500,
-                            color: isOverride ? '#4f46e5' : 'var(--color-text)',
-                            background: isOverride ? 'rgba(99, 102, 241, 0.06)' : 'var(--color-surface)',
-                            minWidth: '180px',
-                          }}
+                          className={isOverride ? `${styles.dailyDestSelect} ${styles.dailyDestSelectOverride}` : styles.dailyDestSelect}
                           title={isOverride ? 'Manually set — pick "Auto" to clear' : 'Pick a Key Destination to override'}
                         >
                           <option value="">Auto: {d.autoDest || '—'}</option>
@@ -3648,7 +3623,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                     </span>
                   </div>
                   {(destSubs.length > 0 || (canEdit && d.destHighlight)) && (
-                    <div style={{ marginLeft: '174px', paddingLeft: '0.5rem', borderLeft: '2px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div className={styles.dailySubsWrap}>
                       {destSubs.length > 0 && (
                         <ul className={styles.subHighlightList} title={`From "${d.destHighlight.text}"`}>
                           {destSubs.map(s => {
@@ -4028,18 +4003,7 @@ export function Itinerary({ event, onSave, canEdit }) {
               );
             })}
             {hiddenCount > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '0.5rem 0.85rem',
-                  background: 'var(--color-surface-alt)',
-                  fontSize: '0.78rem',
-                  color: 'var(--color-text-muted)',
-                  borderTop: '1px solid var(--color-border)',
-                }}
-              >
+              <div className={styles.dailyHiddenFooter}>
                 <span>
                   {hiddenCount} day{hiddenCount === 1 ? '' : 's'} hidden from this view
                 </span>
