@@ -1982,7 +1982,6 @@ export function Itinerary({ event, onSave, canEdit }) {
   const viewSettingsKey = `rally.itineraryView.${event?.id || 'global'}`;
   const VIEW_SETTINGS_DEFAULTS = {
     showFlightCosts: true,
-    showHighlights: true,
     showRouteMap: true,
     showLodging: false,
     showAiAssistant: true,
@@ -2026,7 +2025,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [emailResult, setEmailResult] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
-  const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily' | 'calendar'
+  const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily' | 'calendar' | 'destinations'
   // Highlights the user explicitly un-tagged in the current form session.
   // The auto-tag effect skips these so user overrides aren't re-applied.
   const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
@@ -3050,6 +3049,11 @@ export function Itinerary({ event, onSave, canEdit }) {
             onClick={() => setViewMode('calendar')}
             title="Month-style calendar grid of the trip"
           >🗓️ Calendar</button>
+          <button
+            className={viewMode === 'destinations' ? styles.addBtn : styles.lodgingToggleBtn}
+            onClick={() => setViewMode('destinations')}
+            title="Key Destinations and voting"
+          >✨ Key Destinations</button>
           <div className={styles.settingsWrap} ref={settingsRef}>
             <button
               className={styles.lodgingToggleBtn}
@@ -3075,7 +3079,6 @@ export function Itinerary({ event, onSave, canEdit }) {
                   {[
                     { key: 'showFlightCosts',   label: '✈️ Flight Costs', hint: 'Track flight prices between cities' },
                     { key: 'showRouteMap',      label: '🗺️ Trip Route Overview', hint: 'Map of all routes across the trip' },
-                    { key: 'showHighlights',    label: '⭐ Trip Highlights', hint: 'Voted-on must-do list' },
                     { key: 'showLodging',       label: '🏨 Lodging column', hint: 'Show the lodging column in the schedule' },
                     { key: 'showDiagnostics',   label: '⚠️ Schedule diagnostics', hint: 'Empty days and out-of-range items' },
                     { key: 'showAiAssistant',   label: '✨ AI assistant', hint: 'Floating Plan with AI button (admins only)' },
@@ -3390,7 +3393,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       )}
 
-      {viewSettings.showHighlights && (
+      {viewMode === 'destinations' && (
         <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
       )}
 
