@@ -12,6 +12,8 @@ import { FriendsPage } from './components/FriendsPage';
 import { SharePage } from './components/SharePage';
 import { WeddingPage } from './components/WeddingPage';
 import { TravelListPage } from './components/TravelListPage';
+import { HolidaysPage } from './components/HolidaysPage';
+import { PTOPage } from './components/PTOPage';
 import { TodayPage } from './components/TodayPage';
 import { NavBar } from './components/NavBar';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -55,6 +57,8 @@ export default function App() {
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/wedding" element={<ProtectedRoute><WeddingPage /></ProtectedRoute>} />
         <Route path="/travel-list" element={<ProtectedRoute><TravelListPage /></ProtectedRoute>} />
+        <Route path="/holidays" element={<ProtectedRoute><HolidaysPage /></ProtectedRoute>} />
+        <Route path="/pto" element={<ProtectedRoute><PTOPage /></ProtectedRoute>} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/event/:eventId" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/trip/:tripId" element={<ProtectedRoute><TripDetail /></ProtectedRoute>} />
