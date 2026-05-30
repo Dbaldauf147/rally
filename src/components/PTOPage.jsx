@@ -6,8 +6,11 @@ import styles from './PTOPage.module.css';
 const STORAGE_KEY = 'rally.pto.v1';
 
 const DEFAULT_STATE = {
-  allotment: 20,
-  year: new Date().getFullYear(),
+  hrsPerDay: 8,
+  years: [
+    { year: 2026, total: 27, eoyBackup: 5, start: '2026-01-01', end: '2026-12-31' },
+    { year: 2027, total: 27, eoyBackup: 5, start: '2027-01-01', end: '2027-12-31' },
+  ],
   entries: [],
 };
 
@@ -16,6 +19,11 @@ function parseLocal(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return null;
   return new Date(y, m - 1, d);
+}
+
+function startOfToday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
 // Count weekdays (Mon–Fri) inclusive between two ISO dates — a sensible default day count.
@@ -33,12 +41,63 @@ function weekdaysBetween(startIso, endIso) {
   return count;
 }
 
+const DAY_MS = 86400000;
+
+// Derive all dashboard numbers for one year from the shared trip log.
+function computeYear(y, entries, hrsPerDay, today) {
+  const total = Number(y.total) || 0;
+  const start = parseLocal(y.start);
+  const end = parseLocal(y.end);
+
+  let taken = 0;
+  let planned = 0;
+  entries.forEach((e) => {
+    const d = parseLocal(e.start);
+    if (!d || d.getFullYear() !== y.year) return;
+    const days = Number(e.days) || 0;
+    if (d < today) taken += days;
+    else planned += days;
+  });
+
+  const unplanned = total - taken - planned;
+  const hrs = total * (Number(hrsPerDay) || 0);
+  const eoyBackup = Number(y.eoyBackup) || 0;
+  const buffer = unplanned - eoyBackup;
+
+  let pctYear = 0;
+  let daysUntil = 0;
+  let status = 'current';
+  if (start && end) {
+    const daysInWindow = Math.round((end - start) / DAY_MS) + 1;
+    const elapsed = Math.round((today - start) / DAY_MS);
+    pctYear = daysInWindow > 0 ? Math.min(1, Math.max(0, elapsed / daysInWindow)) : 0;
+    daysUntil = Math.floor((today - start) / DAY_MS);
+    status = today < start ? 'future' : today > end ? 'past' : 'current';
+  }
+  const shouldHaveTaken = Math.round(pctYear * total);
+
+  return { total, taken, planned, unplanned, hrs, eoyBackup, buffer, pctYear, shouldHaveTaken, daysUntil, status };
+}
+
 function loadStored() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_STATE;
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_STATE, ...parsed, entries: Array.isArray(parsed.entries) ? parsed.entries : [] };
+    if (Array.isArray(parsed.years)) {
+      return {
+        hrsPerDay: Number(parsed.hrsPerDay) || 8,
+        years: parsed.years,
+        entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+      };
+    }
+    // Migrate the old single-year shape { allotment, year, entries }.
+    const yr = Number(parsed.year) || new Date().getFullYear();
+    return {
+      hrsPerDay: 8,
+      years: [{ year: yr, total: Number(parsed.allotment) || 0, eoyBackup: 5, start: `${yr}-01-01`, end: `${yr}-12-31` }],
+      entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+    };
   } catch {
     return DEFAULT_STATE;
   }
@@ -57,27 +116,50 @@ export function PTOPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  const { allotment, entries } = state;
+  const { hrsPerDay, years, entries } = state;
+  const today = useMemo(() => startOfToday(), []);
 
-  const sorted = useMemo(
+  const sortedYears = useMemo(
+    () => [...years].sort((a, b) => a.year - b.year),
+    [years],
+  );
+
+  const computed = useMemo(
+    () => sortedYears.map((y) => ({ y, c: computeYear(y, entries, hrsPerDay, today) })),
+    [sortedYears, entries, hrsPerDay, today],
+  );
+
+  const sortedEntries = useMemo(
     () => [...entries].sort((a, b) => (a.start || '').localeCompare(b.start || '')),
     [entries],
   );
 
-  const used = useMemo(
-    () => entries.reduce((sum, e) => sum + (Number(e.days) || 0), 0),
-    [entries],
-  );
-  const remaining = Math.max(0, (Number(allotment) || 0) - used);
-  const pct = allotment > 0 ? Math.min(100, Math.round((used / allotment) * 100)) : 0;
-
-  // Auto-suggested day count for the draft, if the user hasn't typed one.
   const suggestedDays = useMemo(() => weekdaysBetween(draft.start, draft.end), [draft.start, draft.end]);
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
-  const setAllotment = (v) => setState((s) => ({ ...s, allotment: v === '' ? '' : Number(v) }));
-  const setYear = (v) => setState((s) => ({ ...s, year: v === '' ? '' : Number(v) }));
+  const updateYear = (year, patch) =>
+    setState((s) => ({ ...s, years: s.years.map((y) => (y.year === year ? { ...y, ...patch } : y)) }));
+
+  const addYear = () => {
+    setState((s) => {
+      const maxYear = s.years.reduce((m, y) => Math.max(m, y.year), new Date().getFullYear() - 1);
+      const next = maxYear + 1;
+      const template = s.years.find((y) => y.year === maxYear) || { total: 0, eoyBackup: 5 };
+      return {
+        ...s,
+        years: [
+          ...s.years,
+          { year: next, total: template.total, eoyBackup: template.eoyBackup, start: `${next}-01-01`, end: `${next}-12-31` },
+        ],
+      };
+    });
+  };
+
+  const removeYear = (year) => {
+    if (!confirm(`Remove the ${year} column?`)) return;
+    setState((s) => ({ ...s, years: s.years.filter((y) => y.year !== year) }));
+  };
 
   const updateEntry = (id, patch) =>
     setState((s) => ({ ...s, entries: s.entries.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
@@ -108,41 +190,150 @@ export function PTOPage() {
     setDraft({ label: '', start: '', end: '', days: '', note: '' });
   };
 
+  const fmtNum = (n) => (Number.isInteger(n) ? n : Math.round(n * 10) / 10);
+  const fmtPct = (p) => `${Math.round(p * 100)}%`;
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>PTO</h1>
-        <div className={styles.progress}>{remaining} of {allotment || 0} days left</div>
+        <label className={styles.hrsControl}>
+          <span>Hrs / day</span>
+          <input
+            className={styles.hrsInput}
+            type="number"
+            min="1"
+            step="0.5"
+            value={hrsPerDay}
+            onChange={(e) => setState((s) => ({ ...s, hrsPerDay: e.target.value === '' ? '' : Number(e.target.value) }))}
+          />
+        </label>
       </div>
-      <p className={styles.subtitle}>Track your paid time off — set your yearly allotment and log every trip and day off.</p>
+      <p className={styles.subtitle}>Year-by-year balance. Taken &amp; Planned roll up automatically from the trip log below.</p>
 
-      <div className={styles.summary}>
-        <div className={styles.summaryFields}>
-          <label className={styles.metaField}>
-            <span className={styles.metaLabel}>Year</span>
-            <input className={styles.metaInput} type="number" value={state.year} onChange={(e) => setYear(e.target.value)} />
-          </label>
-          <label className={styles.metaField}>
-            <span className={styles.metaLabel}>Annual allotment (days)</span>
-            <input className={styles.metaInput} type="number" min="0" step="0.5" value={allotment} onChange={(e) => setAllotment(e.target.value)} />
-          </label>
-        </div>
-        <div className={styles.stats}>
-          <div className={styles.stat}><span className={styles.statNum}>{used}</span><span className={styles.statLbl}>Used</span></div>
-          <div className={styles.stat}><span className={`${styles.statNum} ${remaining === 0 ? styles.statDanger : styles.statOk}`}>{remaining}</span><span className={styles.statLbl}>Remaining</span></div>
-          <div className={styles.stat}><span className={styles.statNum}>{allotment || 0}</span><span className={styles.statLbl}>Total</span></div>
-        </div>
-        <div className={styles.barTrack}>
-          <div className={styles.barFill} style={{ width: `${pct}%` }} />
-        </div>
-        {used > (Number(allotment) || 0) && (
-          <div className={styles.overWarn}>You’re {used - allotment} day{used - allotment === 1 ? '' : 's'} over your allotment.</div>
-        )}
+      <div className={styles.dashScroll}>
+        <table className={styles.dash}>
+          <thead>
+            <tr>
+              <th className={styles.rowHead}></th>
+              {computed.map(({ y }) => (
+                <th key={y.year} className={styles.yearHead}>
+                  <span className={styles.yearNum}>{y.year}</span>
+                  <button className={styles.yearRemove} onClick={() => removeYear(y.year)} title="Remove year">×</button>
+                </th>
+              ))}
+              <th className={styles.addCol}>
+                <button className={styles.addYearBtn} onClick={addYear} title="Add a year">+ Year</button>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className={styles.hrsRow}>
+              <td className={styles.rowHead}>Hrs</td>
+              {computed.map(({ y, c }) => (
+                <td key={y.year} className={styles.numCell}>{fmtNum(c.hrs)}</td>
+              ))}
+              <td />
+            </tr>
+            <tr>
+              <td className={styles.rowHead}>Total (days)</td>
+              {computed.map(({ y }) => (
+                <td key={y.year} className={styles.inputCell}>
+                  <input
+                    className={styles.cellInput}
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={y.total}
+                    onChange={(e) => updateYear(y.year, { total: e.target.value === '' ? '' : Number(e.target.value) })}
+                  />
+                </td>
+              ))}
+              <td />
+            </tr>
+            <tr>
+              <td className={styles.rowHead}>Taken</td>
+              {computed.map(({ y, c }) => (
+                <td key={y.year} className={styles.numCell}>{fmtNum(c.taken)}</td>
+              ))}
+              <td />
+            </tr>
+            <tr>
+              <td className={styles.rowHead}>Planned</td>
+              {computed.map(({ y, c }) => (
+                <td key={y.year} className={styles.numCell}>{fmtNum(c.planned)}</td>
+              ))}
+              <td />
+            </tr>
+            <tr className={styles.divider}>
+              <td className={styles.rowHead}>Unplanned</td>
+              {computed.map(({ y, c }) => (
+                <td key={y.year} className={`${styles.numCell} ${styles.numStrong} ${c.unplanned < 0 ? styles.numDanger : ''}`}>{fmtNum(c.unplanned)}</td>
+              ))}
+              <td />
+            </tr>
+            <tr>
+              <td className={styles.rowHead}>EOY Backup</td>
+              {computed.map(({ y }) => (
+                <td key={y.year} className={styles.inputCell}>
+                  <input
+                    className={styles.cellInput}
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={y.eoyBackup}
+                    onChange={(e) => updateYear(y.year, { eoyBackup: e.target.value === '' ? '' : Number(e.target.value) })}
+                  />
+                </td>
+              ))}
+              <td />
+            </tr>
+            <tr className={styles.divider}>
+              <td className={styles.rowHead}>Buffer</td>
+              {computed.map(({ y, c }) => (
+                <td key={y.year} className={`${styles.numCell} ${styles.numStrong} ${c.buffer < 0 ? styles.numDanger : styles.numOk}`}>{fmtNum(c.buffer)}</td>
+              ))}
+              <td />
+            </tr>
+            <tr>
+              <td className={styles.rowHead}>Should have taken</td>
+              {computed.map(({ y, c }) => (
+                <td key={y.year} className={styles.numCell}>{c.status === 'future' ? '—' : fmtNum(c.shouldHaveTaken)}</td>
+              ))}
+              <td />
+            </tr>
+            <tr>
+              <td className={styles.rowHead}>% of year</td>
+              {computed.map(({ y, c }) => (
+                <td key={y.year} className={styles.numCell}>{c.status === 'future' ? '—' : fmtPct(c.pctYear)}</td>
+              ))}
+              <td />
+            </tr>
+            <tr>
+              <td className={styles.rowHead}>Days until start</td>
+              {computed.map(({ y, c }) => (
+                <td key={y.year} className={styles.numCell}>{c.daysUntil}</td>
+              ))}
+              <td />
+            </tr>
+            <tr className={styles.windowRow}>
+              <td className={styles.rowHead}>Window</td>
+              {computed.map(({ y }) => (
+                <td key={y.year} className={styles.windowCell}>
+                  <input className={styles.windowInput} type="date" value={y.start} onChange={(e) => updateYear(y.year, { start: e.target.value })} />
+                  <input className={styles.windowInput} type="date" value={y.end} onChange={(e) => updateYear(y.year, { end: e.target.value })} />
+                </td>
+              ))}
+              <td />
+            </tr>
+          </tbody>
+        </table>
       </div>
 
+      <h2 className={styles.logTitle}>Trip log</h2>
       <div className={styles.list}>
-        {sorted.length === 0 && <div className={styles.empty}>No PTO logged yet. Add your first entry below.</div>}
-        {sorted.map((e) => (
+        {sortedEntries.length === 0 && <div className={styles.empty}>No PTO logged yet. Add your first entry below.</div>}
+        {sortedEntries.map((e) => (
           <div key={e.id} className={styles.entry}>
             <div className={styles.entryMain}>
               <input
@@ -214,7 +405,7 @@ export function PTOPage() {
         <button className={styles.addBtn} onClick={addDraft} disabled={!draft.start}>Add entry</button>
         {draft.start && (
           <span className={styles.addHint}>
-            Logs {(draft.days !== '' ? Number(draft.days) : suggestedDays) || 0} day(s). Weekends are excluded from the auto count.
+            Logs {(draft.days !== '' ? Number(draft.days) : suggestedDays) || 0} day(s) to {parseLocal(draft.start)?.getFullYear()}. Weekends are excluded from the auto count.
           </span>
         )}
       </div>
