@@ -1,9 +1,11 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { isGoogleCalendarConnected, connectGoogleCalendar, fetchGoogleCalendarEvents } from '../googleCalendar';
 import styles from './PTOPage.module.css';
 
 const STORAGE_KEY = 'rally.pto.v1';
+const PTO_KEYWORD = 'pto';
 
 const DEFAULT_STATE = {
   hrsPerDay: 8,
@@ -107,10 +109,36 @@ function makeId() {
   return `pto-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
+function isoOf(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Derive an inclusive { startIso, endIso } from a Google Calendar event.
+// All-day events use an exclusive end date, so step it back one day.
+function eventRange(ev) {
+  const startIso = (ev.start || '').slice(0, 10);
+  if (!startIso) return null;
+  let endIso = (ev.end || ev.start || '').slice(0, 10);
+  if (ev.allDay && endIso) {
+    const d = parseLocal(endIso);
+    if (d) {
+      d.setDate(d.getDate() - 1);
+      endIso = isoOf(d);
+    }
+  }
+  if (!endIso || endIso < startIso) endIso = startIso;
+  return { startIso, endIso };
+}
+
 export function PTOPage() {
   const { user } = useAuth();
   const [state, setState] = useState(() => loadStored());
   const [draft, setDraft] = useState({ label: '', start: '', end: '', days: '', note: '' });
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -188,6 +216,55 @@ export function PTOPage() {
       ],
     }));
     setDraft({ label: '', start: '', end: '', days: '', note: '' });
+  };
+
+  const importFromGoogle = async () => {
+    setImporting(true);
+    setImportMsg('');
+    try {
+      if (!isGoogleCalendarConnected()) await connectGoogleCalendar();
+
+      const existingIds = new Set(entries.map((e) => e.gcalId).filter(Boolean));
+      const found = [];
+      for (const y of sortedYears) {
+        const startD = parseLocal(y.start);
+        const endD = parseLocal(y.end);
+        if (!startD || !endD) continue;
+        const timeMin = startD.toISOString();
+        // Make the window end exclusive at end-of-day.
+        const timeMax = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate() + 1).toISOString();
+        const events = await fetchGoogleCalendarEvents({ timeMin, timeMax, calendarId: 'primary' });
+        events.forEach((ev) => {
+          if (!(ev.title || '').toLowerCase().includes(PTO_KEYWORD)) return;
+          if (ev.id && existingIds.has(ev.id)) return;
+          const range = eventRange(ev);
+          if (!range) return;
+          const wd = weekdaysBetween(range.startIso, range.endIso);
+          found.push({
+            id: makeId(),
+            gcalId: ev.id || undefined,
+            label: ev.title || 'PTO',
+            start: range.startIso,
+            end: range.endIso,
+            days: wd > 0 ? wd : 1,
+            note: 'Imported from Google Calendar',
+          });
+          if (ev.id) existingIds.add(ev.id);
+        });
+      }
+
+      if (found.length === 0) {
+        setImportMsg('No new PTO events found in your year windows.');
+      } else {
+        setState((s) => ({ ...s, entries: [...s.entries, ...found] }));
+        setImportMsg(`Added ${found.length} PTO ${found.length === 1 ? 'entry' : 'entries'} from Google Calendar.`);
+      }
+    } catch (err) {
+      if (err.code === 'NOT_CONNECTED') setImportMsg('Connect Google Calendar to import.');
+      else setImportMsg(err.message || 'Import failed.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const fmtNum = (n) => (Number.isInteger(n) ? n : Math.round(n * 10) / 10);
@@ -330,7 +407,16 @@ export function PTOPage() {
         </table>
       </div>
 
-      <h2 className={styles.logTitle}>Trip log</h2>
+      <div className={styles.logHeader}>
+        <h2 className={styles.logTitle}>Trip log</h2>
+        <div className={styles.importBar}>
+          <button className={styles.importBtn} onClick={importFromGoogle} disabled={importing}>
+            {importing ? 'Importing…' : 'Pull PTO from Google Calendar'}
+          </button>
+          {importMsg && <span className={styles.importMsg}>{importMsg}</span>}
+        </div>
+      </div>
+      <p className={styles.importHint}>Imports events titled “PTO” from your primary Google Calendar within each year window. Re-pulling is safe — already-imported events are skipped.</p>
       <div className={styles.list}>
         {sortedEntries.length === 0 && <div className={styles.empty}>No PTO logged yet. Add your first entry below.</div>}
         {sortedEntries.map((e) => (

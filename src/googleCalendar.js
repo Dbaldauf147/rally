@@ -223,6 +223,31 @@ export async function listGoogleCalendars() {
   return data.calendars.filter(c => c.accessRole === 'owner' || c.accessRole === 'writer');
 }
 
+// Read events from a calendar within a window via /api/google-calendar.
+// Returns the normalized array { id, title, start, end, allDay, ... }.
+export async function fetchGoogleCalendarEvents({ timeMin, timeMax, calendarId = 'primary' }) {
+  const token = await getValidToken();
+  if (!token) {
+    const err = new Error('Not connected to Google Calendar');
+    err.code = 'NOT_CONNECTED';
+    throw err;
+  }
+  const params = new URLSearchParams({ accessToken: token, calendarId });
+  if (timeMin) params.set('timeMin', timeMin);
+  if (timeMax) params.set('timeMax', timeMax);
+  const res = await fetch(`/api/google-calendar?${params.toString()}`);
+  const data = await res.json();
+  if (data.needsAuth) {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(EXPIRY_KEY);
+    const err = new Error('Google Calendar session expired — reconnect to continue');
+    err.code = 'NOT_CONNECTED';
+    throw err;
+  }
+  if (data.error) throw new Error(data.error);
+  return data.events || [];
+}
+
 export async function syncEventToGoogleCalendar({ event, googleEventId, calStart, calEnd, description, calendarId = 'primary' }) {
   const payload = buildCalendarPayload({ event, calStart, calEnd, description });
   const targetId = encodeURIComponent(calendarId);
