@@ -225,7 +225,7 @@ export async function listGoogleCalendars() {
 
 // Read events from a calendar within a window via /api/google-calendar.
 // Returns the normalized array { id, title, start, end, allDay, ... }.
-export async function fetchGoogleCalendarEvents({ timeMin, timeMax, calendarId = 'primary' }) {
+export async function fetchGoogleCalendarEvents({ timeMin, timeMax, calendarId = 'primary', q }) {
   const token = await getValidToken();
   if (!token) {
     const err = new Error('Not connected to Google Calendar');
@@ -235,6 +235,7 @@ export async function fetchGoogleCalendarEvents({ timeMin, timeMax, calendarId =
   const params = new URLSearchParams({ accessToken: token, calendarId });
   if (timeMin) params.set('timeMin', timeMin);
   if (timeMax) params.set('timeMax', timeMax);
+  if (q) params.set('q', q);
   const res = await fetch(`/api/google-calendar?${params.toString()}`);
   const data = await res.json();
   if (data.needsAuth) {

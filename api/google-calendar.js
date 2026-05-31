@@ -1,16 +1,19 @@
 // Fetches events from Google Calendar
 export default async function handler(req, res) {
-  const { accessToken, timeMin, timeMax, calendarId } = req.query;
+  const { accessToken, timeMin, timeMax, calendarId, q } = req.query;
   if (!accessToken) return res.status(400).json({ error: 'Missing accessToken' });
 
   const calendar = calendarId || 'primary';
   const params = new URLSearchParams({
     singleEvents: 'true',
     orderBy: 'startTime',
-    maxResults: '100',
+    // Raised from 100 so a busy calendar's early-year events don't crowd out
+    // later matches before the window ends.
+    maxResults: '2500',
   });
   if (timeMin) params.set('timeMin', timeMin);
   if (timeMax) params.set('timeMax', timeMax);
+  if (q) params.set('q', q);
 
   try {
     const response = await fetch(

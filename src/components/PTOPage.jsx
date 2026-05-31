@@ -284,7 +284,7 @@ export function PTOPage() {
         const timeMin = startD.toISOString();
         // Make the window end exclusive at end-of-day.
         const timeMax = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate() + 1).toISOString();
-        const events = await fetchGoogleCalendarEvents({ timeMin, timeMax, calendarId: 'primary' });
+        const events = await fetchGoogleCalendarEvents({ timeMin, timeMax, calendarId: 'primary', q: PTO_KEYWORD });
         events.forEach((ev) => {
           if (!(ev.title || '').toLowerCase().includes(PTO_KEYWORD)) return;
           if (ev.id && existingIds.has(ev.id)) return;
