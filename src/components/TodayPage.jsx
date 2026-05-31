@@ -7,6 +7,7 @@ import styles from './TodayPage.module.css';
 const DAY_START_MIN = 8 * 60;
 const DAY_END_MIN = 22 * 60;
 const SLOT_MIN = 30;
+const DURATION_STEP = 15; // lengths can be finer than the 30-min grid (15, 45, …)
 const SLOT_COUNT = (DAY_END_MIN - DAY_START_MIN) / SLOT_MIN;
 const ROW_HEIGHT = 44; // px per 30-min slot
 
@@ -73,7 +74,7 @@ const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const START_OPTIONS = [];
 for (let m = DAY_START_MIN; m <= DAY_END_MIN - SLOT_MIN; m += SLOT_MIN) START_OPTIONS.push(m);
 const LENGTH_OPTIONS = [];
-for (let d = SLOT_MIN; d <= DAY_END_MIN - DAY_START_MIN; d += SLOT_MIN) LENGTH_OPTIONS.push(d);
+for (let d = DURATION_STEP; d <= DAY_END_MIN - DAY_START_MIN; d += DURATION_STEP) LENGTH_OPTIONS.push(d);
 
 // Resolve a template's effective start time + length for a given weekday (0=Sun).
 // A per-day override wins; otherwise start is unset and length falls back to the
@@ -316,8 +317,8 @@ export function TodayPage() {
     const hours = parseInt(tplHours, 10) || 0;
     const mins = parseInt(tplMins, 10) || 0;
     let totalMin = hours * 60 + mins;
-    if (totalMin <= 0) totalMin = SLOT_MIN;
-    totalMin = Math.round(totalMin / SLOT_MIN) * SLOT_MIN;
+    if (totalMin <= 0) totalMin = DURATION_STEP;
+    totalMin = Math.round(totalMin / DURATION_STEP) * DURATION_STEP;
     persistTemplates([...templates, { id: newId(), name, durationMin: totalMin }]);
     setTplName('');
     setTplHours('');
@@ -554,7 +555,7 @@ export function TodayPage() {
                                 onChange={(e) => changeDuration(item.id, parseInt(e.target.value, 10))}
                                 title="Duration"
                               >
-                                {Array.from({ length: SLOT_COUNT }, (_, i) => (i + 1) * SLOT_MIN).map((d) => (
+                                {LENGTH_OPTIONS.map((d) => (
                                   <option key={d} value={d}>{durationToLabel(d)}</option>
                                 ))}
                               </select>
@@ -740,7 +741,9 @@ export function TodayPage() {
                   onChange={(e) => setTplMins(e.target.value)}
                 >
                   <option value="0">0</option>
+                  <option value="15">15</option>
                   <option value="30">30</option>
+                  <option value="45">45</option>
                 </select>
               </label>
             </div>
