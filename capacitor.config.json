@@ -1,0 +1,8 @@
+{
+  "appId": "com.danbaldauf.rally",
+  "appName": "Rally",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always"
+  }
+}
