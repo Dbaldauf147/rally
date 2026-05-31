@@ -1975,8 +1975,10 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [aiMessage, setAiMessage] = useState('');
   const [aiError, setAiError] = useState('');
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [aiMode, setAiMode] = useState('plan'); // 'plan' | 'email'
   const [emailDraft, setEmailDraft] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailMsg, setEmailMsg] = useState('');
+  const [emailErr, setEmailErr] = useState('');
   const [mapModes, setMapModes] = useState({}); // mapId -> mode override
 
   // Per-event view settings: which sections are visible. Persisted to
@@ -2152,10 +2154,10 @@ export function Itinerary({ event, onSave, canEdit }) {
   }
 
   async function handleParseEmail() {
-    if (!emailDraft.trim() || aiLoading) return;
-    setAiLoading(true);
-    setAiError('');
-    setAiMessage('');
+    if (!emailDraft.trim() || emailLoading) return;
+    setEmailLoading(true);
+    setEmailErr('');
+    setEmailMsg('');
     try {
       const toDateStr = (d) => {
         if (!d) return '';
@@ -2195,7 +2197,7 @@ export function Itinerary({ event, onSave, canEdit }) {
       }));
 
       if (newItems.length === 0) {
-        setAiMessage(data.message || 'No travel or lodging found in that email.');
+        setEmailMsg(data.message || 'No travel or lodging found in that email.');
         return;
       }
 
@@ -2206,12 +2208,12 @@ export function Itinerary({ event, onSave, canEdit }) {
         return ad.localeCompare(bd);
       });
       await onSave({ itinerary: next });
-      setAiMessage((data.message || 'Added!') + ` (${newItems.length} item${newItems.length === 1 ? '' : 's'} added)`);
+      setEmailMsg((data.message || 'Added!') + ` (${newItems.length} booking${newItems.length === 1 ? '' : 's'} saved)`);
       setEmailDraft('');
     } catch (err) {
-      setAiError(err.message || 'Something went wrong');
+      setEmailErr(err.message || 'Something went wrong');
     } finally {
-      setAiLoading(false);
+      setEmailLoading(false);
     }
   }
 
@@ -3124,6 +3126,11 @@ export function Itinerary({ event, onSave, canEdit }) {
             onClick={() => setViewMode('flights')}
             title="Flight cost comparison"
           >✈️ Flight Costs</button>
+          <button
+            className={viewMode === 'bookings' ? styles.addBtn : styles.lodgingToggleBtn}
+            onClick={() => setViewMode('bookings')}
+            title="Paste confirmation emails and see saved flights & hotels"
+          >📧 Bookings</button>
           <div className={styles.settingsWrap} ref={settingsRef}>
             <button
               className={styles.lodgingToggleBtn}
@@ -3256,6 +3263,102 @@ export function Itinerary({ event, onSave, canEdit }) {
         <FlightCosts event={event} onSave={onSave} canEdit={canEdit} />
       )}
 
+      {viewMode === 'bookings' && (() => {
+        const fmtTime = (t) => t
+          ? new Date('2000-01-01T' + t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+          : '';
+        const bookings = items
+          .filter(i => i.type === 'travel' || i.type === 'lodging')
+          .slice()
+          .sort((a, b) => ((a.date || '') + 'T' + (a.time || '00:00'))
+            .localeCompare((b.date || '') + 'T' + (b.time || '00:00')));
+        return (
+          <div className={styles.bookingsView}>
+            {canEdit && (
+              <div className={styles.bookingsPaste}>
+                <div className={styles.bookingsPasteTitle}>📧 Paste a confirmation email</div>
+                <p className={styles.bookingsPasteHint}>
+                  Copy the full text of a flight, hotel, train, or car-rental email from Gmail
+                  and paste it below. Claude reads it and saves the travel details as bookings.
+                </p>
+                <textarea
+                  className={styles.bookingsTextarea}
+                  placeholder="Paste your confirmation email here…"
+                  value={emailDraft}
+                  onChange={e => setEmailDraft(e.target.value)}
+                  disabled={emailLoading}
+                  rows={7}
+                />
+                <div className={styles.bookingsPasteActions}>
+                  <button
+                    className={styles.addBtn}
+                    onClick={handleParseEmail}
+                    disabled={emailLoading || !emailDraft.trim()}
+                  >{emailLoading ? 'Reading email…' : '✨ Save travel from email'}</button>
+                  {emailDraft && !emailLoading && (
+                    <button
+                      className={styles.lodgingToggleBtn}
+                      onClick={() => { setEmailDraft(''); setEmailMsg(''); setEmailErr(''); }}
+                    >Clear</button>
+                  )}
+                </div>
+                {emailMsg && <div className={styles.aiMessage} style={{ marginTop: '0.6rem' }}>{emailMsg}</div>}
+                {emailErr && <div className={styles.aiErrorMsg} style={{ marginTop: '0.6rem' }}>{emailErr}</div>}
+              </div>
+            )}
+
+            <div className={styles.bookingsListHeader}>
+              <span>Saved bookings</span>
+              <span className={styles.bookingsCount}>{bookings.length}</span>
+            </div>
+
+            {bookings.length === 0 ? (
+              <div className={styles.bookingsEmpty}>
+                No bookings yet.{canEdit ? ' Paste a confirmation email above to add your flights and hotels.' : ''}
+              </div>
+            ) : (
+              <div className={styles.bookingsList}>
+                {bookings.map(item => {
+                  const isLodging = item.type === 'lodging';
+                  const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
+                  return (
+                    <div key={item.id} className={styles.bookingCard}>
+                      <div className={styles.bookingIcon}>{icon}</div>
+                      <div className={styles.bookingBody}>
+                        <div className={styles.bookingTitle}>{item.title || '(untitled)'}</div>
+                        <div className={styles.bookingMeta}>
+                          {item.date && <span>{fmtKeyLong(item.date)}</span>}
+                          {item.time && (
+                            <span>🕑 {fmtTime(item.time)}{item.arrivalTime ? ` → ${fmtTime(item.arrivalTime)}` : ''}</span>
+                          )}
+                          {item.location && <span>📍 {item.location}</span>}
+                        </div>
+                        {(item.airline || item.flightNumber) && (
+                          <div className={styles.bookingDetail}>✈️ {[item.airline, item.flightNumber].filter(Boolean).join(' ')}</div>
+                        )}
+                        {item.cost && (
+                          <div className={styles.bookingDetail}>💵 {/^[\d.]/.test(String(item.cost).trim()) ? `$${item.cost}` : item.cost}</div>
+                        )}
+                        {item.notes && <div className={styles.bookingNotes}>{item.notes}</div>}
+                        {item.url && (
+                          <a className={styles.bookingLink} href={item.url} target="_blank" rel="noopener noreferrer">Open booking ↗</a>
+                        )}
+                      </div>
+                      {canEdit && (
+                        <div className={styles.bookingActions}>
+                          <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit booking" aria-label="Edit booking">✏️</button>
+                          <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete booking" aria-label="Delete booking">×</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {viewSettings.showAiAssistant && canEdit && isAdmin && (
         aiPanelOpen ? (
           <div className={styles.aiPanelDocked}>
@@ -3266,69 +3369,29 @@ export function Itinerary({ event, onSave, canEdit }) {
               aria-label="Close AI assistant"
               title="Close"
             >✕</button>
-            <div className={styles.aiModeTabs}>
-              <button
-                type="button"
-                className={aiMode === 'plan' ? styles.aiModeTabActive : styles.aiModeTab}
-                onClick={() => { setAiMode('plan'); setAiError(''); setAiMessage(''); }}
-              >✨ Plan</button>
-              <button
-                type="button"
-                className={aiMode === 'email' ? styles.aiModeTabActive : styles.aiModeTab}
-                onClick={() => { setAiMode('email'); setAiError(''); setAiMessage(''); }}
-              >📧 Paste email</button>
+            <div className={styles.aiLabel}>
+              <span className={styles.aiSparkle}>✨</span>
+              Ask Claude to plan your trip
             </div>
-            {aiMode === 'plan' ? (
-              <>
-                <div className={styles.aiLabel}>
-                  <span className={styles.aiSparkle}>✨</span>
-                  Ask Claude to plan your trip
-                </div>
-                <div className={styles.aiRow}>
-                  <input
-                    className={styles.aiInput}
-                    type="text"
-                    placeholder='e.g., "Plan a day in Rome with 4 activities"'
-                    value={aiPrompt}
-                    onChange={e => setAiPrompt(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleAiPrompt(); }}
-                    disabled={aiLoading}
-                    autoFocus
-                  />
-                  <button
-                    className={styles.aiSendBtn}
-                    onClick={handleAiPrompt}
-                    disabled={aiLoading || !aiPrompt.trim()}
-                  >
-                    {aiLoading ? '…' : 'Send'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className={styles.aiLabel}>
-                  <span className={styles.aiSparkle}>📧</span>
-                  Paste a flight or hotel email
-                </div>
-                <textarea
-                  className={styles.aiTextarea}
-                  placeholder="Paste the full text of a confirmation email from Gmail. Claude pulls out flights, hotels, trains and adds them to your itinerary."
-                  value={emailDraft}
-                  onChange={e => setEmailDraft(e.target.value)}
-                  disabled={aiLoading}
-                  rows={6}
-                  autoFocus
-                />
-                <button
-                  className={styles.aiSendBtn}
-                  style={{ width: '100%', padding: '0.6rem 1.2rem' }}
-                  onClick={handleParseEmail}
-                  disabled={aiLoading || !emailDraft.trim()}
-                >
-                  {aiLoading ? 'Reading…' : 'Add travel from email'}
-                </button>
-              </>
-            )}
+            <div className={styles.aiRow}>
+              <input
+                className={styles.aiInput}
+                type="text"
+                placeholder='e.g., "Plan a day in Rome with 4 activities"'
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleAiPrompt(); }}
+                disabled={aiLoading}
+                autoFocus
+              />
+              <button
+                className={styles.aiSendBtn}
+                onClick={handleAiPrompt}
+                disabled={aiLoading || !aiPrompt.trim()}
+              >
+                {aiLoading ? '…' : 'Send'}
+              </button>
+            </div>
             {aiMessage && <div className={styles.aiMessage}>{aiMessage}</div>}
             {aiError && <div className={styles.aiErrorMsg}>{aiError}</div>}
           </div>

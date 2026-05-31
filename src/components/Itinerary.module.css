@@ -287,40 +287,38 @@
   font-size: 0.95rem;
 }
 
-.aiModeTabs {
+.aiRow {
   display: flex;
-  gap: 0.3rem;
-  margin-bottom: 0.7rem;
-  background: rgba(124, 58, 237, 0.07);
-  border-radius: var(--radius-md);
-  padding: 0.2rem;
-}
-.aiModeTab,
-.aiModeTabActive {
-  flex: 1;
-  border: none;
-  background: transparent;
-  border-radius: calc(var(--radius-md) - 2px);
-  padding: 0.4rem 0.5rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  font-family: inherit;
-  color: #7c3aed;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.aiModeTabActive {
-  background: #fff;
-  color: #5b21b6;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-.aiModeTab:hover {
-  color: #5b21b6;
+  gap: 0.5rem;
 }
 
-.aiTextarea {
+/* --- Bookings tab --- */
+.bookingsView {
+  margin-top: 0.5rem;
+}
+.bookingsPaste {
+  background: linear-gradient(135deg, #faf7ff 0%, #f5f0fe 100%);
+  border: 1px solid #e9e1fb;
+  border-radius: var(--radius-lg);
+  padding: 1.1rem 1.2rem;
+  margin-bottom: 1.25rem;
+}
+.bookingsPasteTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #5b21b6;
+  margin-bottom: 0.3rem;
+}
+.bookingsPasteHint {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin: 0 0 0.7rem;
+  line-height: 1.45;
+}
+.bookingsTextarea {
   width: 100%;
-  padding: 0.6rem 0.85rem;
+  box-sizing: border-box;
+  padding: 0.7rem 0.85rem;
   border: 1px solid #e0d4f5;
   border-radius: var(--radius-md);
   font-size: 0.9rem;
@@ -329,21 +327,103 @@
   color: var(--color-text);
   outline: none;
   resize: vertical;
-  margin-bottom: 0.55rem;
-  box-sizing: border-box;
+  min-height: 120px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.aiTextarea:focus {
+.bookingsTextarea:focus {
   border-color: #7c3aed;
   box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
 }
-.aiTextarea:disabled {
-  opacity: 0.6;
+.bookingsTextarea:disabled { opacity: 0.6; }
+.bookingsPasteActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
 }
 
-.aiRow {
+.bookingsListHeader {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 0.6rem;
+}
+.bookingsCount {
+  background: var(--color-surface-alt);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.75rem;
+}
+.bookingsEmpty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.bookingsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.bookingCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0.85rem 1rem;
+}
+.bookingIcon {
+  font-size: 1.4rem;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.bookingBody { flex: 1; min-width: 0; }
+.bookingTitle {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.bookingMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  margin-top: 0.25rem;
+}
+.bookingDetail {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  margin-top: 0.2rem;
+}
+.bookingNotes {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: 0.3rem;
+  white-space: pre-wrap;
+}
+.bookingLink {
+  display: inline-block;
+  font-size: 0.8rem;
+  color: var(--color-accent);
+  margin-top: 0.35rem;
+  text-decoration: none;
+}
+.bookingLink:hover { text-decoration: underline; }
+.bookingActions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 
 .aiInput {
