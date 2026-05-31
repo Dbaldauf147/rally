@@ -1,0 +1,100 @@
+name: iOS → TestFlight
+
+# Builds Rally for iOS on a GitHub-hosted macOS runner and uploads to
+# TestFlight. Uses App Store Connect API-key "cloud signing" — no Mac, no
+# fastlane, no separate certificate repo. See APP_STORE.md for the required
+# repository secrets.
+#
+# Trigger: run manually from the Actions tab, or push a tag like ios-v1.0.0.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'ios-v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app (Vite → dist)
+        run: npm run build
+
+      - name: Generate iOS project
+        run: |
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Install App Store Connect API key
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          cat > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 <<'APPLE_KEY_EOF'
+          ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          APPLE_KEY_EOF
+
+      - name: Set build number
+        run: |
+          cd ios/App
+          agvtool new-version -all ${{ github.run_number }} || true
+
+      - name: Archive
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            clean archive
+
+      - name: Export IPA
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>destination</key><string>export</string>
+          </dict></plist>
+          EOF
+          cd ios/App
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+      - name: Upload to TestFlight
+        run: |
+          xcrun altool --upload-app -f "$RUNNER_TEMP"/export/*.ipa -t ios \
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+
+      - name: Save IPA as build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rally-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: ignore
