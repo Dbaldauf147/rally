@@ -136,6 +136,21 @@ function eventRange(ev) {
   return { startIso, endIso };
 }
 
+// Every weekday (Mon–Fri) ISO date within an inclusive range — one PTO row per day.
+function weekdayDatesInRange(startIso, endIso) {
+  const start = parseLocal(startIso);
+  const end = parseLocal(endIso || startIso);
+  if (!start || !end || end < start) return [];
+  const out = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    const day = cur.getDay();
+    if (day !== 0 && day !== 6) out.push(isoOf(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
 export function PTOPage() {
   const { user } = useAuth();
   const [state, setState] = useState(() => loadStored());
@@ -273,7 +288,17 @@ export function PTOPage() {
     try {
       if (!isGoogleCalendarConnected()) await connectGoogleCalendar();
 
-      const existingIds = new Set(entries.map((e) => e.gcalId).filter(Boolean));
+      // Per-day dedupe keys ("<id>:<date>"). Older whole-event entries
+      // (gcalId === event id, possibly spanning days) are expanded to every
+      // weekday they covered so a re-pull never duplicates them.
+      const existingDayKeys = new Set();
+      entries.forEach((e) => {
+        if (!e.gcalId) return;
+        if (e.gcalId.includes(':')) { existingDayKeys.add(e.gcalId); return; }
+        const days = weekdayDatesInRange(e.start, e.end || e.start);
+        if (days.length) days.forEach((d) => existingDayKeys.add(`${e.gcalId}:${d}`));
+        else existingDayKeys.add(`${e.gcalId}:${e.start}`);
+      });
       const ignoredIds = new Set(ignored.map((x) => x.gcalId).filter(Boolean));
       let skipped = 0;
       const found = [];
@@ -287,21 +312,24 @@ export function PTOPage() {
         const events = await fetchGoogleCalendarEvents({ timeMin, timeMax, calendarId: 'primary', q: PTO_KEYWORD });
         events.forEach((ev) => {
           if (!(ev.title || '').toLowerCase().includes(PTO_KEYWORD)) return;
-          if (ev.id && existingIds.has(ev.id)) return;
-          if (ev.id && ignoredIds.has(ev.id)) { skipped += 1; return; }
           const range = eventRange(ev);
           if (!range) return;
-          const wd = weekdaysBetween(range.startIso, range.endIso);
-          found.push({
-            id: makeId(),
-            gcalId: ev.id || undefined,
-            label: ev.title || 'PTO',
-            start: range.startIso,
-            end: range.endIso,
-            days: wd > 0 ? wd : 1,
-            note: 'Imported from Google Calendar',
+          // One row per weekday so each day can be named individually.
+          weekdayDatesInRange(range.startIso, range.endIso).forEach((dayIso) => {
+            const dayKey = `${ev.id || 'evt'}:${dayIso}`;
+            if (existingDayKeys.has(dayKey)) return;
+            if (ignoredIds.has(dayKey) || (ev.id && ignoredIds.has(ev.id))) { skipped += 1; return; }
+            found.push({
+              id: makeId(),
+              gcalId: dayKey,
+              label: ev.title || 'PTO',
+              start: dayIso,
+              end: dayIso,
+              days: 1,
+              note: 'Imported from Google Calendar',
+            });
+            existingDayKeys.add(dayKey);
           });
-          if (ev.id) existingIds.add(ev.id);
         });
       }
 
