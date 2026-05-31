@@ -1975,6 +1975,8 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [aiMessage, setAiMessage] = useState('');
   const [aiError, setAiError] = useState('');
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiMode, setAiMode] = useState('plan'); // 'plan' | 'email'
+  const [emailDraft, setEmailDraft] = useState('');
   const [mapModes, setMapModes] = useState({}); // mapId -> mode override
 
   // Per-event view settings: which sections are visible. Persisted to
@@ -2142,6 +2144,70 @@ export function Itinerary({ event, onSave, canEdit }) {
             : ' — nothing changed. Try rephrasing.';
       setAiMessage((data.message || 'Updated!') + countLabel);
       setAiPrompt('');
+    } catch (err) {
+      setAiError(err.message || 'Something went wrong');
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function handleParseEmail() {
+    if (!emailDraft.trim() || aiLoading) return;
+    setAiLoading(true);
+    setAiError('');
+    setAiMessage('');
+    try {
+      const toDateStr = (d) => {
+        if (!d) return '';
+        const date = d?.toDate ? d.toDate() : new Date(d);
+        if (isNaN(date)) return '';
+        return date.toISOString().split('T')[0];
+      };
+      const eventContext = {
+        title: event?.title || '',
+        startDate: toDateStr(event?.startDate || event?.date),
+        endDate: toDateStr(event?.endDate),
+        location: event?.location || '',
+      };
+      const resp = await fetch('/api/parse-travel-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailText: emailDraft, eventContext }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed to reach parser');
+
+      const newItems = (data.items || []).map(it => ({
+        id: crypto.randomUUID(),
+        title: it.title || '',
+        date: it.date || '',
+        time: it.time || '',
+        location: it.location || '',
+        notes: it.notes || '',
+        type: it.type || 'travel',
+        url: it.url || '',
+        imageQuery: it.imageQuery || '',
+        isFlight: !!it.isFlight,
+        arrivalTime: it.arrivalTime || '',
+        airline: it.airline || '',
+        flightNumber: it.flightNumber || '',
+        cost: it.cost || '',
+      }));
+
+      if (newItems.length === 0) {
+        setAiMessage(data.message || 'No travel or lodging found in that email.');
+        return;
+      }
+
+      const next = [...items, ...newItems];
+      next.sort((a, b) => {
+        const ad = (a.date || '') + 'T' + (a.time || '00:00');
+        const bd = (b.date || '') + 'T' + (b.time || '00:00');
+        return ad.localeCompare(bd);
+      });
+      await onSave({ itinerary: next });
+      setAiMessage((data.message || 'Added!') + ` (${newItems.length} item${newItems.length === 1 ? '' : 's'} added)`);
+      setEmailDraft('');
     } catch (err) {
       setAiError(err.message || 'Something went wrong');
     } finally {
@@ -3200,29 +3266,69 @@ export function Itinerary({ event, onSave, canEdit }) {
               aria-label="Close AI assistant"
               title="Close"
             >✕</button>
-            <div className={styles.aiLabel}>
-              <span className={styles.aiSparkle}>✨</span>
-              Ask Claude to plan your trip
-            </div>
-            <div className={styles.aiRow}>
-              <input
-                className={styles.aiInput}
-                type="text"
-                placeholder='e.g., "Plan a day in Rome with 4 activities"'
-                value={aiPrompt}
-                onChange={e => setAiPrompt(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleAiPrompt(); }}
-                disabled={aiLoading}
-                autoFocus
-              />
+            <div className={styles.aiModeTabs}>
               <button
-                className={styles.aiSendBtn}
-                onClick={handleAiPrompt}
-                disabled={aiLoading || !aiPrompt.trim()}
-              >
-                {aiLoading ? '…' : 'Send'}
-              </button>
+                type="button"
+                className={aiMode === 'plan' ? styles.aiModeTabActive : styles.aiModeTab}
+                onClick={() => { setAiMode('plan'); setAiError(''); setAiMessage(''); }}
+              >✨ Plan</button>
+              <button
+                type="button"
+                className={aiMode === 'email' ? styles.aiModeTabActive : styles.aiModeTab}
+                onClick={() => { setAiMode('email'); setAiError(''); setAiMessage(''); }}
+              >📧 Paste email</button>
             </div>
+            {aiMode === 'plan' ? (
+              <>
+                <div className={styles.aiLabel}>
+                  <span className={styles.aiSparkle}>✨</span>
+                  Ask Claude to plan your trip
+                </div>
+                <div className={styles.aiRow}>
+                  <input
+                    className={styles.aiInput}
+                    type="text"
+                    placeholder='e.g., "Plan a day in Rome with 4 activities"'
+                    value={aiPrompt}
+                    onChange={e => setAiPrompt(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleAiPrompt(); }}
+                    disabled={aiLoading}
+                    autoFocus
+                  />
+                  <button
+                    className={styles.aiSendBtn}
+                    onClick={handleAiPrompt}
+                    disabled={aiLoading || !aiPrompt.trim()}
+                  >
+                    {aiLoading ? '…' : 'Send'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className={styles.aiLabel}>
+                  <span className={styles.aiSparkle}>📧</span>
+                  Paste a flight or hotel email
+                </div>
+                <textarea
+                  className={styles.aiTextarea}
+                  placeholder="Paste the full text of a confirmation email from Gmail. Claude pulls out flights, hotels, trains and adds them to your itinerary."
+                  value={emailDraft}
+                  onChange={e => setEmailDraft(e.target.value)}
+                  disabled={aiLoading}
+                  rows={6}
+                  autoFocus
+                />
+                <button
+                  className={styles.aiSendBtn}
+                  style={{ width: '100%', padding: '0.6rem 1.2rem' }}
+                  onClick={handleParseEmail}
+                  disabled={aiLoading || !emailDraft.trim()}
+                >
+                  {aiLoading ? 'Reading…' : 'Add travel from email'}
+                </button>
+              </>
+            )}
             {aiMessage && <div className={styles.aiMessage}>{aiMessage}</div>}
             {aiError && <div className={styles.aiErrorMsg}>{aiError}</div>}
           </div>

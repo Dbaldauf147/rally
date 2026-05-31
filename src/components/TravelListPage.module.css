@@ -14,6 +14,8 @@
 .btn { padding: 0.4rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.8rem; cursor: pointer; }
 .btn:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .btnDanger:hover { color: var(--color-danger); background: var(--color-danger-light); border-color: var(--color-danger-light); }
+.btnActive { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+.btnActive:hover { background: var(--color-accent); color: #fff; }
 
 .section { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); margin-bottom: 1rem; overflow: hidden; }
 .sectionHeader { display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1rem; cursor: pointer; user-select: none; gap: 0.75rem; }
@@ -35,3 +37,25 @@
 
 .itemGroup { font-weight: 600; }
 .itemGroup .itemLabel { color: var(--color-text-secondary); text-transform: none; font-size: 0.92rem; }
+
+/* --- edit mode --- */
+.sectionNameInput { font-size: 1rem; font-weight: 600; padding: 0.3rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text); min-width: 0; flex: 1; }
+.sectionNameInput:focus { outline: none; border-color: var(--color-accent); }
+.sectionActions { display: flex; align-items: center; gap: 0.25rem; }
+
+.editRow { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); }
+.editRow:hover { background: var(--color-surface-alt); }
+.editRowChild { margin-left: 1.5rem; }
+.editFields { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-width: 0; }
+.editInput, .editNoteInput { padding: 0.4rem 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-size: 0.88rem; color: var(--color-text); width: 100%; box-sizing: border-box; }
+.editNoteInput { font-size: 0.8rem; color: var(--color-text-muted); }
+.editInput:focus, .editNoteInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+.editActions { display: flex; align-items: center; gap: 0.2rem; flex-shrink: 0; }
+
+.iconBtn, .iconBtnDanger { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.8rem; cursor: pointer; padding: 0; }
+.iconBtn:hover:not(:disabled) { background: var(--color-surface-alt); color: var(--color-text); }
+.iconBtn:disabled { opacity: 0.35; cursor: default; }
+.iconBtnDanger:hover { color: var(--color-danger); background: var(--color-danger-light); border-color: var(--color-danger-light); }
+
+.addItemBtn { margin: 0.4rem 0.6rem 0; padding: 0.4rem 0.75rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font-size: 0.82rem; cursor: pointer; width: calc(100% - 1.2rem); }
+.addItemBtn:hover { background: var(--color-surface-alt); color: var(--color-text); border-color: var(--color-accent); }

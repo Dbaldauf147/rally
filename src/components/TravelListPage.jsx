@@ -1,9 +1,13 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './TravelListPage.module.css';
 
-const SECTIONS = [
+// Default master checklist. Editable copies are stored per-user in Firestore;
+// this only seeds a brand-new list (or a "Reset to defaults").
+const DEFAULT_SECTIONS = [
   {
     name: 'All travel',
     items: [
@@ -224,93 +228,320 @@ const SECTIONS = [
   },
 ];
 
-function buildKey(sectionName, path) {
-  return `${sectionName}::${path.join('>')}`;
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `id-${Math.random().toString(36).slice(2)}-${Date.now()}`);
+
+// Build an editable, id-stamped list from the hardcoded defaults.
+function seedTravelList() {
+  return {
+    sections: DEFAULT_SECTIONS.map((s) => ({
+      id: uid(),
+      name: s.name,
+      items: s.items.map((it) => ({
+        id: uid(),
+        label: it.label,
+        note: it.note || '',
+        checked: !!it.defaultChecked,
+        isGroup: !!it.isGroup,
+        children: (it.children || []).map((c) => ({
+          id: uid(),
+          label: c.label,
+          note: c.note || '',
+          checked: !!c.defaultChecked,
+        })),
+      })),
+    })),
+    meta: { leaveDate: '', returnDate: '', days: '' },
+  };
 }
 
-function flattenItems(section) {
-  const out = [];
-  section.items.forEach((item, i) => {
-    out.push({ key: buildKey(section.name, [i]), item, path: [i] });
-    if (item.children) {
-      item.children.forEach((child, j) => {
-        out.push({ key: buildKey(section.name, [i, j]), item: child, path: [i, j], isChild: true });
-      });
+// Defensive normalizer so older/partial documents still render.
+function normalizeList(raw) {
+  if (!raw || !Array.isArray(raw.sections)) return seedTravelList();
+  return {
+    sections: raw.sections.map((s) => ({
+      id: s.id || uid(),
+      name: s.name || 'Untitled',
+      items: (s.items || []).map((it) => ({
+        id: it.id || uid(),
+        label: it.label || '',
+        note: it.note || '',
+        checked: !!it.checked,
+        isGroup: !!it.isGroup || (Array.isArray(it.children) && it.children.length > 0),
+        children: (it.children || []).map((c) => ({
+          id: c.id || uid(),
+          label: c.label || '',
+          note: c.note || '',
+          checked: !!c.checked,
+        })),
+      })),
+    })),
+    meta: {
+      leaveDate: raw.meta?.leaveDate || '',
+      returnDate: raw.meta?.returnDate || '',
+      days: raw.meta?.days || '',
+    },
+  };
+}
+
+// A leaf is any item without children plus every child — these are what we count.
+function countLeaves(sections) {
+  let total = 0;
+  let done = 0;
+  for (const s of sections) {
+    for (const it of s.items) {
+      if (it.children && it.children.length > 0) {
+        for (const c of it.children) { total++; if (c.checked) done++; }
+      } else {
+        total++; if (it.checked) done++;
+      }
     }
-  });
-  return out;
-}
-
-function defaultChecked() {
-  const state = {};
-  SECTIONS.forEach((section) => {
-    flattenItems(section).forEach(({ key, item }) => {
-      state[key] = !!item.defaultChecked;
-    });
-  });
-  return state;
-}
-
-const STORAGE_KEY = 'rally.travelList.v1';
-const META_KEY = 'rally.travelList.meta.v1';
-const OPEN_KEY = 'rally.travelList.open.v1';
-
-function loadStored(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return { ...fallback, ...JSON.parse(raw) };
-  } catch {
-    return fallback;
   }
+  return { total, done };
 }
+
+function sectionCounts(section) {
+  return countLeaves([section]);
+}
+
+const CACHE_KEY = 'rally.travelList.doc.v2';
+const OPEN_KEY = 'rally.travelList.open.v2';
 
 export function TravelListPage() {
   const { user } = useAuth();
 
-  const initial = useMemo(() => defaultChecked(), []);
-  const [checked, setChecked] = useState(() => loadStored(STORAGE_KEY, initial));
-  const [meta, setMeta] = useState(() => loadStored(META_KEY, { leaveDate: '', returnDate: '', days: '' }));
+  const [list, setList] = useState(() => {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (raw) return normalizeList(JSON.parse(raw));
+    } catch { /* ignore */ }
+    return seedTravelList();
+  });
+  const [loaded, setLoaded] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [open, setOpen] = useState(() => {
-    const defaults = Object.fromEntries(SECTIONS.map((s) => [s.name, true]));
-    return loadStored(OPEN_KEY, defaults);
+    try {
+      const raw = localStorage.getItem(OPEN_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return {};
   });
 
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(checked)); }, [checked]);
-  useEffect(() => { localStorage.setItem(META_KEY, JSON.stringify(meta)); }, [meta]);
-  useEffect(() => { localStorage.setItem(OPEN_KEY, JSON.stringify(open)); }, [open]);
+  const writeTimer = useRef(null);
+  const userRef = user?.uid ? doc(db, 'users', user.uid) : null;
 
-  if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
+  // Load the user's saved list from Firestore once on mount. Seeds + persists
+  // a fresh default list if the user has none yet.
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.uid) return;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (cancelled) return;
+        const remote = snap.exists() ? snap.data()?.travelList : null;
+        if (remote && Array.isArray(remote.sections)) {
+          const normalized = normalizeList(remote);
+          setList(normalized);
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(normalized)); } catch { /* ignore */ }
+        } else {
+          // No saved list yet — persist the current (cached or seeded) one.
+          const initial = normalizeList(list);
+          setDoc(doc(db, 'users', user.uid), { travelList: initial }, { merge: true }).catch(() => {});
+        }
+      } catch { /* offline — keep cached/seeded copy */ }
+      finally { if (!cancelled) setLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
 
-  const allFlat = SECTIONS.flatMap(flattenItems);
-  const totalItems = allFlat.filter(({ item }) => !item.children).length;
-  const checkedItems = allFlat.filter(({ key, item }) => !item.children && checked[key]).length;
+  useEffect(() => {
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(open)); } catch { /* ignore */ }
+  }, [open]);
 
-  const toggle = (key) => setChecked((s) => ({ ...s, [key]: !s[key] }));
-  const setSectionOpen = (name) => setOpen((o) => ({ ...o, [name]: !o[name] }));
+  // Single mutation path: updates state, caches locally, debounces a Firestore write.
+  function updateList(updater) {
+    setList((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      if (userRef) {
+        if (writeTimer.current) clearTimeout(writeTimer.current);
+        writeTimer.current = setTimeout(() => {
+          setDoc(doc(db, 'users', user.uid), { travelList: next }, { merge: true }).catch(() => {});
+        }, 500);
+      }
+      return next;
+    });
+  }
 
-  const checkAll = () => {
-    const next = {};
-    allFlat.forEach(({ key, item }) => { if (!item.children) next[key] = true; });
-    setChecked((prev) => ({ ...prev, ...next }));
-  };
-  const uncheckAll = () => {
-    const next = {};
-    allFlat.forEach(({ key, item }) => { if (!item.children) next[key] = false; });
-    setChecked((prev) => ({ ...prev, ...next }));
-  };
-  const resetDefaults = () => {
-    if (!confirm('Reset all checks to defaults?')) return;
-    setChecked(defaultChecked());
-  };
+  useEffect(() => () => { if (writeTimer.current) clearTimeout(writeTimer.current); }, []);
+
+  const { total, done } = useMemo(() => countLeaves(list.sections), [list]);
+
+  if (user && user.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
+  if (!user) return null;
+
+  const setSectionOpen = (id) => setOpen((o) => ({ ...o, [id]: o[id] === false }));
+  const isOpen = (id) => open[id] !== false; // default open
+
+  // --- checkbox toggles ---
+  function toggleItem(sectionId, itemId) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.map((it) => it.id !== itemId ? it : { ...it, checked: !it.checked }),
+      }),
+    }));
+  }
+  function toggleChild(sectionId, itemId, childId) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.map((it) => it.id !== itemId ? it : {
+          ...it,
+          children: it.children.map((c) => c.id !== childId ? c : { ...c, checked: !c.checked }),
+        }),
+      }),
+    }));
+  }
+
+  function setAllChecked(value) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => ({
+        ...s,
+        items: s.items.map((it) => ({
+          ...it,
+          checked: (it.children && it.children.length > 0) ? it.checked : value,
+          children: it.children.map((c) => ({ ...c, checked: value })),
+        })),
+      })),
+    }));
+  }
+
+  function resetDefaults() {
+    if (!confirm('Reset the whole list — items and checks — back to defaults? This deletes your custom edits.')) return;
+    updateList(seedTravelList());
+  }
+
+  function setMeta(patch) {
+    updateList((l) => ({ ...l, meta: { ...l.meta, ...patch } }));
+  }
+
+  // --- editing: items ---
+  function updateItemFields(sectionId, itemId, patch) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.map((it) => it.id !== itemId ? it : { ...it, ...patch }),
+      }),
+    }));
+  }
+  function updateChildFields(sectionId, itemId, childId, patch) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.map((it) => it.id !== itemId ? it : {
+          ...it,
+          children: it.children.map((c) => c.id !== childId ? c : { ...c, ...patch }),
+        }),
+      }),
+    }));
+  }
+  function addItem(sectionId) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: [...s.items, { id: uid(), label: '', note: '', checked: false, isGroup: false, children: [] }],
+      }),
+    }));
+  }
+  function addChild(sectionId, itemId) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.map((it) => it.id !== itemId ? it : {
+          ...it,
+          isGroup: true,
+          children: [...(it.children || []), { id: uid(), label: '', note: '', checked: false }],
+        }),
+      }),
+    }));
+  }
+  function deleteItem(sectionId, itemId) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.filter((it) => it.id !== itemId),
+      }),
+    }));
+  }
+  function deleteChild(sectionId, itemId, childId) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.map((it) => it.id !== itemId ? it : {
+          ...it,
+          children: it.children.filter((c) => c.id !== childId),
+        }),
+      }),
+    }));
+  }
+  function moveItem(sectionId, itemId, delta) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => {
+        if (s.id !== sectionId) return s;
+        const idx = s.items.findIndex((it) => it.id === itemId);
+        const target = idx + delta;
+        if (idx < 0 || target < 0 || target >= s.items.length) return s;
+        const items = s.items.slice();
+        [items[idx], items[target]] = [items[target], items[idx]];
+        return { ...s, items };
+      }),
+    }));
+  }
+
+  // --- editing: sections ---
+  function addSection() {
+    const id = uid();
+    updateList((l) => ({ ...l, sections: [...l.sections, { id, name: 'New section', items: [] }] }));
+    setOpen((o) => ({ ...o, [id]: true }));
+  }
+  function renameSection(sectionId, name) {
+    updateList((l) => ({ ...l, sections: l.sections.map((s) => s.id !== sectionId ? s : { ...s, name }) }));
+  }
+  function deleteSection(sectionId) {
+    const s = list.sections.find((x) => x.id === sectionId);
+    if (!confirm(`Delete the "${s?.name || ''}" section and all its items?`)) return;
+    updateList((l) => ({ ...l, sections: l.sections.filter((x) => x.id !== sectionId) }));
+  }
+  function moveSection(sectionId, delta) {
+    updateList((l) => {
+      const idx = l.sections.findIndex((s) => s.id === sectionId);
+      const target = idx + delta;
+      if (idx < 0 || target < 0 || target >= l.sections.length) return l;
+      const sections = l.sections.slice();
+      [sections[idx], sections[target]] = [sections[target], sections[idx]];
+      return { ...l, sections };
+    });
+  }
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>Travel List</h1>
-        <div className={styles.progress}>{checkedItems} / {totalItems} packed</div>
+        <div className={styles.progress}>{done} / {total} packed{!loaded ? ' · syncing…' : ''}</div>
       </div>
-      <p className={styles.subtitle}>Your master packing & pre-trip checklist.</p>
+      <p className={styles.subtitle}>Your master packing & pre-trip checklist. Synced to your account.</p>
 
       <div className={styles.meta}>
         <label className={styles.metaField}>
@@ -318,8 +549,8 @@ export function TravelListPage() {
           <input
             className={styles.metaInput}
             type="date"
-            value={meta.leaveDate}
-            onChange={(e) => setMeta((m) => ({ ...m, leaveDate: e.target.value }))}
+            value={list.meta.leaveDate}
+            onChange={(e) => setMeta({ leaveDate: e.target.value })}
           />
         </label>
         <label className={styles.metaField}>
@@ -327,8 +558,8 @@ export function TravelListPage() {
           <input
             className={styles.metaInput}
             type="date"
-            value={meta.returnDate}
-            onChange={(e) => setMeta((m) => ({ ...m, returnDate: e.target.value }))}
+            value={list.meta.returnDate}
+            onChange={(e) => setMeta({ returnDate: e.target.value })}
           />
         </label>
         <label className={styles.metaField}>
@@ -337,78 +568,149 @@ export function TravelListPage() {
             className={styles.metaInput}
             type="number"
             min="0"
-            value={meta.days}
-            onChange={(e) => setMeta((m) => ({ ...m, days: e.target.value }))}
+            value={list.meta.days}
+            onChange={(e) => setMeta({ days: e.target.value })}
           />
         </label>
       </div>
 
       <div className={styles.toolbar}>
-        <button className={styles.btn} onClick={checkAll}>Check all</button>
-        <button className={styles.btn} onClick={uncheckAll}>Uncheck all</button>
+        <button
+          className={`${styles.btn} ${editMode ? styles.btnActive : ''}`}
+          onClick={() => setEditMode((v) => !v)}
+        >{editMode ? '✓ Done editing' : '✏️ Edit list'}</button>
+        <button className={styles.btn} onClick={() => setAllChecked(true)}>Check all</button>
+        <button className={styles.btn} onClick={() => setAllChecked(false)}>Uncheck all</button>
+        {editMode && <button className={styles.btn} onClick={addSection}>+ Add section</button>}
         <button className={`${styles.btn} ${styles.btnDanger}`} onClick={resetDefaults}>Reset to defaults</button>
       </div>
 
-      {SECTIONS.map((section) => {
-        const flat = flattenItems(section);
-        const leafTotal = flat.filter(({ item }) => !item.children).length;
-        const leafDone = flat.filter(({ key, item }) => !item.children && checked[key]).length;
-        const isOpen = open[section.name];
+      {list.sections.map((section, sIdx) => {
+        const { total: leafTotal, done: leafDone } = sectionCounts(section);
+        const sectionOpen = isOpen(section.id);
         return (
-          <div key={section.name} className={styles.section}>
-            <div className={styles.sectionHeader} onClick={() => setSectionOpen(section.name)}>
+          <div key={section.id} className={styles.section}>
+            <div className={styles.sectionHeader} onClick={() => !editMode && setSectionOpen(section.id)}>
               <div className={styles.sectionTitle}>
-                <span className={`${styles.caret} ${isOpen ? styles.caretOpen : ''}`}>▶</span>
-                {section.name}
+                {!editMode && (
+                  <span className={`${styles.caret} ${sectionOpen ? styles.caretOpen : ''}`}>▶</span>
+                )}
+                {editMode ? (
+                  <input
+                    className={styles.sectionNameInput}
+                    value={section.name}
+                    onChange={(e) => renameSection(section.id, e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="Section name"
+                  />
+                ) : section.name}
               </div>
-              <span className={styles.sectionCount}>{leafDone} / {leafTotal}</span>
+              {editMode ? (
+                <div className={styles.sectionActions} onClick={(e) => e.stopPropagation()}>
+                  <button className={styles.iconBtn} disabled={sIdx === 0} onClick={() => moveSection(section.id, -1)} title="Move up" aria-label="Move section up">↑</button>
+                  <button className={styles.iconBtn} disabled={sIdx === list.sections.length - 1} onClick={() => moveSection(section.id, 1)} title="Move down" aria-label="Move section down">↓</button>
+                  <button className={styles.iconBtnDanger} onClick={() => deleteSection(section.id)} title="Delete section" aria-label="Delete section">🗑️</button>
+                </div>
+              ) : (
+                <span className={styles.sectionCount}>{leafDone} / {leafTotal}</span>
+              )}
             </div>
-            {isOpen && (
+
+            {(editMode || sectionOpen) && (
               <div className={styles.sectionBody}>
-                {section.items.map((item, i) => {
-                  const key = buildKey(section.name, [i]);
-                  const hasChildren = !!item.children;
+                {section.items.map((item, iIdx) => {
+                  const hasChildren = item.children && item.children.length > 0;
                   return (
-                    <div key={key}>
-                      <label className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''}`}>
-                        {!hasChildren && (
-                          <input
-                            type="checkbox"
-                            className={styles.checkbox}
-                            checked={!!checked[key]}
-                            onChange={() => toggle(key)}
-                          />
-                        )}
-                        {hasChildren && <span className={styles.checkbox} style={{ background: 'transparent' }} />}
-                        <div className={styles.itemBody}>
-                          <div className={`${styles.itemLabel} ${!hasChildren && checked[key] ? styles.itemLabelChecked : ''}`}>
-                            {item.label}
+                    <div key={item.id}>
+                      {editMode ? (
+                        <div className={`${styles.editRow} ${item.isGroup ? styles.itemGroup : ''}`}>
+                          <div className={styles.editFields}>
+                            <input
+                              className={styles.editInput}
+                              value={item.label}
+                              placeholder="Item"
+                              onChange={(e) => updateItemFields(section.id, item.id, { label: e.target.value })}
+                            />
+                            <input
+                              className={styles.editNoteInput}
+                              value={item.note}
+                              placeholder="Note (optional)"
+                              onChange={(e) => updateItemFields(section.id, item.id, { note: e.target.value })}
+                            />
                           </div>
-                          {item.note && <div className={styles.itemNote}>{item.note}</div>}
+                          <div className={styles.editActions}>
+                            <button className={styles.iconBtn} disabled={iIdx === 0} onClick={() => moveItem(section.id, item.id, -1)} title="Move up" aria-label="Move up">↑</button>
+                            <button className={styles.iconBtn} disabled={iIdx === section.items.length - 1} onClick={() => moveItem(section.id, item.id, 1)} title="Move down" aria-label="Move down">↓</button>
+                            <button className={styles.iconBtn} onClick={() => addChild(section.id, item.id)} title="Add sub-item" aria-label="Add sub-item">+↳</button>
+                            <button className={styles.iconBtnDanger} onClick={() => deleteItem(section.id, item.id)} title="Delete item" aria-label="Delete item">🗑️</button>
+                          </div>
                         </div>
-                      </label>
-                      {hasChildren && item.children.map((child, j) => {
-                        const childKey = buildKey(section.name, [i, j]);
-                        return (
-                          <label key={childKey} className={`${styles.item} ${styles.itemChild}`}>
+                      ) : (
+                        <label className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''}`}>
+                          {!hasChildren ? (
                             <input
                               type="checkbox"
                               className={styles.checkbox}
-                              checked={!!checked[childKey]}
-                              onChange={() => toggle(childKey)}
+                              checked={!!item.checked}
+                              onChange={() => toggleItem(section.id, item.id)}
+                            />
+                          ) : (
+                            <span className={styles.checkbox} style={{ background: 'transparent' }} />
+                          )}
+                          <div className={styles.itemBody}>
+                            <div className={`${styles.itemLabel} ${!hasChildren && item.checked ? styles.itemLabelChecked : ''}`}>
+                              {item.label}
+                            </div>
+                            {item.note && <div className={styles.itemNote}>{item.note}</div>}
+                          </div>
+                        </label>
+                      )}
+
+                      {item.children && item.children.map((child) => (
+                        editMode ? (
+                          <div key={child.id} className={`${styles.editRow} ${styles.editRowChild}`}>
+                            <div className={styles.editFields}>
+                              <input
+                                className={styles.editInput}
+                                value={child.label}
+                                placeholder="Sub-item"
+                                onChange={(e) => updateChildFields(section.id, item.id, child.id, { label: e.target.value })}
+                              />
+                              <input
+                                className={styles.editNoteInput}
+                                value={child.note}
+                                placeholder="Note (optional)"
+                                onChange={(e) => updateChildFields(section.id, item.id, child.id, { note: e.target.value })}
+                              />
+                            </div>
+                            <div className={styles.editActions}>
+                              <button className={styles.iconBtnDanger} onClick={() => deleteChild(section.id, item.id, child.id)} title="Delete sub-item" aria-label="Delete sub-item">🗑️</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <label key={child.id} className={`${styles.item} ${styles.itemChild}`}>
+                            <input
+                              type="checkbox"
+                              className={styles.checkbox}
+                              checked={!!child.checked}
+                              onChange={() => toggleChild(section.id, item.id, child.id)}
                             />
                             <div className={styles.itemBody}>
-                              <div className={`${styles.itemLabel} ${checked[childKey] ? styles.itemLabelChecked : ''}`}>
+                              <div className={`${styles.itemLabel} ${child.checked ? styles.itemLabelChecked : ''}`}>
                                 {child.label}
                               </div>
                               {child.note && <div className={styles.itemNote}>{child.note}</div>}
                             </div>
                           </label>
-                        );
-                      })}
+                        )
+                      ))}
                     </div>
                   );
                 })}
+
+                {editMode && (
+                  <button className={styles.addItemBtn} onClick={() => addItem(section.id)}>+ Add item</button>
+                )}
               </div>
             )}
           </div>
