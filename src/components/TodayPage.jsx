@@ -67,6 +67,24 @@ function durationToLabel(min) {
   return `${h}h ${m}m`;
 }
 
+const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Selectable slot start times (8:00 AM … 9:30 PM) and lengths (30m … full day).
+const START_OPTIONS = [];
+for (let m = DAY_START_MIN; m <= DAY_END_MIN - SLOT_MIN; m += SLOT_MIN) START_OPTIONS.push(m);
+const LENGTH_OPTIONS = [];
+for (let d = SLOT_MIN; d <= DAY_END_MIN - DAY_START_MIN; d += SLOT_MIN) LENGTH_OPTIONS.push(d);
+
+// Resolve a template's effective start time + length for a given weekday (0=Sun).
+// A per-day override wins; otherwise start is unset and length falls back to the
+// template default.
+function resolveTemplateForDay(tpl, weekday) {
+  const ov = (tpl.days && tpl.days[weekday]) || {};
+  const startMin = ov.startMin != null ? ov.startMin : null;
+  const durationMin = ov.durationMin != null ? ov.durationMin : tpl.durationMin;
+  return { startMin, durationMin };
+}
+
 function formatDateHeading(d = new Date()) {
   return d.toLocaleDateString(undefined, {
     weekday: 'long',
@@ -134,11 +152,13 @@ export function TodayPage() {
   const [dragOverSlot, setDragOverSlot] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [resizingPreview, setResizingPreview] = useState(null); // { id, duration }
+  const [expandedTpl, setExpandedTpl] = useState(null);
   const seedAttemptedRef = useRef(false);
   const initFlagSetRef = useRef(false);
   const dragRef = useRef(null);
 
   const dateKey = todayKey();
+  const todayWeekday = useMemo(() => new Date().getDay(), []);
 
   useEffect(() => {
     if (!user) return;
@@ -306,6 +326,42 @@ export function TodayPage() {
 
   function deleteTemplate(id) {
     persistTemplates(templates.filter((t) => t.id !== id));
+    if (expandedTpl === id) setExpandedTpl(null);
+  }
+
+  // Click-to-add: drop the template onto today's schedule using the start time
+  // and length configured for today's weekday (falling back to 8 AM / default).
+  function applyTemplateToToday(tpl) {
+    const { startMin, durationMin } = resolveTemplateForDay(tpl, todayWeekday);
+    const dur = durationMin || SLOT_MIN;
+    const start = startMin != null ? startMin : DAY_START_MIN;
+    if (start + dur > DAY_END_MIN) {
+      alert(`"${tpl.name}" (${durationToLabel(dur)}) starting ${minutesToLabel(start)} runs past the end of the day.`);
+      return;
+    }
+    persistItems([
+      ...items,
+      { id: newId(), startMin: start, durationMin: dur, label: tpl.name },
+    ]);
+  }
+
+  function setTemplateDefaultDuration(id, durationMin) {
+    persistTemplates(templates.map((t) => (t.id === id ? { ...t, durationMin } : t)));
+  }
+
+  // Patch one weekday's override for a template. Null clears a field; an empty
+  // day object is removed entirely (so Firestore never stores undefined).
+  function setTemplateDay(id, dayIdx, patch) {
+    persistTemplates(templates.map((t) => {
+      if (t.id !== id) return t;
+      const days = { ...(t.days || {}) };
+      const cur = { ...(days[dayIdx] || {}), ...patch };
+      if (cur.startMin == null) delete cur.startMin;
+      if (cur.durationMin == null) delete cur.durationMin;
+      if (Object.keys(cur).length === 0) delete days[dayIdx];
+      else days[dayIdx] = cur;
+      return { ...t, days };
+    }));
   }
 
   function clearAll() {
@@ -347,7 +403,10 @@ export function TodayPage() {
       moveItem(payload.id, slotStart);
     } else if (payload.type === 'template') {
       const tpl = templates.find((t) => t.id === payload.id);
-      if (tpl) addItemFromTemplate(slotStart, tpl);
+      if (tpl) {
+        const { durationMin } = resolveTemplateForDay(tpl, todayWeekday);
+        addItemFromTemplate(slotStart, { ...tpl, durationMin: durationMin || tpl.durationMin });
+      }
     }
   }
 
@@ -550,32 +609,103 @@ export function TodayPage() {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarSection}>
             <h2 className={styles.sidebarTitle}>Templates</h2>
-            <p className={styles.sidebarHelp}>Drag a template onto a time slot — or click + on a row to type directly.</p>
+            <p className={styles.sidebarHelp}>Click a template to drop it at today’s time, or drag it onto a slot. Hit ✎ to set per-weekday start times &amp; lengths.</p>
             <div className={styles.tplList}>
               {templates.length === 0 && (
                 <div className={styles.tplEmpty}>No templates yet.</div>
               )}
-              {templates.map((t) => (
-                <div key={t.id} className={styles.tplRow}>
-                  <div
-                    className={styles.tplBtn}
-                    draggable
-                    onDragStart={(e) => onTemplateDragStart(t, e)}
-                    onDragEnd={onDragEnd}
-                    title={`Drag ${t.name} onto a time slot`}
-                  >
-                    <span className={styles.tplName}>{t.name}</span>
-                    <span className={styles.tplDur}>{durationToLabel(t.durationMin)}</span>
+              {templates.map((t) => {
+                const today = resolveTemplateForDay(t, todayWeekday);
+                const hint = today.startMin != null
+                  ? `${minutesToLabel(today.startMin)} · ${durationToLabel(today.durationMin)}`
+                  : durationToLabel(today.durationMin);
+                const isOpen = expandedTpl === t.id;
+                return (
+                  <div key={t.id} className={styles.tplWrap}>
+                    <div className={styles.tplRow}>
+                      <div
+                        className={styles.tplBtn}
+                        role="button"
+                        tabIndex={0}
+                        draggable
+                        onClick={() => applyTemplateToToday(t)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); applyTemplateToToday(t); } }}
+                        onDragStart={(e) => onTemplateDragStart(t, e)}
+                        onDragEnd={onDragEnd}
+                        title={`Click to add ${t.name} at today’s time, or drag onto a slot`}
+                      >
+                        <span className={styles.tplName}>{t.name}</span>
+                        <span className={styles.tplDur}>{hint}</span>
+                      </div>
+                      <button
+                        className={`${styles.tplEdit} ${isOpen ? styles.tplEditActive : ''}`}
+                        onClick={() => setExpandedTpl(isOpen ? null : t.id)}
+                        title="Set weekly start times & lengths"
+                        aria-label="Edit weekly times"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className={styles.tplDelete}
+                        onClick={() => deleteTemplate(t.id)}
+                        title="Delete template"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {isOpen && (
+                      <div className={styles.tplEditor}>
+                        <label className={styles.tplEditorTop}>
+                          <span className={styles.fieldLabel}>Default length</span>
+                          <select
+                            className={styles.daySelect}
+                            value={t.durationMin}
+                            onChange={(e) => setTemplateDefaultDuration(t.id, parseInt(e.target.value, 10))}
+                          >
+                            {LENGTH_OPTIONS.map((d) => (
+                              <option key={d} value={d}>{durationToLabel(d)}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className={styles.dayGridHead}>
+                          <span />
+                          <span>Start</span>
+                          <span>Length</span>
+                        </div>
+                        {WEEKDAYS_SHORT.map((lbl, d) => {
+                          const ov = (t.days && t.days[d]) || {};
+                          return (
+                            <div key={d} className={styles.dayRow}>
+                              <span className={`${styles.dayLabel} ${d === todayWeekday ? styles.dayToday : ''}`}>{lbl}</span>
+                              <select
+                                className={styles.daySelect}
+                                value={ov.startMin != null ? String(ov.startMin) : ''}
+                                onChange={(e) => setTemplateDay(t.id, d, { startMin: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                              >
+                                <option value="">—</option>
+                                {START_OPTIONS.map((m) => (
+                                  <option key={m} value={m}>{minutesToLabel(m)}</option>
+                                ))}
+                              </select>
+                              <select
+                                className={styles.daySelect}
+                                value={ov.durationMin != null ? String(ov.durationMin) : ''}
+                                onChange={(e) => setTemplateDay(t.id, d, { durationMin: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                              >
+                                <option value="">Default</option>
+                                {LENGTH_OPTIONS.map((dd) => (
+                                  <option key={dd} value={dd}>{durationToLabel(dd)}</option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        })}
+                        <p className={styles.tplEditorHint}>Set a Start to enable one-click add for that day. “Default” length uses {durationToLabel(t.durationMin)}.</p>
+                      </div>
+                    )}
                   </div>
-                  <button
-                    className={styles.tplDelete}
-                    onClick={() => deleteTemplate(t.id)}
-                    title="Delete template"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
