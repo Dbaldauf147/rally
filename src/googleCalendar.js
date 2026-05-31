@@ -1,3 +1,5 @@
+import { isNativeApp } from './native';
+
 // Google Calendar write integration. Reuses the OAuth tokens stored in localStorage
 // by the existing CalendarView flow (/api/google-auth + /api/google-callback +
 // /api/google-refresh). The Google OAuth client must include both
@@ -63,6 +65,11 @@ export function isGoogleCalendarConnected() {
 
 // Open the Google OAuth popup and resolve once the access token comes back via postMessage.
 export function connectGoogleCalendar() {
+  // The popup-based OAuth flow doesn't work inside the native app shell — fail
+  // with a clear message so callers (sync/import buttons) degrade gracefully.
+  if (isNativeApp()) {
+    return Promise.reject(new Error('Google Calendar sync isn’t available in the app yet — open Rally in your browser to connect.'));
+  }
   return new Promise((resolve, reject) => {
     const popup = window.open(
       '/api/google-auth',
