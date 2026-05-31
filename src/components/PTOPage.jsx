@@ -14,6 +14,7 @@ const DEFAULT_STATE = {
     { year: 2027, total: 27, eoyBackup: 5, start: '2027-01-01', end: '2027-12-31' },
   ],
   entries: [],
+  ignored: [],
 };
 
 function parseLocal(iso) {
@@ -91,6 +92,7 @@ function loadStored() {
         hrsPerDay: Number(parsed.hrsPerDay) || 8,
         years: parsed.years,
         entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+        ignored: Array.isArray(parsed.ignored) ? parsed.ignored : [],
       };
     }
     // Migrate the old single-year shape { allotment, year, entries }.
@@ -99,6 +101,7 @@ function loadStored() {
       hrsPerDay: 8,
       years: [{ year: yr, total: Number(parsed.allotment) || 0, eoyBackup: 5, start: `${yr}-01-01`, end: `${yr}-12-31` }],
       entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+      ignored: [],
     };
   } catch {
     return DEFAULT_STATE;
@@ -139,12 +142,14 @@ export function PTOPage() {
   const [draft, setDraft] = useState({ label: '', start: '', end: '', days: '', note: '' });
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState('');
+  const [filters, setFilters] = useState({ q: '', year: 'all', source: 'all', from: '', to: '' });
+  const [showExcluded, setShowExcluded] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  const { hrsPerDay, years, entries } = state;
+  const { hrsPerDay, years, entries, ignored = [] } = state;
   const today = useMemo(() => startOfToday(), []);
 
   const sortedYears = useMemo(
@@ -158,9 +163,34 @@ export function PTOPage() {
   );
 
   const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => (a.start || '').localeCompare(b.start || '')),
+    () => [...entries].sort((a, b) => (b.start || '').localeCompare(a.start || '')),
     [entries],
   );
+
+  // Years present in the log plus the configured years — for the year filter.
+  const yearOptions = useMemo(() => {
+    const set = new Set(years.map((y) => y.year));
+    entries.forEach((e) => {
+      const yr = parseLocal(e.start)?.getFullYear();
+      if (yr) set.add(yr);
+    });
+    return [...set].sort((a, b) => b - a);
+  }, [years, entries]);
+
+  const filteredEntries = useMemo(() => {
+    const q = filters.q.trim().toLowerCase();
+    return sortedEntries.filter((e) => {
+      if (q && !(`${e.label || ''} ${e.note || ''}`.toLowerCase().includes(q))) return false;
+      if (filters.year !== 'all' && parseLocal(e.start)?.getFullYear() !== Number(filters.year)) return false;
+      if (filters.source === 'google' && !e.gcalId) return false;
+      if (filters.source === 'manual' && e.gcalId) return false;
+      if (filters.from && (e.end || e.start) < filters.from) return false;
+      if (filters.to && e.start > filters.to) return false;
+      return true;
+    });
+  }, [sortedEntries, filters]);
+
+  const filtersActive = filters.q || filters.year !== 'all' || filters.source !== 'all' || filters.from || filters.to;
 
   const suggestedDays = useMemo(() => weekdaysBetween(draft.start, draft.end), [draft.start, draft.end]);
 
@@ -198,6 +228,25 @@ export function PTOPage() {
     setState((s) => ({ ...s, entries: s.entries.filter((x) => x.id !== id) }));
   };
 
+  // Permanently exclude a Google-imported entry: drop it and remember its
+  // calendar ID so re-pulling never re-adds it.
+  const excludeEntry = (id) => {
+    const e = entries.find((x) => x.id === id);
+    if (!e) return;
+    if (!confirm(`Exclude “${e.label || 'this event'}” from PTO and stop re-importing it?`)) return;
+    setState((s) => {
+      const ign = Array.isArray(s.ignored) ? s.ignored : [];
+      const next = e.gcalId && !ign.some((x) => x.gcalId === e.gcalId)
+        ? [...ign, { gcalId: e.gcalId, label: e.label || '', start: e.start || '' }]
+        : ign;
+      return { ...s, entries: s.entries.filter((x) => x.id !== id), ignored: next };
+    });
+  };
+
+  const restoreIgnored = (gcalId) => {
+    setState((s) => ({ ...s, ignored: (s.ignored || []).filter((x) => x.gcalId !== gcalId) }));
+  };
+
   const addDraft = () => {
     if (!draft.start) return;
     const days = draft.days !== '' ? Number(draft.days) : suggestedDays;
@@ -225,6 +274,8 @@ export function PTOPage() {
       if (!isGoogleCalendarConnected()) await connectGoogleCalendar();
 
       const existingIds = new Set(entries.map((e) => e.gcalId).filter(Boolean));
+      const ignoredIds = new Set(ignored.map((x) => x.gcalId).filter(Boolean));
+      let skipped = 0;
       const found = [];
       for (const y of sortedYears) {
         const startD = parseLocal(y.start);
@@ -237,6 +288,7 @@ export function PTOPage() {
         events.forEach((ev) => {
           if (!(ev.title || '').toLowerCase().includes(PTO_KEYWORD)) return;
           if (ev.id && existingIds.has(ev.id)) return;
+          if (ev.id && ignoredIds.has(ev.id)) { skipped += 1; return; }
           const range = eventRange(ev);
           if (!range) return;
           const wd = weekdaysBetween(range.startIso, range.endIso);
@@ -253,11 +305,12 @@ export function PTOPage() {
         });
       }
 
+      const skipNote = skipped ? ` (${skipped} excluded skipped)` : '';
       if (found.length === 0) {
-        setImportMsg('No new PTO events found in your year windows.');
+        setImportMsg(`No new PTO events found in your year windows.${skipNote}`);
       } else {
         setState((s) => ({ ...s, entries: [...s.entries, ...found] }));
-        setImportMsg(`Added ${found.length} PTO ${found.length === 1 ? 'entry' : 'entries'} from Google Calendar.`);
+        setImportMsg(`Added ${found.length} PTO ${found.length === 1 ? 'entry' : 'entries'} from Google Calendar.${skipNote}`);
       }
     } catch (err) {
       if (err.code === 'NOT_CONNECTED') setImportMsg('Connect Google Calendar to import.');
@@ -417,39 +470,96 @@ export function PTOPage() {
         </div>
       </div>
       <p className={styles.importHint}>Imports events titled “PTO” from your primary Google Calendar within each year window. Re-pulling is safe — already-imported events are skipped.</p>
-      <div className={styles.list}>
-        {sortedEntries.length === 0 && <div className={styles.empty}>No PTO logged yet. Add your first entry below.</div>}
-        {sortedEntries.map((e) => (
-          <div key={e.id} className={styles.entry}>
-            <div className={styles.entryMain}>
-              <input
-                className={styles.entryLabel}
-                value={e.label}
-                onChange={(ev) => updateEntry(e.id, { label: ev.target.value })}
-                placeholder="Label"
-              />
-              <div className={styles.entryDates}>
-                <input className={styles.dateInput} type="date" value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} />
-                <span className={styles.dash}>→</span>
-                <input className={styles.dateInput} type="date" value={e.end} onChange={(ev) => updateEntry(e.id, { end: ev.target.value })} />
-              </div>
-              {e.note && <div className={styles.entryNote}>{e.note}</div>}
-            </div>
-            <div className={styles.entryDaysWrap}>
-              <input
-                className={styles.daysInput}
-                type="number"
-                min="0"
-                step="0.5"
-                value={e.days}
-                onChange={(ev) => updateEntry(e.id, { days: ev.target.value === '' ? '' : Number(ev.target.value) })}
-              />
-              <span className={styles.daysLbl}>days</span>
-            </div>
-            <button className={styles.removeBtn} onClick={() => removeEntry(e.id)} title="Remove">×</button>
-          </div>
-        ))}
+      <div className={styles.filterBar}>
+        <input
+          className={styles.filterSearch}
+          value={filters.q}
+          onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+          placeholder="Search label or note…"
+        />
+        <select className={styles.filterSelect} value={filters.year} onChange={(e) => setFilters((f) => ({ ...f, year: e.target.value }))}>
+          <option value="all">All years</option>
+          {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <select className={styles.filterSelect} value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}>
+          <option value="all">All sources</option>
+          <option value="google">Google</option>
+          <option value="manual">Manual</option>
+        </select>
+        <input className={styles.filterDate} type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} title="From" />
+        <span className={styles.dash}>–</span>
+        <input className={styles.filterDate} type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} title="To" />
+        {filtersActive && (
+          <button className={styles.clearFilters} onClick={() => setFilters({ q: '', year: 'all', source: 'all', from: '', to: '' })}>Clear</button>
+        )}
+        <span className={styles.filterCount}>{filteredEntries.length} of {entries.length}</span>
       </div>
+
+      <div className={styles.tableScroll}>
+        <table className={styles.logTable}>
+          <thead>
+            <tr>
+              <th>Start</th>
+              <th>End</th>
+              <th className={styles.colDays}>Days</th>
+              <th>Label</th>
+              <th>Note</th>
+              <th className={styles.colSrc}>Source</th>
+              <th className={styles.colActions}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredEntries.length === 0 && (
+              <tr><td colSpan={7} className={styles.tableEmpty}>{entries.length === 0 ? 'No PTO logged yet. Add an entry below or pull from Google Calendar.' : 'No entries match these filters.'}</td></tr>
+            )}
+            {filteredEntries.map((e) => (
+              <tr key={e.id}>
+                <td><input className={styles.tdDate} type="date" value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} /></td>
+                <td><input className={styles.tdDate} type="date" value={e.end} onChange={(ev) => updateEntry(e.id, { end: ev.target.value })} /></td>
+                <td className={styles.colDays}>
+                  <input
+                    className={styles.tdDays}
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={e.days}
+                    onChange={(ev) => updateEntry(e.id, { days: ev.target.value === '' ? '' : Number(ev.target.value) })}
+                  />
+                </td>
+                <td><input className={styles.tdText} value={e.label} onChange={(ev) => updateEntry(e.id, { label: ev.target.value })} placeholder="Label" /></td>
+                <td><input className={styles.tdText} value={e.note || ''} onChange={(ev) => updateEntry(e.id, { note: ev.target.value })} placeholder="—" /></td>
+                <td className={styles.colSrc}>
+                  <span className={`${styles.srcBadge} ${e.gcalId ? styles.srcGoogle : styles.srcManual}`}>{e.gcalId ? 'Google' : 'Manual'}</span>
+                </td>
+                <td className={styles.colActions}>
+                  {e.gcalId && (
+                    <button className={styles.excludeBtn} onClick={() => excludeEntry(e.id)} title="Exclude & stop re-importing">⊘</button>
+                  )}
+                  <button className={styles.removeBtn} onClick={() => removeEntry(e.id)} title="Remove">×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {ignored.length > 0 && (
+        <div className={styles.excludedBox}>
+          <button className={styles.excludedToggle} onClick={() => setShowExcluded((v) => !v)}>
+            {showExcluded ? '▾' : '▸'} Excluded from import ({ignored.length})
+          </button>
+          {showExcluded && (
+            <ul className={styles.excludedList}>
+              {ignored.map((x) => (
+                <li key={x.gcalId} className={styles.excludedRow}>
+                  <span className={styles.excludedLabel}>{x.label || '(untitled)'}{x.start ? ` · ${x.start}` : ''}</span>
+                  <button className={styles.restoreBtn} onClick={() => restoreIgnored(x.gcalId)}>Restore</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className={styles.addCard}>
         <div className={styles.addTitle}>Log time off</div>
