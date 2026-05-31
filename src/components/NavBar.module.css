@@ -1,7 +1,14 @@
-.nav { background: var(--color-surface); border-bottom: 1px solid var(--color-border); position: sticky; top: 0; z-index: 100; }
-.inner { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem; display: flex; align-items: center; height: 56px; gap: 2rem; }
-.logo { font-size: 1.25rem; font-weight: 700; color: var(--color-accent); text-decoration: none; letter-spacing: -0.02em; }
+.nav { background: var(--color-surface); border-bottom: 1px solid var(--color-border); position: sticky; top: 0; z-index: 100; padding-top: env(safe-area-inset-top); }
+.inner { max-width: 1200px; margin: 0 auto; padding: 0 calc(1.5rem + env(safe-area-inset-right)) 0 calc(1.5rem + env(safe-area-inset-left)); display: flex; align-items: center; height: 56px; gap: 2rem; }
+.logo { font-size: 1.25rem; font-weight: 700; color: var(--color-accent); text-decoration: none; letter-spacing: -0.02em; flex-shrink: 0; }
 .links { display: flex; gap: 0.25rem; }
+
+@media (max-width: 760px) {
+  .inner { gap: 1rem; padding-left: max(0.75rem, env(safe-area-inset-left)); padding-right: max(0.75rem, env(safe-area-inset-right)); }
+  .links { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; flex: 1; }
+  .links::-webkit-scrollbar { display: none; }
+  .link, .linkActive { white-space: nowrap; }
+}
 .link, .linkActive { padding: 0.4rem 0.75rem; border-radius: var(--radius-md); font-size: 0.88rem; font-weight: 500; color: var(--color-text-secondary); text-decoration: none; transition: all 0.15s; }
 .link:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .linkActive { background: var(--color-accent-light); color: var(--color-accent); }

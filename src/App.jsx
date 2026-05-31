@@ -16,6 +16,7 @@ import { HolidaysPage } from './components/HolidaysPage';
 import { PTOPage } from './components/PTOPage';
 import { TodayPage } from './components/TodayPage';
 import { NavBar } from './components/NavBar';
+import { InstallPrompt } from './components/InstallPrompt';
 import { UpdateBanner } from './components/UpdateBanner';
 import { GoogleCalendarAutoSyncRunner } from './hooks/useGoogleCalendarAutoSync';
 
@@ -45,6 +46,7 @@ export default function App() {
     <>
       {user && <NavBar />}
       {user && <GoogleCalendarAutoSyncRunner />}
+      {user && <InstallPrompt />}
       <UpdateBanner />
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
