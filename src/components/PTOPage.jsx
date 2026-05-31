@@ -5,7 +5,20 @@ import { isGoogleCalendarConnected, connectGoogleCalendar, fetchGoogleCalendarEv
 import styles from './PTOPage.module.css';
 
 const STORAGE_KEY = 'rally.pto.v1';
+const COLS_KEY = 'rally.pto.cols.v1';
 const PTO_KEYWORD = 'pto';
+
+// Trip-log columns in display order. Name first so it's visible without
+// scrolling. The actions column is always shown and not toggleable.
+const COLUMNS = [
+  { key: 'name', label: 'Name' },
+  { key: 'start', label: 'Start' },
+  { key: 'end', label: 'End' },
+  { key: 'days', label: 'Days', thClass: 'colDays' },
+  { key: 'note', label: 'Note' },
+  { key: 'source', label: 'Source', thClass: 'colSrc' },
+];
+const DEFAULT_COLS = Object.fromEntries(COLUMNS.map((c) => [c.key, true]));
 
 const DEFAULT_STATE = {
   hrsPerDay: 8,
@@ -159,10 +172,22 @@ export function PTOPage() {
   const [importMsg, setImportMsg] = useState('');
   const [filters, setFilters] = useState({ q: '', year: 'all', source: 'all', from: '', to: '' });
   const [showExcluded, setShowExcluded] = useState(false);
+  const [colVis, setColVis] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COLS_KEY);
+      if (raw) return { ...DEFAULT_COLS, ...JSON.parse(raw) };
+    } catch { /* ignore */ }
+    return DEFAULT_COLS;
+  });
+  const [showColMenu, setShowColMenu] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
+
+  useEffect(() => {
+    localStorage.setItem(COLS_KEY, JSON.stringify(colVis));
+  }, [colVis]);
 
   const { hrsPerDay, years, entries, ignored = [] } = state;
   const today = useMemo(() => startOfToday(), []);
@@ -351,6 +376,31 @@ export function PTOPage() {
   const fmtNum = (n) => (Number.isInteger(n) ? n : Math.round(n * 10) / 10);
   const fmtPct = (p) => `${Math.round(p * 100)}%`;
 
+  const visibleCols = COLUMNS.filter((c) => colVis[c.key]);
+
+  const renderCell = (key, e) => {
+    switch (key) {
+      case 'name':
+        return <td key="name"><input className={styles.tdName} value={e.label} onChange={(ev) => updateEntry(e.id, { label: ev.target.value })} placeholder="Add a name…" /></td>;
+      case 'start':
+        return <td key="start"><input className={styles.tdDate} type="date" value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} /></td>;
+      case 'end':
+        return <td key="end"><input className={styles.tdDate} type="date" value={e.end} onChange={(ev) => updateEntry(e.id, { end: ev.target.value })} /></td>;
+      case 'days':
+        return (
+          <td key="days" className={styles.colDays}>
+            <input className={styles.tdDays} type="number" min="0" step="0.5" value={e.days} onChange={(ev) => updateEntry(e.id, { days: ev.target.value === '' ? '' : Number(ev.target.value) })} />
+          </td>
+        );
+      case 'note':
+        return <td key="note"><input className={styles.tdText} value={e.note || ''} onChange={(ev) => updateEntry(e.id, { note: ev.target.value })} placeholder="—" /></td>;
+      case 'source':
+        return <td key="source" className={styles.colSrc}><span className={`${styles.srcBadge} ${e.gcalId ? styles.srcGoogle : styles.srcManual}`}>{e.gcalId ? 'Google' : 'Manual'}</span></td>;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -503,7 +553,7 @@ export function PTOPage() {
           className={styles.filterSearch}
           value={filters.q}
           onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-          placeholder="Search label or note…"
+          placeholder="Search name or note…"
         />
         <select className={styles.filterSelect} value={filters.year} onChange={(e) => setFilters((f) => ({ ...f, year: e.target.value }))}>
           <option value="all">All years</option>
@@ -520,6 +570,23 @@ export function PTOPage() {
         {filtersActive && (
           <button className={styles.clearFilters} onClick={() => setFilters({ q: '', year: 'all', source: 'all', from: '', to: '' })}>Clear</button>
         )}
+        <div className={styles.colMenuWrap}>
+          <button className={styles.clearFilters} onClick={() => setShowColMenu((v) => !v)}>Columns ▾</button>
+          {showColMenu && (
+            <div className={styles.colMenu}>
+              {COLUMNS.map((c) => (
+                <label key={c.key} className={styles.colMenuItem}>
+                  <input
+                    type="checkbox"
+                    checked={!!colVis[c.key]}
+                    onChange={() => setColVis((v) => ({ ...v, [c.key]: !v[c.key] }))}
+                  />
+                  {c.label}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
         <span className={styles.filterCount}>{filteredEntries.length} of {entries.length}</span>
       </div>
 
@@ -527,38 +594,19 @@ export function PTOPage() {
         <table className={styles.logTable}>
           <thead>
             <tr>
-              <th>Start</th>
-              <th>End</th>
-              <th className={styles.colDays}>Days</th>
-              <th>Label</th>
-              <th>Note</th>
-              <th className={styles.colSrc}>Source</th>
+              {visibleCols.map((c) => (
+                <th key={c.key} className={c.thClass ? styles[c.thClass] : undefined}>{c.label}</th>
+              ))}
               <th className={styles.colActions}></th>
             </tr>
           </thead>
           <tbody>
             {filteredEntries.length === 0 && (
-              <tr><td colSpan={7} className={styles.tableEmpty}>{entries.length === 0 ? 'No PTO logged yet. Add an entry below or pull from Google Calendar.' : 'No entries match these filters.'}</td></tr>
+              <tr><td colSpan={visibleCols.length + 1} className={styles.tableEmpty}>{entries.length === 0 ? 'No PTO logged yet. Add an entry below or pull from Google Calendar.' : 'No entries match these filters.'}</td></tr>
             )}
             {filteredEntries.map((e) => (
               <tr key={e.id}>
-                <td><input className={styles.tdDate} type="date" value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} /></td>
-                <td><input className={styles.tdDate} type="date" value={e.end} onChange={(ev) => updateEntry(e.id, { end: ev.target.value })} /></td>
-                <td className={styles.colDays}>
-                  <input
-                    className={styles.tdDays}
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={e.days}
-                    onChange={(ev) => updateEntry(e.id, { days: ev.target.value === '' ? '' : Number(ev.target.value) })}
-                  />
-                </td>
-                <td><input className={styles.tdText} value={e.label} onChange={(ev) => updateEntry(e.id, { label: ev.target.value })} placeholder="Label" /></td>
-                <td><input className={styles.tdText} value={e.note || ''} onChange={(ev) => updateEntry(e.id, { note: ev.target.value })} placeholder="—" /></td>
-                <td className={styles.colSrc}>
-                  <span className={`${styles.srcBadge} ${e.gcalId ? styles.srcGoogle : styles.srcManual}`}>{e.gcalId ? 'Google' : 'Manual'}</span>
-                </td>
+                {visibleCols.map((c) => renderCell(c.key, e))}
                 <td className={styles.colActions}>
                   {e.gcalId && (
                     <button className={styles.excludeBtn} onClick={() => excludeEntry(e.id)} title="Exclude & stop re-importing">⊘</button>
