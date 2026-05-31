@@ -12,6 +12,7 @@ const PTO_KEYWORD = 'pto';
 // scrolling. The actions column is always shown and not toggleable.
 const COLUMNS = [
   { key: 'name', label: 'Name' },
+  { key: 'rallyName', label: 'Rally Name' },
   { key: 'start', label: 'Start' },
   { key: 'end', label: 'End' },
   { key: 'days', label: 'Days', thClass: 'colDays' },
@@ -220,7 +221,7 @@ export function PTOPage() {
   const filteredEntries = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     return sortedEntries.filter((e) => {
-      if (q && !(`${e.label || ''} ${e.note || ''}`.toLowerCase().includes(q))) return false;
+      if (q && !(`${e.label || ''} ${e.rallyName || ''} ${e.note || ''}`.toLowerCase().includes(q))) return false;
       if (filters.year !== 'all' && parseLocal(e.start)?.getFullYear() !== Number(filters.year)) return false;
       if (filters.source === 'google' && !e.gcalId) return false;
       if (filters.source === 'manual' && e.gcalId) return false;
@@ -382,6 +383,8 @@ export function PTOPage() {
     switch (key) {
       case 'name':
         return <td key="name"><input className={styles.tdName} value={e.label} onChange={(ev) => updateEntry(e.id, { label: ev.target.value })} placeholder="Add a name…" /></td>;
+      case 'rallyName':
+        return <td key="rallyName"><input className={styles.tdName} value={e.rallyName || ''} onChange={(ev) => updateEntry(e.id, { rallyName: ev.target.value })} placeholder="Rally name…" /></td>;
       case 'start':
         return <td key="start"><input className={styles.tdDate} type="date" value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} /></td>;
       case 'end':
