@@ -25,11 +25,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 24 ships npm 11 (matches the committed lockfile) and satisfies
+          # @capacitor/cli's node >=22 engine requirement.
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        # Use install (not ci) so cross-platform optional-dep drift in the
+        # lockfile (e.g. sharp's native bindings) can't hard-fail the build.
+        run: npm install
 
       - name: Build web app (Vite → dist)
         run: npm run build
