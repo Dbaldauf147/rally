@@ -43,6 +43,12 @@ jobs:
           npx cap add ios
           npx cap sync ios
 
+      - name: Patch generated AppDelegate (drop unused Universal Links handler)
+        # The 8.3.4 template's application(_:continue:restorationHandler:) call
+        # does not compile against the SPM-resolved Capacitor framework. Rally
+        # does not use Universal Links, so replace AppDelegate with our version.
+        run: cp ci/ios/AppDelegate.swift ios/App/App/AppDelegate.swift
+
       - name: Install App Store Connect API key
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
