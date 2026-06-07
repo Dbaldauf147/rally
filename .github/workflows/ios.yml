@@ -56,6 +56,11 @@ jobs:
           ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           APPLE_KEY_EOF
 
+      - name: Revoke stale signing certificates
+        # Ephemeral runners can't reuse the certs automatic signing creates, so
+        # clear them first to keep within Apple's per-account cert limit.
+        run: P8_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" node ci/revoke-signing-certs.mjs
+
       - name: Set build number
         run: |
           cd ios/App
