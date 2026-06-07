@@ -30,6 +30,9 @@ export function NavBar() {
           {user?.email === 'baldaufdan@gmail.com' && (
             <NavLink to="/pto" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>PTO</NavLink>
           )}
+          {user?.email === 'baldaufdan@gmail.com' && (
+            <NavLink to="/admin" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Admin</NavLink>
+          )}
         </div>
         <div className={styles.right}>
           <button

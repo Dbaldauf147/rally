@@ -15,6 +15,7 @@ import { TravelListPage } from './components/TravelListPage';
 import { HolidaysPage } from './components/HolidaysPage';
 import { PTOPage } from './components/PTOPage';
 import { TodayPage } from './components/TodayPage';
+import { AdminPage } from './components/AdminPage';
 import { NavBar } from './components/NavBar';
 import { InstallPrompt } from './components/InstallPrompt';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -61,6 +62,7 @@ export default function App() {
         <Route path="/travel-list" element={<ProtectedRoute><TravelListPage /></ProtectedRoute>} />
         <Route path="/holidays" element={<ProtectedRoute><HolidaysPage /></ProtectedRoute>} />
         <Route path="/pto" element={<ProtectedRoute><PTOPage /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/event/:eventId" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
         <Route path="/trip/:tripId" element={<ProtectedRoute><TripDetail /></ProtectedRoute>} />

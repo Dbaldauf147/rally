@@ -20,9 +20,13 @@ service cloud.firestore {
       }
     }
 
-    // Users: only the owner can read/write their own data
+    // Users: only the owner can read/write their own data.
+    // The admin (by email) can read every user doc to power the admin page.
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null
+        && (request.auth.uid == userId
+            || request.auth.token.email == 'baldaufdan@gmail.com');
+      allow write: if request.auth != null && request.auth.uid == userId;
 
       // Friends subcollection
       match /friends/{friendId} {
