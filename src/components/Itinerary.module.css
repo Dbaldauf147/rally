@@ -388,10 +388,39 @@
   flex-shrink: 0;
 }
 .bookingBody { flex: 1; min-width: 0; }
+.bookingTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
 .bookingTitle {
   font-size: 0.98rem;
   font-weight: 600;
   color: var(--color-text);
+}
+.bookingSourceBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.bookingSourceAi {
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.12);
+  border: 1px solid rgba(124, 58, 237, 0.28);
+}
+.bookingSourceManual {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
 }
 .bookingMeta {
   display: flex;

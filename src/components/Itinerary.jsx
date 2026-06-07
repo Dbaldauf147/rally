@@ -2114,6 +2114,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         type: it.type || 'activity',
         url: it.url || '',
         imageQuery: it.imageQuery || '',
+        source: 'ai',
       }));
 
       let next;
@@ -2121,7 +2122,12 @@ export function Itinerary({ event, onSave, canEdit }) {
         next = newItems;
       } else if (data.action === 'merge') {
         const byId = new Map(items.map(i => [i.id, i]));
-        for (const it of newItems) byId.set(it.id, { ...byId.get(it.id), ...it });
+        // Preserve the original source when the assistant edits an existing item,
+        // so a hand-typed booking the AI tweaks doesn't flip to "AI".
+        for (const it of newItems) {
+          const existing = byId.get(it.id);
+          byId.set(it.id, { ...existing, ...it, source: existing?.source || it.source });
+        }
         next = Array.from(byId.values());
       } else {
         // 'add'
@@ -2194,6 +2200,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         airline: it.airline || '',
         flightNumber: it.flightNumber || '',
         cost: it.cost || '',
+        source: 'ai',
       }));
 
       if (newItems.length === 0) {
@@ -2300,7 +2307,7 @@ export function Itinerary({ event, onSave, canEdit }) {
     if (!form.title.trim()) return;
     let next;
     if (adding) {
-      const newItem = { ...form, id: crypto.randomUUID() };
+      const newItem = { ...form, id: crypto.randomUUID(), source: 'manual' };
       next = [...items, newItem];
     } else {
       next = items.map(i => (i.id === editingId ? { ...i, ...form } : i));
@@ -3325,7 +3332,15 @@ export function Itinerary({ event, onSave, canEdit }) {
                     <div key={item.id} className={styles.bookingCard}>
                       <div className={styles.bookingIcon}>{icon}</div>
                       <div className={styles.bookingBody}>
-                        <div className={styles.bookingTitle}>{item.title || '(untitled)'}</div>
+                        <div className={styles.bookingTitleRow}>
+                          <span className={styles.bookingTitle}>{item.title || '(untitled)'}</span>
+                          {item.source === 'ai' && (
+                            <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceAi}`} title="Extracted by Claude from a pasted email">✨ AI</span>
+                          )}
+                          {item.source === 'manual' && (
+                            <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceManual}`} title="Added by hand">✍️ Added by you</span>
+                          )}
+                        </div>
                         <div className={styles.bookingMeta}>
                           {item.date && <span>{fmtKeyLong(item.date)}</span>}
                           {item.time && (
