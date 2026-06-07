@@ -1,5 +1,8 @@
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
+
+const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const itemSchema = z.object({
   id: z.string().describe('Keep existing id when editing an item, or empty string for new items'),
@@ -77,7 +80,7 @@ ${prompt}`;
 
   try {
     const { output } = await generateText({
-      model: 'anthropic/claude-sonnet-4.6',
+      model: anthropic('claude-sonnet-4-6'),
       system: SYSTEM_PROMPT,
       prompt: userMessage,
       output: Output.object({ schema: responseSchema }),

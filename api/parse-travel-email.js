@@ -1,5 +1,8 @@
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
+
+const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Mirrors the itinerary item shape used by the front-end (see Itinerary.jsx).
 // Flight-specific fields (arrivalTime, airline, flightNumber, cost) are filled
@@ -64,7 +67,7 @@ Extract all travel and lodging items from the email above.`;
 
   try {
     const { output } = await generateText({
-      model: 'anthropic/claude-sonnet-4.6',
+      model: anthropic('claude-sonnet-4-6'),
       system: SYSTEM_PROMPT,
       prompt: userMessage,
       output: Output.object({ schema: responseSchema }),
