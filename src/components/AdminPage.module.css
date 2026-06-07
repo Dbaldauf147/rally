@@ -82,3 +82,87 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Expandable trips editor */
+.userRow { cursor: pointer; }
+.tripsToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.caret { color: var(--color-text-muted); font-size: 0.8rem; }
+
+.detailRow td { background: var(--color-bg); padding: 0; }
+.tripPanel { padding: 0.85rem 1rem 1rem; }
+
+.tripEmpty { color: var(--color-text-muted); font-size: 0.85rem; margin: 0 0 0.75rem; }
+
+.tripList { list-style: none; margin: 0 0 0.85rem; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.tripItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.tripInfo { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.tripTitle { font-weight: 600; color: var(--color-text); }
+.tripMeta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--color-text-muted); }
+.ownerBadge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-full);
+}
+.ownerNote { font-size: 0.72rem; color: var(--color-text-muted); font-style: italic; white-space: nowrap; }
+
+.removeBtn {
+  flex-shrink: 0;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-danger);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.removeBtn:hover:not(:disabled) { border-color: var(--color-danger); background: var(--color-danger-light); }
+.removeBtn:disabled { opacity: 0.5; cursor: default; }
+
+.addRow { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.addSelect {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+.addSelect:focus { outline: none; border-color: var(--color-accent); }
+.addBtn {
+  padding: 0.45rem 1rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.addBtn:disabled { opacity: 0.5; cursor: default; }
