@@ -57,9 +57,54 @@ jobs:
           APPLE_KEY_EOF
 
       - name: Revoke stale signing certificates
-        # Ephemeral runners can't reuse the certs automatic signing creates, so
-        # clear them first to keep within Apple's per-account cert limit.
+        # Ephemeral runners can't reuse certs across builds, so clear the
+        # account first to stay within Apple's per-account certificate limit.
         run: P8_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" node ci/revoke-signing-certs.mjs
+
+      - name: Provision distribution signing
+        # Create our own distribution certificate + App Store provisioning
+        # profile via the API and load them into a temporary keychain, so the
+        # build signs manually (cloud-managed signing isn't available to us).
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/signing"
+          mkdir -p "$OUT"
+
+          # Private key + certificate signing request.
+          openssl req -new -newkey rsa:2048 -nodes \
+            -keyout "$OUT/dist.key" -out "$OUT/dist.csr" \
+            -subj "/CN=Rally Distribution/O=Rally/C=US"
+
+          # Certificate + App Store profile from App Store Connect.
+          OUT_DIR="$OUT" CSR_PATH="$OUT/dist.csr" BUNDLE_ID="com.danbaldauf.rally" \
+            P8_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" \
+            node ci/create-signing-assets.mjs
+          PROFILE_UUID="$(cat "$OUT/PROFILE_UUID")"
+
+          # Bundle key + cert into a .p12 (try OpenSSL 3 -legacy, else LibreSSL).
+          openssl x509 -inform DER -in "$OUT/dist.cer" -out "$OUT/dist.pem"
+          P12_PASS="$(openssl rand -base64 24)"
+          openssl pkcs12 -export -legacy -inkey "$OUT/dist.key" -in "$OUT/dist.pem" \
+            -out "$OUT/dist.p12" -passout pass:"$P12_PASS" 2>/dev/null \
+          || openssl pkcs12 -export -inkey "$OUT/dist.key" -in "$OUT/dist.pem" \
+            -out "$OUT/dist.p12" -passout pass:"$P12_PASS"
+
+          # Dedicated keychain holding the signing identity.
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+          KC_PASS="$(openssl rand -base64 24)"
+          security create-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security import "$OUT/dist.p12" -P "$P12_PASS" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PASS" "$KEYCHAIN" >/dev/null
+
+          # Install the provisioning profile where Xcode looks for it.
+          PROFILES="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES"
+          cp "$OUT/profile.mobileprovision" "$PROFILES/$PROFILE_UUID.mobileprovision"
+
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
       - name: Set build number
         run: |
@@ -67,16 +112,13 @@ jobs:
           agvtool new-version -all ${{ github.run_number }} || true
 
       - name: Archive
+        # Archive unsigned; signing happens at export with our manual identity.
         run: |
           cd ios/App
           xcodebuild -project App.xcodeproj -scheme App \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
+            CODE_SIGNING_ALLOWED=NO \
             clean archive
 
       - name: Export IPA
@@ -85,9 +127,14 @@ jobs:
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
-            <key>method</key><string>app-store</string>
+            <key>method</key><string>app-store-connect</string>
             <key>teamID</key><string>$TEAM_ID</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.danbaldauf.rally</key><string>$PROFILE_NAME</string>
+            </dict>
             <key>destination</key><string>export</string>
           </dict></plist>
           EOF
@@ -95,11 +142,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID"
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
 
       - name: Upload to TestFlight
         run: |
