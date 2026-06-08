@@ -14,7 +14,8 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macOS 15 carries Xcode 26, whose iOS 26 SDK Apple now requires for uploads.
+    runs-on: macos-15
     timeout-minutes: 60
     env:
       KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -22,6 +23,17 @@ jobs:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        # Apple requires the iOS 26 SDK; pick the newest Xcode 26 if present,
+        # otherwise the newest available, and log the SDK for confirmation.
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1); fi
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos || true
 
       - uses: actions/setup-node@v4
         with:
