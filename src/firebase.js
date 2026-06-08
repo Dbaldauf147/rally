@@ -1,11 +1,18 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import {
+  getAuth,
+  initializeAuth,
+  browserLocalPersistence,
+  inMemoryPersistence,
+  GoogleAuthProvider,
+} from 'firebase/auth';
 import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
   memoryLocalCache,
 } from 'firebase/firestore';
+import { isNativeApp } from './native';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBTTVm567ysbP-dVcTng0QkK373zLW2_cY",
@@ -18,16 +25,33 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-export const auth = getAuth(app);
-// Persistent IndexedDB cache so writes survive page refresh / brief offline.
-// Falls back to in-memory if IndexedDB is unavailable (e.g. some private modes).
+const native = isNativeApp();
+
+// Auth: the iOS WKWebView's IndexedDB can hang, and Firebase Auth persists to
+// IndexedDB by default — which makes signInWithEmailAndPassword never resolve.
+// Use localStorage-backed persistence in the native shell to avoid that.
+export const auth = native
+  ? initializeAuth(app, { persistence: [browserLocalPersistence, inMemoryPersistence] })
+  : getAuth(app);
+
+// Firestore: in the native WKWebView, the streaming WebChannel transport is
+// unreliable (requests hang), and IndexedDB persistence is the same liability
+// as above. Force long-polling and an in-memory cache there. On web, keep the
+// persistent IndexedDB cache (falling back to memory if unavailable).
 let _db;
-try {
+if (native) {
   _db = initializeFirestore(app, {
-    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    localCache: memoryLocalCache(),
+    experimentalForceLongPolling: true,
   });
-} catch {
-  _db = initializeFirestore(app, { localCache: memoryLocalCache() });
+} else {
+  try {
+    _db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch {
+    _db = initializeFirestore(app, { localCache: memoryLocalCache() });
+  }
 }
 export const db = _db;
 export const googleProvider = new GoogleAuthProvider();

@@ -19,11 +19,19 @@ export function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
+    // Surface a hung sign-in (e.g. a flaky native web view) as an error
+    // instead of leaving the button spinning forever.
+    const withTimeout = (promise) => Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Sign-in timed out. Check your connection and try again.')), 20000)
+      ),
+    ]);
     try {
       if (mode === 'signup') {
-        await signUpWithEmail(email, password, name);
+        await withTimeout(signUpWithEmail(email, password, name));
       } else {
-        await signInWithEmail(email, password);
+        await withTimeout(signInWithEmail(email, password));
       }
       navigate(redirectTo);
     } catch (err) {
