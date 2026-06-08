@@ -41,3 +41,28 @@ a:hover { text-decoration: underline; }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+
+/* Remove the 300ms tap delay / double-tap zoom on tappable controls. */
+button, a, [role="button"], input[type="button"], input[type="submit"] { touch-action: manipulation; }
+
+/* Native shell (Capacitor iOS) feel — scoped to .native so web/PWA is unchanged.
+   Kill the whole-page rubber-band, text selection, and the long-press callout,
+   but keep selection inside fields so typing/editing still works. */
+html.native, html.native body { height: 100%; overscroll-behavior: none; }
+html.native body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+html.native input,
+html.native textarea,
+html.native select,
+html.native [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Leave room for the fixed bottom tab bar on mobile when it's mounted. */
+@media (max-width: 760px) {
+  body.has-tabbar { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
+}

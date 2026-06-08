@@ -17,6 +17,7 @@ import { PTOPage } from './components/PTOPage';
 import { TodayPage } from './components/TodayPage';
 import { AdminPage } from './components/AdminPage';
 import { NavBar } from './components/NavBar';
+import { BottomTabBar } from './components/BottomTabBar';
 import { InstallPrompt } from './components/InstallPrompt';
 import { UpdateBanner } from './components/UpdateBanner';
 import { GoogleCalendarAutoSyncRunner } from './hooks/useGoogleCalendarAutoSync';
@@ -46,6 +47,7 @@ export default function App() {
   return (
     <>
       {user && <NavBar />}
+      {user && <BottomTabBar />}
       {user && <GoogleCalendarAutoSyncRunner />}
       {user && <InstallPrompt />}
       <UpdateBanner />

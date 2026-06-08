@@ -1,0 +1,110 @@
+/* Hidden on desktop; the top NavBar handles those widths. */
+.tabbar { display: none; }
+.scrim, .sheet { display: none; }
+
+@media (max-width: 760px) {
+  .tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 200;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    height: calc(56px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -1px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  .tab, .tabActive {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 6px 0 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: none;
+    color: var(--color-text-muted);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tabActive { color: var(--color-accent); }
+  .tab:hover, .tabActive:hover { text-decoration: none; }
+
+  .tabIcon { display: flex; }
+  .tabIcon svg { width: 24px; height: 24px; }
+  .tabLabel { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.01em; }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 210;
+    animation: fade 0.18s ease;
+  }
+  .sheet {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 220;
+    background: var(--color-surface);
+    border-top-left-radius: var(--radius-xl);
+    border-top-right-radius: var(--radius-xl);
+    padding: 0.25rem 1rem calc(1.25rem + env(safe-area-inset-bottom));
+    box-shadow: var(--shadow-lg);
+    animation: sheetUp 0.22s ease;
+  }
+  .sheetHandle { width: 36px; height: 4px; border-radius: 2px; background: var(--color-border); margin: 0.5rem auto 1rem; }
+  .sheetGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; }
+  .sheetItem, .sheetItemActive {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.9rem 0.5rem;
+    border-radius: var(--radius-lg);
+    text-decoration: none;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-alt);
+    font-size: 0.76rem;
+    font-weight: 600;
+    text-align: center;
+  }
+  .sheetItemActive { color: var(--color-accent); background: var(--color-accent-light); }
+  .sheetItem:hover, .sheetItemActive:hover { text-decoration: none; }
+  .sheetIcon svg { width: 26px; height: 26px; }
+
+  .sheetAccount {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--color-border);
+  }
+  .sheetEmail { font-size: 0.82rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .signOut {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--color-border);
+    color: var(--color-danger);
+    border-radius: var(--radius-md);
+    padding: 0.45rem 0.9rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+}
+
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }

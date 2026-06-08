@@ -3,7 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import App from './App';
+import { isNativeApp } from './native';
 import './index.css';
+
+// Tag the root so CSS can apply native-shell-only behavior (touch feel, no
+// text selection, no overscroll bounce) without affecting the web/PWA.
+if (isNativeApp()) document.documentElement.classList.add('native');
 
 class GlobalErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }

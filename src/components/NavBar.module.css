@@ -3,11 +3,9 @@
 .logo { font-size: 1.25rem; font-weight: 700; color: var(--color-accent); text-decoration: none; letter-spacing: -0.02em; flex-shrink: 0; }
 .links { display: flex; gap: 0.25rem; }
 
+/* On mobile the bottom tab bar replaces the top nav entirely. */
 @media (max-width: 760px) {
-  .inner { gap: 1rem; padding-left: max(0.75rem, env(safe-area-inset-left)); padding-right: max(0.75rem, env(safe-area-inset-right)); }
-  .links { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; flex: 1; }
-  .links::-webkit-scrollbar { display: none; }
-  .link, .linkActive { white-space: nowrap; }
+  .nav { display: none; }
 }
 .link, .linkActive { padding: 0.4rem 0.75rem; border-radius: var(--radius-md); font-size: 0.88rem; font-weight: 500; color: var(--color-text-secondary); text-decoration: none; transition: all 0.15s; }
 .link:hover { background: var(--color-surface-alt); color: var(--color-text); }
