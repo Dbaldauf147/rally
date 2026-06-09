@@ -3275,7 +3275,7 @@ export function Itinerary({ event, onSave, canEdit }) {
           ? new Date('2000-01-01T' + t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
           : '';
         const bookings = items
-          .filter(i => i.type === 'travel' || i.type === 'lodging')
+          .filter(i => (i.type === 'travel' || i.type === 'lodging') && i.source === 'manual')
           .slice()
           .sort((a, b) => ((a.date || '') + 'T' + (a.time || '00:00'))
             .localeCompare((b.date || '') + 'T' + (b.time || '00:00')));
