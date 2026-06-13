@@ -879,6 +879,59 @@ export function EventDetail() {
             <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', background: stage === 'finalized' ? 'var(--color-success-light)' : 'var(--color-warning-light)', color: stage === 'finalized' ? 'var(--color-success)' : 'var(--color-warning)' }}>
               {stage === 'finalized' ? 'Dates Finalized' : 'Voting Open'}
             </span>
+            {user?.uid && stage === 'finalized' && !event.dateTBD && userCalSync && (
+              <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                  fontSize: '0.82rem', fontWeight: 600,
+                  color: calIsStale ? 'var(--color-warning)' : 'var(--color-success)',
+                }}>
+                  {calSyncing ? 'Syncing…' : calIsStale ? '↻ Calendar update available' : '✓ Synced to Google Calendar'}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Calendar sync settings"
+                  aria-expanded={calMenuOpen}
+                  onClick={() => setCalMenuOpen(o => !o)}
+                  style={{
+                    background: 'none', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-full)',
+                    width: '1.8rem', height: '1.8rem', cursor: 'pointer', fontSize: '0.85rem', lineHeight: 1,
+                    color: 'var(--color-text-secondary)', flexShrink: 0,
+                  }}
+                >⚙️</button>
+                {calMenuOpen && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 90 }} onClick={() => setCalMenuOpen(false)} />
+                    <div style={{
+                      position: 'absolute', top: 'calc(100% + 0.4rem)', left: 0, zIndex: 91,
+                      minWidth: '240px', background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: '0.4rem',
+                      display: 'flex', flexDirection: 'column', gap: '0.15rem',
+                    }}>
+                      <button type="button" disabled={calSyncing} onClick={() => { setCalMenuOpen(false); handleCalendarSync(); }} style={calMenuItemStyle}>
+                        {calIsStale ? '↻ Update in Google Calendar (date changed)' : '↻ Re-sync'}
+                      </button>
+                      <button type="button" disabled={calSyncing} onClick={() => { setCalMenuOpen(false); handleCalendarRemove(); }} style={calMenuItemStyle}>
+                        🗑 Remove from Google Calendar
+                      </button>
+                      <div style={{ borderTop: '1px solid var(--color-border)', margin: '0.25rem 0' }} />
+                      <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', padding: '0.25rem 0.55rem' }}>
+                        Synced to <strong>{userCalSync.calendarName || 'Primary calendar'}</strong>
+                        {calAutoSync && <> · <span style={{ color: 'var(--color-success)' }}>Auto-sync on</span></>}
+                      </div>
+                      <button type="button" onClick={() => { setCalMenuOpen(false); openCalendarPicker(); }} style={calMenuItemStyle}>
+                        📆 Change calendar
+                      </button>
+                    </div>
+                  </>
+                )}
+                {calSyncMsg && (
+                  <span style={{ fontSize: '0.82rem', color: calSyncMsg.type === 'success' ? 'var(--color-success)' : 'var(--color-danger, #b91c1c)' }}>
+                    {calSyncMsg.message}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <p className={styles.datetime}>
             {event.dateTBD
@@ -925,72 +978,12 @@ export function EventDetail() {
         </div>
       </div>
 
-      {user?.uid && stage === 'finalized' && !event.dateTBD && (
+      {user?.uid && stage === 'finalized' && !event.dateTBD && !userCalSync && (
         <div className={styles.rsvpSection} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.4rem' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-            {!userCalSync ? (
-              <button className={styles.shareBtn} disabled={calSyncing} onClick={handleCalendarSync}>
-                {calSyncing ? 'Syncing…' : '📅 Sync to my Google Calendar'}
-              </button>
-            ) : (
-              <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                  fontSize: '0.85rem', fontWeight: 600,
-                  color: calIsStale ? 'var(--color-warning)' : 'var(--color-success)',
-                }}>
-                  {calSyncing ? 'Syncing…' : calIsStale ? '↻ Calendar update available' : '✓ Synced to Google Calendar'}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Calendar sync settings"
-                  aria-expanded={calMenuOpen}
-                  onClick={() => setCalMenuOpen(o => !o)}
-                  style={{
-                    background: 'none', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-full)',
-                    width: '1.9rem', height: '1.9rem', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1,
-                    color: 'var(--color-text-secondary)', flexShrink: 0,
-                  }}
-                >⚙️</button>
-                {calMenuOpen && (
-                  <>
-                    <div
-                      style={{ position: 'fixed', inset: 0, zIndex: 90 }}
-                      onClick={() => setCalMenuOpen(false)}
-                    />
-                    <div style={{
-                      position: 'absolute', top: 'calc(100% + 0.4rem)', left: 0, zIndex: 91,
-                      minWidth: '240px', background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: '0.4rem',
-                      display: 'flex', flexDirection: 'column', gap: '0.15rem',
-                    }}>
-                      <button
-                        type="button"
-                        disabled={calSyncing}
-                        onClick={() => { setCalMenuOpen(false); handleCalendarSync(); }}
-                        style={calMenuItemStyle}
-                      >{calIsStale ? '↻ Update in Google Calendar (date changed)' : '↻ Re-sync'}</button>
-                      <button
-                        type="button"
-                        disabled={calSyncing}
-                        onClick={() => { setCalMenuOpen(false); handleCalendarRemove(); }}
-                        style={calMenuItemStyle}
-                      >🗑 Remove from Google Calendar</button>
-                      <div style={{ borderTop: '1px solid var(--color-border)', margin: '0.25rem 0' }} />
-                      <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', padding: '0.25rem 0.55rem' }}>
-                        Synced to <strong>{userCalSync.calendarName || 'Primary calendar'}</strong>
-                        {calAutoSync && <> · <span style={{ color: 'var(--color-success)' }}>Auto-sync on</span></>}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => { setCalMenuOpen(false); openCalendarPicker(); }}
-                        style={calMenuItemStyle}
-                      >📆 Change calendar</button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+            <button className={styles.shareBtn} disabled={calSyncing} onClick={handleCalendarSync}>
+              {calSyncing ? 'Syncing…' : '📅 Sync to my Google Calendar'}
+            </button>
             {calSyncMsg && (
               <span style={{
                 fontSize: '0.85rem',
@@ -1000,19 +993,17 @@ export function EventDetail() {
               </span>
             )}
           </div>
-          {!userCalSync && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-              Syncing to <strong>{calTarget.name}</strong>
-              {' · '}
-              <button
-                type="button"
-                onClick={openCalendarPicker}
-                style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-accent)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit' }}
-              >
-                Change
-              </button>
-            </div>
-          )}
+          <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+            Syncing to <strong>{calTarget.name}</strong>
+            {' · '}
+            <button
+              type="button"
+              onClick={openCalendarPicker}
+              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-accent)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit' }}
+            >
+              Change
+            </button>
+          </div>
         </div>
       )}
 
