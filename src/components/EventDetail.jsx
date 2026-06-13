@@ -875,9 +875,6 @@ export function EventDetail() {
         <div className={styles.heroInfo}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <h1 className={styles.title} style={{ margin: 0 }}>{event.title}</h1>
-            <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', background: stage === 'finalized' ? 'var(--color-success-light)' : 'var(--color-warning-light)', color: stage === 'finalized' ? 'var(--color-success)' : 'var(--color-warning)' }}>
-              {stage === 'finalized' ? 'Dates Finalized' : 'Voting Open'}
-            </span>
             {user?.uid && stage === 'finalized' && !event.dateTBD && userCalSync && (
               <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
                 <span style={{
@@ -1006,45 +1003,10 @@ export function EventDetail() {
           <p className={styles.datetime}>
             {event.dateTBD
               ? 'Date to be determined — based on poll voting'
-              : (() => {
-                  const items = (Array.isArray(event.itinerary) ? event.itinerary : [])
-                    .filter(it => (it.type || 'activity') !== 'travel' && it.time);
-                  const toMin = (t) => {
-                    const m = /^(\d{1,2}):(\d{2})/.exec(t);
-                    return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
-                  };
-                  const toLabel = (t) => {
-                    const m = /^(\d{1,2}):(\d{2})/.exec(t);
-                    if (!m) return '';
-                    let h = parseInt(m[1], 10);
-                    const mm = m[2];
-                    const ampm = h >= 12 ? 'PM' : 'AM';
-                    h = h % 12 || 12;
-                    return `${h}:${mm} ${ampm}`;
-                  };
-                  const mins = items.map(it => toMin(it.time)).filter(v => v !== null);
-                  if (mins.length > 0) {
-                    const minIdx = mins.indexOf(Math.min(...mins));
-                    const maxIdx = mins.indexOf(Math.max(...mins));
-                    const startLabel = toLabel(items[minIdx].time);
-                    const endLabel = mins.length > 1 ? toLabel(items[maxIdx].time) : '';
-                    return (
-                      <>
-                        {format(date, 'EEEE, MMMM d, yyyy')} · {startLabel}
-                        {endLabel && ` – ${endLabel}`}
-                      </>
-                    );
-                  }
-                  return (
-                    <>
-                      {format(date, 'EEEE, MMMM d, yyyy · h:mm a')}
-                      {endDate && ` – ${format(endDate, 'h:mm a')}`}
-                    </>
-                  );
-                })()
-            }
+              : (endDate && format(endDate, 'yyyy-MM-dd') !== format(date, 'yyyy-MM-dd'))
+                ? `${format(date, 'EEEE, MMMM d, yyyy')} – ${format(endDate, 'EEEE, MMMM d, yyyy')}`
+                : format(date, 'EEEE, MMMM d, yyyy')}
           </p>
-          {event.location && <p className={styles.location}>📍 {event.location}</p>}
         </div>
       </div>
 
