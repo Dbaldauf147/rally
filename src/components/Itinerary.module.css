@@ -16,6 +16,15 @@
   gap: 0.5rem;
   flex-wrap: wrap;
 }
+.dailyControls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
 .lodgingToggleBtn {
   background: var(--color-surface);
   color: var(--color-text-secondary);

@@ -2040,9 +2040,15 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
   const [emailResult, setEmailResult] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
-  const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily' | 'calendar' | 'destinations' | 'flights'
+  // Top-level stage: 'destinations' (key destinations) → 'daily' (by-day or
+  // calendar) → 'bookings'. The detailed schedule grid opens per-day via the
+  // Details pop-out. ('schedule'/'calendar'/'flights' are legacy values no
+  // longer selectable from the nav.)
+  const [viewMode, setViewMode] = useState('daily');
   // Sub-view inside the Bookings page: flat list, grouped by day, or calendar.
   const [bookingsSubView, setBookingsSubView] = useState('list'); // 'list' | 'daily' | 'calendar'
+  // Sub-view inside the Daily stage: a per-day list or a calendar grid.
+  const [dailySubView, setDailySubView] = useState('byday'); // 'byday' | 'calendar'
   // When a day is opened from the Daily view, the Schedule view focuses on
   // just that date (YYYY-MM-DD). Null = show all days.
   const [scheduleFocusKey, setScheduleFocusKey] = useState(null);
@@ -3167,36 +3173,40 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
           Trip Itinerary
         </h3>
         <div className={styles.headerActions}>
-          <button
-            className={viewMode === 'schedule' ? styles.addBtn : styles.lodgingToggleBtn}
-            onClick={() => { setScheduleFocusKey(null); setViewMode('schedule'); }}
-            title="Detailed day-by-day schedule"
-          >📅 Schedule</button>
-          <button
-            className={viewMode === 'daily' ? styles.addBtn : styles.lodgingToggleBtn}
-            onClick={() => setViewMode('daily')}
-            title="One-line per day: which destination you're in"
-          >🗺️ Daily</button>
-          <button
-            className={viewMode === 'calendar' ? styles.addBtn : styles.lodgingToggleBtn}
-            onClick={() => setViewMode('calendar')}
-            title="Month-style calendar grid of the trip"
-          >🗓️ Calendar</button>
+          {/* Staged flow: choose destinations, then plan the daily view, then bookings. */}
           <button
             className={viewMode === 'destinations' ? styles.addBtn : styles.lodgingToggleBtn}
             onClick={() => setViewMode('destinations')}
-            title="Key Destinations and voting"
+            title="Step 1 — pick the key destinations for the trip"
           >✨ Key Destinations</button>
           <button
-            className={viewMode === 'flights' ? styles.addBtn : styles.lodgingToggleBtn}
-            onClick={() => setViewMode('flights')}
-            title="Flight cost comparison"
-          >✈️ Flight Costs</button>
+            className={viewMode === 'daily' ? styles.addBtn : styles.lodgingToggleBtn}
+            onClick={() => setViewMode('daily')}
+            title="Step 2 — plan the trip day by day (or as a calendar)"
+          >🗺️ Daily</button>
           <button
             className={viewMode === 'bookings' ? styles.addBtn : styles.lodgingToggleBtn}
             onClick={() => setViewMode('bookings')}
-            title="Paste confirmation emails and see saved flights & hotels"
+            title="Paste confirmation emails and see saved flights, trains, hotels & events"
           >📧 Bookings</button>
+        </div>
+      </div>
+
+      {/* Daily-page controls: by-day/calendar toggle + page actions. */}
+      {viewMode === 'daily' && (
+        <div className={styles.dailyControls}>
+          <div className={styles.bookingsSubToggle}>
+            {[
+              { key: 'byday', label: '🗒️ By day' },
+              { key: 'calendar', label: '🗓️ Calendar' },
+            ].map(opt => (
+              <button
+                key={opt.key}
+                className={dailySubView === opt.key ? styles.bookingsSubToggleBtnActive : styles.bookingsSubToggleBtn}
+                onClick={() => setDailySubView(opt.key)}
+              >{opt.label}</button>
+            ))}
+          </div>
           <div className={styles.settingsWrap} ref={settingsRef}>
             <button
               className={styles.lodgingToggleBtn}
@@ -3273,7 +3283,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
             <button className={styles.addBtn} onClick={startAdd}>+ Add Item</button>
           )}
         </div>
-      </div>
+      )}
       {emailResult && (
         <div className={styles.aiMessage} style={{ marginBottom: '0.75rem' }}>{emailResult}</div>
       )}
@@ -3332,9 +3342,6 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
         </div>
       )}
 
-      {viewMode === 'flights' && (
-        <FlightCosts event={event} onSave={onSave} canEdit={canEdit} />
-      )}
 
       {viewMode === 'bookings' && (() => {
         const fmtTime = (t) => t
@@ -4044,7 +4051,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
         <TripHighlightsList event={event} onSave={onSave} canEdit={canEdit} />
       )}
 
-      {viewMode === 'daily' && tripStartRaw && tripEndRaw && (() => {
+      {viewMode === 'daily' && dailySubView === 'byday' && tripStartRaw && tripEndRaw && (() => {
         const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
         const e = new Date(tripEndRaw); e.setHours(0, 0, 0, 0);
         const overrides = (event?.dailyDestinations && typeof event.dailyDestinations === 'object')
@@ -4750,7 +4757,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
         );
       })()}
 
-      {viewMode === 'calendar' && tripStartRaw && tripEndRaw && (() => {
+      {viewMode === 'daily' && dailySubView === 'calendar' && tripStartRaw && tripEndRaw && (() => {
         const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
         const e = new Date(tripEndRaw); e.setHours(0, 0, 0, 0);
         const overrides = (event?.dailyDestinations && typeof event.dailyDestinations === 'object')
