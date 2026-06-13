@@ -823,6 +823,23 @@
   background: var(--color-surface-alt);
 }
 
+.deleteBtn {
+  background: none;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  border-radius: var(--radius-md);
+  padding: 0.55rem 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.deleteBtn:hover {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+
 .empty {
   text-align: center;
   padding: 3rem 1rem;

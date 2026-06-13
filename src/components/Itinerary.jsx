@@ -3912,6 +3912,13 @@ export function Itinerary({ event, onSave, canEdit }) {
             </div>
           )}
           <div className={styles.formActions}>
+            {editingId && (
+              <button
+                className={styles.deleteBtn}
+                onClick={() => { const id = editingId; cancel(); deleteItem(id); }}
+                style={{ marginRight: 'auto' }}
+              >🗑 Delete</button>
+            )}
             <button className={styles.cancelBtn} onClick={cancel}>Cancel</button>
             <button className={styles.saveBtn} onClick={saveItem} disabled={!form.title.trim()}>
               {adding ? 'Add' : 'Save'}
