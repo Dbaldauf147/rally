@@ -2713,6 +2713,10 @@
   background: repeating-linear-gradient(45deg, var(--color-surface-alt), var(--color-surface-alt) 10px, transparent 10px, transparent 20px);
 }
 .dailyRowMoved { background: rgba(99, 102, 241, 0.06); }
+.dailyRowBooked {
+  background: rgba(16, 185, 129, 0.07);
+  border-left: 3px solid #6ee7b7;
+}
 .dailyRowHovering {
   background: rgba(134, 59, 255, 0.08);
   outline: 2px dashed var(--color-accent);

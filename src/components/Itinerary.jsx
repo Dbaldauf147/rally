@@ -4028,9 +4028,11 @@ export function Itinerary({ event, onSave, canEdit }) {
                 && d.destHighlight
                 && d.destHighlight.id === dragBullet.highlightId;
               const isHovering = isDropTarget && dragOverDateKey === d.key;
+              const isDayBooked = Array.isArray(event?.bookedDayKeys) && event.bookedDayKeys.includes(d.key);
               const rowClasses = [
                 styles.dailyRow,
                 isLast ? styles.dailyRowLast : '',
+                isDayBooked ? styles.dailyRowBooked : '',
                 isHovering ? styles.dailyRowHovering : (d.hidden ? styles.dailyRowHidden : (moved ? styles.dailyRowMoved : '')),
               ].filter(Boolean).join(' ');
               return (
@@ -4068,6 +4070,15 @@ export function Itinerary({ event, onSave, canEdit }) {
                       onClick={() => setDaySchedulePeekKey(d.key)}
                       title="Open this day's full schedule"
                     >📋 Details</button>
+                    {isDayBooked && <span className={styles.dayBookedBadge}>✅ Booked</span>}
+                    {canEdit && (
+                      <button
+                        type="button"
+                        className={isDayBooked ? styles.dayBookedBtnActive : styles.dayBookedBtn}
+                        onClick={() => setDayBooked(d.key, !isDayBooked)}
+                        title={isDayBooked ? 'Unlock this day' : 'Lock in & confirm this day is booked'}
+                      >{isDayBooked ? '🔓 Unlock' : '🔒 Confirm booked'}</button>
+                    )}
                     {(() => {
                       const dailyNames = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
                       const savedName = dailyNames[d.key] || '';
