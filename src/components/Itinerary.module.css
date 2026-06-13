@@ -933,6 +933,34 @@
   font-weight: 700;
   color: var(--color-text);
 }
+.dayPeekHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.dayPeekToggle,
+.dayPeekToggleActive {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.dayPeekToggle:hover,
+.dayPeekToggleActive:hover {
+  border-color: var(--color-accent);
+}
+.dayPeekToggleActive {
+  background: rgba(134, 59, 255, 0.1);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
 .dayPeekClose {
   border: 1px solid var(--color-border);
   background: var(--color-surface);

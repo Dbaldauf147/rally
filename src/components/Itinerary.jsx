@@ -5285,12 +5285,26 @@ export function Itinerary({ event, onSave, canEdit }) {
                   <span className={styles.dayPeekTitle}>
                     📋 {new Date(daySchedulePeekKey + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                   </span>
-                  <button
-                    type="button"
-                    className={styles.dayPeekClose}
-                    onClick={() => setDaySchedulePeekKey(null)}
-                    aria-label="Close"
-                  >✕</button>
+                  <div className={styles.dayPeekHeaderRight}>
+                    {[
+                      { key: 'showRoutes', label: '🚗 Routes' },
+                      { key: 'showLodging', label: '🏨 Lodging' },
+                    ].map(opt => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        className={viewSettings[opt.key] ? styles.dayPeekToggleActive : styles.dayPeekToggle}
+                        onClick={() => toggleSetting(opt.key)}
+                        title={`${viewSettings[opt.key] ? 'Hide' : 'Show'} ${opt.label}`}
+                      >{viewSettings[opt.key] ? '✓ ' : ''}{opt.label}</button>
+                    ))}
+                    <button
+                      type="button"
+                      className={styles.dayPeekClose}
+                      onClick={() => setDaySchedulePeekKey(null)}
+                      aria-label="Close"
+                    >✕</button>
+                  </div>
                 </div>
                 <div className={styles.dayPeekBody}>{listBody}</div>
               </div>
