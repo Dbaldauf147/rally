@@ -864,6 +864,10 @@
 }
 
 .dateLabel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.3rem;
   font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -872,6 +876,54 @@
   padding-bottom: 0.5rem;
   border-bottom: 2px solid var(--color-accent-light, #f0ddd6);
   margin-bottom: 0.25rem;
+}
+
+/* A day whose plans are confirmed/booked (locked in). */
+.dateGroupBooked .dateLabel {
+  color: #047857;
+  border-bottom-color: #6ee7b7;
+}
+.dayBookedBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid #6ee7b7;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+}
+.dayBookedBtn,
+.dayBookedBtnActive {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.dayBookedBtn:hover {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: #6ee7b7;
+  color: #047857;
+}
+.dayBookedBtnActive {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+.dayBookedBtnActive:hover {
+  background: #d1fae5;
 }
 
 /* Type selector in form */

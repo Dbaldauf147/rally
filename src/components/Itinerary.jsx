@@ -2373,6 +2373,19 @@ export function Itinerary({ event, onSave, canEdit }) {
   }
   const [showHiddenDays, setShowHiddenDays] = useState(false);
 
+  // "Booked" days are confirmed/locked: the day's plans are finalized.
+  // Stored as an array of YYYY-MM-DD strings on the event so it persists
+  // for everyone viewing the trip.
+  async function setDayBooked(dateKey, booked) {
+    const current = Array.isArray(event?.bookedDayKeys) ? [...event.bookedDayKeys] : [];
+    const has = current.includes(dateKey);
+    let next = current;
+    if (booked && !has) next = [...current, dateKey];
+    else if (!booked && has) next = current.filter(k => k !== dateKey);
+    else return;
+    await onSave({ bookedDayKeys: next });
+  }
+
   // Optional human name for a day in the Daily view (e.g. "Arrival",
   // "Beach day"). Empty string clears the name.
   async function setDayName(dateKey, name) {
@@ -4833,6 +4846,27 @@ export function Itinerary({ event, onSave, canEdit }) {
             }
             const titleLabel = dayNum ? `Day ${dayNum} · ${dateLabel}` : dateLabel;
 
+            // Whether this day's plans are confirmed/booked (locked in).
+            const isDayBooked = dateKey !== 'Unscheduled'
+              && Array.isArray(event?.bookedDayKeys)
+              && event.bookedDayKeys.includes(dateKey);
+            // Header control: a "Booked" badge plus a toggle (editors only).
+            const bookedControl = dateKey === 'Unscheduled' ? null : (
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                {isDayBooked && (
+                  <span className={styles.dayBookedBadge}>✅ Booked</span>
+                )}
+                {canEdit && (
+                  <button
+                    type="button"
+                    className={isDayBooked ? styles.dayBookedBtnActive : styles.dayBookedBtn}
+                    onClick={() => setDayBooked(dateKey, !isDayBooked)}
+                    title={isDayBooked ? 'Unlock this day' : 'Lock in & confirm this day is booked'}
+                  >{isDayBooked ? '🔓 Unlock' : '🔒 Confirm booked'}</button>
+                )}
+              </span>
+            );
+
             // Activities and lodging columns
             const activityItems = dateItems.filter(i => (i.type || 'activity') === 'activity');
             const lodgingItems = dateItems.filter(i => (i.type || 'activity') === 'lodging');
@@ -4970,7 +5004,7 @@ export function Itinerary({ event, onSave, canEdit }) {
             // list of travel items instead of an empty schedule grid.
             if (activityItems.length === 0 && lodgingItems.length === 0) {
               return (
-                <div key={dateKey} className={styles.dateGroup}>
+                <div key={dateKey} className={isDayBooked ? `${styles.dateGroup} ${styles.dateGroupBooked}` : styles.dateGroup}>
                   <div className={styles.dateLabel}>
                     {titleLabel}
                     {dayKind && (
@@ -4978,6 +5012,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                         {dayKind}
                       </span>
                     )}
+                    {bookedControl}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                     {travelItems.map(item => (
@@ -5073,7 +5108,7 @@ export function Itinerary({ event, onSave, canEdit }) {
               : (alignedTransitions.length > 0 ? '… calculating travel' : null);
 
             return (
-              <div key={dateKey} className={styles.dateGroup}>
+              <div key={dateKey} className={isDayBooked ? `${styles.dateGroup} ${styles.dateGroupBooked}` : styles.dateGroup}>
                 <div className={styles.dateLabel}>
                   {titleLabel}
                   {dayKind && (
@@ -5086,6 +5121,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                       🚗 {totalLabel}
                     </span>
                   )}
+                  {bookedControl}
                 </div>
                 {crossDayByDate[dateKey] && mapsKey && (() => {
                   const ct = crossDayByDate[dateKey];
