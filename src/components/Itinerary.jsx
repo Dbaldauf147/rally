@@ -1986,6 +1986,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   const viewSettingsKey = `rally.itineraryView.${event?.id || 'global'}`;
   const VIEW_SETTINGS_DEFAULTS = {
     showRouteMap: true,
+    showRoutes: true,
     showLodging: false,
     showAiAssistant: true,
     showDiagnostics: true,
@@ -2022,6 +2023,7 @@ export function Itinerary({ event, onSave, canEdit }) {
   }, [settingsOpen]);
   const toggleSetting = (key) => setViewSettings(prev => ({ ...prev, [key]: !prev[key] }));
   const hideLodging = !viewSettings.showLodging;
+  const hideRoutes = !viewSettings.showRoutes;
   const [travelTimes, setTravelTimes] = useState({}); // key -> { duration, distance, error }
   const travelTimeFetchRef = useRef(new Set()); // keys we've already requested
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -3191,6 +3193,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                 <div className={styles.settingsList}>
                   {[
                     { key: 'showRouteMap',      label: '🗺️ Trip Route Overview', hint: 'Map of all routes across the trip' },
+                    { key: 'showRoutes',        label: '🚗 Routes column', hint: 'Show the per-day routes column in the schedule' },
                     { key: 'showLodging',       label: '🏨 Lodging column', hint: 'Show the lodging column in the schedule' },
                     { key: 'showDiagnostics',   label: '⚠️ Schedule diagnostics', hint: 'Empty days and out-of-range items' },
                     { key: 'showAiAssistant',   label: '✨ AI assistant', hint: 'Floating Plan with AI button (admins only)' },
@@ -5078,9 +5081,14 @@ export function Itinerary({ event, onSave, canEdit }) {
             const HALF_ROW = 160;
             const activityCount = Math.max(activityItems.length, 1);
             const bodyRows = activityCount * 2; // activities take 2 half-rows each; routes fit between
-            const gridTemplateColumns = hideLodging
-              ? 'minmax(0, 1fr) minmax(0, 1.2fr)'
-              : 'minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 0.9fr)';
+            // Visible columns (Activities is always shown). Compute each
+            // column's 1-based grid index so hiding Routes/Lodging re-flows.
+            const colSizes = ['minmax(0, 1fr)'];
+            const actCol = 1;
+            let routeCol = null, lodgeCol = null;
+            if (!hideRoutes) { colSizes.push('minmax(0, 1.2fr)'); routeCol = colSizes.length; }
+            if (!hideLodging) { colSizes.push('minmax(0, 0.9fr)'); lodgeCol = colSizes.length; }
+            const gridTemplateColumns = colSizes.join(' ');
 
             // Sum route durations for this day (skip routes still loading or errored).
             let totalSeconds = 0;
@@ -5164,49 +5172,53 @@ export function Itinerary({ event, onSave, canEdit }) {
                   }}
                 >
                   {/* Column headers */}
-                  <div className={styles.scheduleColHeader} style={{ gridColumn: 1, gridRow: 1, borderBottomColor: '#6366F1', color: '#6366F1' }}>
+                  <div className={styles.scheduleColHeader} style={{ gridColumn: actCol, gridRow: 1, borderBottomColor: '#6366F1', color: '#6366F1' }}>
                     <span>🎯</span> Activities
                   </div>
-                  <div className={styles.scheduleColHeader} style={{ gridColumn: 2, gridRow: 1, borderBottomColor: '#0891b2', color: '#0891b2' }}>
-                    <span>🚗</span> Routes
-                  </div>
+                  {!hideRoutes && (
+                    <div className={styles.scheduleColHeader} style={{ gridColumn: routeCol, gridRow: 1, borderBottomColor: '#0891b2', color: '#0891b2' }}>
+                      <span>🚗</span> Routes
+                    </div>
+                  )}
                   {!hideLodging && (
-                    <div className={styles.scheduleColHeader} style={{ gridColumn: 3, gridRow: 1, borderBottomColor: '#d97706', color: '#d97706' }}>
+                    <div className={styles.scheduleColHeader} style={{ gridColumn: lodgeCol, gridRow: 1, borderBottomColor: '#d97706', color: '#d97706' }}>
                       <span>🏨</span> Lodging
                     </div>
                   )}
 
                   {/* Activities */}
                   {activityItems.length === 0 ? (
-                    <div className={styles.scheduleEmpty} style={{ gridColumn: 1, gridRow: '2 / span 2' }}>—</div>
+                    <div className={styles.scheduleEmpty} style={{ gridColumn: actCol, gridRow: '2 / span 2' }}>—</div>
                   ) : (
                     activityItems.map((item, i) => (
-                      <div key={item.id} style={{ gridColumn: 1, gridRow: `${2 + 2 * i} / span 2`, minHeight: 0 }}>
+                      <div key={item.id} style={{ gridColumn: actCol, gridRow: `${2 + 2 * i} / span 2`, minHeight: 0 }}>
                         {renderItemCard(item, '#6366F1')}
                       </div>
                     ))
                   )}
 
                   {/* Routes (offset half-row down, aligning to midpoints of activities) */}
-                  {!mapsKey ? (
-                    <div className={styles.scheduleEmpty} style={{ gridColumn: 2, gridRow: '2 / span 2' }}>—</div>
-                  ) : alignedTransitions.length === 0 ? (
-                    <div className={styles.scheduleEmpty} style={{ gridColumn: 2, gridRow: '2 / span 2' }}>—</div>
-                  ) : (
-                    alignedTransitions.map((t, idx) => (
-                      <div key={t.mapId} style={{ gridColumn: 2, gridRow: `${3 + 2 * t.fromIdx} / span 2`, minHeight: 0 }}>
-                        {renderRouteCard(t, idx)}
-                      </div>
-                    ))
+                  {!hideRoutes && (
+                    !mapsKey ? (
+                      <div className={styles.scheduleEmpty} style={{ gridColumn: routeCol, gridRow: '2 / span 2' }}>—</div>
+                    ) : alignedTransitions.length === 0 ? (
+                      <div className={styles.scheduleEmpty} style={{ gridColumn: routeCol, gridRow: '2 / span 2' }}>—</div>
+                    ) : (
+                      alignedTransitions.map((t, idx) => (
+                        <div key={t.mapId} style={{ gridColumn: routeCol, gridRow: `${3 + 2 * t.fromIdx} / span 2`, minHeight: 0 }}>
+                          {renderRouteCard(t, idx)}
+                        </div>
+                      ))
+                    )
                   )}
 
                   {/* Lodging (stacked) */}
                   {!hideLodging && (
                     lodgingItems.length === 0 ? (
-                      <div className={styles.scheduleEmpty} style={{ gridColumn: 3, gridRow: '2 / span 2' }}>—</div>
+                      <div className={styles.scheduleEmpty} style={{ gridColumn: lodgeCol, gridRow: '2 / span 2' }}>—</div>
                     ) : (
                       lodgingItems.map((item, i) => (
-                        <div key={item.id} style={{ gridColumn: 3, gridRow: `${2 + 2 * i} / span 2`, minHeight: 0 }}>
+                        <div key={item.id} style={{ gridColumn: lodgeCol, gridRow: `${2 + 2 * i} / span 2`, minHeight: 0 }}>
                           {renderItemCard(item, '#d97706')}
                         </div>
                       ))
