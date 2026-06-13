@@ -2250,7 +2250,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
   }
 
   function startAdd() {
-    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '' });
+    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '', tripId: '', reservationNumber: '', fromLocation: '', toLocation: '', endDate: '', passengers: '', ticketNumbers: '', seatNumbers: '', bookingId: '', hotelName: '', guests: '', roomType: '' });
     setAdding(true);
     setEditingId(null);
     setOptedOutHighlightIds(new Set());
@@ -2316,6 +2316,19 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
       airline: item.airline || '',
       flightNumber: item.flightNumber || '',
       cost: item.cost || '',
+      // Structured booking fields (from imported flight/hotel emails).
+      tripId: item.tripId || '',
+      reservationNumber: item.reservationNumber || '',
+      fromLocation: item.fromLocation || '',
+      toLocation: item.toLocation || '',
+      endDate: item.endDate || '',
+      passengers: item.passengers || '',
+      ticketNumbers: item.ticketNumbers || '',
+      seatNumbers: item.seatNumbers || '',
+      bookingId: item.bookingId || '',
+      hotelName: item.hotelName || '',
+      guests: item.guests || '',
+      roomType: item.roomType || '',
     });
     setEditingId(item.id);
     setAdding(false);
@@ -3851,6 +3864,41 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 onChange={e => setForm({ ...form, cost: e.target.value })}
                 inputMode="decimal"
               />
+              <div className={styles.row}>
+                <input className={styles.input} type="text" placeholder="From (e.g., JFK)" value={form.fromLocation} onChange={e => setForm({ ...form, fromLocation: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="To (e.g., BCN)" value={form.toLocation} onChange={e => setForm({ ...form, toLocation: e.target.value })} />
+              </div>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+                Arrival date (if it lands the next day)
+                <input className={styles.input} type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
+              </label>
+              <div className={styles.row}>
+                <input className={styles.input} type="text" placeholder="Trip ID" value={form.tripId} onChange={e => setForm({ ...form, tripId: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="Reservation #" value={form.reservationNumber} onChange={e => setForm({ ...form, reservationNumber: e.target.value })} />
+              </div>
+              <input className={styles.input} type="text" placeholder="Passengers (comma-separated)" value={form.passengers} onChange={e => setForm({ ...form, passengers: e.target.value })} />
+              <div className={styles.row}>
+                <input className={styles.input} type="text" placeholder="Ticket #(s)" value={form.ticketNumbers} onChange={e => setForm({ ...form, ticketNumbers: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="Seat #(s)" value={form.seatNumbers} onChange={e => setForm({ ...form, seatNumbers: e.target.value })} />
+              </div>
+            </div>
+          )}
+          {form.type === 'lodging' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.65rem 0.75rem', background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>🏨 Hotel details</div>
+              <input className={styles.input} type="text" placeholder="Hotel name" value={form.hotelName} onChange={e => setForm({ ...form, hotelName: e.target.value })} />
+              <div className={styles.row}>
+                <input className={styles.input} type="text" placeholder="Booking ID" value={form.bookingId} onChange={e => setForm({ ...form, bookingId: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="Reservation #" value={form.reservationNumber} onChange={e => setForm({ ...form, reservationNumber: e.target.value })} />
+              </div>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+                Check-out date
+                <input className={styles.input} type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
+              </label>
+              <div className={styles.row}>
+                <input className={styles.input} type="text" placeholder="Number of guests" value={form.guests} onChange={e => setForm({ ...form, guests: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="Room type" value={form.roomType} onChange={e => setForm({ ...form, roomType: e.target.value })} />
+              </div>
             </div>
           )}
           <input
