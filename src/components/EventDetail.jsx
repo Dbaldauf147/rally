@@ -89,6 +89,7 @@ export function EventDetail() {
   const [calAutoSync, setCalAutoSync] = useState(() => getAutoSyncEnabled());
   const [showCalPicker, setShowCalPicker] = useState(false);
   const [calMenuOpen, setCalMenuOpen] = useState(false); // gear dropdown for sync controls
+  const [tripSummary, setTripSummary] = useState(null); // { days, travelLabel } reported by Itinerary
   const [calPickerList, setCalPickerList] = useState(null); // null = not loaded, [] = empty
   const [calPickerLoading, setCalPickerLoading] = useState(false);
   const [calPickerError, setCalPickerError] = useState('');
@@ -1004,8 +1005,16 @@ export function EventDetail() {
             {event.dateTBD
               ? 'Date to be determined — based on poll voting'
               : (endDate && format(endDate, 'yyyy-MM-dd') !== format(date, 'yyyy-MM-dd'))
-                ? `${format(date, 'EEEE, MMMM d, yyyy')} – ${format(endDate, 'EEEE, MMMM d, yyyy')}`
+                ? (format(date, 'yyyy') === format(endDate, 'yyyy')
+                    ? `${format(date, 'MMM d')} – ${format(endDate, 'MMM d, yyyy')}`
+                    : `${format(date, 'MMM d, yyyy')} – ${format(endDate, 'MMM d, yyyy')}`)
                 : format(date, 'EEEE, MMMM d, yyyy')}
+            {activeTab === 'itinerary' && tripSummary?.days && (
+              <span style={{ color: 'var(--color-text-muted)' }}> · {tripSummary.days} day{tripSummary.days === 1 ? '' : 's'}</span>
+            )}
+            {activeTab === 'itinerary' && tripSummary?.travelLabel && (
+              <span style={{ color: 'var(--color-text-muted)' }}> · 🚗 {tripSummary.travelLabel}</span>
+            )}
           </p>
         </div>
       </div>
@@ -1909,6 +1918,7 @@ export function EventDetail() {
           event={event}
           canEdit={isOwner || event.members?.[user?.uid]?.role === 'editor'}
           onSave={async (data) => { await updateEvent(eventId, data); }}
+          onTripSummary={setTripSummary}
         />
       )}
 

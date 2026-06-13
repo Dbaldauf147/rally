@@ -1963,7 +1963,7 @@ function locationsEqual(a, b) {
   return false;
 }
 
-export function Itinerary({ event, onSave, canEdit }) {
+export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
   const { user } = useAuth();
   const isAdmin = user?.email === 'baldaufdan@gmail.com';
   const items = Array.isArray(event?.itinerary) ? event.itinerary : [];
@@ -3062,6 +3062,30 @@ export function Itinerary({ event, onSave, canEdit }) {
     const x = d?.toDate ? d.toDate() : new Date(d);
     return isNaN(x) ? tripStartRaw : x;
   })();
+  // Visible trip length (total days minus any the user hid in the Daily view).
+  const tripVisibleDays = (() => {
+    if (!tripStartRaw || !tripEndRaw) return null;
+    const s = new Date(tripStartRaw); s.setHours(0, 0, 0, 0);
+    const e = new Date(tripEndRaw); e.setHours(0, 0, 0, 0);
+    const totalDays = Math.max(1, Math.round((e - s) / 86400000) + 1);
+    const hiddenSet = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
+    if (hiddenSet.size === 0) return totalDays;
+    let hidden = 0;
+    const cur = new Date(s);
+    while (cur <= e) {
+      const k = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+      if (hiddenSet.has(k)) hidden += 1;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return Math.max(1, totalDays - hidden);
+  })();
+  // Report the trip summary up so the event header can show it next to the
+  // dates (avoids duplicating the date range here).
+  useEffect(() => {
+    if (typeof onTripSummary === 'function') {
+      onTripSummary({ days: tripVisibleDays, travelLabel: tripTravelLabel || null });
+    }
+  }, [tripVisibleDays, tripTravelLabel, onTripSummary]);
   const missingDayKeys = [];
   const outOfRangeItems = [];
   const unscheduledItems = [];
@@ -3097,69 +3121,6 @@ export function Itinerary({ event, onSave, canEdit }) {
       <div className={styles.header}>
         <h3 className={styles.heading}>
           Trip Itinerary
-          {(() => {
-            const toDate = (d) => {
-              if (!d) return null;
-              const x = d?.toDate ? d.toDate() : new Date(d);
-              return isNaN(x) ? null : x;
-            };
-            const start = toDate(event?.startDate || event?.date);
-            const end = toDate(event?.endDate) || start;
-            if (!start || !end) return null;
-            // Clone before mutating with setHours
-            const s = new Date(start);
-            const e = new Date(end);
-            s.setHours(0, 0, 0, 0);
-            e.setHours(0, 0, 0, 0);
-            const ms = e - s;
-            const totalDays = Math.max(1, Math.round(ms / 86400000) + 1);
-            const hiddenSet = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
-            // Visible-day count mirrors what the Daily view actually shows:
-            // total trip length minus any days the user hid.
-            let visibleDays = totalDays;
-            if (hiddenSet.size > 0) {
-              const cur = new Date(s);
-              let hiddenInRange = 0;
-              while (cur <= e) {
-                const y = cur.getFullYear();
-                const m = String(cur.getMonth() + 1).padStart(2, '0');
-                const dd = String(cur.getDate()).padStart(2, '0');
-                if (hiddenSet.has(`${y}-${m}-${dd}`)) hiddenInRange += 1;
-                cur.setDate(cur.getDate() + 1);
-              }
-              visibleDays = Math.max(1, totalDays - hiddenInRange);
-            }
-            const days = visibleDays;
-            const sameYear = s.getFullYear() === e.getFullYear();
-            const fmtShort = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            const fmtFull = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            const range = days === 1
-              ? fmtFull(s)
-              : sameYear
-                ? `${fmtShort(s)} – ${fmtShort(e)}, ${e.getFullYear()}`
-                : `${fmtFull(s)} – ${fmtFull(e)}`;
-            return (
-              <>
-                <span
-                  className={styles.tripDaysBadge}
-                  title={hiddenSet.size > 0
-                    ? `${days} day${days === 1 ? '' : 's'} shown (${totalDays - days} hidden of ${totalDays})`
-                    : 'Total trip length'}
-                >
-                  {days} day{days === 1 ? '' : 's'}
-                </span>
-                <span className={styles.tripDateRange} title="Trip dates">{range}</span>
-                {tripTravelLabel && (
-                  <span
-                    className={styles.tripDateRange}
-                    title="Total travel time across all routes (flights excluded)"
-                  >
-                    🚗 {tripTravelLabel}
-                  </span>
-                )}
-              </>
-            );
-          })()}
         </h3>
         <div className={styles.headerActions}>
           <button
