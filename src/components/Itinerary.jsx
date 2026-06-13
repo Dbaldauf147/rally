@@ -4943,6 +4943,55 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 ? travelTimes[travelTimeKey(outbound.from, outbound.to, outbound.mode)]
                 : null;
               const modeIconFor = (m) => (TRAVEL_MODES.find(x => x.key === m) || TRAVEL_MODES[0]).icon;
+
+              // Structured booking details for flights (travel) and hotels
+              // (lodging) — only when the item actually carries those fields.
+              const bookingFields = ['tripId', 'reservationNumber', 'fromLocation', 'toLocation', 'endDate', 'passengers', 'ticketNumbers', 'seatNumbers', 'bookingId', 'hotelName', 'guests', 'roomType'];
+              const hasBookingDetails = (item.type === 'travel' || item.type === 'lodging')
+                && bookingFields.some(f => item[f] && String(item[f]).trim());
+              const renderBookingDetails = () => {
+                const fmtD = (d) => d ? new Date(d + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                const fmtT = (t) => t ? new Date('2000-01-01T' + t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+                const dateTime = (d, t) => [fmtD(d), fmtT(t)].filter(Boolean).join(', ');
+                const cell = (label, value, full) => {
+                  if (!value || !String(value).trim()) return null;
+                  return (
+                    <div key={label} style={{ gridColumn: full ? '1 / -1' : 'auto', display: 'flex', flexDirection: 'column', gap: '0.1rem', minWidth: 0 }}>
+                      <span style={{ fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)' }}>{label}</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--color-text)', wordBreak: 'break-word' }}>{value}</span>
+                    </div>
+                  );
+                };
+                const cells = item.type === 'lodging'
+                  ? [
+                      cell('Booking ID', item.bookingId, true),
+                      cell('Reservation Number', item.reservationNumber, true),
+                      cell('Hotel Name', item.hotelName, true),
+                      cell('Check in', dateTime(item.date, item.time)),
+                      cell('Check Out', dateTime(item.endDate, '')),
+                      cell('Number of Guests', item.guests, true),
+                      cell('Room Type', item.roomType, true),
+                    ]
+                  : [
+                      cell('Trip ID', item.tripId, true),
+                      cell('Reservation Number', item.reservationNumber, true),
+                      cell('To', item.toLocation),
+                      cell('From', item.fromLocation),
+                      cell('Start Date, Time', dateTime(item.date, item.time)),
+                      cell('End Date, Time', dateTime(item.endDate || item.date, item.arrivalTime)),
+                      cell('Passengers', item.passengers, true),
+                      cell('Ticket Numbers', item.ticketNumbers, true),
+                      cell('Seat Numbers', item.seatNumbers, true),
+                    ];
+                const visible = cells.filter(Boolean);
+                if (visible.length === 0) return null;
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.45rem 0.8rem', marginTop: '0.4rem', padding: '0.55rem 0.65rem', background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+                    {visible}
+                  </div>
+                );
+              };
+
               return (
                 <div className={styles.scheduleItem} style={{ borderLeftColor: color, height: '100%' }}>
                   <div className={styles.itemContent}>
@@ -4959,7 +5008,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                         </div>
                       )}
                     </div>
-                    {item.time && (
+                    {!hasBookingDetails && item.time && (
                       <div className={styles.itemTime}>
                         {new Date('2000-01-01T' + item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                         {item.arrivalTime && ` → ${new Date('2000-01-01T' + item.arrivalTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
@@ -4975,7 +5024,8 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                         )}
                       </div>
                     )}
-                    {loc && <div className={styles.itemLocation}>📍 {loc}</div>}
+                    {hasBookingDetails && renderBookingDetails()}
+                    {!hasBookingDetails && loc && <div className={styles.itemLocation}>📍 {loc}</div>}
                     {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
                     {item.url && (() => {
                       const igEmbed = instagramEmbedUrl(item.url);
