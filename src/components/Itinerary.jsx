@@ -2029,6 +2029,8 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [shareStatus, setShareStatus] = useState('');
   const [expandedVideoIds, setExpandedVideoIds] = useState(() => new Set());
   const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily' | 'calendar' | 'destinations' | 'flights'
+  // Sub-view inside the Bookings page: flat list, grouped by day, or calendar.
+  const [bookingsSubView, setBookingsSubView] = useState('list'); // 'list' | 'daily' | 'calendar'
   // Highlights the user explicitly un-tagged in the current form session.
   // The auto-tag effect skips these so user overrides aren't re-applied.
   const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
@@ -3293,6 +3295,181 @@ export function Itinerary({ event, onSave, canEdit }) {
           .slice()
           .sort((a, b) => ((a.date || '') + 'T' + (a.time || '00:00'))
             .localeCompare((b.date || '') + 'T' + (b.time || '00:00')));
+
+        // Every YYYY-MM-DD a booking covers. Flights/transfers occupy their
+        // single start date; lodging spans check-in through check-out.
+        const datesCovered = (item) => {
+          const start = item.date;
+          if (!start) return [];
+          const end = (item.type === 'lodging' && item.endDate) ? item.endDate : (item.endDate || start);
+          const out = [];
+          const cur = new Date(start + 'T00:00:00');
+          const last = new Date(end + 'T00:00:00');
+          if (isNaN(cur) || isNaN(last) || last < cur) return [start];
+          // Cap the span so a malformed date can't loop forever.
+          for (let i = 0; i < 400 && cur <= last; i++) {
+            const y = cur.getFullYear();
+            const m = String(cur.getMonth() + 1).padStart(2, '0');
+            const d = String(cur.getDate()).padStart(2, '0');
+            out.push(`${y}-${m}-${d}`);
+            cur.setDate(cur.getDate() + 1);
+          }
+          return out;
+        };
+
+        const renderBookingCard = (item) => {
+          const isLodging = item.type === 'lodging';
+          const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
+          // Structured summary: only the rows that actually have a value.
+          // Lodging and travel/flight bookings surface different fields.
+          const summaryRows = (isLodging
+            ? [
+                ['Booking ID', item.bookingId],
+                ['Reservation #', item.reservationNumber],
+                ['Hotel', item.hotelName],
+                ['Check in', item.date ? fmtKeyLong(item.date) : ''],
+                ['Check out', item.endDate ? fmtKeyLong(item.endDate) : ''],
+                ['Guests', item.guests],
+                ['Room type', item.roomType],
+              ]
+            : [
+                ['Trip ID', item.tripId],
+                ['Reservation #', item.reservationNumber],
+                ['From', item.fromLocation],
+                ['To', item.toLocation],
+                ['Start date', item.date ? fmtKeyLong(item.date) : ''],
+                ['End date', item.endDate ? fmtKeyLong(item.endDate) : ''],
+                ['Start time', item.time ? fmtTime(item.time) : ''],
+                ['End time', item.arrivalTime ? fmtTime(item.arrivalTime) : ''],
+                ['Passengers', item.passengers],
+                ['Ticket #', item.ticketNumbers],
+                ['Seats', item.seatNumbers],
+              ]
+          ).filter(([, v]) => v && String(v).trim());
+          return (
+            <div key={item.id} className={styles.bookingCard}>
+              <div className={styles.bookingIcon}>{icon}</div>
+              <div className={styles.bookingBody}>
+                <div className={styles.bookingTitleRow}>
+                  <span className={styles.bookingTitle}>{item.title || '(untitled)'}</span>
+                  {item.source === 'ai' && (
+                    <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceAi}`} title="Extracted by Claude from a pasted email">✨ AI</span>
+                  )}
+                  {item.source === 'email' && (
+                    <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceAi}`} title="Captured from a pasted confirmation email">📧 From email</span>
+                  )}
+                  {item.source === 'manual' && (
+                    <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceManual}`} title="Added by hand">✍️ Added by you</span>
+                  )}
+                </div>
+                <div className={styles.bookingMeta}>
+                  {item.date && <span>{fmtKeyLong(item.date)}</span>}
+                  {item.time && (
+                    <span>🕑 {fmtTime(item.time)}{item.arrivalTime ? ` → ${fmtTime(item.arrivalTime)}` : ''}</span>
+                  )}
+                  {item.location && <span>📍 {item.location}</span>}
+                </div>
+                {(item.airline || item.flightNumber) && (
+                  <div className={styles.bookingDetail}>✈️ {[item.airline, item.flightNumber].filter(Boolean).join(' ')}</div>
+                )}
+                {summaryRows.length > 0 && (
+                  <dl className={styles.bookingSummary}>
+                    {summaryRows.map(([label, value]) => (
+                      <div key={label} className={styles.bookingSummaryRow}>
+                        <dt className={styles.bookingSummaryLabel}>{label}</dt>
+                        <dd className={styles.bookingSummaryValue}>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {item.cost && (
+                  <div className={styles.bookingDetail}>💵 {/^[\d.]/.test(String(item.cost).trim()) ? `$${item.cost}` : item.cost}</div>
+                )}
+                {item.notes && <div className={styles.bookingNotes}>{item.notes}</div>}
+                {item.url && (
+                  <a className={styles.bookingLink} href={item.url} target="_blank" rel="noopener noreferrer">Open booking ↗</a>
+                )}
+              </div>
+              {canEdit && (
+                <div className={styles.bookingActions}>
+                  <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit booking" aria-label="Edit booking">✏️</button>
+                  <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete booking" aria-label="Delete booking">×</button>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        // Daily view: bookings grouped under each date they start on, plus a
+        // trailing bucket for bookings with no date yet.
+        const dailyGroups = (() => {
+          const map = new Map();
+          const noDate = [];
+          for (const b of bookings) {
+            if (!b.date) { noDate.push(b); continue; }
+            if (!map.has(b.date)) map.set(b.date, []);
+            map.get(b.date).push(b);
+          }
+          const rows = Array.from(map.keys()).sort().map(date => ({ date, items: map.get(date) }));
+          return { rows, noDate };
+        })();
+
+        // Calendar view: one month block per month that any booking touches.
+        const calendarMonths = (() => {
+          const dayMap = new Map(); // 'YYYY-MM-DD' -> [{ item, isStart }]
+          for (const b of bookings) {
+            const days = datesCovered(b);
+            days.forEach((dk, idx) => {
+              if (!dayMap.has(dk)) dayMap.set(dk, []);
+              dayMap.get(dk).push({ item: b, isStart: idx === 0 });
+            });
+          }
+          const allKeys = Array.from(dayMap.keys()).sort();
+          if (allKeys.length === 0) return [];
+          const first = new Date(allKeys[0] + 'T00:00:00');
+          const last = new Date(allKeys[allKeys.length - 1] + 'T00:00:00');
+          const months = [];
+          const cur = new Date(first.getFullYear(), first.getMonth(), 1);
+          const stop = new Date(last.getFullYear(), last.getMonth(), 1);
+          while (cur <= stop) {
+            const year = cur.getFullYear();
+            const month = cur.getMonth();
+            // Monday-start grid covering the whole month.
+            const firstOfMonth = new Date(year, month, 1);
+            const fDow = firstOfMonth.getDay();
+            const gridStart = new Date(firstOfMonth);
+            gridStart.setDate(gridStart.getDate() - (fDow === 0 ? 6 : fDow - 1));
+            const weeks = [];
+            const cell = new Date(gridStart);
+            for (let w = 0; w < 6; w++) {
+              const week = [];
+              for (let i = 0; i < 7; i++) {
+                const y = cell.getFullYear();
+                const mm = String(cell.getMonth() + 1).padStart(2, '0');
+                const dd = String(cell.getDate()).padStart(2, '0');
+                const key = `${y}-${mm}-${dd}`;
+                week.push({
+                  key,
+                  dateNum: cell.getDate(),
+                  inMonth: cell.getMonth() === month,
+                  entries: dayMap.get(key) || [],
+                });
+                cell.setDate(cell.getDate() + 1);
+              }
+              weeks.push(week);
+              if (cell.getMonth() !== month && cell > new Date(year, month + 1, 0)) break;
+            }
+            months.push({
+              label: firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+              weeks,
+            });
+            cur.setMonth(cur.getMonth() + 1);
+          }
+          return months;
+        })();
+
+        const weekdayInitials = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
         return (
           <div className={styles.bookingsView}>
             {canEdit && (
@@ -3331,96 +3508,88 @@ export function Itinerary({ event, onSave, canEdit }) {
             <div className={styles.bookingsListHeader}>
               <span>Saved bookings</span>
               <span className={styles.bookingsCount}>{bookings.length}</span>
+              <div className={styles.bookingsSubToggle}>
+                {[
+                  { key: 'list', label: '☰ List' },
+                  { key: 'daily', label: '📅 Daily' },
+                  { key: 'calendar', label: '🗓️ Calendar' },
+                ].map(opt => (
+                  <button
+                    key={opt.key}
+                    className={bookingsSubView === opt.key ? styles.bookingsSubToggleBtnActive : styles.bookingsSubToggleBtn}
+                    onClick={() => setBookingsSubView(opt.key)}
+                  >{opt.label}</button>
+                ))}
+              </div>
             </div>
 
             {bookings.length === 0 ? (
               <div className={styles.bookingsEmpty}>
                 No bookings yet.{canEdit ? ' Paste a confirmation email above to add your flights and hotels.' : ''}
               </div>
-            ) : (
+            ) : bookingsSubView === 'list' ? (
               <div className={styles.bookingsList}>
-                {bookings.map(item => {
-                  const isLodging = item.type === 'lodging';
-                  const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
-                  // Structured summary: only the rows that actually have a value.
-                  // Lodging and travel/flight bookings surface different fields.
-                  const summaryRows = (isLodging
-                    ? [
-                        ['Booking ID', item.bookingId],
-                        ['Reservation #', item.reservationNumber],
-                        ['Hotel', item.hotelName],
-                        ['Check in', item.date ? fmtKeyLong(item.date) : ''],
-                        ['Check out', item.endDate ? fmtKeyLong(item.endDate) : ''],
-                        ['Guests', item.guests],
-                        ['Room type', item.roomType],
-                      ]
-                    : [
-                        ['Trip ID', item.tripId],
-                        ['Reservation #', item.reservationNumber],
-                        ['From', item.fromLocation],
-                        ['To', item.toLocation],
-                        ['Start date', item.date ? fmtKeyLong(item.date) : ''],
-                        ['End date', item.endDate ? fmtKeyLong(item.endDate) : ''],
-                        ['Start time', item.time ? fmtTime(item.time) : ''],
-                        ['End time', item.arrivalTime ? fmtTime(item.arrivalTime) : ''],
-                        ['Passengers', item.passengers],
-                        ['Ticket #', item.ticketNumbers],
-                        ['Seats', item.seatNumbers],
-                      ]
-                  ).filter(([, v]) => v && String(v).trim());
-                  return (
-                    <div key={item.id} className={styles.bookingCard}>
-                      <div className={styles.bookingIcon}>{icon}</div>
-                      <div className={styles.bookingBody}>
-                        <div className={styles.bookingTitleRow}>
-                          <span className={styles.bookingTitle}>{item.title || '(untitled)'}</span>
-                          {item.source === 'ai' && (
-                            <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceAi}`} title="Extracted by Claude from a pasted email">✨ AI</span>
-                          )}
-                          {item.source === 'email' && (
-                            <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceAi}`} title="Captured from a pasted confirmation email">📧 From email</span>
-                          )}
-                          {item.source === 'manual' && (
-                            <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceManual}`} title="Added by hand">✍️ Added by you</span>
-                          )}
-                        </div>
-                        <div className={styles.bookingMeta}>
-                          {item.date && <span>{fmtKeyLong(item.date)}</span>}
-                          {item.time && (
-                            <span>🕑 {fmtTime(item.time)}{item.arrivalTime ? ` → ${fmtTime(item.arrivalTime)}` : ''}</span>
-                          )}
-                          {item.location && <span>📍 {item.location}</span>}
-                        </div>
-                        {(item.airline || item.flightNumber) && (
-                          <div className={styles.bookingDetail}>✈️ {[item.airline, item.flightNumber].filter(Boolean).join(' ')}</div>
-                        )}
-                        {summaryRows.length > 0 && (
-                          <dl className={styles.bookingSummary}>
-                            {summaryRows.map(([label, value]) => (
-                              <div key={label} className={styles.bookingSummaryRow}>
-                                <dt className={styles.bookingSummaryLabel}>{label}</dt>
-                                <dd className={styles.bookingSummaryValue}>{value}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                        )}
-                        {item.cost && (
-                          <div className={styles.bookingDetail}>💵 {/^[\d.]/.test(String(item.cost).trim()) ? `$${item.cost}` : item.cost}</div>
-                        )}
-                        {item.notes && <div className={styles.bookingNotes}>{item.notes}</div>}
-                        {item.url && (
-                          <a className={styles.bookingLink} href={item.url} target="_blank" rel="noopener noreferrer">Open booking ↗</a>
-                        )}
-                      </div>
-                      {canEdit && (
-                        <div className={styles.bookingActions}>
-                          <button className={styles.iconBtn} onClick={() => startEdit(item)} title="Edit booking" aria-label="Edit booking">✏️</button>
-                          <button className={styles.iconBtn} onClick={() => deleteItem(item.id)} title="Delete booking" aria-label="Delete booking">×</button>
-                        </div>
-                      )}
+                {bookings.map(renderBookingCard)}
+              </div>
+            ) : bookingsSubView === 'daily' ? (
+              <div className={styles.bookingsDaily}>
+                {dailyGroups.rows.map(row => (
+                  <div key={row.date} className={styles.bookingsDayGroup}>
+                    <div className={styles.bookingsDayHeading}>{fmtKeyLong(row.date)}</div>
+                    <div className={styles.bookingsList}>
+                      {row.items.map(renderBookingCard)}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
+                {dailyGroups.noDate.length > 0 && (
+                  <div className={styles.bookingsDayGroup}>
+                    <div className={styles.bookingsDayHeading}>No date yet</div>
+                    <div className={styles.bookingsList}>
+                      {dailyGroups.noDate.map(renderBookingCard)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className={styles.bookingsCalendar}>
+                {calendarMonths.length === 0 ? (
+                  <div className={styles.bookingsEmpty}>No dated bookings to show on a calendar yet.</div>
+                ) : calendarMonths.map(month => (
+                  <div key={month.label} className={styles.bookingsCalMonth}>
+                    <div className={styles.bookingsCalMonthLabel}>{month.label}</div>
+                    <div className={styles.bookingsCalGrid}>
+                      {weekdayInitials.map(d => (
+                        <div key={d} className={styles.bookingsCalWeekday}>{d}</div>
+                      ))}
+                      {month.weeks.flat().map(cell => (
+                        <div
+                          key={cell.key}
+                          className={cell.inMonth ? styles.bookingsCalCell : `${styles.bookingsCalCell} ${styles.bookingsCalCellOut}`}
+                        >
+                          <div className={styles.bookingsCalDateNum}>{cell.dateNum}</div>
+                          {cell.entries.map(({ item, isStart }, i) => {
+                            const isLodging = item.type === 'lodging';
+                            const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
+                            return (
+                              <div
+                                key={item.id + '-' + i}
+                                className={`${styles.bookingsCalChip} ${isLodging ? styles.bookingsCalChipLodging : styles.bookingsCalChipTravel}`}
+                                title={`${item.title || ''}${item.time ? ' · ' + fmtTime(item.time) : ''}`}
+                                onClick={canEdit ? () => startEdit(item) : undefined}
+                                style={canEdit ? { cursor: 'pointer' } : undefined}
+                              >
+                                <span className={styles.bookingsCalChipIcon}>{icon}</span>
+                                <span className={styles.bookingsCalChipText}>
+                                  {isStart ? (item.title || '(untitled)') : `${item.title || ''} (cont.)`}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
