@@ -2508,6 +2508,22 @@ export function Itinerary({ event, onSave, canEdit }) {
   // Key: `${dateKey}::${subId}`; Draft holds text and url inputs.
   const [editingBulletKey, setEditingBulletKey] = useState(null);
   const [editingBulletDraft, setEditingBulletDraft] = useState({ text: '', url: '' });
+  // Wraps the inline bullet editor so a click outside it reverts (closes
+  // without saving). Also distinguishes a single click (toggle skip) from a
+  // double click (open editor) on a bullet.
+  const editingBulletRef = useRef(null);
+  const bulletClickTimerRef = useRef(null);
+  useEffect(() => {
+    if (!editingBulletKey) return;
+    function onDocDown(e) {
+      if (editingBulletRef.current && !editingBulletRef.current.contains(e.target)) {
+        setEditingBulletKey(null);
+        setEditingBulletDraft({ text: '', url: '' });
+      }
+    }
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [editingBulletKey]);
   const [bulletPickerOpenKey, setBulletPickerOpenKey] = useState(null);
   const bulletPickerRef = useRef(null);
   useEffect(() => {
@@ -4214,7 +4230,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                             };
                             if (isEditingBullet && canEdit) {
                               return (
-                                <li key={s.id} className={styles.subHighlightItem}>
+                                <li key={s.id} className={styles.subHighlightItem} ref={editingBulletRef}>
                                   <span className={styles.subHighlightDot}>•</span>
                                   <input
                                     type="text"
@@ -4243,6 +4259,11 @@ export function Itinerary({ event, onSave, canEdit }) {
                               <li
                                 key={s.id}
                                 className={`${styles.subHighlightItem} ${s.skipped ? styles.subHighlightItemSkipped : ''}`}
+                                onDoubleClick={canEdit ? () => {
+                                  if (bulletClickTimerRef.current) { clearTimeout(bulletClickTimerRef.current); bulletClickTimerRef.current = null; }
+                                  setEditingBulletKey(editKey);
+                                  setEditingBulletDraft({ text: s.text || '', url: urls[0] || '' });
+                                } : undefined}
                                 onDragStart={(e) => {
                                   if (!canEdit) return;
                                   setDragBullet({ subId: s.id, fromDateKey: d.key, highlightId: d.destHighlight.id });
@@ -4265,9 +4286,20 @@ export function Itinerary({ event, onSave, canEdit }) {
                                 >{canEdit ? '⋮⋮' : '•'}</span>
                                 <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flexWrap: 'wrap' }}>
                                   <span
-                                    onClick={canEdit ? () => toggleBulletSkipped(d.destHighlight.id, s.id) : undefined}
+                                    onClick={canEdit ? () => {
+                                      // Wait briefly so a double-click (edit) doesn't also toggle skip.
+                                      if (bulletClickTimerRef.current) {
+                                        clearTimeout(bulletClickTimerRef.current);
+                                        bulletClickTimerRef.current = null;
+                                        return;
+                                      }
+                                      bulletClickTimerRef.current = setTimeout(() => {
+                                        bulletClickTimerRef.current = null;
+                                        toggleBulletSkipped(d.destHighlight.id, s.id);
+                                      }, 220);
+                                    } : undefined}
                                     style={canEdit ? { cursor: 'pointer' } : undefined}
-                                    title={canEdit ? (s.skipped ? 'Click to un-cross-out' : 'Click to cross out') : undefined}
+                                    title={canEdit ? (s.skipped ? 'Double-click to edit · click to un-cross-out' : 'Double-click to edit · click to cross out') : undefined}
                                   >{s.text}</span>
                                   {urls.map((u, i) => {
                                     const ig = isInstagramUrl(u);
