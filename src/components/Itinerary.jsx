@@ -4070,15 +4070,14 @@ export function Itinerary({ event, onSave, canEdit }) {
                       onClick={() => setDaySchedulePeekKey(d.key)}
                       title="Open this day's full schedule"
                     >📋 Details</button>
-                    {isDayBooked && <span className={styles.dayBookedBadge}>✅ Booked</span>}
-                    {canEdit && (
+                    {canEdit ? (
                       <button
                         type="button"
                         className={isDayBooked ? styles.dayBookedBtnActive : styles.dayBookedBtn}
                         onClick={() => setDayBooked(d.key, !isDayBooked)}
-                        title={isDayBooked ? 'Unlock this day' : 'Lock in & confirm this day is booked'}
-                      >{isDayBooked ? '🔓 Unlock' : '🔒 Confirm booked'}</button>
-                    )}
+                        title={isDayBooked ? 'Booked — click to unlock' : 'Lock in & confirm this day is booked'}
+                      >{isDayBooked ? '✅ Booked' : '🔒 Confirm booked'}</button>
+                    ) : (isDayBooked && <span className={styles.dayBookedBadge}>✅ Booked</span>)}
                     {(() => {
                       const dailyNames = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
                       const savedName = dailyNames[d.key] || '';
@@ -4896,21 +4895,20 @@ export function Itinerary({ event, onSave, canEdit }) {
             const isDayBooked = dateKey !== 'Unscheduled'
               && Array.isArray(event?.bookedDayKeys)
               && event.bookedDayKeys.includes(dateKey);
-            // Header control: a "Booked" badge plus a toggle (editors only).
+            // Header control: a single button that toggles the booked state.
+            // Read-only viewers see a static "Booked" badge when locked.
             const bookedControl = dateKey === 'Unscheduled' ? null : (
-              <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-                {isDayBooked && (
-                  <span className={styles.dayBookedBadge}>✅ Booked</span>
-                )}
-                {canEdit && (
-                  <button
-                    type="button"
-                    className={isDayBooked ? styles.dayBookedBtnActive : styles.dayBookedBtn}
-                    onClick={() => setDayBooked(dateKey, !isDayBooked)}
-                    title={isDayBooked ? 'Unlock this day' : 'Lock in & confirm this day is booked'}
-                  >{isDayBooked ? '🔓 Unlock' : '🔒 Confirm booked'}</button>
-                )}
-              </span>
+              canEdit ? (
+                <button
+                  type="button"
+                  className={isDayBooked ? styles.dayBookedBtnActive : styles.dayBookedBtn}
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => setDayBooked(dateKey, !isDayBooked)}
+                  title={isDayBooked ? 'Booked — click to unlock' : 'Lock in & confirm this day is booked'}
+                >{isDayBooked ? '✅ Booked' : '🔒 Confirm booked'}</button>
+              ) : (isDayBooked ? (
+                <span style={{ marginLeft: 'auto' }} className={styles.dayBookedBadge}>✅ Booked</span>
+              ) : null)
             );
 
             // Activities and lodging columns
