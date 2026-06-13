@@ -3671,9 +3671,9 @@ export function Itinerary({ event, onSave, canEdit }) {
                                   title={`${item.title || ''}${item.date ? ' · ' + fmtKeyLong(item.date) : ''}${item.endDate ? ' → ' + fmtKeyLong(item.endDate) : ''}`}
                                   onClick={canEdit ? () => startEdit(item) : undefined}
                                 >
-                                  {!bar.contLeft && <span className={styles.bookingsCalChipIcon}>{icon}</span>}
+                                  <span className={styles.bookingsCalChipIcon}>{bar.contLeft ? '…' : icon}</span>
                                   <span className={styles.bookingsCalChipText}>
-                                    {bar.contLeft ? `… ${item.title || ''}` : (item.title || '(untitled)')}
+                                    {item.title || '(untitled)'}
                                   </span>
                                 </div>
                               );
