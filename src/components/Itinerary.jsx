@@ -3277,6 +3277,12 @@ export function Itinerary({ event, onSave, canEdit }) {
             <span className={styles.overviewMapCount}>
               {allTransitions.length} {allTransitions.length === 1 ? 'route' : 'routes'}
             </span>
+            <button
+              type="button"
+              className={styles.overviewMapHideBtn}
+              onClick={() => setViewSettings(prev => ({ ...prev, showRouteMap: false }))}
+              title="Hide the trip route overview (re-enable it under ⚙️ View settings)"
+            >Hide ✕</button>
           </div>
           <TripOverviewMap mapsKey={mapsKey} transitions={allTransitions} flights={allFlights} tripStartRaw={tripStartRaw} />
         </div>
