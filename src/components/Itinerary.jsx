@@ -2209,7 +2209,8 @@ export function Itinerary({ event, onSave, canEdit }) {
         arrivalTime: it.arrivalTime || '',
         airline: it.airline || '',
         flightNumber: it.flightNumber || '',
-        cost: it.cost || '',
+        // Imported bookings intentionally omit cost.
+        cost: '',
         tripId: it.tripId || '',
         reservationNumber: it.reservationNumber || '',
         fromLocation: it.fromLocation || '',
