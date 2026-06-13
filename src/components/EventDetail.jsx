@@ -819,7 +819,6 @@ export function EventDetail() {
 
   return (
     <div className={`${styles.page} ${activeTab === 'itinerary' ? styles.pageWide : ''}`}>
-      <button className={styles.backBtn} onClick={() => navigate('/')}>← Back</button>
 
       {/* Event progress bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: '1rem', borderRadius: 'var(--radius-full)', overflow: 'hidden', border: '1px solid var(--color-border)' }}>
