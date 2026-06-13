@@ -4294,23 +4294,47 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                                   style={canEdit ? { cursor: 'grab', userSelect: 'none' } : undefined}
                                 >{canEdit ? '⋮⋮' : '•'}</span>
                                 <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flexWrap: 'wrap' }}>
-                                  <span
-                                    onClick={canEdit ? () => {
-                                      // Wait briefly so a double-click (edit) doesn't also toggle skip.
-                                      if (bulletClickTimerRef.current) {
-                                        clearTimeout(bulletClickTimerRef.current);
-                                        bulletClickTimerRef.current = null;
-                                        return;
-                                      }
-                                      bulletClickTimerRef.current = setTimeout(() => {
-                                        bulletClickTimerRef.current = null;
-                                        toggleBulletSkipped(d.destHighlight.id, s.id);
-                                      }, 220);
-                                    } : undefined}
-                                    style={canEdit ? { cursor: 'pointer' } : undefined}
-                                    title={canEdit ? (s.skipped ? 'Double-click to edit · click to un-cross-out' : 'Double-click to edit · click to cross out') : undefined}
-                                  >{s.text}</span>
-                                  {urls.map((u, i) => {
+                                  {urls[0] ? (
+                                    // When the bullet has a link (e.g. a TikTok or
+                                    // Instagram video), the activity text itself
+                                    // hyperlinks to it.
+                                    (() => {
+                                      const u = urls[0];
+                                      const ig = isInstagramUrl(u);
+                                      const tt = isTikTokUrl(u);
+                                      return (
+                                        <a
+                                          href={u}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className={styles.subHighlightTextLink}
+                                          title={tt ? 'Open TikTok' : ig ? 'Open Instagram' : u}
+                                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', minWidth: 0 }}
+                                        >
+                                          <span>{s.text}</span>
+                                          {ig ? <InstagramGlyph /> : tt ? <TikTokGlyph /> : '🔗'}
+                                        </a>
+                                      );
+                                    })()
+                                  ) : (
+                                    <span
+                                      onClick={canEdit ? () => {
+                                        // Wait briefly so a double-click (edit) doesn't also toggle skip.
+                                        if (bulletClickTimerRef.current) {
+                                          clearTimeout(bulletClickTimerRef.current);
+                                          bulletClickTimerRef.current = null;
+                                          return;
+                                        }
+                                        bulletClickTimerRef.current = setTimeout(() => {
+                                          bulletClickTimerRef.current = null;
+                                          toggleBulletSkipped(d.destHighlight.id, s.id);
+                                        }, 220);
+                                      } : undefined}
+                                      style={canEdit ? { cursor: 'pointer' } : undefined}
+                                      title={canEdit ? (s.skipped ? 'Double-click to edit · click to un-cross-out' : 'Double-click to edit · click to cross out') : undefined}
+                                    >{s.text}</span>
+                                  )}
+                                  {urls.slice(1).map((u, i) => {
                                     const ig = isInstagramUrl(u);
                                     const tt = isTikTokUrl(u);
                                     const label = tt ? 'Open TikTok' : ig ? 'Open Instagram' : 'Open link';
