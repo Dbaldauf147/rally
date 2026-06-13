@@ -3417,7 +3417,9 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 {item.cost && (
                   <div className={styles.bookingDetail}>💵 {/^[\d.]/.test(String(item.cost).trim()) ? `$${item.cost}` : item.cost}</div>
                 )}
-                {item.notes && <div className={styles.bookingNotes}>{item.notes}</div>}
+                {item.notes && !(summaryRows.length > 0 && (item.source === 'email' || item.source === 'ai')) && (
+                  <div className={styles.bookingNotes}>{item.notes}</div>
+                )}
                 {item.url && (
                   <a className={styles.bookingLink} href={item.url} target="_blank" rel="noopener noreferrer">Open booking ↗</a>
                 )}
@@ -5144,7 +5146,9 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                     )}
                     {hasBookingDetails && renderBookingDetails()}
                     {!hasBookingDetails && loc && <div className={styles.itemLocation}>📍 {loc}</div>}
-                    {item.notes && <div className={styles.itemNotes}>{item.notes}</div>}
+                    {item.notes && !(hasBookingDetails && (item.source === 'email' || item.source === 'ai')) && (
+                      <div className={styles.itemNotes}>{item.notes}</div>
+                    )}
                     {item.url && (() => {
                       const igEmbed = instagramEmbedUrl(item.url);
                       if (!igEmbed) {
