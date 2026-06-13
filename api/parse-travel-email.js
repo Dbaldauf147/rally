@@ -13,7 +13,8 @@ const itemSchema = z.object({
   time: z.string().describe('HH:MM 24-hour format. Departure time for flights, check-in time for lodging. Empty string if none.'),
   location: z.string().describe('For travel items use "Origin → Destination" (e.g., "JFK Airport → Barcelona Airport"). For lodging use the place name and city. Empty string if none.'),
   notes: z.string().describe('Confirmation number, seat, terminal, room type, or other useful details. Empty string if none.'),
-  type: z.enum(['activity', 'travel', 'lodging']).describe('"travel" for flights, trains, drives, transfers, car rentals; "lodging" for hotels, Airbnb, resorts; "activity" for tours, dining, reservations.'),
+  type: z.enum(['activity', 'travel', 'lodging']).describe('"travel" for flights, trains, buses, ferries, drives, transfers, car rentals; "lodging" for hotels, Airbnb, resorts; "activity" for ticketed events, concerts, shows, tours, attractions, and dining reservations.'),
+  travelMode: z.enum(['flight', 'train', 'bus', 'ferry', 'car', 'transfer', 'other', '']).describe('For type "travel", the mode: "flight", "train", "bus", "ferry", "car" (rental/drive), or "transfer". Empty string for non-travel items.'),
   isFlight: z.boolean().describe('true if this is an airline flight, false otherwise.'),
   arrivalTime: z.string().describe('HH:MM 24-hour arrival time for flights. Empty string if not a flight or unknown.'),
   airline: z.string().describe('Airline name for flights (e.g., "Delta", "United"). Empty string otherwise.'),
@@ -31,30 +32,35 @@ const itemSchema = z.object({
   hotelName: z.string().describe('For lodging: the property name (e.g. "Hotel Arts Barcelona"). Empty string if not lodging.'),
   guests: z.string().describe('For lodging: number of guests, or guest names if that is all that is stated (e.g. "2" or "2 adults"). Empty string if none.'),
   roomType: z.string().describe('For lodging: the room type/description (e.g. "King Room", "Deluxe Double"). Empty string if none.'),
+  eventName: z.string().describe('For type "activity" event bookings: the event/show/tour/restaurant name (e.g. "FC Barcelona vs Real Madrid", "Sagrada Familia Tour"). Empty string otherwise.'),
+  venue: z.string().describe('For event bookings: the venue / location name (e.g. "Camp Nou", "Teatro Real"). Empty string if none.'),
+  ticketCount: z.string().describe('For event bookings: number of tickets/admissions (e.g. "2", "4 adults"). Empty string if none.'),
   url: z.string().describe('Booking/management URL if present in the email, else empty string.'),
   imageQuery: z.string().describe('2-4 word image search query for lodging/activities (e.g., "hotel arts barcelona"). Empty string for flights/transfers.'),
 });
 
 const responseSchema = z.object({
-  items: z.array(itemSchema).describe('Every travel and lodging item found in the email. Empty array if none found.'),
-  message: z.string().describe('Short human-readable summary of what was extracted, e.g., "Found 1 flight and 1 hotel."'),
+  items: z.array(itemSchema).describe('Every travel, lodging, and event/ticket booking found in the email. Empty array if none found.'),
+  message: z.string().describe('Short human-readable summary of what was extracted, e.g., "Found 1 train and 1 event ticket."'),
 });
 
-const SYSTEM_PROMPT = `You extract travel and lodging details from a pasted email (typically a confirmation from an airline, hotel, train, or car-rental company) and turn them into structured itinerary items.
+const SYSTEM_PROMPT = `You extract bookings from a pasted email (typically a confirmation from an airline, train/bus line, hotel, car-rental, or an event/ticket/tour provider) and turn them into structured itinerary items.
 
 Rules:
-- Read the raw email text and pull out every flight, train, transfer, car rental, and lodging booking it describes.
-- Each leg of a trip is its own item. A round-trip flight is TWO items (outbound and return). A multi-leg/connecting flight is one item per leg unless the email clearly bundles them.
-- Use type "travel" for flights, trains, drives, transfers, car rentals. Use type "lodging" for hotels, Airbnb, resorts. Use type "activity" only for dining/tour/event reservations.
-- For flights: set isFlight=true, fill airline, flightNumber, time (departure, local), arrivalTime (local), and format location as "Origin → Destination" using airport names or codes (e.g., "JFK → BCN" or "New York JFK → Barcelona BCN"). Also fill fromLocation (origin) and toLocation (destination) separately.
-- Capture booking identifiers when present: tripId (trip/itinerary ID), reservationNumber (confirmation/PNR code), passengers (all traveller names), ticketNumbers, and seatNumbers. Leave any of these empty if the email does not state them. Never invent them.
-- Set endDate when a leg ends on a different calendar day than it starts (e.g. an overnight/red-eye flight) or when the email explicitly states an arrival/check-out date; otherwise leave it empty.
-- For lodging: set type "lodging"; date = check-in date, endDate = check-out date, time = check-in time if stated, location = hotel name + city. Also fill hotelName (property name), bookingId (booking/itinerary number), reservationNumber (confirmation code if separate from bookingId), guests (number of guests), and roomType. Leave any of these empty if the email does not state them.
-- Always resolve dates to absolute YYYY-MM-DD. If the email only gives a weekday or "tomorrow", use the email's own date context to resolve it; if you cannot determine the year, assume the next occurrence relative to the trip context provided.
-- Put confirmation/booking numbers in notes.
+- Read the raw email text and pull out every flight, train, bus, ferry, transfer, car rental, lodging, and ticketed event/tour booking it describes.
+- Each leg of a trip is its own item. A round-trip is TWO items (outbound and return). A multi-leg/connecting journey is one item per leg unless the email clearly bundles them.
+- Use type "travel" for flights, trains, buses, ferries, drives, transfers, car rentals. Use type "lodging" for hotels, Airbnb, resorts. Use type "activity" for ticketed events, concerts, sports, shows, tours, attraction tickets, and dining reservations.
+- For every "travel" item, set travelMode to one of: "flight", "train", "bus", "ferry", "car", or "transfer". Set isFlight=true only for airline flights (travelMode "flight").
+- For travel (flights, trains, buses, ferries): fill time (departure, local), arrivalTime (local), fromLocation (origin station/airport/city) and toLocation (destination), and format location as "Origin → Destination". For flights also fill airline and flightNumber.
+- Capture booking identifiers when present: tripId (trip/itinerary ID), reservationNumber (confirmation/PNR/booking code), passengers (all traveller names), ticketNumbers, and seatNumbers. Leave any empty if not stated. Never invent them.
+- Set endDate when a leg ends on a different calendar day than it starts (e.g. an overnight/red-eye trip) or when the email explicitly states an arrival/check-out date; otherwise leave it empty.
+- For lodging: date = check-in date, endDate = check-out date, time = check-in time if stated, location = hotel name + city. Also fill hotelName, bookingId, reservationNumber (confirmation if separate from bookingId), guests, and roomType.
+- For event/activity bookings (concerts, sports, shows, tours, attractions, dining): set type "activity". Fill eventName (the event/show/tour name), venue (place/venue name), date and time, reservationNumber (confirmation/booking code), ticketCount (number of tickets/admissions), and seatNumbers/section if stated. Use the venue/city for location.
+- Always resolve dates to absolute YYYY-MM-DD. If the email only gives a weekday or "tomorrow", use the email's own date context; if you cannot determine the year, assume the next occurrence relative to the trip context provided.
+- Put any extra useful details (address, phone, cancellation policy) in notes, but do NOT just repeat the structured fields there.
 - Only include the cost if a price is explicitly stated in the email. Never invent prices.
-- If the email contains no travel or lodging information, return an empty items array and say so in the message.
-- Never fabricate flight numbers, times, or confirmation numbers. Leave a field as an empty string if the email does not contain it.
+- If the email contains no booking information, return an empty items array and say so in the message.
+- Never fabricate numbers, times, or confirmation codes. Leave a field empty if the email does not contain it.
 - The returned items will be ADDED to the user's existing itinerary, so do not return their existing items.`;
 
 export default async function handler(req, res) {

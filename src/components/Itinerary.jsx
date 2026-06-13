@@ -10,6 +10,16 @@ const TRAVEL_MODES = [
   { key: 'flying', icon: '✈️', label: 'Fly' },
 ];
 
+// Icon for an imported travel booking's mode (flight/train/bus/ferry/car).
+const TRAVEL_MODE_ICON = {
+  flight: '✈️',
+  train: '🚆',
+  bus: '🚌',
+  ferry: '⛴️',
+  car: '🚗',
+  transfer: '🚐',
+};
+
 function ModeSelector({ value, onChange }) {
   return (
     <div className={styles.modeSelector} onClick={e => e.stopPropagation()}>
@@ -2223,13 +2233,17 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
         hotelName: it.hotelName || '',
         guests: it.guests || '',
         roomType: it.roomType || '',
+        travelMode: it.travelMode || '',
+        eventName: it.eventName || '',
+        venue: it.venue || '',
+        ticketCount: it.ticketCount || '',
         // 'email' = saved from a pasted confirmation email. Kept distinct from
         // 'ai' (trip-planner suggestions) so these show in the Bookings tab.
         source: 'email',
       }));
 
       if (newItems.length === 0) {
-        setEmailMsg(data.message || 'No travel or lodging found in that email.');
+        setEmailMsg(data.message || 'No booking details found in that email.');
         return;
       }
 
@@ -2250,7 +2264,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
   }
 
   function startAdd() {
-    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '', tripId: '', reservationNumber: '', fromLocation: '', toLocation: '', endDate: '', passengers: '', ticketNumbers: '', seatNumbers: '', bookingId: '', hotelName: '', guests: '', roomType: '' });
+    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '', tripId: '', reservationNumber: '', fromLocation: '', toLocation: '', endDate: '', passengers: '', ticketNumbers: '', seatNumbers: '', bookingId: '', hotelName: '', guests: '', roomType: '', travelMode: '', eventName: '', venue: '', ticketCount: '' });
     setAdding(true);
     setEditingId(null);
     setOptedOutHighlightIds(new Set());
@@ -2329,6 +2343,10 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
       hotelName: item.hotelName || '',
       guests: item.guests || '',
       roomType: item.roomType || '',
+      travelMode: item.travelMode || '',
+      eventName: item.eventName || '',
+      venue: item.venue || '',
+      ticketCount: item.ticketCount || '',
     });
     setEditingId(item.id);
     setAdding(false);
@@ -3323,7 +3341,16 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
           ? new Date('2000-01-01T' + t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
           : '';
         const bookings = items
-          .filter(i => (i.type === 'travel' || i.type === 'lodging') && (i.source === 'manual' || i.source === 'email'))
+          .filter(i => {
+            const sourced = i.source === 'manual' || i.source === 'email';
+            if (i.type === 'travel' || i.type === 'lodging') return sourced;
+            // Event bookings are stored as activities; show ones imported from
+            // an email or that carry event-booking fields.
+            if (i.type === 'activity') {
+              return i.source === 'email' || !!(i.eventName || i.venue || i.ticketCount);
+            }
+            return false;
+          })
           .slice()
           .sort((a, b) => ((a.date || '') + 'T' + (a.time || '00:00'))
             .localeCompare((b.date || '') + 'T' + (b.time || '00:00')));
@@ -3351,9 +3378,12 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
 
         const renderBookingCard = (item) => {
           const isLodging = item.type === 'lodging';
-          const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
+          const isEvent = item.type === 'activity';
+          const icon = isLodging ? '🏨'
+            : isEvent ? '🎫'
+            : (item.isFlight ? '✈️' : (TRAVEL_MODE_ICON[item.travelMode] || '🚆'));
           // Structured summary: only the rows that actually have a value.
-          // Lodging and travel/flight bookings surface different fields.
+          // Lodging, event, and travel bookings surface different fields.
           const summaryRows = (isLodging
             ? [
                 ['Booking ID', item.bookingId],
@@ -3363,6 +3393,16 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 ['Check out', item.endDate ? fmtKeyLong(item.endDate) : ''],
                 ['Guests', item.guests],
                 ['Room type', item.roomType],
+              ]
+            : isEvent
+            ? [
+                ['Confirmation #', item.reservationNumber],
+                ['Event', item.eventName],
+                ['Venue', item.venue],
+                ['Date', item.date ? fmtKeyLong(item.date) : ''],
+                ['Time', item.time ? fmtTime(item.time) : ''],
+                ['Tickets', item.ticketCount],
+                ['Seats', item.seatNumbers],
               ]
             : [
                 ['Trip ID', item.tripId],
@@ -3563,8 +3603,9 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
               <div className={styles.bookingsPaste}>
                 <div className={styles.bookingsPasteTitle}>📧 Paste a confirmation email</div>
                 <p className={styles.bookingsPasteHint}>
-                  Copy the full text of a flight, hotel, train, or car-rental email from Gmail
-                  and paste it below. Claude reads it and saves the travel details as bookings.
+                  Copy the full text of a flight, train, bus, hotel, car-rental, or
+                  event/ticket confirmation email from Gmail and paste it below. Claude
+                  reads it and saves the booking details.
                 </p>
                 <textarea
                   className={styles.bookingsTextarea}
@@ -3844,8 +3885,9 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
               ✈️ This is a flight (add flight details)
             </label>
           )}
-          {form.type === 'travel' && form.isFlight && (
+          {form.type === 'travel' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.65rem 0.75rem', background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>🎟️ Travel booking details</div>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
                 Arrival time
                 <input
@@ -3855,41 +3897,35 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                   onChange={e => setForm({ ...form, arrivalTime: e.target.value })}
                 />
               </label>
+              {form.isFlight && (
+                <div className={styles.row}>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    placeholder="Airline (e.g., Delta)"
+                    value={form.airline}
+                    onChange={e => setForm({ ...form, airline: e.target.value })}
+                  />
+                  <input
+                    className={styles.input}
+                    type="text"
+                    placeholder="Flight # (e.g., DL123)"
+                    value={form.flightNumber}
+                    onChange={e => setForm({ ...form, flightNumber: e.target.value })}
+                  />
+                </div>
+              )}
               <div className={styles.row}>
-                <input
-                  className={styles.input}
-                  type="text"
-                  placeholder="Airline (e.g., Delta)"
-                  value={form.airline}
-                  onChange={e => setForm({ ...form, airline: e.target.value })}
-                />
-                <input
-                  className={styles.input}
-                  type="text"
-                  placeholder="Flight # (e.g., DL123)"
-                  value={form.flightNumber}
-                  onChange={e => setForm({ ...form, flightNumber: e.target.value })}
-                />
-              </div>
-              <input
-                className={styles.input}
-                type="text"
-                placeholder="Cost (e.g., $450)"
-                value={form.cost}
-                onChange={e => setForm({ ...form, cost: e.target.value })}
-                inputMode="decimal"
-              />
-              <div className={styles.row}>
-                <input className={styles.input} type="text" placeholder="From (e.g., JFK)" value={form.fromLocation} onChange={e => setForm({ ...form, fromLocation: e.target.value })} />
-                <input className={styles.input} type="text" placeholder="To (e.g., BCN)" value={form.toLocation} onChange={e => setForm({ ...form, toLocation: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="From (e.g., JFK / Atocha)" value={form.fromLocation} onChange={e => setForm({ ...form, fromLocation: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="To (e.g., BCN / Sants)" value={form.toLocation} onChange={e => setForm({ ...form, toLocation: e.target.value })} />
               </div>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
-                Arrival date (if it lands the next day)
+                Arrival date (if it ends a later day)
                 <input className={styles.input} type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
               </label>
               <div className={styles.row}>
                 <input className={styles.input} type="text" placeholder="Trip ID" value={form.tripId} onChange={e => setForm({ ...form, tripId: e.target.value })} />
-                <input className={styles.input} type="text" placeholder="Reservation #" value={form.reservationNumber} onChange={e => setForm({ ...form, reservationNumber: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="Reservation / booking #" value={form.reservationNumber} onChange={e => setForm({ ...form, reservationNumber: e.target.value })} />
               </div>
               <input className={styles.input} type="text" placeholder="Passengers (comma-separated)" value={form.passengers} onChange={e => setForm({ ...form, passengers: e.target.value })} />
               <div className={styles.row}>
@@ -3915,6 +3951,20 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 <input className={styles.input} type="text" placeholder="Room type" value={form.roomType} onChange={e => setForm({ ...form, roomType: e.target.value })} />
               </div>
             </div>
+          )}
+          {form.type === 'activity' && (
+            <details style={{ background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.6rem' }}>
+              <summary style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)', cursor: 'pointer' }}>🎫 Event booking details (optional)</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <input className={styles.input} type="text" placeholder="Event name (e.g., FC Barcelona vs Real Madrid)" value={form.eventName} onChange={e => setForm({ ...form, eventName: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="Venue (e.g., Camp Nou)" value={form.venue} onChange={e => setForm({ ...form, venue: e.target.value })} />
+                <input className={styles.input} type="text" placeholder="Confirmation / reservation #" value={form.reservationNumber} onChange={e => setForm({ ...form, reservationNumber: e.target.value })} />
+                <div className={styles.row}>
+                  <input className={styles.input} type="text" placeholder="Number of tickets" value={form.ticketCount} onChange={e => setForm({ ...form, ticketCount: e.target.value })} />
+                  <input className={styles.input} type="text" placeholder="Seats / section" value={form.seatNumbers} onChange={e => setForm({ ...form, seatNumbers: e.target.value })} />
+                </div>
+              </div>
+            </details>
           )}
           <input
             className={styles.input}
@@ -5064,10 +5114,11 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 : null;
               const modeIconFor = (m) => (TRAVEL_MODES.find(x => x.key === m) || TRAVEL_MODES[0]).icon;
 
-              // Structured booking details for flights (travel) and hotels
-              // (lodging) — only when the item actually carries those fields.
-              const bookingFields = ['tripId', 'reservationNumber', 'fromLocation', 'toLocation', 'endDate', 'passengers', 'ticketNumbers', 'seatNumbers', 'bookingId', 'hotelName', 'guests', 'roomType'];
-              const hasBookingDetails = (item.type === 'travel' || item.type === 'lodging')
+              // Structured booking details for travel (flights, trains, buses…),
+              // hotels (lodging), and event/ticket bookings (activity) — only
+              // when the item actually carries those fields.
+              const bookingFields = ['tripId', 'reservationNumber', 'fromLocation', 'toLocation', 'endDate', 'passengers', 'ticketNumbers', 'seatNumbers', 'bookingId', 'hotelName', 'guests', 'roomType', 'eventName', 'venue', 'ticketCount'];
+              const hasBookingDetails = (item.type === 'travel' || item.type === 'lodging' || item.type === 'activity')
                 && bookingFields.some(f => item[f] && String(item[f]).trim());
               const renderBookingDetails = () => {
                 const fmtD = (d) => d ? new Date(d + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
@@ -5091,6 +5142,15 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                       cell('Check Out', dateTime(item.endDate, '')),
                       cell('Number of Guests', item.guests, true),
                       cell('Room Type', item.roomType, true),
+                    ]
+                  : item.type === 'activity'
+                  ? [
+                      cell('Confirmation Number', item.reservationNumber, true),
+                      cell('Event', item.eventName, true),
+                      cell('Venue', item.venue, true),
+                      cell('Date, Time', dateTime(item.date, item.time)),
+                      cell('Number of Tickets', item.ticketCount),
+                      cell('Seats', item.seatNumbers, true),
                     ]
                   : [
                       cell('Trip ID', item.tripId, true),
