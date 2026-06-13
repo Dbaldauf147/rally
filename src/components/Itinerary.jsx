@@ -2440,6 +2440,17 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
     const next = cur.includes(subId) ? cur.filter(x => x !== subId) : [...cur, subId];
     return setDayBullets(dateKey, next);
   }
+  // Reorder a bullet within a single day, dropping it just before targetSubId.
+  function reorderDayBullet(dateKey, draggedSubId, targetSubId) {
+    if (draggedSubId === targetSubId) return;
+    const dailyBullets = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? event.dailyBullets : {};
+    const cur = Array.isArray(dailyBullets[dateKey]) ? [...dailyBullets[dateKey]] : [];
+    const without = cur.filter(id => id !== draggedSubId);
+    const targetIdx = without.indexOf(targetSubId);
+    if (targetIdx < 0) return;
+    without.splice(targetIdx, 0, draggedSubId);
+    return setDayBullets(dateKey, without);
+  }
   // Move a bullet from one day's selected list to another in a single write.
   // Used by the drag-and-drop interaction in the Daily view.
   async function moveBulletBetweenDays(subId, fromDateKey, toDateKey) {
@@ -2459,6 +2470,8 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
   // so the target day can re-render its highlight when valid.
   const [dragBullet, setDragBullet] = useState(null); // { subId, fromDateKey, highlightId }
   const [dragOverDateKey, setDragOverDateKey] = useState(null);
+  // Bullet currently being hovered as a same-day reorder target (`${dateKey}::${subId}`).
+  const [dragOverBulletKey, setDragOverBulletKey] = useState(null);
   // Create a new bullet on a destination highlight and auto-select it for the
   // given day. Bullets remain stored under the highlight's subHighlights so
   // the same bullet can be reused on another day with the same destination.
@@ -4035,8 +4048,9 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 : [];
               const dailyBullets = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? event.dailyBullets : {};
               const selectedSubIds = Array.isArray(dailyBullets[d.key]) ? dailyBullets[d.key] : [];
-              // Render in the order the bullets exist on the highlight, not pick-order.
-              const destSubs = allDestSubs.filter(s => selectedSubIds.includes(s.id));
+              // Render in the saved pick-order so the user can drag to reorder.
+              const subById = new Map(allDestSubs.map(s => [s.id, s]));
+              const destSubs = selectedSubIds.map(id => subById.get(id)).filter(Boolean);
               // Bullets already used on a different day are off-limits here —
               // each bullet can only live on one day at a time. Move it by
               // unchecking on the original day first.
@@ -4279,12 +4293,39 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                                   e.dataTransfer.effectAllowed = 'move';
                                   try { e.dataTransfer.setData('text/plain', s.text || ''); } catch { /* ignore */ }
                                 }}
+                                onDragOver={(e) => {
+                                  // Same-day reorder: allow dropping onto this bullet.
+                                  // Cross-day drags are left to bubble up to the day row.
+                                  if (!canEdit || !dragBullet) return;
+                                  if (dragBullet.fromDateKey !== d.key || dragBullet.subId === s.id) return;
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  e.dataTransfer.dropEffect = 'move';
+                                  const k = `${d.key}::${s.id}`;
+                                  if (dragOverBulletKey !== k) setDragOverBulletKey(k);
+                                }}
+                                onDragLeave={(e) => {
+                                  if (e.currentTarget.contains(e.relatedTarget)) return;
+                                  if (dragOverBulletKey === `${d.key}::${s.id}`) setDragOverBulletKey(null);
+                                }}
+                                onDrop={(e) => {
+                                  if (!canEdit || !dragBullet) return;
+                                  if (dragBullet.fromDateKey !== d.key || dragBullet.subId === s.id) return;
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  reorderDayBullet(d.key, dragBullet.subId, s.id);
+                                  setDragBullet(null);
+                                  setDragOverBulletKey(null);
+                                  setDragOverDateKey(null);
+                                }}
                                 onDragEnd={() => {
                                   setDragBullet(null);
                                   setDragOverDateKey(null);
+                                  setDragOverBulletKey(null);
                                 }}
                                 style={{
                                   opacity: isBeingDragged ? 0.4 : 1,
+                                  borderTop: dragOverBulletKey === `${d.key}::${s.id}` ? '2px solid var(--color-accent)' : '2px solid transparent',
                                 }}
                               >
                                 <span
