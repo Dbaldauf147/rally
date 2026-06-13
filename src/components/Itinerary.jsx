@@ -2208,6 +2208,10 @@ export function Itinerary({ event, onSave, canEdit }) {
         passengers: it.passengers || '',
         ticketNumbers: it.ticketNumbers || '',
         seatNumbers: it.seatNumbers || '',
+        bookingId: it.bookingId || '',
+        hotelName: it.hotelName || '',
+        guests: it.guests || '',
+        roomType: it.roomType || '',
         // 'email' = saved from a pasted confirmation email. Kept distinct from
         // 'ai' (trip-planner suggestions) so these show in the Bookings tab.
         source: 'email',
@@ -3338,20 +3342,32 @@ export function Itinerary({ event, onSave, canEdit }) {
                 {bookings.map(item => {
                   const isLodging = item.type === 'lodging';
                   const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
-                  // Structured flight summary: only the rows that actually have a value.
-                  const summaryRows = [
-                    ['Trip ID', item.tripId],
-                    ['Reservation #', item.reservationNumber],
-                    ['From', item.fromLocation],
-                    ['To', item.toLocation],
-                    ['Start date', item.date ? fmtKeyLong(item.date) : ''],
-                    ['End date', item.endDate ? fmtKeyLong(item.endDate) : ''],
-                    ['Start time', item.time ? fmtTime(item.time) : ''],
-                    ['End time', item.arrivalTime ? fmtTime(item.arrivalTime) : ''],
-                    ['Passengers', item.passengers],
-                    ['Ticket #', item.ticketNumbers],
-                    ['Seats', item.seatNumbers],
-                  ].filter(([, v]) => v && String(v).trim());
+                  // Structured summary: only the rows that actually have a value.
+                  // Lodging and travel/flight bookings surface different fields.
+                  const summaryRows = (isLodging
+                    ? [
+                        ['Booking ID', item.bookingId],
+                        ['Reservation #', item.reservationNumber],
+                        ['Hotel', item.hotelName],
+                        ['Check in', item.date ? fmtKeyLong(item.date) : ''],
+                        ['Check out', item.endDate ? fmtKeyLong(item.endDate) : ''],
+                        ['Guests', item.guests],
+                        ['Room type', item.roomType],
+                      ]
+                    : [
+                        ['Trip ID', item.tripId],
+                        ['Reservation #', item.reservationNumber],
+                        ['From', item.fromLocation],
+                        ['To', item.toLocation],
+                        ['Start date', item.date ? fmtKeyLong(item.date) : ''],
+                        ['End date', item.endDate ? fmtKeyLong(item.endDate) : ''],
+                        ['Start time', item.time ? fmtTime(item.time) : ''],
+                        ['End time', item.arrivalTime ? fmtTime(item.arrivalTime) : ''],
+                        ['Passengers', item.passengers],
+                        ['Ticket #', item.ticketNumbers],
+                        ['Seats', item.seatNumbers],
+                      ]
+                  ).filter(([, v]) => v && String(v).trim());
                   return (
                     <div key={item.id} className={styles.bookingCard}>
                       <div className={styles.bookingIcon}>{icon}</div>

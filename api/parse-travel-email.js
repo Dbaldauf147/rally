@@ -27,6 +27,10 @@ const itemSchema = z.object({
   passengers: z.string().describe('Comma-separated passenger names on the booking. Empty string if none.'),
   ticketNumbers: z.string().describe('Comma-separated airline ticket numbers (e.g. "0062345678901"). Empty string if none.'),
   seatNumbers: z.string().describe('Comma-separated seat assignments (e.g. "12A, 12B"). Empty string if none.'),
+  bookingId: z.string().describe('For lodging: the hotel/agency booking ID or itinerary number (e.g. Booking.com "Booking number"). Empty string if none.'),
+  hotelName: z.string().describe('For lodging: the property name (e.g. "Hotel Arts Barcelona"). Empty string if not lodging.'),
+  guests: z.string().describe('For lodging: number of guests, or guest names if that is all that is stated (e.g. "2" or "2 adults"). Empty string if none.'),
+  roomType: z.string().describe('For lodging: the room type/description (e.g. "King Room", "Deluxe Double"). Empty string if none.'),
   url: z.string().describe('Booking/management URL if present in the email, else empty string.'),
   imageQuery: z.string().describe('2-4 word image search query for lodging/activities (e.g., "hotel arts barcelona"). Empty string for flights/transfers.'),
 });
@@ -45,7 +49,7 @@ Rules:
 - For flights: set isFlight=true, fill airline, flightNumber, time (departure, local), arrivalTime (local), and format location as "Origin → Destination" using airport names or codes (e.g., "JFK → BCN" or "New York JFK → Barcelona BCN"). Also fill fromLocation (origin) and toLocation (destination) separately.
 - Capture booking identifiers when present: tripId (trip/itinerary ID), reservationNumber (confirmation/PNR code), passengers (all traveller names), ticketNumbers, and seatNumbers. Leave any of these empty if the email does not state them. Never invent them.
 - Set endDate when a leg ends on a different calendar day than it starts (e.g. an overnight/red-eye flight) or when the email explicitly states an arrival/check-out date; otherwise leave it empty.
-- For lodging: time = check-in time if stated, location = hotel name + city, notes = confirmation number / room details, and put the check-out date in notes if it differs from check-in (e.g., "Check-out: 2026-06-05").
+- For lodging: set type "lodging"; date = check-in date, endDate = check-out date, time = check-in time if stated, location = hotel name + city. Also fill hotelName (property name), bookingId (booking/itinerary number), reservationNumber (confirmation code if separate from bookingId), guests (number of guests), and roomType. Leave any of these empty if the email does not state them.
 - Always resolve dates to absolute YYYY-MM-DD. If the email only gives a weekday or "tomorrow", use the email's own date context to resolve it; if you cannot determine the year, assume the next occurrence relative to the trip context provided.
 - Put confirmation/booking numbers in notes.
 - Only include the cost if a price is explicitly stated in the email. Never invent prices.
