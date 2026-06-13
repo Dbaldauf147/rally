@@ -4291,16 +4291,6 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                                     <button
                                       type="button"
                                       className={styles.subHighlightRemove}
-                                      onClick={() => {
-                                        setEditingBulletKey(editKey);
-                                        setEditingBulletDraft({ text: s.text || '', url: urls[0] || '' });
-                                      }}
-                                      title="Edit bullet text and link"
-                                      aria-label="Edit bullet"
-                                    >✏️</button>
-                                    <button
-                                      type="button"
-                                      className={styles.subHighlightRemove}
                                       onClick={() => toggleDayBullet(d.key, s.id)}
                                       title="Remove from this day"
                                       aria-label="Remove from this day"
