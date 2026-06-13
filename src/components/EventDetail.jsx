@@ -932,6 +932,77 @@ export function EventDetail() {
                 )}
               </div>
             )}
+            {user?.email === 'baldaufdan@gmail.com' && (
+              <>
+                <button className={styles.shareBtn} onClick={() => setShowInvite(true)}>
+                  ✉ Share invite
+                </button>
+                {members.length > 1 && (
+                  <button className={styles.shareBtn} onClick={() => {
+                    const emails = members
+                      .filter(([uid, m]) => uid !== user?.uid && (m.email || (uid.includes('@') ? uid : '')))
+                      .map(([uid, m]) => m.email || uid)
+                      .filter(Boolean);
+                    if (emails.length === 0) { alert('No contacts with emails to invite'); return; }
+                    const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
+                    const subject = encodeURIComponent(`You're invited: ${event.title}`);
+                    const addToCalLink = `${window.location.origin}${icsUrl}`;
+                    const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
+                    const body = encodeURIComponent(
+                      `You're invited to ${event.title}!\n\n` +
+                      `When: ${dateStr}\n` +
+                      (event.location ? `Where: ${event.location}\n` : '') +
+                      (event.description ? `\n${event.description}\n` : '') +
+                      `\nRSVP and vote on dates: ${pollLink}\n` +
+                      `\nAdd to Google Calendar: ${googleCalUrl}\n` +
+                      `\nAdd to Outlook/Apple Calendar: ${addToCalLink}\n`
+                    );
+                    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${subject}&body=${body}`, '_blank');
+                    const updates = {};
+                    members.filter(([uid, m]) => uid !== user?.uid && (m.email || uid.includes('@'))).forEach(([uid]) => {
+                      updates[`members.${uid}.emailed`] = new Date().toISOString();
+                    });
+                    if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
+                  }}>
+                    ✉ Email All Invited ({members.filter(([uid]) => uid !== user?.uid).length})
+                  </button>
+                )}
+                {members.length > 1 && (() => {
+                  const phones = members
+                    .filter(([uid, m]) => uid !== user?.uid && m.phone)
+                    .map(([, m]) => m.phone);
+                  if (phones.length === 0) return null;
+                  const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
+                  const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
+                  const calendarLink = `${window.location.origin}${icsUrl}`;
+                  const hasAnyVotes = Object.values(voteStats || {}).some(s => s && s.total > 0);
+                  const pollMsg = event.stage === 'finalized'
+                    ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails & RSVP: ${pollLink}`
+                    : hasAnyVotes
+                      ? `People have suggested additional dates for ${event.title}. Would any of these new dates work for you?\n\nVote here: ${pollLink}`
+                      : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
+                  const calMsg = `You're invited to ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}.\n\nAdd to your calendar: ${calendarLink}`;
+                  return (
+                    <>
+                      {activeTab !== 'itinerary' && (
+                        <button className={styles.shareBtn} onClick={() => {
+                          setTextAllMessage(pollMsg);
+                          setShowTextAll(true);
+                        }}>
+                          💬 Text All Poll ({phones.length})
+                        </button>
+                      )}
+                      <button className={styles.shareBtn} onClick={() => {
+                        setTextAllMessage(calMsg);
+                        setShowTextAll(true);
+                      }}>
+                        📅 Text All Calendar Invite ({phones.length})
+                      </button>
+                    </>
+                  );
+                })()}
+              </>
+            )}
           </div>
           <p className={styles.datetime}>
             {event.dateTBD
@@ -1079,82 +1150,6 @@ export function EventDetail() {
             </div>
           </div>
         </div>
-      )}
-
-      {user?.email === 'baldaufdan@gmail.com' && (
-      <div className={styles.rsvpSection}>
-        <button className={styles.shareBtn} onClick={handleCopyLink}>
-          {inviteCopied ? '✓ Link copied!' : '🔗 Copy link'}
-        </button>
-        <button className={styles.shareBtn} onClick={() => setShowInvite(true)}>
-          ✉ Share invite
-        </button>
-        {members.length > 1 && (
-          <button className={styles.shareBtn} onClick={() => {
-            const emails = members
-              .filter(([uid, m]) => uid !== user?.uid && (m.email || (uid.includes('@') ? uid : '')))
-              .map(([uid, m]) => m.email || uid)
-              .filter(Boolean);
-            if (emails.length === 0) { alert('No contacts with emails to invite'); return; }
-            const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
-            const subject = encodeURIComponent(`You're invited: ${event.title}`);
-            const addToCalLink = `${window.location.origin}${icsUrl}`;
-            const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
-            const body = encodeURIComponent(
-              `You're invited to ${event.title}!\n\n` +
-              `When: ${dateStr}\n` +
-              (event.location ? `Where: ${event.location}\n` : '') +
-              (event.description ? `\n${event.description}\n` : '') +
-              `\nRSVP and vote on dates: ${pollLink}\n` +
-              `\nAdd to Google Calendar: ${googleCalUrl}\n` +
-              `\nAdd to Outlook/Apple Calendar: ${addToCalLink}\n`
-            );
-            window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${subject}&body=${body}`, '_blank');
-            // Mark all emailed members
-            const updates = {};
-            members.filter(([uid, m]) => uid !== user?.uid && (m.email || uid.includes('@'))).forEach(([uid]) => {
-              updates[`members.${uid}.emailed`] = new Date().toISOString();
-            });
-            if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
-          }}>
-            ✉ Email All Invited ({members.filter(([uid]) => uid !== user?.uid).length})
-          </button>
-        )}
-        {members.length > 1 && (() => {
-          const phones = members
-            .filter(([uid, m]) => uid !== user?.uid && m.phone)
-            .map(([, m]) => m.phone);
-          if (phones.length === 0) return null;
-          const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
-          const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
-          const calendarLink = `${window.location.origin}${icsUrl}`;
-          const hasAnyVotes = Object.values(voteStats || {}).some(s => s && s.total > 0);
-          const pollMsg = event.stage === 'finalized'
-            ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails & RSVP: ${pollLink}`
-            : hasAnyVotes
-              ? `People have suggested additional dates for ${event.title}. Would any of these new dates work for you?\n\nVote here: ${pollLink}`
-              : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
-          const calMsg = `You're invited to ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}.\n\nAdd to your calendar: ${calendarLink}`;
-          return (
-            <>
-              {activeTab !== 'itinerary' && (
-                <button className={styles.shareBtn} onClick={() => {
-                  setTextAllMessage(pollMsg);
-                  setShowTextAll(true);
-                }}>
-                  💬 Text All Poll ({phones.length})
-                </button>
-              )}
-              <button className={styles.shareBtn} onClick={() => {
-                setTextAllMessage(calMsg);
-                setShowTextAll(true);
-              }}>
-                📅 Text All Calendar Invite ({phones.length})
-              </button>
-            </>
-          );
-        })()}
-      </div>
       )}
 
       {showTextAll && (() => {
