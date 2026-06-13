@@ -3480,10 +3480,15 @@ export function Itinerary({ event, onSave, canEdit }) {
               weeks.push(week);
               if (cell.getMonth() !== month && cell > new Date(year, month + 1, 0)) break;
             }
-            months.push({
-              label: firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-              weeks,
-            });
+            // Drop weeks that contain no trip days so we never render a row of
+            // all-empty boxes.
+            const tripWeeks = weeks.filter(wk => wk.some(c => c.inTrip));
+            if (tripWeeks.length > 0) {
+              months.push({
+                label: firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+                weeks: tripWeeks,
+              });
+            }
             cur.setMonth(cur.getMonth() + 1);
           }
           return months;
