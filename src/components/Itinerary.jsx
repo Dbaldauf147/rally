@@ -2036,6 +2036,9 @@ export function Itinerary({ event, onSave, canEdit }) {
   // When a day is opened from the Daily view, the Schedule view focuses on
   // just that date (YYYY-MM-DD). Null = show all days.
   const [scheduleFocusKey, setScheduleFocusKey] = useState(null);
+  // Day whose full schedule is shown in a pop-out modal (the Daily "Details"
+  // button). Null = modal closed.
+  const [daySchedulePeekKey, setDaySchedulePeekKey] = useState(null);
   // Highlights the user explicitly un-tagged in the current form session.
   // The auto-tag effect skips these so user overrides aren't re-applied.
   const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
@@ -4062,9 +4065,9 @@ export function Itinerary({ event, onSave, canEdit }) {
                     <button
                       type="button"
                       className={styles.dailyOpenScheduleBtn}
-                      onClick={() => { setScheduleFocusKey(d.key); setViewMode('schedule'); }}
+                      onClick={() => setDaySchedulePeekKey(d.key)}
                       title="Open this day's full schedule"
-                    >📋 Full schedule</button>
+                    >📋 Details</button>
                     {(() => {
                       const dailyNames = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
                       const savedName = dailyNames[d.key] || '';
@@ -4832,14 +4835,19 @@ export function Itinerary({ event, onSave, canEdit }) {
         );
       })()}
 
-      {viewMode === 'schedule' && (items.length === 0 && !adding ? (
-        <div className={styles.empty}>
-          <p>No itinerary items yet.</p>
-          {canEdit && <p className={styles.emptyHint}>Click "+ Add Item" to start planning your trip.</p>}
-        </div>
-      ) : (
-        <div className={styles.list}>
-          {scheduleFocusKey && groups[scheduleFocusKey] && (
+      {(viewMode === 'schedule' || daySchedulePeekKey) && (() => {
+        const focusKey = daySchedulePeekKey || scheduleFocusKey;
+        const datesToShow = (focusKey && groups[focusKey])
+          ? sortedDates.filter(dk => dk === focusKey)
+          : sortedDates;
+        const listBody = (items.length === 0 && !adding && !daySchedulePeekKey) ? (
+          <div className={styles.empty}>
+            <p>No itinerary items yet.</p>
+            {canEdit && <p className={styles.emptyHint}>Click "+ Add Item" to start planning your trip.</p>}
+          </div>
+        ) : (
+          <div className={styles.list}>
+            {!daySchedulePeekKey && scheduleFocusKey && groups[scheduleFocusKey] && (
             <div className={styles.scheduleFocusBanner}>
               <span>
                 Showing one day ·{' '}
@@ -4852,7 +4860,9 @@ export function Itinerary({ event, onSave, canEdit }) {
               >Show all days</button>
             </div>
           )}
-          {(scheduleFocusKey && groups[scheduleFocusKey] ? sortedDates.filter(dk => dk === scheduleFocusKey) : sortedDates).map(dateKey => {
+          {datesToShow.length === 0 ? (
+            <div className={styles.empty}><p>Nothing scheduled for this day yet.</p></div>
+          ) : datesToShow.map(dateKey => {
             const dateItems = groups[dateKey].slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
             const dateLabel = dateKey === 'Unscheduled'
               ? 'Unscheduled'
@@ -5251,8 +5261,35 @@ export function Itinerary({ event, onSave, canEdit }) {
               </div>
             );
           })}
-        </div>
-      ))}
+          </div>
+        );
+        if (daySchedulePeekKey) {
+          return (
+            <div
+              className={styles.dayPeekOverlay}
+              onClick={() => setDaySchedulePeekKey(null)}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className={styles.dayPeekModal} onClick={e => e.stopPropagation()}>
+                <div className={styles.dayPeekHeader}>
+                  <span className={styles.dayPeekTitle}>
+                    📋 {new Date(daySchedulePeekKey + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.dayPeekClose}
+                    onClick={() => setDaySchedulePeekKey(null)}
+                    aria-label="Close"
+                  >✕</button>
+                </div>
+                <div className={styles.dayPeekBody}>{listBody}</div>
+              </div>
+            </div>
+          );
+        }
+        return listBody;
+      })()}
     </div>
   );
 }
