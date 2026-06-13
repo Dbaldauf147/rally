@@ -2200,7 +2200,17 @@ export function Itinerary({ event, onSave, canEdit }) {
         airline: it.airline || '',
         flightNumber: it.flightNumber || '',
         cost: it.cost || '',
-        source: 'ai',
+        tripId: it.tripId || '',
+        reservationNumber: it.reservationNumber || '',
+        fromLocation: it.fromLocation || '',
+        toLocation: it.toLocation || '',
+        endDate: it.endDate || '',
+        passengers: it.passengers || '',
+        ticketNumbers: it.ticketNumbers || '',
+        seatNumbers: it.seatNumbers || '',
+        // 'email' = saved from a pasted confirmation email. Kept distinct from
+        // 'ai' (trip-planner suggestions) so these show in the Bookings tab.
+        source: 'email',
       }));
 
       if (newItems.length === 0) {
@@ -3275,7 +3285,7 @@ export function Itinerary({ event, onSave, canEdit }) {
           ? new Date('2000-01-01T' + t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
           : '';
         const bookings = items
-          .filter(i => (i.type === 'travel' || i.type === 'lodging') && i.source === 'manual')
+          .filter(i => (i.type === 'travel' || i.type === 'lodging') && (i.source === 'manual' || i.source === 'email'))
           .slice()
           .sort((a, b) => ((a.date || '') + 'T' + (a.time || '00:00'))
             .localeCompare((b.date || '') + 'T' + (b.time || '00:00')));
@@ -3328,6 +3338,20 @@ export function Itinerary({ event, onSave, canEdit }) {
                 {bookings.map(item => {
                   const isLodging = item.type === 'lodging';
                   const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
+                  // Structured flight summary: only the rows that actually have a value.
+                  const summaryRows = [
+                    ['Trip ID', item.tripId],
+                    ['Reservation #', item.reservationNumber],
+                    ['From', item.fromLocation],
+                    ['To', item.toLocation],
+                    ['Start date', item.date ? fmtKeyLong(item.date) : ''],
+                    ['End date', item.endDate ? fmtKeyLong(item.endDate) : ''],
+                    ['Start time', item.time ? fmtTime(item.time) : ''],
+                    ['End time', item.arrivalTime ? fmtTime(item.arrivalTime) : ''],
+                    ['Passengers', item.passengers],
+                    ['Ticket #', item.ticketNumbers],
+                    ['Seats', item.seatNumbers],
+                  ].filter(([, v]) => v && String(v).trim());
                   return (
                     <div key={item.id} className={styles.bookingCard}>
                       <div className={styles.bookingIcon}>{icon}</div>
@@ -3336,6 +3360,9 @@ export function Itinerary({ event, onSave, canEdit }) {
                           <span className={styles.bookingTitle}>{item.title || '(untitled)'}</span>
                           {item.source === 'ai' && (
                             <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceAi}`} title="Extracted by Claude from a pasted email">✨ AI</span>
+                          )}
+                          {item.source === 'email' && (
+                            <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceAi}`} title="Captured from a pasted confirmation email">📧 From email</span>
                           )}
                           {item.source === 'manual' && (
                             <span className={`${styles.bookingSourceBadge} ${styles.bookingSourceManual}`} title="Added by hand">✍️ Added by you</span>
@@ -3350,6 +3377,16 @@ export function Itinerary({ event, onSave, canEdit }) {
                         </div>
                         {(item.airline || item.flightNumber) && (
                           <div className={styles.bookingDetail}>✈️ {[item.airline, item.flightNumber].filter(Boolean).join(' ')}</div>
+                        )}
+                        {summaryRows.length > 0 && (
+                          <dl className={styles.bookingSummary}>
+                            {summaryRows.map(([label, value]) => (
+                              <div key={label} className={styles.bookingSummaryRow}>
+                                <dt className={styles.bookingSummaryLabel}>{label}</dt>
+                                <dd className={styles.bookingSummaryValue}>{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
                         )}
                         {item.cost && (
                           <div className={styles.bookingDetail}>💵 {/^[\d.]/.test(String(item.cost).trim()) ? `$${item.cost}` : item.cost}</div>

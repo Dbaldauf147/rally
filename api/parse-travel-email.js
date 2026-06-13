@@ -19,6 +19,14 @@ const itemSchema = z.object({
   airline: z.string().describe('Airline name for flights (e.g., "Delta", "United"). Empty string otherwise.'),
   flightNumber: z.string().describe('Flight number (e.g., "DL123"). Empty string otherwise.'),
   cost: z.string().describe('Total price if stated in the email (e.g., "450" or "$450" or "€380"). Empty string if not stated.'),
+  tripId: z.string().describe('Airline/agency trip or itinerary ID if present (often labelled "Trip ID" or "Itinerary number"). Empty string if none.'),
+  reservationNumber: z.string().describe('Booking / confirmation / reservation code (PNR), e.g. "ABC123". Empty string if none.'),
+  fromLocation: z.string().describe('Departure airport/city for this leg (code or name), e.g. "JFK" or "New York JFK". Empty string if not a flight/transfer.'),
+  toLocation: z.string().describe('Arrival airport/city for this leg, e.g. "BCN" or "Barcelona BCN". Empty string if not a flight/transfer.'),
+  endDate: z.string().describe('YYYY-MM-DD arrival/end date when it differs from the start date or is explicitly stated (overnight flight, hotel check-out). Empty string if same as start date or unknown.'),
+  passengers: z.string().describe('Comma-separated passenger names on the booking. Empty string if none.'),
+  ticketNumbers: z.string().describe('Comma-separated airline ticket numbers (e.g. "0062345678901"). Empty string if none.'),
+  seatNumbers: z.string().describe('Comma-separated seat assignments (e.g. "12A, 12B"). Empty string if none.'),
   url: z.string().describe('Booking/management URL if present in the email, else empty string.'),
   imageQuery: z.string().describe('2-4 word image search query for lodging/activities (e.g., "hotel arts barcelona"). Empty string for flights/transfers.'),
 });
@@ -34,7 +42,9 @@ Rules:
 - Read the raw email text and pull out every flight, train, transfer, car rental, and lodging booking it describes.
 - Each leg of a trip is its own item. A round-trip flight is TWO items (outbound and return). A multi-leg/connecting flight is one item per leg unless the email clearly bundles them.
 - Use type "travel" for flights, trains, drives, transfers, car rentals. Use type "lodging" for hotels, Airbnb, resorts. Use type "activity" only for dining/tour/event reservations.
-- For flights: set isFlight=true, fill airline, flightNumber, time (departure, local), arrivalTime (local), and format location as "Origin → Destination" using airport names or codes (e.g., "JFK → BCN" or "New York JFK → Barcelona BCN").
+- For flights: set isFlight=true, fill airline, flightNumber, time (departure, local), arrivalTime (local), and format location as "Origin → Destination" using airport names or codes (e.g., "JFK → BCN" or "New York JFK → Barcelona BCN"). Also fill fromLocation (origin) and toLocation (destination) separately.
+- Capture booking identifiers when present: tripId (trip/itinerary ID), reservationNumber (confirmation/PNR code), passengers (all traveller names), ticketNumbers, and seatNumbers. Leave any of these empty if the email does not state them. Never invent them.
+- Set endDate when a leg ends on a different calendar day than it starts (e.g. an overnight/red-eye flight) or when the email explicitly states an arrival/check-out date; otherwise leave it empty.
 - For lodging: time = check-in time if stated, location = hotel name + city, notes = confirmation number / room details, and put the check-out date in notes if it differs from check-in (e.g., "Check-out: 2026-06-05").
 - Always resolve dates to absolute YYYY-MM-DD. If the email only gives a weekday or "tomorrow", use the email's own date context to resolve it; if you cannot determine the year, assume the next occurrence relative to the trip context provided.
 - Put confirmation/booking numbers in notes.
