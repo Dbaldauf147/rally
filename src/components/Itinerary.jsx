@@ -3420,19 +3420,17 @@ export function Itinerary({ event, onSave, canEdit }) {
           return { rows, noDate };
         })();
 
-        // Calendar view: only the days of the trip. The grid spans the months
-        // the trip touches, but cells outside the trip's start–end range are
-        // blanked out so just the trip days are shown.
+        // Calendar view: only the days of the trip. Multi-day bookings (e.g.
+        // hotels) render as a single bar that spans their days within each
+        // week; single-day bookings (flights/transfers) render as day chips.
         const calendarMonths = (() => {
-          const dayMap = new Map(); // 'YYYY-MM-DD' -> [{ item, isStart }]
-          for (const b of bookings) {
+          // First/last covered day per booking, and whether it spans >1 day.
+          const ranges = bookings.map(b => {
             const days = datesCovered(b);
-            days.forEach((dk, idx) => {
-              if (!dayMap.has(dk)) dayMap.set(dk, []);
-              dayMap.get(dk).push({ item: b, isStart: idx === 0 });
-            });
-          }
-          const allKeys = Array.from(dayMap.keys()).sort();
+            if (days.length === 0) return null;
+            return { item: b, startKey: days[0], endKey: days[days.length - 1], multi: days.length > 1 };
+          }).filter(Boolean);
+          const allKeys = ranges.flatMap(r => [r.startKey, r.endKey]).sort();
 
           // Prefer the event's trip dates; fall back to the booking date span.
           let rangeStart = null, rangeEnd = null;
@@ -3446,6 +3444,46 @@ export function Itinerary({ event, onSave, canEdit }) {
             return [];
           }
           if (rangeEnd < rangeStart) rangeEnd = new Date(rangeStart);
+
+          // Build the per-week bar/chip layout for one Mon–Sun week of cells.
+          const layoutWeek = (week) => {
+            const keys = week.map(c => c.key);
+            const firstKey = keys[0], lastKey = keys[6];
+            const tripCols = week.map((c, i) => (c.inTrip ? i : -1)).filter(i => i >= 0);
+            const firstTripCol = tripCols.length ? tripCols[0] : null;
+            const lastTripCol = tripCols.length ? tripCols[tripCols.length - 1] : null;
+
+            const bars = [];
+            const singleByCol = {}; // colIndex -> [item]
+            for (const r of ranges) {
+              if (firstTripCol == null) break;
+              if (r.multi) {
+                if (r.endKey < firstKey || r.startKey > lastKey) continue; // no overlap
+                let startCol = r.startKey <= firstKey ? 0 : keys.indexOf(r.startKey);
+                let endCol = r.endKey >= lastKey ? 6 : keys.indexOf(r.endKey);
+                const contLeft = r.startKey < firstKey;
+                const contRight = r.endKey > lastKey;
+                startCol = Math.max(startCol, firstTripCol);
+                endCol = Math.min(endCol, lastTripCol);
+                if (endCol < startCol) continue;
+                bars.push({ item: r.item, startCol, endCol, contLeft, contRight });
+              } else {
+                const i = keys.indexOf(r.startKey);
+                if (i >= 0 && week[i].inTrip) (singleByCol[i] = singleByCol[i] || []).push(r.item);
+              }
+            }
+
+            // Greedy lane assignment so overlapping bars stack vertically.
+            bars.sort((a, b) => a.startCol - b.startCol || a.endCol - b.endCol);
+            const laneEnds = [];
+            for (const bar of bars) {
+              let l = 0;
+              while (l < laneEnds.length && laneEnds[l] >= bar.startCol) l++;
+              bar.lane = l;
+              laneEnds[l] = bar.endCol;
+            }
+            return { cells: week, bars, singleByCol, laneCount: laneEnds.length };
+          };
 
           const months = [];
           const cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
@@ -3469,20 +3507,15 @@ export function Itinerary({ event, onSave, canEdit }) {
                 const key = `${y}-${mm}-${dd}`;
                 const cellDay = new Date(cell); cellDay.setHours(0, 0, 0, 0);
                 const inTrip = cell.getMonth() === month && cellDay >= rangeStart && cellDay <= rangeEnd;
-                week.push({
-                  key,
-                  dateNum: cell.getDate(),
-                  inTrip,
-                  entries: inTrip ? (dayMap.get(key) || []) : [],
-                });
+                week.push({ key, dateNum: cell.getDate(), inTrip });
                 cell.setDate(cell.getDate() + 1);
               }
               weeks.push(week);
               if (cell.getMonth() !== month && cell > new Date(year, month + 1, 0)) break;
             }
             // Drop weeks that contain no trip days so we never render a row of
-            // all-empty boxes.
-            const tripWeeks = weeks.filter(wk => wk.some(c => c.inTrip));
+            // all-empty boxes, then compute each surviving week's bar layout.
+            const tripWeeks = weeks.filter(wk => wk.some(c => c.inTrip)).map(layoutWeek);
             if (tripWeeks.length > 0) {
               months.push({
                 label: firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
@@ -3584,35 +3617,94 @@ export function Itinerary({ event, onSave, canEdit }) {
                   <div key={month.label} className={styles.bookingsCalMonth}>
                     <div className={styles.bookingsCalMonthLabel}>{month.label}</div>
                     <div className={styles.bookingsCalGrid}>
-                      {weekdayInitials.map(d => (
-                        <div key={d} className={styles.bookingsCalWeekday}>{d}</div>
-                      ))}
-                      {month.weeks.flat().map(cell => (
-                        <div
-                          key={cell.key}
-                          className={cell.inTrip ? styles.bookingsCalCell : `${styles.bookingsCalCell} ${styles.bookingsCalCellOut}`}
-                        >
-                          {cell.inTrip && <div className={styles.bookingsCalDateNum}>{cell.dateNum}</div>}
-                          {cell.entries.map(({ item, isStart }, i) => {
-                            const isLodging = item.type === 'lodging';
-                            const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
-                            return (
+                      <div className={styles.bookingsCalHead}>
+                        {weekdayInitials.map(d => (
+                          <div key={d} className={styles.bookingsCalWeekday}>{d}</div>
+                        ))}
+                      </div>
+                      {month.weeks.map((week, wi) => {
+                        // Grid rows: date numbers, one row per bar lane, then a
+                        // row for single-day chips per column.
+                        const chipRow = 2 + week.laneCount;
+                        return (
+                          <div
+                            key={wi}
+                            className={styles.bookingsCalWeek}
+                            style={{ gridTemplateRows: `auto repeat(${week.laneCount}, 1.45rem) auto` }}
+                          >
+                            {/* Background cells (borders + out-of-trip shading) */}
+                            {week.cells.map((cell, i) => (
                               <div
-                                key={item.id + '-' + i}
-                                className={`${styles.bookingsCalChip} ${isLodging ? styles.bookingsCalChipLodging : styles.bookingsCalChipTravel}`}
-                                title={`${item.title || ''}${item.time ? ' · ' + fmtTime(item.time) : ''}`}
-                                onClick={canEdit ? () => startEdit(item) : undefined}
-                                style={canEdit ? { cursor: 'pointer' } : undefined}
-                              >
-                                <span className={styles.bookingsCalChipIcon}>{icon}</span>
-                                <span className={styles.bookingsCalChipText}>
-                                  {isStart ? (item.title || '(untitled)') : `${item.title || ''} (cont.)`}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
+                                key={'bg' + i}
+                                className={cell.inTrip ? styles.bookingsCalCellBg : `${styles.bookingsCalCellBg} ${styles.bookingsCalCellOut}`}
+                                style={{ gridColumn: i + 1, gridRow: '1 / -1' }}
+                              />
+                            ))}
+                            {/* Date numbers */}
+                            {week.cells.map((cell, i) => (
+                              cell.inTrip ? (
+                                <div key={'num' + i} className={styles.bookingsCalDateNum} style={{ gridColumn: i + 1, gridRow: 1 }}>
+                                  {cell.dateNum}
+                                </div>
+                              ) : null
+                            ))}
+                            {/* Multi-day spanning bars (e.g. hotels) */}
+                            {week.bars.map((bar, bi) => {
+                              const item = bar.item;
+                              const isLodging = item.type === 'lodging';
+                              const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
+                              const cls = [
+                                styles.bookingsCalBar,
+                                isLodging ? styles.bookingsCalChipLodging : styles.bookingsCalChipTravel,
+                                bar.contLeft ? styles.bookingsCalBarContLeft : '',
+                                bar.contRight ? styles.bookingsCalBarContRight : '',
+                              ].filter(Boolean).join(' ');
+                              return (
+                                <div
+                                  key={item.id + '-bar-' + bi}
+                                  className={cls}
+                                  style={{
+                                    gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`,
+                                    gridRow: bar.lane + 2,
+                                    cursor: canEdit ? 'pointer' : undefined,
+                                  }}
+                                  title={`${item.title || ''}${item.date ? ' · ' + fmtKeyLong(item.date) : ''}${item.endDate ? ' → ' + fmtKeyLong(item.endDate) : ''}`}
+                                  onClick={canEdit ? () => startEdit(item) : undefined}
+                                >
+                                  {!bar.contLeft && <span className={styles.bookingsCalChipIcon}>{icon}</span>}
+                                  <span className={styles.bookingsCalChipText}>
+                                    {bar.contLeft ? `… ${item.title || ''}` : (item.title || '(untitled)')}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            {/* Single-day chips (flights/transfers) */}
+                            {week.cells.map((cell, i) => {
+                              const chips = week.singleByCol[i];
+                              if (!chips || chips.length === 0) return null;
+                              return (
+                                <div key={'chips' + i} className={styles.bookingsCalChipStack} style={{ gridColumn: i + 1, gridRow: chipRow }}>
+                                  {chips.map((item, ci) => {
+                                    const icon = item.isFlight ? '✈️' : '🚆';
+                                    return (
+                                      <div
+                                        key={item.id + '-' + ci}
+                                        className={`${styles.bookingsCalChip} ${styles.bookingsCalChipTravel}`}
+                                        title={`${item.title || ''}${item.time ? ' · ' + fmtTime(item.time) : ''}`}
+                                        onClick={canEdit ? () => startEdit(item) : undefined}
+                                        style={canEdit ? { cursor: 'pointer' } : undefined}
+                                      >
+                                        <span className={styles.bookingsCalChipIcon}>{icon}</span>
+                                        <span className={styles.bookingsCalChipText}>{item.title || '(untitled)'}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
