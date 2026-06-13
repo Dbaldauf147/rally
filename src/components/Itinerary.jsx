@@ -2033,6 +2033,9 @@ export function Itinerary({ event, onSave, canEdit }) {
   const [viewMode, setViewMode] = useState('daily'); // 'schedule' | 'daily' | 'calendar' | 'destinations' | 'flights'
   // Sub-view inside the Bookings page: flat list, grouped by day, or calendar.
   const [bookingsSubView, setBookingsSubView] = useState('list'); // 'list' | 'daily' | 'calendar'
+  // When a day is opened from the Daily view, the Schedule view focuses on
+  // just that date (YYYY-MM-DD). Null = show all days.
+  const [scheduleFocusKey, setScheduleFocusKey] = useState(null);
   // Highlights the user explicitly un-tagged in the current form session.
   // The auto-tag effect skips these so user overrides aren't re-applied.
   const [optedOutHighlightIds, setOptedOutHighlightIds] = useState(() => new Set());
@@ -3141,7 +3144,7 @@ export function Itinerary({ event, onSave, canEdit }) {
         <div className={styles.headerActions}>
           <button
             className={viewMode === 'schedule' ? styles.addBtn : styles.lodgingToggleBtn}
-            onClick={() => setViewMode('schedule')}
+            onClick={() => { setScheduleFocusKey(null); setViewMode('schedule'); }}
             title="Detailed day-by-day schedule"
           >📅 Schedule</button>
           <button
@@ -4056,6 +4059,12 @@ export function Itinerary({ event, onSave, canEdit }) {
                     <span className={styles.dailyDate}>
                       {new Date(d.key + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                     </span>
+                    <button
+                      type="button"
+                      className={styles.dailyOpenScheduleBtn}
+                      onClick={() => { setScheduleFocusKey(d.key); setViewMode('schedule'); }}
+                      title="Open this day's full schedule"
+                    >📋 Full schedule</button>
                     {(() => {
                       const dailyNames = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
                       const savedName = dailyNames[d.key] || '';
@@ -4830,7 +4839,20 @@ export function Itinerary({ event, onSave, canEdit }) {
         </div>
       ) : (
         <div className={styles.list}>
-          {sortedDates.map(dateKey => {
+          {scheduleFocusKey && groups[scheduleFocusKey] && (
+            <div className={styles.scheduleFocusBanner}>
+              <span>
+                Showing one day ·{' '}
+                <strong>{new Date(scheduleFocusKey + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</strong>
+              </span>
+              <button
+                type="button"
+                className={styles.scheduleFocusClearBtn}
+                onClick={() => setScheduleFocusKey(null)}
+              >Show all days</button>
+            </div>
+          )}
+          {(scheduleFocusKey && groups[scheduleFocusKey] ? sortedDates.filter(dk => dk === scheduleFocusKey) : sortedDates).map(dateKey => {
             const dateItems = groups[dateKey].slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
             const dateLabel = dateKey === 'Unscheduled'
               ? 'Unscheduled'
