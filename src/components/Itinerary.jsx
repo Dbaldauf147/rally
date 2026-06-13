@@ -3414,7 +3414,9 @@ export function Itinerary({ event, onSave, canEdit }) {
           return { rows, noDate };
         })();
 
-        // Calendar view: one month block per month that any booking touches.
+        // Calendar view: only the days of the trip. The grid spans the months
+        // the trip touches, but cells outside the trip's start–end range are
+        // blanked out so just the trip days are shown.
         const calendarMonths = (() => {
           const dayMap = new Map(); // 'YYYY-MM-DD' -> [{ item, isStart }]
           for (const b of bookings) {
@@ -3425,12 +3427,23 @@ export function Itinerary({ event, onSave, canEdit }) {
             });
           }
           const allKeys = Array.from(dayMap.keys()).sort();
-          if (allKeys.length === 0) return [];
-          const first = new Date(allKeys[0] + 'T00:00:00');
-          const last = new Date(allKeys[allKeys.length - 1] + 'T00:00:00');
+
+          // Prefer the event's trip dates; fall back to the booking date span.
+          let rangeStart = null, rangeEnd = null;
+          if (tripStartRaw && tripEndRaw) {
+            rangeStart = new Date(tripStartRaw); rangeStart.setHours(0, 0, 0, 0);
+            rangeEnd = new Date(tripEndRaw); rangeEnd.setHours(0, 0, 0, 0);
+          } else if (allKeys.length > 0) {
+            rangeStart = new Date(allKeys[0] + 'T00:00:00');
+            rangeEnd = new Date(allKeys[allKeys.length - 1] + 'T00:00:00');
+          } else {
+            return [];
+          }
+          if (rangeEnd < rangeStart) rangeEnd = new Date(rangeStart);
+
           const months = [];
-          const cur = new Date(first.getFullYear(), first.getMonth(), 1);
-          const stop = new Date(last.getFullYear(), last.getMonth(), 1);
+          const cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+          const stop = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), 1);
           while (cur <= stop) {
             const year = cur.getFullYear();
             const month = cur.getMonth();
@@ -3448,11 +3461,13 @@ export function Itinerary({ event, onSave, canEdit }) {
                 const mm = String(cell.getMonth() + 1).padStart(2, '0');
                 const dd = String(cell.getDate()).padStart(2, '0');
                 const key = `${y}-${mm}-${dd}`;
+                const cellDay = new Date(cell); cellDay.setHours(0, 0, 0, 0);
+                const inTrip = cell.getMonth() === month && cellDay >= rangeStart && cellDay <= rangeEnd;
                 week.push({
                   key,
                   dateNum: cell.getDate(),
-                  inMonth: cell.getMonth() === month,
-                  entries: dayMap.get(key) || [],
+                  inTrip,
+                  entries: inTrip ? (dayMap.get(key) || []) : [],
                 });
                 cell.setDate(cell.getDate() + 1);
               }
@@ -3564,9 +3579,9 @@ export function Itinerary({ event, onSave, canEdit }) {
                       {month.weeks.flat().map(cell => (
                         <div
                           key={cell.key}
-                          className={cell.inMonth ? styles.bookingsCalCell : `${styles.bookingsCalCell} ${styles.bookingsCalCellOut}`}
+                          className={cell.inTrip ? styles.bookingsCalCell : `${styles.bookingsCalCell} ${styles.bookingsCalCellOut}`}
                         >
-                          <div className={styles.bookingsCalDateNum}>{cell.dateNum}</div>
+                          {cell.inTrip && <div className={styles.bookingsCalDateNum}>{cell.dateNum}</div>}
                           {cell.entries.map(({ item, isStart }, i) => {
                             const isLodging = item.type === 'lodging';
                             const icon = isLodging ? '🏨' : item.isFlight ? '✈️' : '🚆';
