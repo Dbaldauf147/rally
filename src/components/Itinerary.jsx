@@ -4064,20 +4064,6 @@ export function Itinerary({ event, onSave, canEdit }) {
                     <span className={styles.dailyDate}>
                       {new Date(d.key + 'T00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                     </span>
-                    <button
-                      type="button"
-                      className={styles.dailyOpenScheduleBtn}
-                      onClick={() => setDaySchedulePeekKey(d.key)}
-                      title="Open this day's full schedule"
-                    >📋 Details</button>
-                    {canEdit ? (
-                      <button
-                        type="button"
-                        className={isDayBooked ? styles.dayBookedBtnActive : styles.dayBookedBtn}
-                        onClick={() => setDayBooked(d.key, !isDayBooked)}
-                        title={isDayBooked ? 'Booked — click to unlock' : 'Lock in & confirm this day is booked'}
-                      >{isDayBooked ? '✅ Booked' : '🔒 Confirm booked'}</button>
-                    ) : (isDayBooked && <span className={styles.dayBookedBadge}>✅ Booked</span>)}
                     {(() => {
                       const dailyNames = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
                       const savedName = dailyNames[d.key] || '';
@@ -4127,7 +4113,7 @@ export function Itinerary({ event, onSave, canEdit }) {
                               fontFamily: 'inherit',
                               cursor: canEdit ? 'pointer' : 'default',
                             }}
-                          >🏷️ {savedName}</button>
+                          >{savedName}</button>
                         );
                       }
                       if (canEdit) {
@@ -4151,8 +4137,21 @@ export function Itinerary({ event, onSave, canEdit }) {
                       }
                       return null;
                     })()}
+                    <button
+                      type="button"
+                      className={styles.dailyOpenScheduleBtn}
+                      onClick={() => setDaySchedulePeekKey(d.key)}
+                      title="Open this day's full schedule"
+                    >📋 Details</button>
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        className={isDayBooked ? styles.dayBookedBtnActive : styles.dayBookedBtn}
+                        onClick={() => setDayBooked(d.key, !isDayBooked)}
+                        title={isDayBooked ? 'Booked — click to unlock' : 'Lock in & confirm this day is booked'}
+                      >{isDayBooked ? '✅ Booked' : '🔒 Confirm booked'}</button>
+                    ) : (isDayBooked && <span className={styles.dayBookedBadge}>✅ Booked</span>)}
                     <span className={styles.dailyDestWrap}>
-                      {isOverride && <span style={{ fontSize: '0.72rem', color: '#6366F1' }} title="Manually set">✎</span>}
                       {canEdit && tripHighlights.length > 0 ? (
                         <select
                           value={d.overrideId || ''}
