@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format, startOfWeek, addDays, addWeeks, eachDayOfInterval, isSameDay } from 'date-fns';
+import { useEvents } from '../hooks/useEvents';
 import styles from './Plans.module.css';
 
 function toDateStr(d) {
@@ -39,6 +41,8 @@ async function getValidGoogleToken() {
 }
 
 export function Plans() {
+  const navigate = useNavigate();
+  const { events } = useEvents();
   const [googleConnected, setGoogleConnected] = useState(() => !!localStorage.getItem('google-cal-token'));
   const [calendars, setCalendars] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => {
@@ -58,6 +62,29 @@ export function Plans() {
   const week1Days = eachDayOfInterval({ start: week1Start, end: addDays(week1Start, 6) });
   const week2Days = eachDayOfInterval({ start: week2Start, end: addDays(week2Start, 6) });
   const week3Days = eachDayOfInterval({ start: week3Start, end: week3End });
+
+  // Finalized Rally events (dates locked in) mapped onto the days they cover
+  // within the visible window. These render alongside the Google events.
+  const rallyByDay = {};
+  const winStart = new Date(week1Start.getFullYear(), week1Start.getMonth(), week1Start.getDate());
+  const winEnd = new Date(week3End.getFullYear(), week3End.getMonth(), week3End.getDate());
+  for (const ev of events) {
+    if (ev.stage !== 'finalized' || ev.dateTBD) continue;
+    const start = ev.date?.toDate ? ev.date.toDate() : (ev.date ? new Date(ev.date) : null);
+    if (!start || isNaN(start)) continue;
+    let end = ev.endDate?.toDate ? ev.endDate.toDate() : (ev.endDate ? new Date(ev.endDate) : start);
+    if (!end || isNaN(end)) end = start;
+    const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    for (let i = 0; i < 400 && cur <= last; i++) {
+      if (cur >= winStart && cur <= winEnd) {
+        const ds = toDateStr(cur);
+        (rallyByDay[ds] = rallyByDay[ds] || []).push({ id: ev.id, title: ev.title || '(untitled)' });
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
+  const hasRally = Object.keys(rallyByDay).length > 0;
 
   // Persist calendar selection
   useEffect(() => {
@@ -184,15 +211,33 @@ export function Plans() {
 
   function renderCell(day) {
     const ds = toDateStr(day);
+    const rally = rallyByDay[ds] || [];
     const items = eventsByDay[ds] || [];
-    if (items.length === 0) return <span className={styles.empty}>—</span>;
-    return items.map((evt, i) => (
-      <span key={i} className={styles.eventLine} title={evt.title}>
-        <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: evt.color, marginRight: 6, verticalAlign: 'middle' }} />
-        {evt.time && <span style={{ color: 'var(--color-text-muted)', fontSize: '0.72rem', marginRight: 4 }}>{evt.time}</span>}
-        {evt.title}
-      </span>
-    ));
+    if (rally.length === 0 && items.length === 0) return <span className={styles.empty}>—</span>;
+    return (
+      <>
+        {rally.map((r, i) => (
+          <span
+            key={`r-${i}`}
+            className={styles.rallyLine}
+            title={`${r.title} — finalized Rally event (click to open)`}
+            onClick={() => navigate(`/event/${r.id}`)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/event/${r.id}`); }}
+          >
+            🎉 {r.title}
+          </span>
+        ))}
+        {items.map((evt, i) => (
+          <span key={i} className={styles.eventLine} title={evt.title}>
+            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: evt.color, marginRight: 6, verticalAlign: 'middle' }} />
+            {evt.time && <span style={{ color: 'var(--color-text-muted)', fontSize: '0.72rem', marginRight: 4 }}>{evt.time}</span>}
+            {evt.title}
+          </span>
+        ))}
+      </>
+    );
   }
 
   const weekdayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -259,7 +304,7 @@ export function Plans() {
 
       {error && <div className={styles.errorBanner}>{error}</div>}
 
-      {googleConnected && selectedIds.length === 0 && !showCalPicker && (
+      {googleConnected && selectedIds.length === 0 && !showCalPicker && !hasRally && (
         <div className={styles.connectCard}>
           <h2 className={styles.connectTitle}>No calendars selected</h2>
           <p className={styles.connectDesc}>Pick one or more calendars to populate this view.</p>
@@ -267,7 +312,7 @@ export function Plans() {
         </div>
       )}
 
-      {googleConnected && selectedIds.length > 0 && (
+      {((googleConnected && selectedIds.length > 0) || hasRally) && (
         <table className={styles.table}>
           <colgroup>
             <col style={{ width: 130 }} />
@@ -298,7 +343,8 @@ export function Plans() {
               const isWeekend = i === 4 || i === 5; // Friday or Saturday
               const wkCls = (isToday) => `${styles.weekdayCell}${isToday ? ` ${styles.todayCell}` : ''}`;
               const evCls = (day, isToday) => {
-                const empty = (eventsByDay[toDateStr(day)] || []).length === 0;
+                const ds = toDateStr(day);
+                const empty = (eventsByDay[ds] || []).length === 0 && (rallyByDay[ds] || []).length === 0;
                 return `${styles.eventCell}${isToday ? ` ${styles.todayCell}` : ''}${isWeekend && empty ? ` ${styles.emptyWeekend}` : ''}`;
               };
               return (
