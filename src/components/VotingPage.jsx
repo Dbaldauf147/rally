@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { getCuratedForState, VOTING_TYPES as TYPES, NATIONAL_EVENTS } from '../electionDates';
+import { getCuratedForState, getCuratedRacesForState, VOTING_TYPES as TYPES, NATIONAL_EVENTS } from '../electionDates';
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, addMonths, isSameMonth, isSameDay, parseISO, isBefore, differenceInCalendarDays,
@@ -104,6 +104,9 @@ export function VotingPage() {
   }
 
   const today = new Date();
+
+  // --- Curated "what's on your ballot" races for the selected state ---
+  const racesEntry = getCuratedRacesForState(stateCode);
 
   // --- Curated, source-verified dates for the selected state ---
   const curatedEntry = getCuratedForState(stateCode);
@@ -224,6 +227,45 @@ export function VotingPage() {
           </p>
         )}
       </div>
+
+      {/* What's on your ballot */}
+      {racesEntry && (
+        <div className={styles.ballotCard}>
+          <div className={styles.ballotHeader}>
+            <span className={styles.ballotTitle}>🗳️ On your ballot — {racesEntry.electionLabel}</span>
+          </div>
+          <p className={styles.ballotAddr}>{racesEntry.addressNote}</p>
+          <div className={styles.raceList}>
+            {racesEntry.races.map((r, i) => {
+              const badge = r.contested === true
+                ? { text: '✅ You have a choice', cls: styles.raceBadgeChoice }
+                : r.contested === false
+                  ? { text: '— Uncontested', cls: styles.raceBadgeNone }
+                  : { text: 'ℹ️ May be contested', cls: styles.raceBadgeMaybe };
+              return (
+                <div key={i} className={styles.raceItem}>
+                  <div className={styles.raceTop}>
+                    <span className={styles.raceOffice}>{r.office}</span>
+                    <span className={`${styles.raceBadge} ${badge.cls}`}>{badge.text}</span>
+                  </div>
+                  {Array.isArray(r.candidates) && r.candidates.length > 0 && (
+                    <ul className={styles.candList}>
+                      {r.candidates.map((c, j) => <li key={j}>{c}</li>)}
+                    </ul>
+                  )}
+                  {r.note && <div className={styles.raceNote}>{r.note}</div>}
+                  {r.source && <div className={styles.raceSource}>Source: {r.source}</div>}
+                </div>
+              );
+            })}
+          </div>
+          <p className={styles.ballotFoot}>
+            Compiled {format(parseISO(racesEntry.lastVerified), 'MMM d, yyyy')}. Candidate lists change — confirm your sample ballot and districts at{' '}
+            <a className={styles.link} href="https://www.vote.nyc/" target="_blank" rel="noopener noreferrer">vote.nyc</a>{' '}
+            or <a className={styles.link} href="https://elections.ny.gov/" target="_blank" rel="noopener noreferrer">elections.ny.gov</a>.
+          </p>
+        </div>
+      )}
 
       <div className={styles.layout}>
         {/* Calendar */}

@@ -39,6 +39,68 @@ export function getCuratedForState(stateCode) {
   return CURATED_ELECTION_DATES[stateCode] || null;
 }
 
+// Curated "what's on your ballot" races, by state. District-specific races
+// (House/Assembly/Senate) depend on the voter's exact address — these reflect
+// the NYC address provided. `contested`: true = a real choice, false =
+// uncontested, null = unknown / may or may not be contested.
+export const CURATED_RACES = {
+  NY: {
+    lastVerified: '2026-06-16',
+    electionDate: '2026-06-23',
+    electionLabel: 'Democratic Primary — June 23, 2026',
+    addressNote: 'For an NYC address in NY-7 (U.S. House), Assembly District 50, and State Senate District 18. Your exact districts depend on your address — confirm before voting.',
+    races: [
+      {
+        office: 'U.S. House — NY-7',
+        contested: true,
+        candidates: ['Vichal Kumar', 'Antonio Reynoso', 'Claire Valdez', 'Julie Won'],
+        note: 'The big competitive race.',
+        source: 'Ballotpedia',
+      },
+      {
+        office: 'State Assembly — District 50',
+        contested: true,
+        candidates: ['Emily Gallagher (incumbent)', 'Andrew Bodiford'],
+        source: 'Wikipedia',
+      },
+      {
+        office: 'Governor',
+        contested: null,
+        candidates: ['Kathy Hochul (incumbent)'],
+        note: 'May or may not be contested, depending on whether a challenger qualified.',
+        source: 'BallotReady',
+      },
+      {
+        office: 'Lieutenant Governor',
+        contested: null,
+        note: 'Runs on the Governor’s ticket — under a 2025 law, the gubernatorial candidate chooses a running mate.',
+        source: 'Wikipedia',
+      },
+      {
+        office: 'Attorney General',
+        contested: null,
+        candidates: ['Letitia James (incumbent)'],
+        source: 'BallotReady',
+      },
+      {
+        office: 'State Comptroller',
+        contested: null,
+        note: 'Typically appears on the statewide ballot.',
+      },
+      {
+        office: 'State Senate — District 18',
+        contested: false,
+        candidates: ['Julia Salazar (incumbent, unopposed)'],
+        note: 'No contest — incumbent appears unopposed.',
+      },
+    ],
+  },
+};
+
+export function getCuratedRacesForState(stateCode) {
+  return CURATED_RACES[stateCode] || null;
+}
+
 // Type → display metadata for calendar/list entries (shared by the Voting page
 // and the Plans page).
 export const VOTING_TYPES = {

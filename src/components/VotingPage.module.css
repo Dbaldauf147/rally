@@ -29,6 +29,30 @@
 .freshStale .link { color: #92400e; text-decoration: underline; }
 .infoNote { font-size: 0.82rem; color: var(--color-text-secondary); margin: 0.5rem 0 0; line-height: 1.45; }
 
+.ballotCard {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 1rem 1.1rem; margin-bottom: 1rem;
+}
+.ballotHeader { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.ballotTitle { font-size: 1.02rem; font-weight: 700; color: var(--color-text); }
+.ballotAddr { font-size: 0.8rem; color: var(--color-text-muted); margin: 0.35rem 0 0.85rem; line-height: 1.45; }
+.raceList { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+@media (max-width: 700px) { .raceList { grid-template-columns: 1fr; } }
+.raceItem {
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem; background: var(--color-surface-alt);
+}
+.raceTop { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.raceOffice { font-size: 0.9rem; font-weight: 700; color: var(--color-text); }
+.raceBadge { font-size: 0.68rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 999px; white-space: nowrap; }
+.raceBadgeChoice { color: #047857; background: rgba(16,185,129,0.14); border: 1px solid #6ee7b7; }
+.raceBadgeNone { color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); }
+.raceBadgeMaybe { color: #92400e; background: #fef3c7; border: 1px solid #fde68a; }
+.candList { margin: 0.4rem 0 0; padding-left: 1.1rem; font-size: 0.83rem; color: var(--color-text); line-height: 1.55; }
+.raceNote { font-size: 0.78rem; color: var(--color-text-secondary); margin-top: 0.35rem; line-height: 1.45; }
+.raceSource { font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.25rem; }
+.ballotFoot { font-size: 0.76rem; color: var(--color-text-muted); margin: 0.9rem 0 0; line-height: 1.5; }
+
 .layout { display: grid; grid-template-columns: 1fr 320px; gap: 1.25rem; align-items: start; }
 @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
 
