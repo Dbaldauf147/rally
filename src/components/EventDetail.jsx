@@ -92,7 +92,7 @@ export function EventDetail() {
   const [calMenuOpen, setCalMenuOpen] = useState(false); // gear dropdown for sync controls
   const [tripSummary, setTripSummary] = useState(null); // { days, travelLabel } reported by Itinerary
   const [pinned, setPinned] = useState(() => isPinned(eventId));
-  useEffect(() => subscribePins(() => setPinned(isPinned(eventId))), [eventId]);
+  useEffect(() => subscribePins(user?.uid, () => setPinned(isPinned(eventId))), [user, eventId]);
   const [calPickerList, setCalPickerList] = useState(null); // null = not loaded, [] = empty
   const [calPickerLoading, setCalPickerLoading] = useState(false);
   const [calPickerError, setCalPickerError] = useState('');
@@ -881,7 +881,7 @@ export function EventDetail() {
             <h1 className={styles.title} style={{ margin: 0 }}>{event.title}</h1>
             <button
               type="button"
-              onClick={() => togglePin({ id: eventId, title: event.title })}
+              onClick={() => togglePin(user?.uid, { id: eventId, title: event.title })}
               title={pinned ? 'Unpin from the top menu' : 'Pin this trip to the top menu'}
               aria-pressed={pinned}
               style={{

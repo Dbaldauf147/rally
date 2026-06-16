@@ -10,7 +10,7 @@ export function NavBar() {
   const [showEmail, setShowEmail] = useState(false);
   const [pinnedTrips, setPinnedTrips] = useState(getPinnedTrips);
 
-  useEffect(() => subscribePins(setPinnedTrips), []);
+  useEffect(() => subscribePins(user?.uid, setPinnedTrips), [user]);
 
   return (
     <nav className={styles.nav}>
@@ -52,7 +52,7 @@ export function NavBar() {
                 className={styles.pinnedUnpin}
                 title="Unpin from menu"
                 aria-label={`Unpin ${t.title}`}
-                onClick={() => togglePin(t)}
+                onClick={() => togglePin(user?.uid, t)}
               >×</button>
             </span>
           ))}
