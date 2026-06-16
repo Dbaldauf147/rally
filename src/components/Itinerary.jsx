@@ -2477,17 +2477,40 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
   }
   // Move a bullet from one day's selected list to another in a single write.
   // Used by the drag-and-drop interaction in the Daily view.
-  async function moveBulletBetweenDays(subId, fromDateKey, toDateKey) {
-    if (!subId || !fromDateKey || !toDateKey || fromDateKey === toDateKey) return;
-    const current = (event?.dailyBullets && typeof event.dailyBullets === 'object')
-      ? { ...event.dailyBullets }
-      : {};
-    const fromList = Array.isArray(current[fromDateKey]) ? current[fromDateKey].filter(x => x !== subId) : [];
-    if (fromList.length > 0) current[fromDateKey] = fromList;
-    else delete current[fromDateKey];
-    const toList = Array.isArray(current[toDateKey]) ? current[toDateKey] : [];
-    if (!toList.includes(subId)) current[toDateKey] = [...toList, subId];
-    await onSave({ dailyBullets: current });
+  // Move a bullet to another day, even when that day has a different Key
+  // Destination — the bullet is re-parented to the target day's destination
+  // so it shows up there. (Same-destination moves are a no-op re-parent.)
+  async function moveBulletToDay(subId, fromHighlightId, fromDateKey, toDateKey, toHighlightId) {
+    if (!subId || !toDateKey || fromDateKey === toDateKey) return;
+    const updates = {};
+    if (fromHighlightId && toHighlightId && fromHighlightId !== toHighlightId) {
+      const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
+      let movedSub = null;
+      const stripped = highlights.map(h => {
+        if (h.id !== fromHighlightId) return h;
+        const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+        const found = subs.find(s => s.id === subId);
+        if (found) movedSub = found;
+        return { ...h, subHighlights: subs.filter(s => s.id !== subId) };
+      });
+      if (!movedSub) return;
+      updates.tripHighlights = stripped.map(h => {
+        if (h.id !== toHighlightId) return h;
+        const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
+        if (subs.some(s => s.id === subId)) return h;
+        return { ...h, subHighlights: [...subs, movedSub] };
+      });
+    }
+    const dailyBullets = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? { ...event.dailyBullets } : {};
+    if (fromDateKey) {
+      const fromList = Array.isArray(dailyBullets[fromDateKey]) ? dailyBullets[fromDateKey].filter(x => x !== subId) : [];
+      if (fromList.length > 0) dailyBullets[fromDateKey] = fromList;
+      else delete dailyBullets[fromDateKey];
+    }
+    const toList = Array.isArray(dailyBullets[toDateKey]) ? dailyBullets[toDateKey] : [];
+    if (!toList.includes(subId)) dailyBullets[toDateKey] = [...toList, subId];
+    updates.dailyBullets = dailyBullets;
+    await onSave(updates);
   }
   // Track the bullet being dragged so day rows can decide whether they're a
   // valid drop target (must share the same source highlight). Stored as state
@@ -4121,11 +4144,12 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
               }
               const pickableDestSubs = allDestSubs.filter(s => !usedOnOtherDays.has(s.id));
               const pickerOpen = bulletPickerOpenKey === d.key;
+              // A day is a valid drop target for a dragged bullet as long as it
+              // has a destination — the bullet is re-parented there if needed.
               const isDropTarget = canEdit
                 && dragBullet
                 && dragBullet.fromDateKey !== d.key
-                && d.destHighlight
-                && d.destHighlight.id === dragBullet.highlightId;
+                && d.destHighlight;
               const isHovering = isDropTarget && dragOverDateKey === d.key;
               const isDayBooked = Array.isArray(event?.bookedDayKeys) && event.bookedDayKeys.includes(d.key);
               const rowClasses = [
@@ -4151,11 +4175,10 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                   onDrop={async (e) => {
                     if (!isDropTarget) return;
                     e.preventDefault();
-                    const subId = dragBullet.subId;
-                    const fromDateKey = dragBullet.fromDateKey;
+                    const { subId, fromDateKey, highlightId } = dragBullet;
                     setDragOverDateKey(null);
                     setDragBullet(null);
-                    await moveBulletBetweenDays(subId, fromDateKey, d.key);
+                    await moveBulletToDay(subId, highlightId, fromDateKey, d.key, d.destHighlight.id);
                   }}
                 >
                   <div className={styles.dailyHeader}>
