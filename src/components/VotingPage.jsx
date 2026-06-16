@@ -1,4 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, addMonths, isSameMonth, isSameDay, parseISO, isBefore,
@@ -54,34 +57,103 @@ function loadCustom() {
 }
 
 export function VotingPage() {
+  const { user } = useAuth();
+  // Seed from localStorage for a fast first paint; Firestore overrides once loaded.
   const [stateCode, setStateCode] = useState(() => localStorage.getItem(LS.state) || '');
   const [party, setParty] = useState(() => localStorage.getItem(LS.party) || '');
   const [custom, setCustom] = useState(loadCustom);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [draft, setDraft] = useState({ date: '', label: '', type: 'primary' });
+  const [official, setOfficial] = useState([]);   // pulled from /api/election-info
+  const [officialNote, setOfficialNote] = useState('');
+  const loadedFromCloud = useRef(false);
 
   const stateName = (STATES.find(s => s[0] === stateCode) || [])[1] || '';
 
-  const setStateAndSave = (v) => { setStateCode(v); localStorage.setItem(LS.state, v); };
-  const setPartyAndSave = (v) => { setParty(v); localStorage.setItem(LS.party, v); };
-  const saveCustom = (list) => { setCustom(list); localStorage.setItem(LS.custom, JSON.stringify(list)); };
+  // --- Sync with the user's account (users/{uid}.voting) ---
+  // Persist a full snapshot so the three fields stay consistent.
+  function persist(nextState, nextParty, nextCustom) {
+    localStorage.setItem(LS.state, nextState);
+    localStorage.setItem(LS.party, nextParty);
+    localStorage.setItem(LS.custom, JSON.stringify(nextCustom));
+    if (user?.uid) {
+      setDoc(doc(db, 'users', user.uid), {
+        voting: { state: nextState, party: nextParty, customDates: nextCustom },
+      }, { merge: true }).catch(err => console.error('Failed to save voting prefs:', err));
+    }
+  }
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      const v = snap.exists() ? snap.data().voting : null;
+      if (v && typeof v === 'object') {
+        loadedFromCloud.current = true;
+        setStateCode(v.state || '');
+        setParty(v.party || '');
+        setCustom(Array.isArray(v.customDates) ? v.customDates.filter(x => x && x.date) : []);
+      } else if (!loadedFromCloud.current) {
+        // First time on this account — migrate anything saved locally up.
+        loadedFromCloud.current = true;
+        const ls = { state: localStorage.getItem(LS.state) || '', party: localStorage.getItem(LS.party) || '', customDates: loadCustom() };
+        if (ls.state || ls.party || ls.customDates.length) {
+          setDoc(doc(db, 'users', user.uid), { voting: ls }, { merge: true }).catch(() => {});
+        }
+      }
+    });
+    return unsub;
+  }, [user]);
+
+  const setStateAndSave = (v) => { setStateCode(v); persist(v, party, custom); };
+  const setPartyAndSave = (v) => { setParty(v); persist(stateCode, v, custom); };
 
   function addCustom() {
     const date = (draft.date || '').trim();
     const label = (draft.label || '').trim();
     if (!date) return;
     const next = [...custom, { id: crypto.randomUUID(), date, label: label || TYPES[draft.type].label, type: draft.type }];
-    saveCustom(next);
+    setCustom(next);
+    persist(stateCode, party, next);
     setDraft({ date: '', label: '', type: draft.type });
   }
-  function removeCustom(id) { saveCustom(custom.filter(c => c.id !== id)); }
+  function removeCustom(id) {
+    const next = custom.filter(c => c.id !== id);
+    setCustom(next);
+    persist(stateCode, party, next);
+  }
 
-  // All events (national + user custom), sorted by date.
+  // --- Pull official elections for the selected state ---
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/election-info?state=${encodeURIComponent(stateCode)}`);
+        const data = await res.json();
+        if (cancelled) return;
+        setOfficial(Array.isArray(data.elections) ? data.elections : []);
+        setOfficialNote(data.needsKey ? 'needsKey' : (data.error ? 'error' : ''));
+      } catch {
+        if (!cancelled) { setOfficial([]); setOfficialNote('error'); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stateCode]);
+
+  // All events: built-in national + official feed (deduped) + user custom.
   const events = useMemo(() => {
-    return [...NATIONAL_EVENTS, ...custom]
+    const base = [...NATIONAL_EVENTS, ...official];
+    const seen = new Set();
+    const deduped = [];
+    for (const e of base) {
+      const k = `${e.date}|${e.type}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      deduped.push(e);
+    }
+    return [...deduped, ...custom]
       .map(e => ({ ...e, dateObj: parseISO(e.date) }))
       .sort((a, b) => a.dateObj - b.dateObj);
-  }, [custom]);
+  }, [official, custom]);
 
   const eventsByDay = useMemo(() => {
     const map = {};
@@ -131,6 +203,12 @@ export function VotingPage() {
           <a className={styles.link} href="https://vote.gov" target="_blank" rel="noopener noreferrer">vote.gov</a>
           <span className={styles.dot}>·</span>
           <a className={styles.link} href="https://www.usa.gov/state-election-office" target="_blank" rel="noopener noreferrer">Your state's election office</a>
+          {official.length > 0 && (
+            <span className={styles.feedBadge}>✓ {official.length} auto-filled from official feed</span>
+          )}
+          {officialNote === 'needsKey' && (
+            <span className={styles.feedNote}>Auto-fill of official dates is not configured yet</span>
+          )}
         </div>
         {party && party.startsWith('Independent') ? (
           <p className={styles.infoNote}>
@@ -201,7 +279,7 @@ export function VotingPage() {
                       <div className={styles.upLabel}>{TYPES[e.type].icon} {e.label}</div>
                       <div className={styles.upMeta}>
                         {format(e.dateObj, 'EEE, MMM d, yyyy')}
-                        {!e.national && (
+                        {!e.national && !e.official && (
                           <button className={styles.removeBtn} onClick={() => removeCustom(e.id)} title="Remove">×</button>
                         )}
                       </div>
