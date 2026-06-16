@@ -54,7 +54,7 @@ export const CURATED_RACES = {
         office: 'U.S. House — NY-7',
         contested: true,
         candidates: ['Vichal Kumar', 'Antonio Reynoso', 'Claire Valdez', 'Julie Won'],
-        note: 'The big competitive race.',
+        note: 'The big competitive race. Open seat — longtime incumbent Nydia Velázquez is not seeking re-election. (Candidate list cross-checked against Ballotpedia, Jun 2026.)',
         source: 'Ballotpedia',
       },
       {
