@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { getCuratedForState } from '../electionDates';
+import { getCuratedForState, VOTING_TYPES as TYPES, NATIONAL_EVENTS } from '../electionDates';
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, addMonths, isSameMonth, isSameDay, parseISO, isBefore, differenceInCalendarDays,
@@ -24,25 +24,6 @@ const STATES = [
 ];
 
 const PARTIES = ['Democratic', 'Republican', 'Independent / Unaffiliated', 'Libertarian', 'Green', 'Other'];
-
-// Type → display metadata for calendar/list entries.
-const TYPES = {
-  general:      { label: 'General election', icon: '🗳️', color: '#2563eb' },
-  primary:      { label: 'Primary election', icon: '🗳️', color: '#7c3aed' },
-  registration: { label: 'Registration deadline', icon: '⏰', color: '#dc2626' },
-  early:        { label: 'Early voting', icon: '🕑', color: '#0891b2' },
-  ballot:       { label: 'Mail ballot due', icon: '✉️', color: '#d97706' },
-  local:        { label: 'Local / special election', icon: '🏛️', color: '#16a34a' },
-  other:        { label: 'Other', icon: '📌', color: '#6b7280' },
-};
-
-// Dates fixed by federal law (first Tuesday after the first Monday in
-// November). These are reliable nationwide; everything else (primaries,
-// registration deadlines, early voting) varies by state and is user-added.
-const NATIONAL_EVENTS = [
-  { id: 'nat-2026', date: '2026-11-03', label: 'General Election — U.S. Midterms', type: 'general', national: true },
-  { id: 'nat-2028', date: '2028-11-07', label: 'General Election — Presidential', type: 'general', national: true },
-];
 
 const LS = {
   state: 'rally.voting.state',

@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { format, startOfWeek, addDays, addWeeks, eachDayOfInterval, isSameDay } from 'date-fns';
+import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
+import { getVotingEventsForState, VOTING_TYPES } from '../electionDates';
 import styles from './Plans.module.css';
 
 function toDateStr(d) {
@@ -42,7 +46,27 @@ async function getValidGoogleToken() {
 
 export function Plans() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { events } = useEvents();
+  // The user's saved Voting page prefs (state + custom dates), used to overlay
+  // election dates onto this grid. Falls back to localStorage for fast paint.
+  const [votingPrefs, setVotingPrefs] = useState(() => {
+    try {
+      return {
+        state: localStorage.getItem('rally.voting.state') || '',
+        customDates: JSON.parse(localStorage.getItem('rally.voting.customDates') || '[]'),
+      };
+    } catch { return { state: '', customDates: [] }; }
+  });
+  useEffect(() => {
+    if (!user?.uid) return;
+    return onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      const v = snap.exists() ? snap.data().voting : null;
+      if (v && typeof v === 'object') {
+        setVotingPrefs({ state: v.state || '', customDates: Array.isArray(v.customDates) ? v.customDates : [] });
+      }
+    });
+  }, [user]);
   const [googleConnected, setGoogleConnected] = useState(() => !!localStorage.getItem('google-cal-token'));
   const [calendars, setCalendars] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => {
@@ -85,6 +109,19 @@ export function Plans() {
     }
   }
   const hasRally = Object.keys(rallyByDay).length > 0;
+
+  // Voting calendar events (national + curated state dates + custom) that fall
+  // inside the visible window — single-day, mapped onto their date.
+  const votingByDay = {};
+  for (const ev of getVotingEventsForState(votingPrefs.state, votingPrefs.customDates)) {
+    if (!ev.date || !/^\d{4}-\d{2}-\d{2}$/.test(ev.date)) continue;
+    const d = parseEventDate(ev.date);
+    if (!d || isNaN(d)) continue;
+    if (d < winStart || d > winEnd) continue;
+    const ds = toDateStr(d);
+    (votingByDay[ds] = votingByDay[ds] || []).push(ev);
+  }
+  const hasVoting = Object.keys(votingByDay).length > 0;
 
   // Persist calendar selection
   useEffect(() => {
@@ -212,10 +249,28 @@ export function Plans() {
   function renderCell(day) {
     const ds = toDateStr(day);
     const rally = rallyByDay[ds] || [];
+    const voting = votingByDay[ds] || [];
     const items = eventsByDay[ds] || [];
-    if (rally.length === 0 && items.length === 0) return <span className={styles.empty}>—</span>;
+    if (rally.length === 0 && voting.length === 0 && items.length === 0) return <span className={styles.empty}>—</span>;
     return (
       <>
+        {voting.map((v, i) => {
+          const meta = VOTING_TYPES[v.type] || VOTING_TYPES.other;
+          return (
+            <span
+              key={`v-${i}`}
+              className={styles.votingLine}
+              style={{ background: `${meta.color}1a`, color: meta.color, borderColor: `${meta.color}55` }}
+              title={`${v.label} — voting calendar (click for details)`}
+              onClick={() => navigate('/voting')}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter') navigate('/voting'); }}
+            >
+              {meta.icon} {v.label}
+            </span>
+          );
+        })}
         {rally.map((r, i) => (
           <span
             key={`r-${i}`}
@@ -304,7 +359,7 @@ export function Plans() {
 
       {error && <div className={styles.errorBanner}>{error}</div>}
 
-      {googleConnected && selectedIds.length === 0 && !showCalPicker && !hasRally && (
+      {googleConnected && selectedIds.length === 0 && !showCalPicker && !hasRally && !hasVoting && (
         <div className={styles.connectCard}>
           <h2 className={styles.connectTitle}>No calendars selected</h2>
           <p className={styles.connectDesc}>Pick one or more calendars to populate this view.</p>
@@ -312,7 +367,7 @@ export function Plans() {
         </div>
       )}
 
-      {((googleConnected && selectedIds.length > 0) || hasRally) && (
+      {((googleConnected && selectedIds.length > 0) || hasRally || hasVoting) && (
         <table className={styles.table}>
           <colgroup>
             <col style={{ width: 130 }} />
@@ -344,7 +399,7 @@ export function Plans() {
               const wkCls = (isToday) => `${styles.weekdayCell}${isToday ? ` ${styles.todayCell}` : ''}`;
               const evCls = (day, isToday) => {
                 const ds = toDateStr(day);
-                const empty = (eventsByDay[ds] || []).length === 0 && (rallyByDay[ds] || []).length === 0;
+                const empty = (eventsByDay[ds] || []).length === 0 && (rallyByDay[ds] || []).length === 0 && (votingByDay[ds] || []).length === 0;
                 return `${styles.eventCell}${isToday ? ` ${styles.todayCell}` : ''}${isWeekend && empty ? ` ${styles.emptyWeekend}` : ''}`;
               };
               return (

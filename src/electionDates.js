@@ -38,3 +38,44 @@ export const CURATED_ELECTION_DATES = {
 export function getCuratedForState(stateCode) {
   return CURATED_ELECTION_DATES[stateCode] || null;
 }
+
+// Type → display metadata for calendar/list entries (shared by the Voting page
+// and the Plans page).
+export const VOTING_TYPES = {
+  general:      { label: 'General election', icon: '🗳️', color: '#2563eb' },
+  primary:      { label: 'Primary election', icon: '🗳️', color: '#7c3aed' },
+  registration: { label: 'Registration deadline', icon: '⏰', color: '#dc2626' },
+  early:        { label: 'Early voting', icon: '🕑', color: '#0891b2' },
+  ballot:       { label: 'Mail ballot due', icon: '✉️', color: '#d97706' },
+  local:        { label: 'Local / special election', icon: '🏛️', color: '#16a34a' },
+  other:        { label: 'Other', icon: '📌', color: '#6b7280' },
+};
+
+// Dates fixed by federal law (first Tuesday after the first Monday in
+// November). Reliable nationwide; primaries/deadlines/early voting vary by
+// state and are curated or user-added.
+export const NATIONAL_EVENTS = [
+  { id: 'nat-2026', date: '2026-11-03', label: 'General Election — U.S. Midterms', type: 'general', national: true },
+  { id: 'nat-2028', date: '2028-11-07', label: 'General Election — Presidential', type: 'general', national: true },
+];
+
+// Combined voting events for a state: national + curated + the user's custom
+// dates, deduped (national/curated) by date+type. Used by both the Voting page
+// and the Plans page so they stay in sync.
+export function getVotingEventsForState(stateCode, customDates = []) {
+  const curated = getCuratedForState(stateCode);
+  const curatedDates = curated
+    ? curated.dates.map(d => ({ ...d, id: `cur-${stateCode}-${d.date}-${d.type}`, curated: true }))
+    : [];
+  const base = [...NATIONAL_EVENTS, ...curatedDates];
+  const seen = new Set();
+  const deduped = [];
+  for (const e of base) {
+    const k = `${e.date}|${e.type}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    deduped.push(e);
+  }
+  const custom = Array.isArray(customDates) ? customDates.filter(c => c && c.date) : [];
+  return [...deduped, ...custom];
+}

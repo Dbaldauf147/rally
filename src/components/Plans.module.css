@@ -37,6 +37,21 @@
   text-overflow: ellipsis;
 }
 .rallyLine:hover { background: rgba(134, 59, 255, 0.18); }
+/* A voting-calendar event (election, deadline, early voting), click → /voting. */
+.votingLine {
+  display: block;
+  padding: 0.12rem 0.4rem;
+  margin-bottom: 0.2rem;
+  border-radius: 6px;
+  border: 1px solid;
+  font-weight: 600;
+  font-size: 0.76rem;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.votingLine:hover { filter: brightness(0.96); }
 .todayCell { background: #fffbeb; }
 .weekdayCell.todayCell { color: #b45309; }
 .emptyWeekend { box-shadow: inset 0 0 0 2px #dc2626; }
