@@ -7,3 +7,6 @@ dist
 # Capacitor native projects — generated on the (cloud) Mac build, not committed
 /ios
 /android
+
+# Claude Code local settings
+.claude/
