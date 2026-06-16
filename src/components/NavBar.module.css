@@ -10,6 +10,17 @@
 .link, .linkActive { padding: 0.4rem 0.75rem; border-radius: var(--radius-md); font-size: 0.88rem; font-weight: 500; color: var(--color-text-secondary); text-decoration: none; transition: all 0.15s; }
 .link:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .linkActive { background: var(--color-accent-light); color: var(--color-accent); }
+.pinnedWrap { display: inline-flex; align-items: center; }
+.pinnedWrap .link, .pinnedWrap .linkActive {
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding-right: 0.35rem;
+}
+.pinnedUnpin {
+  background: none; border: none; color: var(--color-text-muted);
+  cursor: pointer; font-size: 0.95rem; line-height: 1; padding: 0 0.3rem 0 0.1rem;
+  border-radius: var(--radius-sm);
+}
+.pinnedUnpin:hover { color: var(--color-danger, #dc2626); }
 .right { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
 .userName { font-size: 0.82rem; color: var(--color-text-secondary); background: none; border: none; padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; }
 .userName:hover { background: var(--color-surface-alt); color: var(--color-text); }

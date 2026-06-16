@@ -1,12 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { getPinnedTrips, subscribePins, togglePin } from '../pinnedTrips';
 import styles from './NavBar.module.css';
 
 export function NavBar() {
   const { user, logOut } = useAuth();
   const navigate = useNavigate();
   const [showEmail, setShowEmail] = useState(false);
+  const [pinnedTrips, setPinnedTrips] = useState(getPinnedTrips);
+
+  useEffect(() => subscribePins(setPinnedTrips), []);
 
   return (
     <nav className={styles.nav}>
@@ -33,6 +37,24 @@ export function NavBar() {
           {user?.email === 'baldaufdan@gmail.com' && (
             <NavLink to="/admin" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Admin</NavLink>
           )}
+          {pinnedTrips.map(t => (
+            <span key={t.id} className={styles.pinnedWrap}>
+              <NavLink
+                to={`/event/${t.id}`}
+                className={({ isActive }) => isActive ? styles.linkActive : styles.link}
+                title={t.title}
+              >
+                📌 {t.title}
+              </NavLink>
+              <button
+                type="button"
+                className={styles.pinnedUnpin}
+                title="Unpin from menu"
+                aria-label={`Unpin ${t.title}`}
+                onClick={() => togglePin(t)}
+              >×</button>
+            </span>
+          ))}
         </div>
         <div className={styles.right}>
           <button

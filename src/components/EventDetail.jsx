@@ -22,6 +22,7 @@ import {
   getAutoSyncEnabled,
   setAutoSyncEnabled,
 } from '../googleCalendar';
+import { isPinned, togglePin, subscribePins } from '../pinnedTrips';
 import styles from './EventDetail.module.css';
 
 // Shared style for items inside the calendar-sync gear dropdown.
@@ -90,6 +91,8 @@ export function EventDetail() {
   const [showCalPicker, setShowCalPicker] = useState(false);
   const [calMenuOpen, setCalMenuOpen] = useState(false); // gear dropdown for sync controls
   const [tripSummary, setTripSummary] = useState(null); // { days, travelLabel } reported by Itinerary
+  const [pinned, setPinned] = useState(() => isPinned(eventId));
+  useEffect(() => subscribePins(() => setPinned(isPinned(eventId))), [eventId]);
   const [calPickerList, setCalPickerList] = useState(null); // null = not loaded, [] = empty
   const [calPickerLoading, setCalPickerLoading] = useState(false);
   const [calPickerError, setCalPickerError] = useState('');
@@ -876,6 +879,20 @@ export function EventDetail() {
         <div className={styles.heroInfo}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <h1 className={styles.title} style={{ margin: 0 }}>{event.title}</h1>
+            <button
+              type="button"
+              onClick={() => togglePin({ id: eventId, title: event.title })}
+              title={pinned ? 'Unpin from the top menu' : 'Pin this trip to the top menu'}
+              aria-pressed={pinned}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                border: pinned ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                background: pinned ? 'var(--color-accent-light)' : 'var(--color-surface)',
+                color: pinned ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                borderRadius: 'var(--radius-full)', padding: '0.25rem 0.6rem',
+                fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >📌 {pinned ? 'Pinned' : 'Pin to menu'}</button>
             {user?.uid && stage === 'finalized' && !event.dateTBD && userCalSync && (
               <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
                 <span style={{
