@@ -1,0 +1,85 @@
+.page { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+
+.header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
+}
+.title { font-size: 1.5rem; font-weight: 700; margin: 0; color: var(--color-text); }
+.subtitle { font-size: 0.85rem; color: var(--color-text-muted); margin: 0.25rem 0 0; }
+.pickers { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.select {
+  padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text); font-size: 0.85rem; font-family: inherit; cursor: pointer;
+}
+
+.infoCard {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 0.85rem 1rem; margin-bottom: 1rem;
+}
+.infoRow { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-size: 0.88rem; color: var(--color-text); }
+.link { color: var(--color-accent); text-decoration: none; font-weight: 600; }
+.link:hover { text-decoration: underline; }
+.dot { color: var(--color-text-muted); }
+.infoNote { font-size: 0.82rem; color: var(--color-text-secondary); margin: 0.5rem 0 0; line-height: 1.45; }
+
+.layout { display: grid; grid-template-columns: 1fr 320px; gap: 1.25rem; align-items: start; }
+@media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
+
+.calendarWrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
+.calNav { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--color-border); }
+.calMonth { font-weight: 700; font-size: 0.95rem; color: var(--color-text); }
+.navBtn {
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary);
+  width: 1.9rem; height: 1.9rem; border-radius: var(--radius-md); cursor: pointer; font-size: 1.1rem; line-height: 1;
+}
+.navBtn:hover { background: var(--color-surface-alt); }
+.todayBtn {
+  margin-left: auto; border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-accent); font-weight: 600; font-size: 0.78rem; padding: 0.3rem 0.7rem;
+  border-radius: 999px; cursor: pointer; font-family: inherit;
+}
+
+.calGrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.calWeekday {
+  padding: 0.4rem; text-align: center; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.03em; color: var(--color-text-muted); background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+}
+.calCell {
+  min-height: 84px; padding: 0.3rem; border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.2rem;
+}
+.calCellOut { background: var(--color-surface-alt); }
+.calCellToday { box-shadow: inset 0 0 0 2px var(--color-accent); }
+.calDateNum { font-size: 0.74rem; font-weight: 600; color: var(--color-text-muted); text-align: right; }
+.calChip {
+  display: flex; align-items: center; gap: 0.2rem; font-size: 0.68rem; font-weight: 600;
+  padding: 0.12rem 0.3rem; border: 1px solid; border-radius: 6px; overflow: hidden;
+}
+.calChipText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.side { display: flex; flex-direction: column; gap: 1rem; }
+.sideCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.85rem 1rem; }
+.sideTitle { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); margin-bottom: 0.6rem; }
+.empty { font-size: 0.85rem; color: var(--color-text-muted); font-style: italic; }
+
+.upcomingList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+.upcomingItem { display: flex; gap: 0.5rem; align-items: flex-start; }
+.upDot { width: 8px; height: 8px; border-radius: 50%; margin-top: 0.35rem; flex-shrink: 0; }
+.upBody { flex: 1; min-width: 0; }
+.upLabel { font-size: 0.85rem; font-weight: 600; color: var(--color-text); }
+.upMeta { display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; color: var(--color-text-muted); }
+.removeBtn { background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 0.2rem; }
+.removeBtn:hover { color: var(--color-danger, #dc2626); }
+
+.addForm { display: flex; flex-direction: column; gap: 0.5rem; }
+.input {
+  padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text); font-size: 0.85rem; font-family: inherit; width: 100%; box-sizing: border-box;
+}
+.addBtn {
+  background: var(--color-accent); color: #fff; border: none; border-radius: var(--radius-md);
+  padding: 0.55rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.addBtn:disabled { opacity: 0.5; cursor: default; }
+.disclaimer { font-size: 0.72rem; color: var(--color-text-muted); margin: 0.6rem 0 0; line-height: 1.4; }

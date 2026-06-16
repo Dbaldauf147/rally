@@ -15,6 +15,7 @@ import { TravelListPage } from './components/TravelListPage';
 import { HolidaysPage } from './components/HolidaysPage';
 import { PTOPage } from './components/PTOPage';
 import { TodayPage } from './components/TodayPage';
+import { VotingPage } from './components/VotingPage';
 import { AdminPage } from './components/AdminPage';
 import { NavBar } from './components/NavBar';
 import { BottomTabBar } from './components/BottomTabBar';
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="/today" element={<ProtectedRoute><TodayPage /></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarView /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
+        <Route path="/voting" element={<ProtectedRoute><VotingPage /></ProtectedRoute>} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/wedding" element={<ProtectedRoute><WeddingPage /></ProtectedRoute>} />
         <Route path="/travel-list" element={<ProtectedRoute><TravelListPage /></ProtectedRoute>} />
