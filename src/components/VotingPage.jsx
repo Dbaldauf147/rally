@@ -2,9 +2,10 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { getCuratedForState } from '../electionDates';
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
-  eachDayOfInterval, addMonths, isSameMonth, isSameDay, parseISO, isBefore,
+  eachDayOfInterval, addMonths, isSameMonth, isSameDay, parseISO, isBefore, differenceInCalendarDays,
 } from 'date-fns';
 import styles from './VotingPage.module.css';
 
@@ -64,8 +65,6 @@ export function VotingPage() {
   const [custom, setCustom] = useState(loadCustom);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [draft, setDraft] = useState({ date: '', label: '', type: 'primary' });
-  const [official, setOfficial] = useState([]);   // pulled from /api/election-info
-  const [officialNote, setOfficialNote] = useState('');
   const loadedFromCloud = useRef(false);
 
   const stateName = (STATES.find(s => s[0] === stateCode) || [])[1] || '';
@@ -122,26 +121,34 @@ export function VotingPage() {
     persist(stateCode, party, next);
   }
 
-  // --- Pull official elections for the selected state ---
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/election-info?state=${encodeURIComponent(stateCode)}`);
-        const data = await res.json();
-        if (cancelled) return;
-        setOfficial(Array.isArray(data.elections) ? data.elections : []);
-        setOfficialNote(data.needsKey ? 'needsKey' : (data.error ? 'error' : ''));
-      } catch {
-        if (!cancelled) { setOfficial([]); setOfficialNote('error'); }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [stateCode]);
+  // --- Curated, source-verified dates for the selected state ---
+  const curatedEntry = getCuratedForState(stateCode);
+  const curated = useMemo(() => {
+    if (!curatedEntry) return [];
+    return curatedEntry.dates.map(d => ({
+      ...d,
+      id: `cur-${stateCode}-${d.date}-${d.type}`,
+      curated: true,
+    }));
+  }, [curatedEntry, stateCode]);
 
-  // All events: built-in national + official feed (deduped) + user custom.
+  // Freshness: warn if the curated data is old, or if a curated date is
+  // imminent (when accuracy matters most).
+  const freshness = useMemo(() => {
+    if (!curatedEntry) return null;
+    const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const ageDays = differenceInCalendarDays(todayMid, parseISO(curatedEntry.lastVerified));
+    const soon = curatedEntry.dates.some(d => {
+      const diff = differenceInCalendarDays(parseISO(d.date), todayMid);
+      return diff >= 0 && diff <= 30;
+    });
+    return { ageDays, stale: ageDays > 60 || soon, lastVerified: curatedEntry.lastVerified, sources: curatedEntry.sources };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curatedEntry]);
+
+  // All events: built-in national + curated (deduped) + user custom.
   const events = useMemo(() => {
-    const base = [...NATIONAL_EVENTS, ...official];
+    const base = [...NATIONAL_EVENTS, ...curated];
     const seen = new Set();
     const deduped = [];
     for (const e of base) {
@@ -153,7 +160,7 @@ export function VotingPage() {
     return [...deduped, ...custom]
       .map(e => ({ ...e, dateObj: parseISO(e.date) }))
       .sort((a, b) => a.dateObj - b.dateObj);
-  }, [official, custom]);
+  }, [curated, custom]);
 
   const eventsByDay = useMemo(() => {
     const map = {};
@@ -203,13 +210,23 @@ export function VotingPage() {
           <a className={styles.link} href="https://vote.gov" target="_blank" rel="noopener noreferrer">vote.gov</a>
           <span className={styles.dot}>·</span>
           <a className={styles.link} href="https://www.usa.gov/state-election-office" target="_blank" rel="noopener noreferrer">Your state's election office</a>
-          {official.length > 0 && (
-            <span className={styles.feedBadge}>✓ {official.length} auto-filled from official feed</span>
-          )}
-          {officialNote === 'needsKey' && (
-            <span className={styles.feedNote}>Auto-fill of official dates is not configured yet</span>
+          {curatedEntry && (
+            <span className={styles.feedBadge}>✓ {curated.length} curated dates for {curatedEntry.name}</span>
           )}
         </div>
+        {curatedEntry && freshness && (
+          <div className={freshness.stale ? styles.freshStale : styles.freshOk}>
+            {freshness.stale ? '⚠️ ' : '✓ '}
+            Curated dates last verified {format(parseISO(freshness.lastVerified), 'MMM d, yyyy')}
+            {freshness.stale ? ' — re-confirm before you vote: ' : ' · sources: '}
+            {freshness.sources.map((s, i) => (
+              <span key={s.url}>
+                {i > 0 && ', '}
+                <a className={styles.link} href={s.url} target="_blank" rel="noopener noreferrer">{s.label}</a>
+              </span>
+            ))}
+          </div>
+        )}
         {party && party.startsWith('Independent') ? (
           <p className={styles.infoNote}>
             Heads up: some states have <strong>closed primaries</strong> where unaffiliated voters can't vote in a party primary. Check your state's rules.
@@ -279,7 +296,7 @@ export function VotingPage() {
                       <div className={styles.upLabel}>{TYPES[e.type].icon} {e.label}</div>
                       <div className={styles.upMeta}>
                         {format(e.dateObj, 'EEE, MMM d, yyyy')}
-                        {!e.national && !e.official && (
+                        {!e.national && !e.curated && (
                           <button className={styles.removeBtn} onClick={() => removeCustom(e.id)} title="Remove">×</button>
                         )}
                       </div>
