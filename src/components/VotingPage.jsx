@@ -121,6 +121,8 @@ export function VotingPage() {
     persist(stateCode, party, next);
   }
 
+  const today = new Date();
+
   // --- Curated, source-verified dates for the selected state ---
   const curatedEntry = getCuratedForState(stateCode);
   const curated = useMemo(() => {
@@ -170,7 +172,6 @@ export function VotingPage() {
     return map;
   }, [events]);
 
-  const today = new Date();
   const upcoming = events.filter(e => !isBefore(e.dateObj, new Date(today.getFullYear(), today.getMonth(), today.getDate())));
 
   // Calendar grid for the current cursor month (Sunday-anchored).
