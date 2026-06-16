@@ -5460,19 +5460,24 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                     ))
                   )}
 
-                  {/* Routes (offset half-row down, aligning to midpoints of activities) */}
+                  {/* Routes: computed activity-to-activity routes, plus any
+                      booked travel for the day (trains, flights, buses). */}
                   {!hideRoutes && (
-                    !mapsKey ? (
-                      <div className={styles.scheduleEmpty} style={{ gridColumn: routeCol, gridRow: '2 / span 2' }}>—</div>
-                    ) : alignedTransitions.length === 0 ? (
-                      <div className={styles.scheduleEmpty} style={{ gridColumn: routeCol, gridRow: '2 / span 2' }}>—</div>
-                    ) : (
-                      alignedTransitions.map((t, idx) => (
+                    <>
+                      {mapsKey && alignedTransitions.map((t, idx) => (
                         <div key={t.mapId} style={{ gridColumn: routeCol, gridRow: `${3 + 2 * t.fromIdx} / span 2`, minHeight: 0 }}>
                           {renderRouteCard(t, idx)}
                         </div>
-                      ))
-                    )
+                      ))}
+                      {travelItems.map((item, i) => (
+                        <div key={item.id} style={{ gridColumn: routeCol, gridRow: bodyRows + 2 + i, minHeight: 0, marginTop: '0.4rem' }}>
+                          {renderItemCard(item, '#0891b2')}
+                        </div>
+                      ))}
+                      {(!mapsKey || alignedTransitions.length === 0) && travelItems.length === 0 && (
+                        <div className={styles.scheduleEmpty} style={{ gridColumn: routeCol, gridRow: '2 / span 2' }}>—</div>
+                      )}
+                    </>
                   )}
 
                   {/* Lodging (stacked) */}
