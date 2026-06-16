@@ -58,6 +58,7 @@ function loadCustom() {
 }
 
 export function VotingPage() {
+  // Note: `today` is declared before the memos below — see the TDZ fix.
   const { user } = useAuth();
   // Seed from localStorage for a fast first paint; Firestore overrides once loaded.
   const [stateCode, setStateCode] = useState(() => localStorage.getItem(LS.state) || '');
