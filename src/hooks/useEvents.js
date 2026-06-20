@@ -108,6 +108,24 @@ export function useEvents() {
     await deleteDoc(doc(db, 'events', eventId));
   }
 
+  // Soft-cancel: keeps the event (and all its data) intact but flags it as
+  // cancelled so it can be dimmed in the UI and brought back later.
+  async function cancelEvent(eventId) {
+    await updateDoc(doc(db, 'events', eventId), {
+      cancelled: true,
+      cancelledAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  async function restoreEvent(eventId) {
+    await updateDoc(doc(db, 'events', eventId), {
+      cancelled: false,
+      cancelledAt: null,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
   async function rsvp(eventId, response) {
     if (!user) return;
     await updateDoc(doc(db, 'events', eventId), {
@@ -124,5 +142,5 @@ export function useEvents() {
     });
   }
 
-  return { events, loading, createEvent, updateEvent, deleteEvent, rsvp, addMember };
+  return { events, loading, createEvent, updateEvent, deleteEvent, cancelEvent, restoreEvent, rsvp, addMember };
 }

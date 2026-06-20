@@ -43,7 +43,7 @@ const calMenuItemStyle = {
 export function EventDetail() {
   const { eventId } = useParams();
   const { user } = useAuth();
-  const { updateEvent, deleteEvent, rsvp } = useEvents();
+  const { updateEvent, deleteEvent, cancelEvent, restoreEvent, rsvp } = useEvents();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [event, setEvent] = useState(null);
@@ -567,6 +567,16 @@ export function EventDetail() {
     }
   }
 
+  async function handleCancel() {
+    if (window.confirm('Cancel this event? It stays on your dashboard (dimmed) and you can bring it back anytime.')) {
+      await cancelEvent(eventId);
+    }
+  }
+
+  async function handleRestore() {
+    await restoreEvent(eventId);
+  }
+
   const inviteLink = `${window.location.origin}/invite/${event.shareToken}`;
 
   const itineraryText = (() => {
@@ -879,6 +889,15 @@ export function EventDetail() {
         <div className={styles.heroInfo}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <h1 className={styles.title} style={{ margin: 0 }}>{event.title}</h1>
+            {event.cancelled && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
+                color: 'var(--color-warning)', background: 'var(--color-warning-light)',
+                border: '1px solid var(--color-warning)', borderRadius: 'var(--radius-full)',
+                padding: '0.2rem 0.55rem',
+              }}>🚫 Cancelled</span>
+            )}
             <button
               type="button"
               onClick={() => togglePin(user?.uid, { id: eventId, title: event.title })}
@@ -1831,6 +1850,19 @@ export function EventDetail() {
                 );
               })()}
               <button className={styles.editBtn} onClick={() => setEditing(true)}>Edit Event</button>
+              {event.cancelled ? (
+                <button
+                  className={styles.editBtn}
+                  onClick={handleRestore}
+                  style={{ background: 'var(--color-success-light)', borderColor: 'var(--color-success)', color: 'var(--color-success)' }}
+                >↩ Restore Event</button>
+              ) : (
+                <button
+                  className={styles.editBtn}
+                  onClick={handleCancel}
+                  style={{ background: 'var(--color-warning-light)', borderColor: 'var(--color-warning)', color: 'var(--color-warning)' }}
+                >🚫 Cancel Event</button>
+              )}
               <button className={styles.deleteBtn} onClick={handleDelete}>Delete Event</button>
             </div>
           )}
