@@ -105,16 +105,31 @@ export function SharePage() {
     if (!event) { setError('That event is no longer available.'); return; }
     setSaving(true);
     try {
-      const existing = Array.isArray(event.savedVideos) ? event.savedVideos : [];
-      const newVideo = {
+      // Save the reel as a real, undated itinerary activity so it shows up on
+      // the Schedule (under "Unscheduled") with an embedded player — matching
+      // the in-app "Add from Instagram" flow. Writing to a separate bucket
+      // wouldn't surface anywhere, so it goes straight into the itinerary.
+      const existing = Array.isArray(event.itinerary) ? event.itinerary : [];
+      const newItem = {
         id: crypto.randomUUID(),
+        title: videoTitle.trim() || 'Instagram reel',
+        date: '',
+        time: '',
+        location: '',
+        notes: '',
+        type: 'activity',
         url: normalizeInstagramUrl(url),
-        title: videoTitle.trim() || 'Untitled',
-        addedAt: new Date().toISOString(),
+        highlightIds: [],
+        isFlight: false,
+        arrivalTime: '',
+        airline: '',
+        flightNumber: '',
+        cost: '',
+        source: 'instagram-share',
         addedByUid: user.uid,
         addedByName: event.members?.[user.uid]?.name || user.displayName || user.email || 'Member',
       };
-      await updateEvent(eventId, { savedVideos: [...existing, newVideo] });
+      await updateEvent(eventId, { itinerary: [...existing, newItem] });
       navigate(`/event/${eventId}?tab=itinerary`);
     } catch (e) {
       setError(e.message || 'Failed to save the video.');
