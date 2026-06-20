@@ -1,24 +1,22 @@
-# Rally iOS Share Extension (scaffold)
+# Rally iOS Share Extension
 
-Goal: let users share an Instagram reel/post into a Rally event from
-Instagram's iOS share sheet. The extension grabs the link, opens the app via
-`rally://share?url=…`, and the app's `/share` page saves it as an itinerary
-**activity**.
+Lets users share an Instagram reel/post into a Rally event from Instagram's iOS
+share sheet. The extension grabs the link, opens the app via `rally://share?url=…`,
+and the app's `/share` page saves it as an itinerary **activity**.
 
-> **Status: scaffold only — NOT yet wired into the build.** These files compile
-> the extension's behavior, but the CI pipeline does not build them yet. See
-> "What's still required" below. The web half of the feature (save-as-activity
-> + deep-link routing) is done and shipping.
+> **Status: wired into CI.** The web half (save-as-activity + deep-link routing)
+> ships in the app bundle, and the `.github/workflows/ios.yml` build now injects,
+> signs, and embeds this extension. It hasn't been verified on a physical device
+> yet — the first TestFlight build from this branch is the real test.
 
 ## Why this lives in `ci/ios/` and not `ios/`
 
-The entire `/ios` folder is **gitignored and regenerated every build**. The
-GitHub Actions workflow (`.github/workflows/ios.yml`) runs `npx cap add ios`
-to create the Xcode project from scratch, then copies tracked overrides in
-(e.g. `ci/ios/AppDelegate.swift → ios/App/App/AppDelegate.swift`). There is no
-committed Xcode project and **no Mac/Xcode in the loop** — everything is
-headless CI. So a Share Extension can't be "added in Xcode"; it has to be
-injected into the generated project by CI, the same way AppDelegate is.
+The entire `/ios` folder is **gitignored and regenerated every build** — CI runs
+`npx cap add ios` to create the Xcode project from scratch, then copies tracked
+overrides in (e.g. `ci/ios/AppDelegate.swift → ios/App/App/AppDelegate.swift`).
+There is no committed Xcode project and **no Mac/Xcode in the loop** — it's all
+headless CI. So the extension is injected into the generated project by CI rather
+than added in Xcode.
 
 ## Files here
 
@@ -27,52 +25,50 @@ injected into the generated project by CI, the same way AppDelegate is.
 - `Info.plist` — `NSExtension` activation rules (web URL + text). No storyboard
   key — the controller is UI-less.
 
-## How the handoff works (once wired)
+## How it's wired in CI (`.github/workflows/ios.yml`)
+
+After `npx cap add ios` / `npx cap sync ios`, three steps make the extension real:
+
+1. **`Register the rally:// URL scheme`** — PlistBuddy adds `CFBundleURLTypes`
+   (scheme `rally`) to the regenerated `ios/App/App/Info.plist`, so the
+   `rally://share…` handoff opens the app.
+2. **`Inject Share Extension target`** — `ci/ios/add-share-extension.rb` (Ruby
+   `xcodeproj`) copies these two files into the generated project, creates a
+   `ShareExtension` app-extension target (bundle id
+   `com.danbaldauf.rally.ShareExtension`, deployment matched to the app), makes
+   it a dependency of the `App` target, and adds an *Embed App Extensions* copy
+   phase so the `.appex` ships inside the app.
+3. **Signing** — `ci/create-signing-assets.mjs` now also registers the extension
+   bundle id (if new) and creates a second App Store profile for it with the same
+   distribution cert. Both profiles are installed and both bundle ids are mapped
+   in `ExportOptions.plist`, so `xcodebuild -exportArchive` signs app + extension.
+
+The `App` scheme builds its new dependency automatically, so `-scheme App`
+archive/export needs no scheme change.
+
+## End-to-end flow
 
 ```
 Instagram share sheet
   -> ShareViewController extracts the URL
   -> opens rally://share?url=<reel>&title=<caption>
   -> AppDelegate forwards open(url:) to Capacitor
-  -> @capacitor/app fires 'appUrlOpen'   (already installed + wired)
+  -> @capacitor/app fires 'appUrlOpen'
   -> useShareDeepLink.js routes to /share?url=…&title=…
-  -> SharePage saves it as event.itinerary[] activity   (done)
+  -> SharePage saves it as event.itinerary[] activity
 ```
 
-The web side is complete: `@capacitor/app` is a dependency,
-`src/hooks/useShareDeepLink.js` is mounted in `App.jsx`, and `SharePage`
-already saves shared links as activities.
+## Notes / gotchas
 
-## What's still required (CI work — not done)
-
-Adding a second target/binary to a headless cap-generated build is real
-pipeline work, roughly:
-
-1. **Register the URL scheme.** After `npx cap sync ios`, patch
-   `ios/App/App/Info.plist` to add `CFBundleURLTypes` with scheme `rally`
-   (a `plutil`/`PlistBuddy` step, or a tracked Info.plist override copied in
-   like AppDelegate). Keep the scheme in sync with `useShareDeepLink.js`.
-2. **Create the extension target.** `cap add` won't make one. Inject a
-   `ShareExtension` target into the generated `App.xcodeproj` (e.g. via a
-   `ruby/xcodeproj` or `xcodegen` script run in CI), copy these two files into
-   it, set bundle id `com.danbaldauf.rally.ShareExtension`, and embed it in the
-   App target's "Embed App Extensions" build phase.
-3. **Sign the second bundle.** The current workflow provisions exactly one
-   profile for `com.danbaldauf.rally`. The extension needs its own App Store
-   provisioning profile for `com.danbaldauf.rally.ShareExtension`, added to the
-   keychain and to `ExportOptions.plist`'s `provisioningProfiles` dict.
-4. **Archive** still uses `-scheme App`; confirm the embedded extension is
-   included (it is, once it's a dependency of the App target).
-
-Steps 2 + 3 are the substantial parts. Until they're done, sharing from
-Instagram on the native app won't show Rally; the in-app "Add from Instagram"
-paste flow and the PWA `share_target` remain the working paths.
-
-## Optional: App Group
-
-Not needed — the handoff passes everything in the `rally://` URL. Only add an
-App Group (`group.com.danbaldauf.rally`) if you later pass large payloads
-(e.g. a downloaded video file) through a shared container instead of the query
-string. That would also avoid the responder-chain `openURL:` trick in
-`ShareViewController` (replace it with the app polling the container on
-`applicationDidBecomeActive`), which is the more App-Review-safe pattern.
+- `openHostApp` walks the responder chain to call `openURL:` because extensions
+  can't use `UIApplication.shared.open` directly. Standard, App-Store-accepted,
+  but if review pushes back switch to an App Group + the app polling the shared
+  container on `applicationDidBecomeActive`.
+- First build requires the App Store Connect API key to have permission to
+  **create a bundle id** (for `…ShareExtension`). If that POST 403s, register the
+  bundle id once by hand in the developer portal; later runs just reuse it.
+- `xcodeproj` is preinstalled via the runner's CocoaPods; the workflow's
+  `gem install` is best-effort and non-fatal.
+- No App Group is needed — the handoff passes everything in the `rally://` URL.
+  Add `group.com.danbaldauf.rally` only if you later pass large payloads
+  (e.g. a downloaded video file) through a shared container.

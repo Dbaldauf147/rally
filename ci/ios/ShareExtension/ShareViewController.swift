@@ -1,6 +1,4 @@
 import UIKit
-import Social
-import MobileCoreServices
 import UniformTypeIdentifiers
 
 // Headless Share Extension: when the user taps "Rally" in Instagram's share

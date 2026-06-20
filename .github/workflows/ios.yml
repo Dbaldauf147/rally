@@ -61,6 +61,29 @@ jobs:
         # does not use Universal Links, so replace AppDelegate with our version.
         run: cp ci/ios/AppDelegate.swift ios/App/App/AppDelegate.swift
 
+      - name: Register the rally:// URL scheme
+        # The Share Extension hands the shared link back to the app via
+        # rally://share?url=…; register the scheme on the regenerated app plist.
+        run: |
+          PLIST="ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string com.danbaldauf.rally.share" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string rally" "$PLIST"
+
+      - name: Inject Share Extension target
+        # /ios is regenerated each build, so the extension target is added to the
+        # generated .xcodeproj here (sources live in ci/ios/ShareExtension/).
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          EXT_BUNDLE_ID: com.danbaldauf.rally.ShareExtension
+        run: |
+          # xcodeproj ships with the runner's preinstalled CocoaPods; install is
+          # a best-effort upgrade and must not fail the build if it's already there.
+          sudo gem install xcodeproj --no-document || gem install xcodeproj --no-document || true
+          ruby ci/ios/add-share-extension.rb
+
       - name: Install App Store Connect API key
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
@@ -87,11 +110,14 @@ jobs:
             -keyout "$OUT/dist.key" -out "$OUT/dist.csr" \
             -subj "/CN=Rally Distribution/O=Rally/C=US"
 
-          # Certificate + App Store profile from App Store Connect.
+          # Certificate + App Store profiles (app + Share Extension) from
+          # App Store Connect. One cert signs both bundle ids.
           OUT_DIR="$OUT" CSR_PATH="$OUT/dist.csr" BUNDLE_ID="com.danbaldauf.rally" \
+            EXT_BUNDLE_ID="com.danbaldauf.rally.ShareExtension" \
             P8_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" \
             node ci/create-signing-assets.mjs
           PROFILE_UUID="$(cat "$OUT/PROFILE_UUID")"
+          EXT_PROFILE_UUID="$(cat "$OUT/EXT_PROFILE_UUID")"
 
           # Bundle key + cert into a .p12 (try OpenSSL 3 -legacy, else LibreSSL).
           openssl x509 -inform DER -in "$OUT/dist.cer" -out "$OUT/dist.pem"
@@ -111,10 +137,11 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           security set-key-partition-list -S apple-tool:,apple: -k "$KC_PASS" "$KEYCHAIN" >/dev/null
 
-          # Install the provisioning profile where Xcode looks for it.
+          # Install both provisioning profiles where Xcode looks for them.
           PROFILES="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILES"
           cp "$OUT/profile.mobileprovision" "$PROFILES/$PROFILE_UUID.mobileprovision"
+          cp "$OUT/profile-ext.mobileprovision" "$PROFILES/$EXT_PROFILE_UUID.mobileprovision"
 
           echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
@@ -146,6 +173,7 @@ jobs:
             <key>provisioningProfiles</key>
             <dict>
               <key>com.danbaldauf.rally</key><string>$PROFILE_NAME</string>
+              <key>com.danbaldauf.rally.ShareExtension</key><string>$EXT_PROFILE_NAME</string>
             </dict>
             <key>destination</key><string>export</string>
           </dict></plist>
