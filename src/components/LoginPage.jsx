@@ -3,6 +3,29 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import styles from './LoginPage.module.css';
 
+// Turn a Firebase Auth error into something a person can act on. The code lives
+// on err.code (e.g. 'auth/invalid-credential'); fall back to scraping it from
+// the message. Previously we stripped the code out and were left with "Error .".
+function friendlyAuthError(err) {
+  const code = err?.code || (err?.message || '').match(/auth\/[\w-]+/)?.[0] || '';
+  const map = {
+    'auth/invalid-credential': 'Incorrect email or password.',
+    'auth/wrong-password': 'Incorrect email or password.',
+    'auth/user-not-found': 'No account found for that email. Try signing up.',
+    'auth/invalid-email': 'That email address looks invalid.',
+    'auth/user-disabled': 'This account has been disabled.',
+    'auth/email-already-in-use': 'An account already exists for that email. Try signing in.',
+    'auth/weak-password': 'Password should be at least 6 characters.',
+    'auth/missing-password': 'Please enter your password.',
+    'auth/too-many-requests': 'Too many attempts. Wait a moment and try again.',
+    'auth/network-request-failed': 'Network error. Check your connection and try again.',
+  };
+  if (map[code]) return map[code];
+  // Unknown Firebase error — show the cleaned message rather than a bare "Error".
+  const cleaned = (err?.message || '').replace('Firebase: ', '').replace(/\s*\(auth\/[\w-]+\)\.?/, '').trim();
+  return cleaned || 'Something went wrong signing in. Please try again.';
+}
+
 export function LoginPage() {
   const { signInWithEmail, signUpWithEmail } = useAuth();
   const navigate = useNavigate();
@@ -35,7 +58,7 @@ export function LoginPage() {
       }
       navigate(redirectTo);
     } catch (err) {
-      setError(err.message.replace('Firebase: ', '').replace(/\(auth\/.*\)/, '').trim());
+      setError(friendlyAuthError(err));
     }
     setLoading(false);
   }
