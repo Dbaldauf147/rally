@@ -34,6 +34,42 @@ function isInstagramUrl(raw) {
   }
 }
 
+function toDateObj(d) {
+  if (!d) return null;
+  const x = d?.toDate ? d.toDate() : new Date(d);
+  return isNaN(x) ? null : x;
+}
+
+// Local YYYY-MM-DD key — must match how Itinerary keys its Daily view days so a
+// saved activity's `date` lands on the right day.
+function dayKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Enumerate an event's trip days (start..end inclusive), skipping any the owner
+// hid in the Daily view, so a shared video can be tied to a real day.
+function eventDayOptions(event) {
+  const start = toDateObj(event?.startDate || event?.date);
+  if (!start) return [];
+  const end = toDateObj(event?.endDate) || start;
+  const s = new Date(start); s.setHours(0, 0, 0, 0);
+  const e = new Date(end); e.setHours(0, 0, 0, 0);
+  if (e < s) return [];
+  const hidden = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
+  const out = [];
+  const cur = new Date(s);
+  let n = 1; // counts every day so visible days keep their true trip-day number
+  while (cur <= e) {
+    const key = dayKey(cur);
+    if (!hidden.has(key)) {
+      out.push({ key, label: `Day ${n} · ${cur.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` });
+    }
+    cur.setDate(cur.getDate() + 1);
+    n += 1;
+  }
+  return out;
+}
+
 export function SharePage() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
@@ -50,8 +86,12 @@ export function SharePage() {
   const [videoUrl, setVideoUrl] = useState(detected);
   const [videoTitle, setVideoTitle] = useState(incoming.title || '');
   const [eventId, setEventId] = useState('');
+  const [videoDate, setVideoDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const selectedEvent = useMemo(() => events.find(e => e.id === eventId), [events, eventId]);
+  const dayOptions = useMemo(() => eventDayOptions(selectedEvent), [selectedEvent]);
 
   // Re-sync if the share params arrive after first render.
   useEffect(() => {
@@ -72,6 +112,14 @@ export function SharePage() {
       });
     if (editable.length > 0) setEventId(editable[0].id);
   }, [user, events, eventId]);
+
+  // When the chosen event changes, default the day to its first trip day so the
+  // video shows up on the Daily view by default; the user can switch days or
+  // choose "No specific day".
+  useEffect(() => {
+    setVideoDate(dayOptions[0]?.key || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId]);
 
   if (authLoading) {
     return <div className={styles.page}><div className={styles.card}>Loading…</div></div>;
@@ -105,16 +153,31 @@ export function SharePage() {
     if (!event) { setError('That event is no longer available.'); return; }
     setSaving(true);
     try {
-      const existing = Array.isArray(event.savedVideos) ? event.savedVideos : [];
-      const newVideo = {
+      // Save the reel as a real itinerary activity so it shows up with an
+      // embedded player — matching the in-app "Add from Instagram" flow. With a
+      // day chosen it lands on that day in the Daily view; left blank it shows
+      // under "Unscheduled". Writing to a separate bucket wouldn't surface.
+      const existing = Array.isArray(event.itinerary) ? event.itinerary : [];
+      const newItem = {
         id: crypto.randomUUID(),
+        title: videoTitle.trim() || 'Instagram reel',
+        date: videoDate || '',
+        time: '',
+        location: '',
+        notes: '',
+        type: 'activity',
         url: normalizeInstagramUrl(url),
-        title: videoTitle.trim() || 'Untitled',
-        addedAt: new Date().toISOString(),
+        highlightIds: [],
+        isFlight: false,
+        arrivalTime: '',
+        airline: '',
+        flightNumber: '',
+        cost: '',
+        source: 'instagram-share',
         addedByUid: user.uid,
         addedByName: event.members?.[user.uid]?.name || user.displayName || user.email || 'Member',
       };
-      await updateEvent(eventId, { savedVideos: [...existing, newVideo] });
+      await updateEvent(eventId, { itinerary: [...existing, newItem] });
       navigate(`/event/${eventId}?tab=itinerary`);
     } catch (e) {
       setError(e.message || 'Failed to save the video.');
@@ -170,6 +233,36 @@ export function SharePage() {
             </select>
           )}
         </label>
+
+        {eventId && (
+          <label className={styles.label}>
+            Day
+            {dayOptions.length > 0 ? (
+              <select
+                className={styles.input}
+                value={videoDate}
+                onChange={e => setVideoDate(e.target.value)}
+              >
+                <option value="">No specific day (Unscheduled)</option>
+                {dayOptions.map(d => (
+                  <option key={d.key} value={d.key}>{d.label}</option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <input
+                  type="date"
+                  className={styles.input}
+                  value={videoDate}
+                  onChange={e => setVideoDate(e.target.value)}
+                />
+                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                  This event has no set dates yet — pick a day, or leave blank to add it as unscheduled.
+                </span>
+              </>
+            )}
+          </label>
+        )}
 
         {error && <div className={styles.error}>{error}</div>}
 
