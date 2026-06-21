@@ -35,8 +35,7 @@ function addDays(d, n) {
   return x;
 }
 
-const fmtShort = (d) => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-const fmtBday = (d) => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+const fmtMDY = (d) => d ? `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}` : '';
 
 // Derive the schedule fields for a contact relative to today.
 function decorate(c, today) {
@@ -52,20 +51,22 @@ function decorate(c, today) {
   }
   const hasCadence = !!cadence;
   const due = hasCadence && !c.done && overdue != null && overdue >= 0;
-  return { ...c, _last: last, _bday: bday, _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince, _hasCadence: hasCadence, _due: due };
+  // Birthday coming up within two weeks (by month/day, any year).
+  let bdaySoon = false;
+  if (bday) {
+    let next = new Date(today.getFullYear(), bday.getMonth(), bday.getDate());
+    if (next < today) next = new Date(today.getFullYear() + 1, bday.getMonth(), bday.getDate());
+    const until = daysBetween(today, next);
+    bdaySoon = until >= 0 && until <= 14;
+  }
+  return { ...c, _last: last, _bday: bday, _bdaySoon: bdaySoon, _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince, _hasCadence: hasCadence, _due: due };
 }
 
-// Sort: overdue-not-done first (most overdue on top), then upcoming-not-done,
-// then anything marked done this cycle, then archived (no cadence) by recency.
+// Sort by Overdue descending (most overdue on top), matching the source sheet;
+// contacts with no cadence (blank overdue) fall to the bottom by recency.
 function sortRows(a, b) {
-  const rank = (c) => {
-    if (!c._hasCadence) return 3;
-    if (c.done) return 2;
-    return c._overdue >= 0 ? 0 : 1;
-  };
-  const ra = rank(a), rb = rank(b);
-  if (ra !== rb) return ra - rb;
-  if (ra === 3) return (b._daysSince || 0) - (a._daysSince || 0);
+  if (a._hasCadence !== b._hasCadence) return a._hasCadence ? -1 : 1;
+  if (!a._hasCadence) return (b._daysSince || 0) - (a._daysSince || 0);
   return (b._overdue ?? -99999) - (a._overdue ?? -99999);
 }
 
@@ -260,49 +261,48 @@ export function ReachOutPage() {
         </div>
       )}
 
-      <div className={styles.list}>
-        {visible.map(c => {
-          const overdueLabel = c._overdue == null ? null
-            : c._overdue > 0 ? `${c._overdue}d overdue`
-            : c._overdue === 0 ? 'Due today'
-            : `in ${-c._overdue}d`;
-          const overdueClass = c._overdue == null ? styles.badgeMuted
-            : c.done ? styles.badgeDone
-            : c._overdue >= 0 ? styles.badgeDue
-            : styles.badgeUpcoming;
-          return (
-            <div key={c.id} className={`${styles.row} ${c.done ? styles.rowDone : ''}`}>
-              <button
-                className={c.done ? styles.checkOn : styles.checkOff}
-                title={c.done ? 'Marked done this cycle' : 'Mark done this cycle'}
-                aria-label="Toggle done this cycle"
-                onClick={() => toggleDone(c.id)}
-              >{c.done ? '✓' : ''}</button>
-
-              <div className={styles.rowMain}>
-                <div className={styles.rowTop}>
-                  <span className={styles.name}>{c.name}</span>
-                  <span className={styles.cat}>{c.category}</span>
-                  {overdueLabel && <span className={`${styles.badge} ${overdueClass}`}>{overdueLabel}</span>}
-                </div>
-                {c.note && <div className={styles.note}>{c.note}</div>}
-                <div className={styles.meta}>
-                  {c.method && <span>{c.method === 'Call' ? '📞' : '💬'} {c.method}</span>}
-                  {c._hasCadence && <span>every {c.cadenceDays}d</span>}
-                  {c._last && <span>last {fmtShort(c._last)}{c._daysSince != null ? ` (${c._daysSince}d ago)` : ''}</span>}
-                  {c._reachDay && <span>next {fmtShort(c._reachDay)}</span>}
-                  {c._bday && <span>🎂 {fmtBday(c._bday)}</span>}
-                </div>
-              </div>
-
-              <div className={styles.rowActions}>
-                <button className={styles.reachBtn} onClick={() => logReachOut(c.id)} title="Mark reached out today">✓ Reached out</button>
-                <button className={styles.iconBtn} onClick={() => startEdit(c)} title="Edit" aria-label="Edit">✎</button>
-                <button className={styles.iconBtn} onClick={() => remove(c.id)} title="Remove" aria-label="Remove">×</button>
-              </div>
-            </div>
-          );
-        })}
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Last Reach Out</th>
+              <th className={styles.colCheck} title="Reached out this cycle">✓</th>
+              <th>Person</th>
+              <th>What's going on</th>
+              <th>Category</th>
+              <th className={styles.colNum}>Overdue</th>
+              <th className={styles.colNum}>Days</th>
+              <th>Birthday</th>
+              <th className={styles.colActions} aria-label="Actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map(c => {
+              const overdueClass = c._overdue == null ? ''
+                : c._overdue > 0 ? styles.over
+                : c._overdue === 0 ? styles.overToday
+                : styles.under;
+              return (
+                <tr key={c.id} className={c.done ? styles.trDone : ''} onClick={() => startEdit(c)} title="Click to edit">
+                  <td>{fmtMDY(c._last)}</td>
+                  <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={!!c.done} onChange={() => toggleDone(c.id)} aria-label="Reached out this cycle" />
+                  </td>
+                  <td className={styles.person}>{c.name}</td>
+                  <td className={styles.tdNote}>{c.note}</td>
+                  <td>{c.category}</td>
+                  <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>
+                  <td className={styles.colNum}>{c._hasCadence ? c.cadenceDays : ''}</td>
+                  <td className={c._bdaySoon ? styles.bdaySoon : ''}>{fmtMDY(c._bday)}</td>
+                  <td className={styles.colActions} onClick={e => e.stopPropagation()}>
+                    <button className={styles.reachBtnSm} onClick={() => logReachOut(c.id)} title="Mark reached out today">✓</button>
+                    <button className={styles.iconBtn} onClick={() => remove(c.id)} title="Remove" aria-label="Remove">×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
         {contacts.length > 0 && visible.length === 0 && (
           <p className={styles.muted}>No one matches this filter.</p>
         )}
