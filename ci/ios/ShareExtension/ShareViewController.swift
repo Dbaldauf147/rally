@@ -16,8 +16,9 @@ class ShareViewController: UIViewController {
             guard let self = self else { return }
             if let url = url {
                 self.handOff(url: url, title: title)
+            } else {
+                self.finish()
             }
-            self.finish()
         }
     }
 
@@ -76,15 +77,31 @@ class ShareViewController: UIViewController {
             query.append(URLQueryItem(name: "title", value: title))
         }
         components.queryItems = query
-        guard let deepLink = components.url else { return }
+        guard let deepLink = components.url else { finish(); return }
         openHostApp(deepLink)
+        // Give the system time to launch the host app before tearing the
+        // extension down — calling completeRequest immediately cancels the
+        // pending launch, which leaves the user with "nothing happens".
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            self?.finish()
+        }
     }
 
-    // Extensions can't call UIApplication.shared.open directly, so walk the
-    // responder chain to reach the shared application and invoke open(_:).
+    // Extensions can't use UIApplication.shared, so walk the responder chain to
+    // the application instance and ask it to open the deep link. Prefer the
+    // modern open(_:options:completionHandler:); fall back to the legacy
+    // openURL: selector for older systems.
     private func openHostApp(_ url: URL) {
         var responder: UIResponder? = self
+        while let r = responder {
+            if let app = r as? UIApplication {
+                app.open(url, options: [:], completionHandler: nil)
+                return
+            }
+            responder = r.next
+        }
         let selector = sel_registerName("openURL:")
+        responder = self
         while let r = responder {
             if r.responds(to: selector) {
                 r.perform(selector, with: url)
