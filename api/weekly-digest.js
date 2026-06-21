@@ -66,6 +66,7 @@ export default async function handler(req, res) {
     for (const eventDoc of eventsById.values()) {
       const event = eventDoc.data();
       if (event.stage === 'finalized') continue;
+      if (event.cancelled) continue; // cancelled events shouldn't nag for a date
 
       const members = event.members || {};
 

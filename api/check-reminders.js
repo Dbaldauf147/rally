@@ -38,6 +38,9 @@ export default async function handler(req, res) {
       const event = eventDoc.data();
       const eventId = eventDoc.id;
 
+      // Cancelled events shouldn't send reminders.
+      if (event.cancelled) continue;
+
       // Skip events without auto reminders enabled
       const ar = event.autoReminders;
       if (!ar?.enabled || !ar.startedAt || !Array.isArray(ar.intervals) || ar.intervals.length === 0) {
