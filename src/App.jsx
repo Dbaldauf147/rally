@@ -14,9 +14,9 @@ import { WeddingPage } from './components/WeddingPage';
 import { TravelListPage } from './components/TravelListPage';
 import { HolidaysPage } from './components/HolidaysPage';
 import { PTOPage } from './components/PTOPage';
-import { TodayPage } from './components/TodayPage';
 import { VotingPage } from './components/VotingPage';
 import { AdminPage } from './components/AdminPage';
+// Today is now a subtab of Plans; keep its old URL working via redirect below.
 import { NavBar } from './components/NavBar';
 import { BottomTabBar } from './components/BottomTabBar';
 import { InstallPrompt } from './components/InstallPrompt';
@@ -57,7 +57,7 @@ export default function App() {
         <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/poll/:eventId" element={<PollPage />} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-        <Route path="/today" element={<ProtectedRoute><TodayPage /></ProtectedRoute>} />
+        <Route path="/today" element={<Navigate to="/plans?view=today" replace />} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarView /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/voting" element={<ProtectedRoute><VotingPage /></ProtectedRoute>} />

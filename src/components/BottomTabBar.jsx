@@ -40,7 +40,6 @@ export function BottomTabBar() {
 
   const primary = [
     { to: '/', label: 'Home', icon: icons.home, end: true },
-    { to: '/today', label: 'Today', icon: icons.today },
     { to: '/calendar', label: 'Calendar', icon: icons.calendar },
     { to: '/plans', label: 'Plans', icon: icons.plans },
   ];
