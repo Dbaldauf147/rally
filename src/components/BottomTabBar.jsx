@@ -23,6 +23,7 @@ const icons = {
   holidays: svg(<><rect x="3" y="8" width="18" height="5" rx="1" /><path d="M5 13v8h14v-8M12 8v13M12 8S9 3 6.5 4.5 9 8 12 8zM12 8s3-5 5.5-3.5S15 8 12 8z" /></>),
   pto: svg(<><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" /></>),
   admin: svg(<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />),
+  gear: svg(<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>),
 };
 
 export function BottomTabBar() {
@@ -48,12 +49,15 @@ export function BottomTabBar() {
     ...(isOwner ? [
       { to: '/wedding', label: 'Wedding', icon: icons.wedding },
       { to: '/travel-list', label: 'Travel List', icon: icons.travel },
-      { to: '/holidays', label: 'Holidays', icon: icons.holidays },
       { to: '/pto', label: 'PTO', icon: icons.pto },
-      { to: '/admin', label: 'Admin', icon: icons.admin },
     ] : []),
   ];
-  const moreRoutes = moreItems.map(i => i.to);
+  // Owner-only tools live behind the gear/Settings section of the sheet.
+  const settingsItems = isOwner ? [
+    { to: '/holidays', label: 'Holidays', icon: icons.holidays },
+    { to: '/admin', label: 'Admin', icon: icons.admin },
+  ] : [];
+  const moreRoutes = [...moreItems, ...settingsItems].map(i => i.to);
   const moreActive = moreOpen || moreRoutes.includes(location.pathname);
 
   async function handleSignOut() {
@@ -81,6 +85,26 @@ export function BottomTabBar() {
               </NavLink>
             ))}
           </div>
+          {settingsItems.length > 0 && (
+            <div className={styles.sheetSection}>
+              <div className={styles.sheetSectionLabel}>
+                <span className={styles.sheetSectionIcon}>{icons.gear}</span> Settings
+              </div>
+              <div className={styles.sheetGrid}>
+                {settingsItems.map(it => (
+                  <NavLink
+                    key={it.to}
+                    to={it.to}
+                    onClick={() => setMoreOpen(false)}
+                    className={({ isActive }) => isActive ? styles.sheetItemActive : styles.sheetItem}
+                  >
+                    <span className={styles.sheetIcon}>{it.icon}</span>
+                    {it.label}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          )}
           <div className={styles.sheetAccount}>
             <span className={styles.sheetEmail}>{user?.email}</span>
             <button type="button" className={styles.signOut} onClick={handleSignOut}>Sign out</button>
