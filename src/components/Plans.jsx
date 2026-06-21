@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { TodayPage } from './TodayPage';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { format, startOfWeek, addDays, addWeeks, eachDayOfInterval, isSameDay } from 'date-fns';
 import { db } from '../firebase';
@@ -46,6 +47,10 @@ async function getValidGoogleToken() {
 
 export function Plans() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // "Today" now lives as a subtab here rather than its own top-level tab.
+  const view = searchParams.get('view') === 'today' ? 'today' : 'plans';
+  const setView = (v) => setSearchParams(v === 'today' ? { view: 'today' } : {});
   const { user } = useAuth();
   const { events } = useEvents();
   // The user's saved Voting page prefs (state + custom dates), used to overlay
@@ -298,6 +303,14 @@ export function Plans() {
   const weekdayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   return (
+    <>
+      <div className={styles.subtabBar}>
+        <div className={styles.subtabInner}>
+          <button type="button" className={view === 'plans' ? styles.subtabActive : styles.subtab} onClick={() => setView('plans')}>Plans</button>
+          <button type="button" className={view === 'today' ? styles.subtabActive : styles.subtab} onClick={() => setView('today')}>Today</button>
+        </div>
+      </div>
+      {view === 'today' ? <TodayPage /> : (
     <div className={styles.page}>
       <div className={styles.header}>
         <div className={styles.titleBlock}>
@@ -426,5 +439,7 @@ export function Plans() {
         </table>
       )}
     </div>
+      )}
+    </>
   );
 }

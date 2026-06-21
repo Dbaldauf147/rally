@@ -22,6 +22,13 @@
 }
 .pinnedUnpin:hover { color: var(--color-danger, #dc2626); }
 .right { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
+.gearWrap { position: relative; display: inline-flex; }
+.gearBtn { background: none; border: none; font-size: 1.05rem; line-height: 1; cursor: pointer; padding: 0.3rem 0.45rem; border-radius: var(--radius-sm); }
+.gearBtn:hover { background: var(--color-surface-alt); }
+.gearMenu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 0.35rem; display: flex; flex-direction: column; gap: 0.15rem; z-index: 200; }
+.gearItem, .gearItemActive { padding: 0.5rem 0.65rem; border-radius: var(--radius-sm); font-size: 0.88rem; font-weight: 500; color: var(--color-text-secondary); text-decoration: none; }
+.gearItem:hover { background: var(--color-surface-alt); color: var(--color-text); }
+.gearItemActive { background: var(--color-accent-light); color: var(--color-accent); }
 .userName { font-size: 0.82rem; color: var(--color-text-secondary); background: none; border: none; padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; }
 .userName:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .logoutBtn { background: none; border: none; color: var(--color-text-muted); font-size: 0.82rem; cursor: pointer; padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); }
