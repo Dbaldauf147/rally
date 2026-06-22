@@ -63,9 +63,12 @@
 /* Retired contacts — muted, sorted to the bottom. */
 .trRetired { opacity: 0.6; }
 
-.colCheck { text-align: center; width: 34px; }
+.colCheck { text-align: left; width: 34px; }
 .colCheck input { cursor: pointer; }
-.colNum { text-align: right; font-variant-numeric: tabular-nums; }
+.colNum { text-align: left; font-variant-numeric: tabular-nums; }
+/* Clickable sortable headers. */
+.thSort { cursor: pointer; user-select: none; white-space: nowrap; }
+.thSort:hover { filter: brightness(0.96); }
 .colActions { width: 1%; white-space: nowrap; text-align: right; }
 .person { font-weight: 600; }
 .tdNote { color: var(--color-text-secondary); font-style: italic; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }

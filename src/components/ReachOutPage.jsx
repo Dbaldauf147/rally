@@ -66,13 +66,33 @@ function decorate(c, today) {
   return { ...c, _last: last, _bday: bday, _bdaySoon: bdaySoon, _bdayToday: bdayToday, _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince, _hasCadence: hasCadence, _status: status, _retired: retired, _due: due };
 }
 
-// Sort by Overdue descending (most overdue on top), matching the source sheet;
-// contacts with no cadence (blank overdue) fall to the bottom by recency.
-function sortRows(a, b) {
-  if (a._retired !== b._retired) return a._retired ? 1 : -1; // retired sink to the bottom
-  if (a._hasCadence !== b._hasCadence) return a._hasCadence ? -1 : 1;
-  if (!a._hasCadence) return (b._daysSince || 0) - (a._daysSince || 0);
-  return (b._overdue ?? -99999) - (a._overdue ?? -99999);
+// The comparable value for a contact under a given sort column. Returns null
+// for "empty" values, which always sort to the bottom regardless of direction.
+function sortValue(c, key) {
+  switch (key) {
+    case 'lastReachOut': return c._last ? c._last.getTime() : null;
+    case 'check': return c.done ? 1 : 0;
+    case 'person': return (c.name || '').toLowerCase() || null;
+    case 'note': return (c.note || '').toLowerCase() || null;
+    case 'category': return (c.category || '').toLowerCase() || null;
+    case 'overdue': return c._overdue ?? null;
+    case 'days': return c._hasCadence ? c.cadenceDays : null;
+    case 'birthday': return c._bday ? c._bday.getMonth() * 100 + c._bday.getDate() : null;
+    case 'status': return c._status || 'active';
+    default: return null;
+  }
+}
+
+function compareRows(a, b, key, dir) {
+  const va = sortValue(a, key);
+  const vb = sortValue(b, key);
+  const aEmpty = va === null || va === undefined;
+  const bEmpty = vb === null || vb === undefined;
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;   // empties always last
+  if (bEmpty) return -1;
+  const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
+  return dir === 'asc' ? cmp : -cmp;
 }
 
 const BLANK_FORM = { name: '', category: 'Family', method: 'Text', cadenceDays: '', lastReachOut: todayKey(), note: '', birthday: '' };
@@ -106,6 +126,20 @@ export function ReachOutPage() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
   const [colVis, setColVis] = useState(loadColVis);
+  // Default sort: Overdue largest→smallest (matches the source sheet).
+  const [sortKey, setSortKey] = useState('overdue');
+  const [sortDir, setSortDir] = useState('desc');
+
+  function onSort(key) {
+    if (sortKey === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      // Numeric/date columns feel natural starting high→low; text starts A→Z.
+      setSortDir(['overdue', 'days', 'lastReachOut', 'birthday', 'check'].includes(key) ? 'desc' : 'asc');
+    }
+  }
+  const sortArrow = (key) => (sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
 
   function toggleCol(key) {
     setColVis(prev => {
@@ -212,8 +246,8 @@ export function ReachOutPage() {
     let rows = decorated;
     if (categoryFilter !== 'all') rows = rows.filter(c => c.category === categoryFilter);
     if (dueOnly) rows = rows.filter(c => c._due);
-    return [...rows].sort(sortRows);
-  }, [decorated, categoryFilter, dueOnly]);
+    return [...rows].sort((a, b) => compareRows(a, b, sortKey, sortDir));
+  }, [decorated, categoryFilter, dueOnly, sortKey, sortDir]);
 
   if (contacts === null) {
     return <div className={styles.page}><div className={styles.header}><h1 className={styles.title}>Reach Out</h1></div><p className={styles.muted}>Loading…</p></div>;
@@ -316,15 +350,15 @@ export function ReachOutPage() {
         <table className={styles.table}>
           <thead>
             <tr>
-              {colVis.lastReachOut !== false && <th>Last Reach Out</th>}
-              {colVis.check !== false && <th className={styles.colCheck} title="Reached out today">✓</th>}
-              <th>Person</th>
-              {colVis.note !== false && <th>What's going on</th>}
-              {colVis.category !== false && <th>Category</th>}
-              {colVis.overdue !== false && <th className={styles.colNum}>Overdue</th>}
-              {colVis.days !== false && <th className={styles.colNum}>Days</th>}
-              {colVis.birthday !== false && <th>Birthday</th>}
-              {colVis.status !== false && <th>Status</th>}
+              {colVis.lastReachOut !== false && <th className={styles.thSort} onClick={() => onSort('lastReachOut')}>Last Reach Out{sortArrow('lastReachOut')}</th>}
+              {colVis.check !== false && <th className={`${styles.colCheck} ${styles.thSort}`} title="Reached out today" onClick={() => onSort('check')}>✓{sortArrow('check')}</th>}
+              <th className={styles.thSort} onClick={() => onSort('person')}>Person{sortArrow('person')}</th>
+              {colVis.note !== false && <th className={styles.thSort} onClick={() => onSort('note')}>What's going on{sortArrow('note')}</th>}
+              {colVis.category !== false && <th className={styles.thSort} onClick={() => onSort('category')}>Category{sortArrow('category')}</th>}
+              {colVis.overdue !== false && <th className={styles.thSort} onClick={() => onSort('overdue')}>Overdue{sortArrow('overdue')}</th>}
+              {colVis.days !== false && <th className={styles.thSort} onClick={() => onSort('days')}>Days{sortArrow('days')}</th>}
+              {colVis.birthday !== false && <th className={styles.thSort} onClick={() => onSort('birthday')}>Birthday{sortArrow('birthday')}</th>}
+              {colVis.status !== false && <th className={styles.thSort} onClick={() => onSort('status')}>Status{sortArrow('status')}</th>}
               <th className={styles.colActions} aria-label="Actions"></th>
             </tr>
           </thead>
