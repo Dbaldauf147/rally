@@ -51,15 +51,17 @@ function decorate(c, today) {
   }
   const hasCadence = !!cadence;
   const due = hasCadence && !c.done && overdue != null && overdue >= 0;
-  // Birthday coming up within two weeks (by month/day, any year).
+  // Birthday today (by month/day), and "coming up within two weeks".
   let bdaySoon = false;
+  let bdayToday = false;
   if (bday) {
+    bdayToday = bday.getMonth() === today.getMonth() && bday.getDate() === today.getDate();
     let next = new Date(today.getFullYear(), bday.getMonth(), bday.getDate());
     if (next < today) next = new Date(today.getFullYear() + 1, bday.getMonth(), bday.getDate());
     const until = daysBetween(today, next);
     bdaySoon = until >= 0 && until <= 14;
   }
-  return { ...c, _last: last, _bday: bday, _bdaySoon: bdaySoon, _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince, _hasCadence: hasCadence, _due: due };
+  return { ...c, _last: last, _bday: bday, _bdaySoon: bdaySoon, _bdayToday: bdayToday, _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince, _hasCadence: hasCadence, _due: due };
 }
 
 // Sort by Overdue descending (most overdue on top), matching the source sheet;
@@ -145,13 +147,14 @@ export function ReachOutPage() {
     cancelForm();
   }
 
-  async function logReachOut(id) {
-    const next = (contacts || []).map(c => c.id === id ? { ...c, lastReachOut: todayKey(), done: false } : c);
-    await persist(next);
-  }
-
+  // The check column doubles as "reached out today": checking it stamps the
+  // last reach-out to today (so the row drops down the overdue sort); unchecking
+  // just clears the flag and leaves the date.
   async function toggleDone(id) {
-    const next = (contacts || []).map(c => c.id === id ? { ...c, done: !c.done } : c);
+    const next = (contacts || []).map(c => {
+      if (c.id !== id) return c;
+      return c.done ? { ...c, done: false } : { ...c, done: true, lastReachOut: todayKey() };
+    });
     await persist(next);
   }
 
@@ -282,20 +285,22 @@ export function ReachOutPage() {
                 : c._overdue > 0 ? styles.over
                 : c._overdue === 0 ? styles.overToday
                 : styles.under;
+              const rowClass = c._bdayToday ? styles.trBday : (c.done ? styles.trDone : '');
               return (
-                <tr key={c.id} className={c.done ? styles.trDone : ''} onClick={() => startEdit(c)} title="Click to edit">
+                <tr key={c.id} className={rowClass} onClick={() => startEdit(c)} title="Click to edit">
                   <td>{fmtMDY(c._last)}</td>
                   <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
-                    <input type="checkbox" checked={!!c.done} onChange={() => toggleDone(c.id)} aria-label="Reached out this cycle" />
+                    <input type="checkbox" checked={!!c.done} onChange={() => toggleDone(c.id)} aria-label="Reached out today" title="Reached out today" />
                   </td>
                   <td className={styles.person}>{c.name}</td>
                   <td className={styles.tdNote}>{c.note}</td>
                   <td>{c.category}</td>
                   <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>
                   <td className={styles.colNum}>{c._hasCadence ? c.cadenceDays : ''}</td>
-                  <td className={c._bdaySoon ? styles.bdaySoon : ''}>{fmtMDY(c._bday)}</td>
+                  <td className={c._bdayToday ? '' : (c._bdaySoon ? styles.bdaySoon : '')}>
+                    {c._bdayToday && c._bday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}
+                  </td>
                   <td className={styles.colActions} onClick={e => e.stopPropagation()}>
-                    <button className={styles.reachBtnSm} onClick={() => logReachOut(c.id)} title="Mark reached out today">✓</button>
                     <button className={styles.iconBtn} onClick={() => remove(c.id)} title="Remove" aria-label="Remove">×</button>
                   </td>
                 </tr>
