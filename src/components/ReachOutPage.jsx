@@ -50,7 +50,9 @@ function decorate(c, today) {
     overdue = daysBetween(reachDay, today); // >0 overdue, <0 upcoming
   }
   const hasCadence = !!cadence;
-  const due = hasCadence && !c.done && overdue != null && overdue >= 0;
+  const status = c.status === 'retired' ? 'retired' : 'active';
+  const retired = status === 'retired';
+  const due = hasCadence && !c.done && !retired && overdue != null && overdue >= 0;
   // Birthday today (by month/day), and "coming up within two weeks".
   let bdaySoon = false;
   let bdayToday = false;
@@ -61,18 +63,39 @@ function decorate(c, today) {
     const until = daysBetween(today, next);
     bdaySoon = until >= 0 && until <= 14;
   }
-  return { ...c, _last: last, _bday: bday, _bdaySoon: bdaySoon, _bdayToday: bdayToday, _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince, _hasCadence: hasCadence, _due: due };
+  return { ...c, _last: last, _bday: bday, _bdaySoon: bdaySoon, _bdayToday: bdayToday, _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince, _hasCadence: hasCadence, _status: status, _retired: retired, _due: due };
 }
 
 // Sort by Overdue descending (most overdue on top), matching the source sheet;
 // contacts with no cadence (blank overdue) fall to the bottom by recency.
 function sortRows(a, b) {
+  if (a._retired !== b._retired) return a._retired ? 1 : -1; // retired sink to the bottom
   if (a._hasCadence !== b._hasCadence) return a._hasCadence ? -1 : 1;
   if (!a._hasCadence) return (b._daysSince || 0) - (a._daysSince || 0);
   return (b._overdue ?? -99999) - (a._overdue ?? -99999);
 }
 
 const BLANK_FORM = { name: '', category: 'Family', method: 'Text', cadenceDays: '', lastReachOut: todayKey(), note: '', birthday: '' };
+
+// Columns the user can show/hide (Person and the actions column are always on).
+const COLS_KEY = 'rally.reachout.cols';
+const COLUMNS = [
+  { key: 'lastReachOut', label: 'Last Reach Out' },
+  { key: 'check', label: 'Done ✓' },
+  { key: 'note', label: "What's going on" },
+  { key: 'category', label: 'Category' },
+  { key: 'overdue', label: 'Overdue' },
+  { key: 'days', label: 'Days' },
+  { key: 'birthday', label: 'Birthday' },
+  { key: 'status', label: 'Status' },
+];
+function loadColVis() {
+  const base = Object.fromEntries(COLUMNS.map(c => [c.key, true]));
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLS_KEY) || '{}');
+    return { ...base, ...(saved && typeof saved === 'object' ? saved : {}) };
+  } catch { return base; }
+}
 
 export function ReachOutPage() {
   const { user } = useAuth();
@@ -82,6 +105,15 @@ export function ReachOutPage() {
   const [editingId, setEditingId] = useState(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
+  const [colVis, setColVis] = useState(loadColVis);
+
+  function toggleCol(key) {
+    setColVis(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(COLS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -162,6 +194,11 @@ export function ReachOutPage() {
     const c = (contacts || []).find(x => x.id === id);
     if (!confirm(`Remove ${c?.name || 'this person'} from Reach Out?`)) return;
     await persist((contacts || []).filter(x => x.id !== id));
+  }
+
+  async function setStatus(id, status) {
+    const next = (contacts || []).map(c => c.id === id ? { ...c, status } : c);
+    await persist(next);
   }
 
   const decorated = useMemo(() => (contacts || []).map(c => decorate(c, today)), [contacts, today]);
@@ -261,6 +298,17 @@ export function ReachOutPage() {
             className={dueOnly ? styles.toggleActive : styles.toggle}
             onClick={() => setDueOnly(v => !v)}
           >{dueOnly ? '● Due only' : 'Due only'}</button>
+          <details className={styles.colMenu}>
+            <summary className={styles.colMenuBtn}>Columns ▾</summary>
+            <div className={styles.colMenuPanel}>
+              {COLUMNS.map(col => (
+                <label key={col.key} className={styles.colMenuItem}>
+                  <input type="checkbox" checked={colVis[col.key] !== false} onChange={() => toggleCol(col.key)} />
+                  {col.label}
+                </label>
+              ))}
+            </div>
+          </details>
         </div>
       )}
 
@@ -268,14 +316,15 @@ export function ReachOutPage() {
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>Last Reach Out</th>
-              <th className={styles.colCheck} title="Reached out this cycle">✓</th>
+              {colVis.lastReachOut !== false && <th>Last Reach Out</th>}
+              {colVis.check !== false && <th className={styles.colCheck} title="Reached out today">✓</th>}
               <th>Person</th>
-              <th>What's going on</th>
-              <th>Category</th>
-              <th className={styles.colNum}>Overdue</th>
-              <th className={styles.colNum}>Days</th>
-              <th>Birthday</th>
+              {colVis.note !== false && <th>What's going on</th>}
+              {colVis.category !== false && <th>Category</th>}
+              {colVis.overdue !== false && <th className={styles.colNum}>Overdue</th>}
+              {colVis.days !== false && <th className={styles.colNum}>Days</th>}
+              {colVis.birthday !== false && <th>Birthday</th>}
+              {colVis.status !== false && <th>Status</th>}
               <th className={styles.colActions} aria-label="Actions"></th>
             </tr>
           </thead>
@@ -285,21 +334,33 @@ export function ReachOutPage() {
                 : c._overdue > 0 ? styles.over
                 : c._overdue === 0 ? styles.overToday
                 : styles.under;
-              const rowClass = c._bdayToday ? styles.trBday : (c.done ? styles.trDone : '');
+              const rowClass = c._bdayToday ? styles.trBday : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
                 <tr key={c.id} className={rowClass} onClick={() => startEdit(c)} title="Click to edit">
-                  <td>{fmtMDY(c._last)}</td>
-                  <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
-                    <input type="checkbox" checked={!!c.done} onChange={() => toggleDone(c.id)} aria-label="Reached out today" title="Reached out today" />
-                  </td>
+                  {colVis.lastReachOut !== false && <td>{fmtMDY(c._last)}</td>}
+                  {colVis.check !== false && (
+                    <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={!!c.done} onChange={() => toggleDone(c.id)} aria-label="Reached out today" title="Reached out today" />
+                    </td>
+                  )}
                   <td className={styles.person}>{c.name}</td>
-                  <td className={styles.tdNote}>{c.note}</td>
-                  <td>{c.category}</td>
-                  <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>
-                  <td className={styles.colNum}>{c._hasCadence ? c.cadenceDays : ''}</td>
-                  <td className={c._bdayToday ? '' : (c._bdaySoon ? styles.bdaySoon : '')}>
-                    {c._bdayToday && c._bday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}
-                  </td>
+                  {colVis.note !== false && <td className={styles.tdNote}>{c.note}</td>}
+                  {colVis.category !== false && <td>{c.category}</td>}
+                  {colVis.overdue !== false && <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>}
+                  {colVis.days !== false && <td className={styles.colNum}>{c._hasCadence ? c.cadenceDays : ''}</td>}
+                  {colVis.birthday !== false && (
+                    <td className={c._bdayToday ? '' : (c._bdaySoon ? styles.bdaySoon : '')}>
+                      {c._bdayToday && c._bday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}
+                    </td>
+                  )}
+                  {colVis.status !== false && (
+                    <td onClick={e => e.stopPropagation()}>
+                      <select className={styles.statusSelect} value={c._status} onChange={e => setStatus(c.id, e.target.value)} aria-label="Status">
+                        <option value="active">Active</option>
+                        <option value="retired">Retired</option>
+                      </select>
+                    </td>
+                  )}
                   <td className={styles.colActions} onClick={e => e.stopPropagation()}>
                     <button className={styles.iconBtn} onClick={() => remove(c.id)} title="Remove" aria-label="Remove">×</button>
                   </td>
