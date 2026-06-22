@@ -127,6 +127,7 @@ export function ReachOutPage() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState(null); // null = loading
   const [friendsList, setFriendsList] = useState([]);
+  const [friendDraft, setFriendDraft] = useState({}); // per-row in-progress typeahead text
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [dueOnly, setDueOnly] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -254,6 +255,23 @@ export function ReachOutPage() {
   async function setFriendLink(id, friendId) {
     const next = (contacts || []).map(c => c.id === id ? { ...c, friendId } : c);
     await persist(next);
+  }
+
+  // Typeahead handlers for the Friend column. Resolve the typed text to a
+  // same-named Friends contact; an exact match links it, empty clears it.
+  function onFriendInput(c, text) {
+    setFriendDraft(prev => ({ ...prev, [c.id]: text }));
+    const match = friendsList.find(f => normalizeName(f.name) === normalizeName(text));
+    if (match) { if (match.id !== c.friendId) setFriendLink(c.id, match.id); }
+    else if (!text.trim() && c.friendId) setFriendLink(c.id, '');
+  }
+  function onFriendBlur(c, text) {
+    setFriendDraft(prev => { const n = { ...prev }; delete n[c.id]; return n; });
+    const match = friendsList.find(f => normalizeName(f.name) === normalizeName(text));
+    if (match) { if (match.id !== c.friendId) setFriendLink(c.id, match.id); }
+    else if (!text.trim() && c.friendId) setFriendLink(c.id, '');
+    // No match + non-empty: leave the existing link; clearing the draft reverts
+    // the field to the linked friend's name.
   }
 
   // Link any unlinked reach-out people to a same-named Friends contact.
@@ -465,10 +483,15 @@ export function ReachOutPage() {
                   {colVis.friend !== false && (
                     <td onClick={e => e.stopPropagation()}>
                       <div className={styles.friendCell}>
-                        <select className={styles.statusSelect} value={c.friendId || ''} onChange={e => setFriendLink(c.id, e.target.value)} aria-label="Linked friend">
-                          <option value="">— none —</option>
-                          {friendsList.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                        </select>
+                        <input
+                          className={styles.friendInput}
+                          list="reachout-friends"
+                          value={friendDraft[c.id] ?? (friendsList.find(f => f.id === c.friendId)?.name || '')}
+                          onChange={e => onFriendInput(c, e.target.value)}
+                          onBlur={e => onFriendBlur(c, e.target.value)}
+                          placeholder="Type a name…"
+                          aria-label="Linked friend"
+                        />
                         {c.friendId && friendsList.some(f => f.id === c.friendId) && (
                           <Link to={`/friends?open=${c.friendId}`} className={styles.friendLink} title="Open in Friends">↗</Link>
                         )}
@@ -486,6 +509,9 @@ export function ReachOutPage() {
         {contacts.length > 0 && visible.length === 0 && (
           <p className={styles.muted}>No one matches this filter.</p>
         )}
+        <datalist id="reachout-friends">
+          {friendsList.map(f => <option key={f.id} value={f.name} />)}
+        </datalist>
       </div>
     </div>
   );
