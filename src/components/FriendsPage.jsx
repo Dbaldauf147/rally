@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField, addDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -399,6 +400,7 @@ export function FriendsPage() {
   const [editFriend, setEditFriend] = useState(null); // null=closed, object=editing
   const [editFields, setEditFields] = useState({});
   const [giftDraft, setGiftDraft] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     if (!user) return;
@@ -408,6 +410,24 @@ export function FriendsPage() {
     }, () => setLoading(false));
     return unsub;
   }, [user]);
+
+  // Deep link from elsewhere (e.g. Reach Out's Friend column): /friends?open=<id>
+  // opens that contact's editor once, then clears the param.
+  const openedFromParamRef = useRef(false);
+  useEffect(() => {
+    if (openedFromParamRef.current) return;
+    const openId = searchParams.get('open');
+    if (!openId || friends.length === 0) return;
+    const f = friends.find(x => x.id === openId);
+    if (f) {
+      openEdit(f);
+      openedFromParamRef.current = true;
+      const next = new URLSearchParams(searchParams);
+      next.delete('open');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friends, searchParams]);
 
   async function addFriend(data) {
     if (!user || !data.name?.trim()) return;
