@@ -94,41 +94,66 @@ jobs:
           ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           APPLE_KEY_EOF
 
+      - name: Detect saved signing certificate
+        # If the IOS_DIST_CERT_P12 secret exists we reuse one persistent cert and
+        # never create/revoke (so Apple stops sending "certificate revoked" mail).
+        # Without it we fall back to the legacy create-and-revoke flow.
+        id: cert
+        run: |
+          if [ -n "${{ secrets.IOS_DIST_CERT_P12 }}" ]; then
+            echo "saved=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "saved=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Revoke stale signing certificates
-        # Ephemeral runners can't reuse certs across builds, so clear the
-        # account first to stay within Apple's per-account certificate limit.
+        # Legacy path only. Ephemeral runners can't reuse a freshly-created cert's
+        # private key, so the old flow cleared the slot each build (one email each).
+        if: steps.cert.outputs.saved != 'true'
         run: P8_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" node ci/revoke-signing-certs.mjs
 
       - name: Provision distribution signing
-        # Create our own distribution certificate + App Store provisioning
-        # profile via the API and load them into a temporary keychain, so the
-        # build signs manually (cloud-managed signing isn't available to us).
+        # Reuse the saved cert (no create/revoke) when IOS_DIST_CERT_P12 is set;
+        # otherwise fall back to the legacy create-a-cert-each-build flow. Either
+        # way we end with $OUT/dist.p12 + $P12_PASS and the two profiles.
+        env:
+          IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_DIST_CERT_ID: ${{ secrets.IOS_DIST_CERT_ID }}
+          SAVED: ${{ steps.cert.outputs.saved }}
         run: |
           set -euo pipefail
           OUT="$RUNNER_TEMP/signing"
           mkdir -p "$OUT"
+          P8="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
 
-          # Private key + certificate signing request.
-          openssl req -new -newkey rsa:2048 -nodes \
-            -keyout "$OUT/dist.key" -out "$OUT/dist.csr" \
-            -subj "/CN=Rally Distribution/O=Rally/C=US"
+          if [ "$SAVED" = "true" ]; then
+            # Saved cert: decode the .p12 and create profiles only (no cert ops).
+            echo "$IOS_DIST_CERT_P12" | base64 --decode > "$OUT/dist.p12"
+            P12_PASS="$IOS_DIST_CERT_PASSWORD"
+            OUT_DIR="$OUT" BUNDLE_ID="com.danbaldauf.rally" \
+              EXT_BUNDLE_ID="com.danbaldauf.rally.ShareExtension" \
+              CERT_ID="$IOS_DIST_CERT_ID" P8_PATH="$P8" \
+              node ci/create-signing-assets.mjs
+          else
+            # Legacy: CSR -> new cert + profiles, then bundle a fresh .p12.
+            openssl req -new -newkey rsa:2048 -nodes \
+              -keyout "$OUT/dist.key" -out "$OUT/dist.csr" \
+              -subj "/CN=Rally Distribution/O=Rally/C=US"
+            OUT_DIR="$OUT" CSR_PATH="$OUT/dist.csr" BUNDLE_ID="com.danbaldauf.rally" \
+              EXT_BUNDLE_ID="com.danbaldauf.rally.ShareExtension" \
+              P8_PATH="$P8" \
+              node ci/create-signing-assets.mjs
+            openssl x509 -inform DER -in "$OUT/dist.cer" -out "$OUT/dist.pem"
+            P12_PASS="$(openssl rand -base64 24)"
+            openssl pkcs12 -export -legacy -inkey "$OUT/dist.key" -in "$OUT/dist.pem" \
+              -out "$OUT/dist.p12" -passout pass:"$P12_PASS" 2>/dev/null \
+            || openssl pkcs12 -export -inkey "$OUT/dist.key" -in "$OUT/dist.pem" \
+              -out "$OUT/dist.p12" -passout pass:"$P12_PASS"
+          fi
 
-          # Certificate + App Store profiles (app + Share Extension) from
-          # App Store Connect. One cert signs both bundle ids.
-          OUT_DIR="$OUT" CSR_PATH="$OUT/dist.csr" BUNDLE_ID="com.danbaldauf.rally" \
-            EXT_BUNDLE_ID="com.danbaldauf.rally.ShareExtension" \
-            P8_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" \
-            node ci/create-signing-assets.mjs
           PROFILE_UUID="$(cat "$OUT/PROFILE_UUID")"
           EXT_PROFILE_UUID="$(cat "$OUT/EXT_PROFILE_UUID")"
-
-          # Bundle key + cert into a .p12 (try OpenSSL 3 -legacy, else LibreSSL).
-          openssl x509 -inform DER -in "$OUT/dist.cer" -out "$OUT/dist.pem"
-          P12_PASS="$(openssl rand -base64 24)"
-          openssl pkcs12 -export -legacy -inkey "$OUT/dist.key" -in "$OUT/dist.pem" \
-            -out "$OUT/dist.p12" -passout pass:"$P12_PASS" 2>/dev/null \
-          || openssl pkcs12 -export -inkey "$OUT/dist.key" -in "$OUT/dist.pem" \
-            -out "$OUT/dist.p12" -passout pass:"$P12_PASS"
 
           # Dedicated keychain holding the signing identity.
           KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
