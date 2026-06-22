@@ -56,13 +56,17 @@ function eventDayOptions(event) {
   const e = new Date(end); e.setHours(0, 0, 0, 0);
   if (e < s) return [];
   const hidden = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
+  // Per-day custom names set on the event (e.g. "Arrival", "Beach day").
+  const names = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
   const out = [];
   const cur = new Date(s);
   let n = 1; // counts every day so visible days keep their true trip-day number
   while (cur <= e) {
     const key = dayKey(cur);
     if (!hidden.has(key)) {
-      out.push({ key, label: `Day ${n} · ${cur.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` });
+      const dateStr = cur.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      const dayName = typeof names[key] === 'string' ? names[key].trim() : '';
+      out.push({ key, label: `Day ${n} · ${dateStr}${dayName ? ` · ${dayName}` : ''}` });
     }
     cur.setDate(cur.getDate() + 1);
     n += 1;
