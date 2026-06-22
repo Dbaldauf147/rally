@@ -1,0 +1,80 @@
+name: iOS · Bootstrap signing cert (one-time)
+
+# Run this ONCE (Actions tab → this workflow → Run workflow). It creates a single
+# Apple Distribution certificate that the main build reuses forever, so the build
+# never creates/revokes certs again (which is what triggers Apple's "certificate
+# revoked" emails).
+#
+# It produces an artifact "ios-signing-secrets" containing three values. Add them
+# as repository secrets, then delete the artifact:
+#   IOS_DIST_CERT_ID        – the certificate id
+#   IOS_DIST_CERT_PASSWORD  – the .p12 password
+#   IOS_DIST_CERT_P12       – base64 of the .p12 (the long block at the bottom)
+#
+# This run revokes any existing auto-created certs first (one final email), then
+# creates the keeper.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install App Store Connect API key
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          cat > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8 <<'APPLE_KEY_EOF'
+          ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          APPLE_KEY_EOF
+
+      - name: Revoke existing auto-created certs (final cleanup)
+        run: P8_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" node ci/revoke-signing-certs.mjs
+
+      - name: Create the keeper distribution certificate
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/boot"
+          mkdir -p "$OUT"
+
+          openssl req -new -newkey rsa:2048 -nodes \
+            -keyout "$OUT/dist.key" -out "$OUT/dist.csr" \
+            -subj "/CN=Rally Distribution/O=Rally/C=US"
+
+          CERT_ID="$(OUT_DIR="$OUT" CSR_PATH="$OUT/dist.csr" \
+            P8_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" \
+            node ci/bootstrap-create-cert.mjs)"
+
+          openssl x509 -inform DER -in "$OUT/dist.cer" -out "$OUT/dist.pem"
+          P12_PASS="$(openssl rand -base64 24)"
+          openssl pkcs12 -export -legacy -inkey "$OUT/dist.key" -in "$OUT/dist.pem" \
+            -out "$OUT/dist.p12" -passout pass:"$P12_PASS" 2>/dev/null \
+          || openssl pkcs12 -export -inkey "$OUT/dist.key" -in "$OUT/dist.pem" \
+            -out "$OUT/dist.p12" -passout pass:"$P12_PASS"
+
+          {
+            echo "Add these as repository secrets (Settings → Secrets → Actions), then delete this artifact."
+            echo ""
+            echo "IOS_DIST_CERT_ID=$CERT_ID"
+            echo "IOS_DIST_CERT_PASSWORD=$P12_PASS"
+            echo ""
+            echo "IOS_DIST_CERT_P12 (base64, paste the whole block as one secret):"
+            base64 < "$OUT/dist.p12" | tr -d '\n'
+            echo ""
+          } > "$OUT/secrets.txt"
+
+      - name: Upload signing secrets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-signing-secrets
+          path: ${{ runner.temp }}/boot/secrets.txt
+          retention-days: 1

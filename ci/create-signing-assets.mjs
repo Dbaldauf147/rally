@@ -20,8 +20,11 @@
 import crypto from 'node:crypto';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 
-const { KEY_ID, ISSUER_ID, P8_PATH, BUNDLE_ID, EXT_BUNDLE_ID, CSR_PATH, OUT_DIR, GITHUB_ENV } = process.env;
-for (const [k, v] of Object.entries({ KEY_ID, ISSUER_ID, P8_PATH, BUNDLE_ID, CSR_PATH, OUT_DIR })) {
+const { KEY_ID, ISSUER_ID, P8_PATH, BUNDLE_ID, EXT_BUNDLE_ID, CSR_PATH, OUT_DIR, GITHUB_ENV, CERT_ID } = process.env;
+// CERT_ID (a pre-existing, reused distribution cert) makes CSR_PATH optional —
+// in that mode we don't create a cert at all, only the provisioning profiles.
+const required = { KEY_ID, ISSUER_ID, P8_PATH, BUNDLE_ID, OUT_DIR, ...(CERT_ID ? {} : { CSR_PATH }) };
+for (const [k, v] of Object.entries(required)) {
   if (!v) { console.error(`Missing env ${k}`); process.exit(1); }
 }
 
@@ -96,17 +99,24 @@ async function makeProfile({ name, bundleInternalId, certId, outFile, envPrefix 
 }
 
 async function main() {
-  // 1. Distribution certificate from the CSR (one cert signs every target).
-  const csrContent = readFileSync(CSR_PATH, 'utf8');
-  const cert = await api('/v1/certificates', {
-    method: 'POST',
-    body: JSON.stringify({
-      data: { type: 'certificates', attributes: { certificateType: 'DISTRIBUTION', csrContent } },
-    }),
-  });
-  const certId = cert.data.id;
-  writeFileSync(`${OUT_DIR}/dist.cer`, Buffer.from(cert.data.attributes.certificateContent, 'base64'));
-  console.log(`Created distribution certificate ${certId}`);
+  // 1. Distribution certificate. Reuse the saved one (CERT_ID) when provided so
+  //    we never create/revoke certs; otherwise create a fresh one from the CSR.
+  let certId;
+  if (CERT_ID) {
+    certId = CERT_ID;
+    console.log(`Using existing distribution certificate ${certId}`);
+  } else {
+    const csrContent = readFileSync(CSR_PATH, 'utf8');
+    const cert = await api('/v1/certificates', {
+      method: 'POST',
+      body: JSON.stringify({
+        data: { type: 'certificates', attributes: { certificateType: 'DISTRIBUTION', csrContent } },
+      }),
+    });
+    certId = cert.data.id;
+    writeFileSync(`${OUT_DIR}/dist.cer`, Buffer.from(cert.data.attributes.certificateContent, 'base64'));
+    console.log(`Created distribution certificate ${certId}`);
+  }
 
   // 2. App profile.
   const appBundleId = await ensureBundleId(BUNDLE_ID, 'Rally');
