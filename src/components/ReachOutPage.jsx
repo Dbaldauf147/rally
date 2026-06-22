@@ -249,6 +249,16 @@ export function ReachOutPage() {
     return [...rows].sort((a, b) => compareRows(a, b, sortKey, sortDir));
   }, [decorated, categoryFilter, dueOnly, sortKey, sortDir]);
 
+  // Daily goal: reach out to at least one family member and one friend today.
+  const todayK = todayKey();
+  const reachedToday = (match) => (contacts || []).some(c => c.lastReachOut === todayK && match(c.category || ''));
+  const reachedFamilyToday = reachedToday(cat => cat === 'Family');
+  const reachedFriendToday = reachedToday(cat => /friend/i.test(cat));
+  const dailyNeeds = [
+    ...(!reachedFamilyToday ? ['a family member'] : []),
+    ...(!reachedFriendToday ? ['a friend'] : []),
+  ];
+
   if (contacts === null) {
     return <div className={styles.page}><div className={styles.header}><h1 className={styles.title}>Reach Out</h1></div><p className={styles.muted}>Loading…</p></div>;
   }
@@ -266,6 +276,13 @@ export function ReachOutPage() {
           <button className={styles.btnPrimary} onClick={startAdd}>+ Add person</button>
         </div>
       </div>
+
+      {contacts.length > 0 && dailyNeeds.length > 0 && (
+        <div className={styles.alert} role="status">
+          <span className={styles.alertIcon}>🔔</span>
+          <span>Reach out to {dailyNeeds.join(' and ')} today.</span>
+        </div>
+      )}
 
       {contacts.length === 0 && !adding && (
         <div className={styles.emptyCard}>
