@@ -2243,6 +2243,8 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
         eventName: it.eventName || '',
         venue: it.venue || '',
         ticketCount: it.ticketCount || '',
+        restaurantName: it.restaurantName || '',
+        partySize: it.partySize || '',
         // 'email' = saved from a pasted confirmation email. Kept distinct from
         // 'ai' (trip-planner suggestions) so these show in the Bookings tab.
         source: 'email',
@@ -2270,7 +2272,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
   }
 
   function startAdd() {
-    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '', tripId: '', reservationNumber: '', fromLocation: '', toLocation: '', endDate: '', passengers: '', ticketNumbers: '', seatNumbers: '', bookingId: '', hotelName: '', guests: '', roomType: '', travelMode: '', eventName: '', venue: '', ticketCount: '' });
+    setForm({ title: '', date: '', time: '', location: '', notes: '', type: 'activity', url: '', highlightIds: [], isFlight: false, arrivalTime: '', airline: '', flightNumber: '', cost: '', tripId: '', reservationNumber: '', fromLocation: '', toLocation: '', endDate: '', passengers: '', ticketNumbers: '', seatNumbers: '', bookingId: '', hotelName: '', guests: '', roomType: '', travelMode: '', eventName: '', venue: '', ticketCount: '', restaurantName: '', partySize: '' });
     setAdding(true);
     setEditingId(null);
     setOptedOutHighlightIds(new Set());
@@ -2353,6 +2355,8 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
       eventName: item.eventName || '',
       venue: item.venue || '',
       ticketCount: item.ticketCount || '',
+      restaurantName: item.restaurantName || '',
+      partySize: item.partySize || '',
     });
     setEditingId(item.id);
     setAdding(false);
@@ -2647,7 +2651,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
     setTimeout(() => setShareStatus(s => (s ? '' : s)), 3000);
   }
 
-  function emailItinerary() {
+  async function emailItinerary() {
     const members = event?.members || {};
     const seen = new Set();
     const emails = [];
@@ -2672,16 +2676,6 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
       if (isNaN(date)) return '';
       return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
     };
-    const formatTime = (t) => {
-      if (!t) return '';
-      const m = /^(\d{1,2}):(\d{2})/.exec(t);
-      if (!m) return t;
-      let h = parseInt(m[1], 10);
-      const mm = m[2];
-      const ampm = h >= 12 ? 'PM' : 'AM';
-      h = h % 12 || 12;
-      return `${h}:${mm} ${ampm}`;
-    };
     const formatDateHeader = (ymd) => {
       try {
         const d = new Date(ymd + 'T12:00:00');
@@ -2698,7 +2692,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
       : '';
 
     const lines = [];
-    lines.push(`Hey! Here's the itinerary for ${event?.title || 'our trip'}.`);
+    lines.push(`Hey! Here's the daily plan for ${event?.title || 'our trip'}.`);
     lines.push('');
     if (dateRange) lines.push(`📅 ${dateRange}`);
     if (event?.location) lines.push(`📍 ${event.location}`);
@@ -2707,59 +2701,53 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
       lines.push(event.description);
     }
 
-    const highlights = Array.isArray(event?.tripHighlights) ? event.tripHighlights : [];
-    if (highlights.length > 0) {
-      lines.push('');
-      lines.push('✨ Key Destinations');
-      highlights.forEach((h, i) => {
-        const lock = h.locked ? '🔒 ' : '';
-        const cost = h.cost ? ` — ${h.cost}` : '';
-        lines.push(`  ${i + 1}. ${lock}${h.text || ''}${cost}`);
-        const subs = Array.isArray(h.subHighlights) ? h.subHighlights : [];
-        for (const s of subs) {
-          if (!s || !s.text) continue;
-          lines.push(`     • ${s.text}`);
-        }
-      });
-    }
+    // Daily view: one block per trip day with its name, destination and the
+    // bullets chosen for that day (mirrors the on-screen Daily view).
+    const toDay = (d) => { if (!d) return null; const x = d?.toDate ? d.toDate() : new Date(d); return isNaN(x) ? null : x; };
+    const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const dStart = toDay(event?.startDate || event?.date);
+    const dEnd = toDay(event?.endDate) || dStart;
+    const overrides = (event?.dailyDestinations && typeof event.dailyDestinations === 'object') ? event.dailyDestinations : {};
+    const dailyNames = (event?.dailyNames && typeof event.dailyNames === 'object') ? event.dailyNames : {};
+    const dailyBullets = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? event.dailyBullets : {};
+    const hiddenKeys = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
 
-    const itin = (Array.isArray(items) ? items : [])
-      .filter(it => (it.type || 'activity') !== 'travel');
-    if (itin.length > 0) {
-      const sorted = [...itin].sort((a, b) => {
-        const ka = `${a.date || ''} ${a.time || ''}`;
-        const kb = `${b.date || ''} ${b.time || ''}`;
-        return ka.localeCompare(kb);
-      });
-      const byDate = new Map();
-      const undated = [];
-      for (const it of sorted) {
-        if (!it.date) { undated.push(it); continue; }
-        if (!byDate.has(it.date)) byDate.set(it.date, []);
-        byDate.get(it.date).push(it);
-      }
+    if (dStart && dEnd) {
       lines.push('');
-      lines.push('📅 Itinerary');
-      for (const [ymd, list] of byDate) {
-        lines.push('');
-        lines.push(formatDateHeader(ymd));
-        for (const it of list) {
-          const time = formatTime(it.time);
-          const title = it.title || '(untitled)';
-          let line = time ? `  • ${time} — ${title}` : `  • ${title}`;
-          if (it.location) line += ` @ ${it.location}`;
-          lines.push(line);
+      lines.push('🗓️ Daily plan');
+      const s = new Date(dStart); s.setHours(0, 0, 0, 0);
+      const e = new Date(dEnd); e.setHours(0, 0, 0, 0);
+      const cur = new Date(s);
+      let dayIndex = 0;
+      while (cur <= e) {
+        dayIndex += 1;
+        const key = keyOf(cur);
+        cur.setDate(cur.getDate() + 1);
+        if (hiddenKeys.has(key)) continue;
+
+        const dayItems = (groups[key] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+        let autoDest = null;
+        for (const it of dayItems) { const dest = inferItemDestination(it); if (dest) { autoDest = dest; break; } }
+        if (!autoDest && dayItems.length > 0) autoDest = dayItems[0].location || dayItems[0].title || null;
+        const overrideHighlight = overrides[key] ? tripHighlights.find(h => h.id === overrides[key]) : null;
+        const finalDest = overrideHighlight ? overrideHighlight.text : autoDest;
+
+        let destHighlight = overrideHighlight || null;
+        if (!destHighlight && finalDest) {
+          const needle = normalizeForMatch(finalDest);
+          destHighlight = tripHighlights.find(h => { const ht = normalizeForMatch(h.text || ''); return ht && (ht === needle || needle.includes(ht) || ht.includes(needle)); }) || null;
         }
-      }
-      if (undated.length) {
+        const allSubs = Array.isArray(destHighlight?.subHighlights) ? destHighlight.subHighlights.filter(x => x && x.text) : [];
+        const subById = new Map(allSubs.map(x => [x.id, x]));
+        const destSubs = (Array.isArray(dailyBullets[key]) ? dailyBullets[key] : []).map(id => subById.get(id)).filter(Boolean);
+
+        const name = (dailyNames[key] || '').trim();
+        const dateLabel = formatDateHeader(key);
         lines.push('');
-        lines.push('TBD');
-        for (const it of undated) {
-          const title = it.title || '(untitled)';
-          let line = `  • ${title}`;
-          if (it.location) line += ` @ ${it.location}`;
-          lines.push(line);
-        }
+        lines.push(`Day ${dayIndex} · ${dateLabel}${name ? ` · ${name}` : ''}`);
+        if (finalDest) lines.push(`  📍 ${finalDest}`);
+        for (const x of destSubs) lines.push(`  • ${x.text}`);
+        if (!finalDest && destSubs.length === 0) lines.push('  (no plans yet)');
       }
     }
 
@@ -2771,8 +2759,28 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
     lines.push(`— ${fromName}`);
 
     const body = lines.join('\n');
-    const subject = `Itinerary for ${event?.title || 'our trip'}`;
-    const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const subject = `Daily plan for ${event?.title || 'our trip'}`;
+    const base = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${encodeURIComponent(subject)}`;
+    const gmailUrl = `${base}&body=${encodeURIComponent(body)}`;
+
+    // Gmail returns "Bad Request 400" for very long compose URLs. If the body
+    // would push us over, copy it to the clipboard and open an empty draft to
+    // paste into instead of failing.
+    if (gmailUrl.length > 1900) {
+      let copied = false;
+      try { await navigator.clipboard.writeText(body); copied = true; } catch { copied = false; }
+      const openedEmpty = window.open(base, '_blank', 'noopener,noreferrer');
+      if (!openedEmpty) {
+        setEmailResult('Pop-up blocked — please allow pop-ups for Rally and try again.');
+        setTimeout(() => setEmailResult(''), 8000);
+        return;
+      }
+      setEmailResult(copied
+        ? 'The plan was long, so it was copied to your clipboard — paste it into the email (Ctrl/Cmd+V).'
+        : 'The plan is long — copy it from the itinerary and paste into the email.');
+      setTimeout(() => setEmailResult(''), 9000);
+      return;
+    }
 
     const opened = window.open(gmailUrl, '_blank', 'noopener,noreferrer');
     if (!opened) {
@@ -3297,9 +3305,9 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
             <button
               className={styles.lodgingToggleBtn}
               onClick={emailItinerary}
-              title="Open an email draft to all attendees with the itinerary pre-filled"
+              title="Open an email draft to all attendees with the daily plan pre-filled"
             >
-              📧 Email itinerary
+              📧 Email daily plan
             </button>
           )}
           {canEdit && !adding && !editingId && (
@@ -3374,10 +3382,10 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
           .filter(i => {
             const sourced = i.source === 'manual' || i.source === 'email';
             if (i.type === 'travel' || i.type === 'lodging') return sourced;
-            // Event bookings are stored as activities; show ones imported from
-            // an email or that carry event-booking fields.
+            // Event/restaurant bookings are stored as activities; show ones
+            // imported from an email or that carry booking fields.
             if (i.type === 'activity') {
-              return i.source === 'email' || !!(i.eventName || i.venue || i.ticketCount);
+              return i.source === 'email' || !!(i.eventName || i.venue || i.ticketCount || i.restaurantName || i.partySize);
             }
             return false;
           })
@@ -3409,11 +3417,14 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
         const renderBookingCard = (item) => {
           const isLodging = item.type === 'lodging';
           const isEvent = item.type === 'activity';
+          // Restaurant reservations are activities that carry dining fields.
+          const isDining = isEvent && !!(item.restaurantName || item.partySize);
           const icon = isLodging ? '🏨'
+            : isDining ? '🍽️'
             : isEvent ? '🎫'
             : (item.isFlight ? '✈️' : (TRAVEL_MODE_ICON[item.travelMode] || '🚆'));
           // Structured summary: only the rows that actually have a value.
-          // Lodging, event, and travel bookings surface different fields.
+          // Lodging, event, dining, and travel bookings surface different fields.
           const summaryRows = (isLodging
             ? [
                 ['Booking ID', item.bookingId],
@@ -3423,6 +3434,14 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 ['Check out', item.endDate ? fmtKeyLong(item.endDate) : ''],
                 ['Guests', item.guests],
                 ['Room type', item.roomType],
+              ]
+            : isDining
+            ? [
+                ['Confirmation #', item.reservationNumber],
+                ['Restaurant', item.restaurantName],
+                ['Date', item.date ? fmtKeyLong(item.date) : ''],
+                ['Time', item.time ? fmtTime(item.time) : ''],
+                ['Party size', item.partySize],
               ]
             : isEvent
             ? [
@@ -3633,9 +3652,9 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
               <div className={styles.bookingsPaste}>
                 <div className={styles.bookingsPasteTitle}>📧 Paste a confirmation email</div>
                 <p className={styles.bookingsPasteHint}>
-                  Copy the full text of a flight, train, bus, hotel, car-rental, or
-                  event/ticket confirmation email from Gmail and paste it below. Claude
-                  reads it and saves the booking details.
+                  Copy the full text of a flight, train, bus, hotel, car-rental,
+                  event/ticket, or restaurant reservation confirmation email from Gmail
+                  and paste it below. Claude reads it and saves the booking details.
                 </p>
                 <textarea
                   className={styles.bookingsTextarea}
@@ -3984,7 +4003,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
           )}
           {form.type === 'activity' && (
             <details style={{ background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.6rem' }}>
-              <summary style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)', cursor: 'pointer' }}>🎫 Event booking details (optional)</summary>
+              <summary style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)', cursor: 'pointer' }}>🎫 Event / restaurant booking details (optional)</summary>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
                 <input className={styles.input} type="text" placeholder="Event name (e.g., FC Barcelona vs Real Madrid)" value={form.eventName} onChange={e => setForm({ ...form, eventName: e.target.value })} />
                 <input className={styles.input} type="text" placeholder="Venue (e.g., Camp Nou)" value={form.venue} onChange={e => setForm({ ...form, venue: e.target.value })} />
@@ -3992,6 +4011,11 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                 <div className={styles.row}>
                   <input className={styles.input} type="text" placeholder="Number of tickets" value={form.ticketCount} onChange={e => setForm({ ...form, ticketCount: e.target.value })} />
                   <input className={styles.input} type="text" placeholder="Seats / section" value={form.seatNumbers} onChange={e => setForm({ ...form, seatNumbers: e.target.value })} />
+                </div>
+                <div style={{ fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em', marginTop: '0.2rem' }}>🍽️ Restaurant reservation</div>
+                <div className={styles.row}>
+                  <input className={styles.input} type="text" placeholder="Restaurant name (e.g., Le Bernardin)" value={form.restaurantName} onChange={e => setForm({ ...form, restaurantName: e.target.value })} />
+                  <input className={styles.input} type="text" placeholder="Party size (e.g., 4)" value={form.partySize} onChange={e => setForm({ ...form, partySize: e.target.value })} />
                 </div>
               </div>
             </details>
@@ -5147,7 +5171,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
               // Structured booking details for travel (flights, trains, buses…),
               // hotels (lodging), and event/ticket bookings (activity) — only
               // when the item actually carries those fields.
-              const bookingFields = ['tripId', 'reservationNumber', 'fromLocation', 'toLocation', 'endDate', 'passengers', 'ticketNumbers', 'seatNumbers', 'bookingId', 'hotelName', 'guests', 'roomType', 'eventName', 'venue', 'ticketCount'];
+              const bookingFields = ['tripId', 'reservationNumber', 'fromLocation', 'toLocation', 'endDate', 'passengers', 'ticketNumbers', 'seatNumbers', 'bookingId', 'hotelName', 'guests', 'roomType', 'eventName', 'venue', 'ticketCount', 'restaurantName', 'partySize'];
               const hasBookingDetails = (item.type === 'travel' || item.type === 'lodging' || item.type === 'activity')
                 && bookingFields.some(f => item[f] && String(item[f]).trim());
               const renderBookingDetails = () => {
@@ -5178,8 +5202,10 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                       cell('Confirmation Number', item.reservationNumber, true),
                       cell('Event', item.eventName, true),
                       cell('Venue', item.venue, true),
+                      cell('Restaurant', item.restaurantName, true),
                       cell('Date, Time', dateTime(item.date, item.time)),
                       cell('Number of Tickets', item.ticketCount),
+                      cell('Party Size', item.partySize),
                       cell('Seats', item.seatNumbers, true),
                     ]
                   : [
