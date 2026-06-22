@@ -47,7 +47,9 @@ function decorate(c, today) {
   let overdue = null;
   if (last && cadence) {
     reachDay = addDays(last, cadence);
-    overdue = daysBetween(reachDay, today); // >0 overdue, <0 upcoming
+    // Overdue = days since the last reach-out minus the cadence (Days column).
+    // >0 means overdue, <0 means not due yet.
+    overdue = daysSince - cadence;
   }
   const hasCadence = !!cadence;
   const status = c.status === 'retired' ? 'retired' : 'active';
