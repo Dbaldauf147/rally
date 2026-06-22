@@ -14,6 +14,16 @@
 }
 .alertIcon { font-size: 1.05rem; }
 
+/* Legend explaining the table's colours. */
+.legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; margin-bottom: 0.75rem; padding: 0.5rem 0.7rem; background: var(--color-surface-alt); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.8rem; color: var(--color-text-secondary); }
+.legendItem { display: inline-flex; align-items: center; gap: 0.35rem; }
+.sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+.swBday { background: #fff4cc; border: 1px solid #f1c232; }
+.swDone { background: #eef9f0; border: 1px solid #cdeccf; }
+.swRetired { background: var(--color-surface); border: 1px solid var(--color-border); opacity: 0.55; }
+.swBdaySoon { background: #fee2e2; border: 1px solid #fca5a5; }
+.legend .over, .legend .overToday { font-variant-numeric: tabular-nums; }
+
 .btn, .btnPrimary {
   appearance: none; font-family: inherit; cursor: pointer; font-size: 0.85rem; font-weight: 600;
   padding: 0.5rem 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);

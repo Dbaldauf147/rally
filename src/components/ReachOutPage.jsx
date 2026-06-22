@@ -363,6 +363,17 @@ export function ReachOutPage() {
         </div>
       )}
 
+      {contacts.length > 0 && (
+        <div className={styles.legend}>
+          <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swBday}`} />Birthday today</span>
+          <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swDone}`} />Reached out this cycle</span>
+          <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swRetired}`} />Retired</span>
+          <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swBdaySoon}`} />Birthday within 2 weeks</span>
+          <span className={styles.legendItem}><b className={styles.over}>+N</b> Overdue</span>
+          <span className={styles.legendItem}><b className={styles.overToday}>0</b> Due today</span>
+        </div>
+      )}
+
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead>
