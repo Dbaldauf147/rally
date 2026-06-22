@@ -1,9 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { Link } from 'react-router-dom';
+import { doc, collection, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { REACH_OUT_SEED } from '../reachOutSeed';
 import styles from './ReachOutPage.module.css';
+
+const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 const METHODS = ['Text', 'Call'];
 const KNOWN_CATEGORIES = ['Family', 'City Friends', 'Npt Friends', 'Far Away Friends', 'GF', 'Girlfriend', 'Holiday'];
@@ -110,6 +113,7 @@ const COLUMNS = [
   { key: 'days', label: 'Days' },
   { key: 'birthday', label: 'Birthday' },
   { key: 'status', label: 'Status' },
+  { key: 'friend', label: 'Friend' },
 ];
 function loadColVis() {
   const base = Object.fromEntries(COLUMNS.map(c => [c.key, true]));
@@ -122,6 +126,7 @@ function loadColVis() {
 export function ReachOutPage() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState(null); // null = loading
+  const [friendsList, setFriendsList] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [dueOnly, setDueOnly] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -157,6 +162,15 @@ export function ReachOutPage() {
       const v = snap.exists() ? snap.data().reachOuts : undefined;
       setContacts(Array.isArray(v) ? v : []);
     }, () => setContacts([]));
+    return unsub;
+  }, [user]);
+
+  // The user's Friends-page contacts, for linking each reach-out person.
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(collection(db, 'users', user.uid, 'friends'), (snap) => {
+      setFriendsList(snap.docs.map(d => ({ id: d.id, name: d.data().name || '' })).sort((a, b) => a.name.localeCompare(b.name)));
+    }, () => setFriendsList([]));
     return unsub;
   }, [user]);
 
@@ -235,6 +249,25 @@ export function ReachOutPage() {
   async function setStatus(id, status) {
     const next = (contacts || []).map(c => c.id === id ? { ...c, status } : c);
     await persist(next);
+  }
+
+  async function setFriendLink(id, friendId) {
+    const next = (contacts || []).map(c => c.id === id ? { ...c, friendId } : c);
+    await persist(next);
+  }
+
+  // Link any unlinked reach-out people to a same-named Friends contact.
+  async function autoMatchFriends() {
+    const byName = new Map(friendsList.map(f => [normalizeName(f.name), f.id]));
+    let matched = 0;
+    const next = (contacts || []).map(c => {
+      if (c.friendId) return c;
+      const fid = byName.get(normalizeName(c.name));
+      if (fid) { matched += 1; return { ...c, friendId: fid }; }
+      return c;
+    });
+    if (matched > 0) await persist(next);
+    alert(matched > 0 ? `Linked ${matched} ${matched === 1 ? 'person' : 'people'} by name.` : 'No new name matches found.');
   }
 
   const decorated = useMemo(() => (contacts || []).map(c => decorate(c, today)), [contacts, today]);
@@ -351,6 +384,9 @@ export function ReachOutPage() {
             className={dueOnly ? styles.toggleActive : styles.toggle}
             onClick={() => setDueOnly(v => !v)}
           >{dueOnly ? '● Due only' : 'Due only'}</button>
+          {friendsList.length > 0 && (
+            <button className={styles.toggle} onClick={autoMatchFriends} title="Link people to same-named Friends contacts">🔗 Match Friends</button>
+          )}
           <details className={styles.colMenu}>
             <summary className={styles.colMenuBtn}>Columns ▾</summary>
             <div className={styles.colMenuPanel}>
@@ -389,6 +425,7 @@ export function ReachOutPage() {
               {colVis.days !== false && <th className={styles.thSort} onClick={() => onSort('days')}>Days{sortArrow('days')}</th>}
               {colVis.birthday !== false && <th className={styles.thSort} onClick={() => onSort('birthday')}>Birthday{sortArrow('birthday')}</th>}
               {colVis.status !== false && <th className={styles.thSort} onClick={() => onSort('status')}>Status{sortArrow('status')}</th>}
+              {colVis.friend !== false && <th>Friend</th>}
               <th className={styles.colActions} aria-label="Actions"></th>
             </tr>
           </thead>
@@ -423,6 +460,19 @@ export function ReachOutPage() {
                         <option value="active">Active</option>
                         <option value="retired">Retired</option>
                       </select>
+                    </td>
+                  )}
+                  {colVis.friend !== false && (
+                    <td onClick={e => e.stopPropagation()}>
+                      <div className={styles.friendCell}>
+                        <select className={styles.statusSelect} value={c.friendId || ''} onChange={e => setFriendLink(c.id, e.target.value)} aria-label="Linked friend">
+                          <option value="">— none —</option>
+                          {friendsList.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                        </select>
+                        {c.friendId && friendsList.some(f => f.id === c.friendId) && (
+                          <Link to={`/friends?open=${c.friendId}`} className={styles.friendLink} title="Open in Friends">↗</Link>
+                        )}
+                      </div>
                     </td>
                   )}
                   <td className={styles.colActions} onClick={e => e.stopPropagation()}>
