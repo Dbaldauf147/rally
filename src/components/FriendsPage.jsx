@@ -398,6 +398,7 @@ export function FriendsPage() {
   const [newInstagram, setNewInstagram] = useState('');
   const [editFriend, setEditFriend] = useState(null); // null=closed, object=editing
   const [editFields, setEditFields] = useState({});
+  const [giftDraft, setGiftDraft] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -447,7 +448,9 @@ export function FriendsPage() {
       tag: friend.tag || '',
       instagram: friend.instagram || '',
       linkedTo: friend.linkedTo || '',
+      giftIdeas: Array.isArray(friend.giftIdeas) ? friend.giftIdeas : [],
     });
+    setGiftDraft('');
     setEditFriend(friend);
   }
 
@@ -457,12 +460,16 @@ export function FriendsPage() {
     const cleanedAddresses = (editFields.addresses || [])
       .map(a => ({ label: (a.label || '').trim(), value: (a.value || '').trim() }))
       .filter(a => a.value);
+    // Fold in a gift idea that was typed but not yet "Added".
+    const pendingGift = giftDraft.trim();
+    const giftIdeas = [...(editFields.giftIdeas || []), ...(pendingGift ? [pendingGift] : [])];
     const nextFields = {
       ...editFields,
       email: (editFields.email || '').trim().toLowerCase(),
       workEmail: (editFields.workEmail || '').trim().toLowerCase(),
       addresses: cleanedAddresses,
       address: cleanedAddresses[0]?.value || '',
+      giftIdeas,
       createdAt: editFriend.createdAt || new Date().toISOString(),
     };
     await setDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), nextFields);
@@ -511,6 +518,15 @@ export function FriendsPage() {
   }
 
   function editSet(key, value) { setEditFields(prev => ({ ...prev, [key]: value })); }
+  function addGiftIdea() {
+    const t = giftDraft.trim();
+    if (!t) return;
+    setEditFields(prev => ({ ...prev, giftIdeas: [...(prev.giftIdeas || []), t] }));
+    setGiftDraft('');
+  }
+  function removeGiftIdea(i) {
+    setEditFields(prev => ({ ...prev, giftIdeas: (prev.giftIdeas || []).filter((_, idx) => idx !== i) }));
+  }
 
   async function loadEvents() {
     if (!user) return;
@@ -1471,6 +1487,30 @@ export function FriendsPage() {
               <label className={styles.label}>Guest<input className={styles.input} value={editFields.guest} onChange={e => editSet('guest', e.target.value)} /></label>
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
               <label className={styles.label}>Tags<input className={styles.input} value={editFields.tag} onChange={e => editSet('tag', e.target.value)} placeholder="Separate with ;" /></label>
+              <div className={styles.label}>
+                🎁 Gift ideas
+                {(editFields.giftIdeas || []).length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', margin: '0.35rem 0' }}>
+                    {(editFields.giftIdeas || []).map((g, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.5rem', background: 'var(--color-surface-alt)', borderRadius: 'var(--radius-md)' }}>
+                        <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 400, color: 'var(--color-text)', wordBreak: 'break-word' }}>{g}</span>
+                        <button type="button" onClick={() => removeGiftIdea(i)} title="Remove" aria-label="Remove gift idea" style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '1rem', lineHeight: 1, padding: '0 0.2rem' }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <input
+                    className={styles.input}
+                    value={giftDraft}
+                    onChange={e => setGiftDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addGiftIdea(); } }}
+                    placeholder="Add a gift idea"
+                    style={{ flex: 1 }}
+                  />
+                  <button type="button" onClick={addGiftIdea} disabled={!giftDraft.trim()} style={{ flexShrink: 0, padding: '0 0.85rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-accent-light)', color: 'var(--color-accent)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Add</button>
+                </div>
+              </div>
               <ComesWithPicker
                 friends={friends}
                 editFriendId={editFriend?.id}
