@@ -35,6 +35,16 @@
 .toggle, .toggleActive { appearance: none; font-family: inherit; cursor: pointer; font-size: 0.82rem; font-weight: 600; padding: 0.45rem 0.8rem; border-radius: var(--radius-full); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary); }
 .toggleActive { background: var(--color-accent-light); border-color: var(--color-accent); color: var(--color-accent); }
 
+/* Columns show/hide menu (native <details> disclosure). */
+.colMenu { position: relative; }
+.colMenuBtn { list-style: none; cursor: pointer; font-size: 0.82rem; font-weight: 600; padding: 0.45rem 0.8rem; border-radius: var(--radius-full); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary); user-select: none; }
+.colMenu[open] .colMenuBtn { background: var(--color-surface-alt); }
+.colMenuBtn::-webkit-details-marker { display: none; }
+.colMenuPanel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 180px; display: flex; flex-direction: column; gap: 0.2rem; padding: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+.colMenuItem { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text); cursor: pointer; padding: 0.2rem 0.25rem; }
+
+.statusSelect { font-family: inherit; font-size: 0.8rem; padding: 0.2rem 0.35rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); }
+
 /* Spreadsheet-style table */
 .tableWrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .table { width: 100%; border-collapse: collapse; font-size: 0.82rem; white-space: nowrap; }
@@ -50,6 +60,8 @@
 /* Today is this person's birthday — golden row. */
 .trBday td { background: #fff4cc; box-shadow: inset 0 0 0 1px #f1c232; font-weight: 600; }
 .trBday:hover td { background: #ffedab; }
+/* Retired contacts — muted, sorted to the bottom. */
+.trRetired { opacity: 0.6; }
 
 .colCheck { text-align: center; width: 34px; }
 .colCheck input { cursor: pointer; }
