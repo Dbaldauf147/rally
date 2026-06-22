@@ -8,6 +8,33 @@ import styles from './ReachOutPage.module.css';
 
 const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
+// Lightweight fuzzy name matching via Sørensen–Dice on letter bigrams, so
+// "Mike Baldauf" ≈ "Michael Baldauf", "Johnny" ≈ "John", etc.
+function nameBigrams(s) {
+  const t = normalizeName(s).replace(/[^a-z0-9]+/g, '');
+  const grams = [];
+  for (let i = 0; i < t.length - 1; i++) grams.push(t.slice(i, i + 2));
+  return grams;
+}
+function diceScore(a, b) {
+  const A = nameBigrams(a), B = nameBigrams(b);
+  if (A.length === 0 || B.length === 0) return normalizeName(a) && normalizeName(a) === normalizeName(b) ? 1 : 0;
+  const counts = new Map();
+  for (const g of A) counts.set(g, (counts.get(g) || 0) + 1);
+  let inter = 0;
+  for (const g of B) { const c = counts.get(g) || 0; if (c > 0) { inter += 1; counts.set(g, c - 1); } }
+  return (2 * inter) / (A.length + B.length);
+}
+const MATCH_THRESHOLD = 0.5;
+function bestFriendMatch(name, friends) {
+  let best = null, bestScore = 0;
+  for (const f of friends) {
+    const s = diceScore(name, f.name);
+    if (s > bestScore) { bestScore = s; best = f; }
+  }
+  return best && bestScore >= MATCH_THRESHOLD ? best : null;
+}
+
 const METHODS = ['Text', 'Call'];
 const KNOWN_CATEGORIES = ['Family', 'City Friends', 'Npt Friends', 'Far Away Friends', 'GF', 'Girlfriend', 'Holiday'];
 
@@ -274,18 +301,12 @@ export function ReachOutPage() {
     // the field to the linked friend's name.
   }
 
-  // Link any unlinked reach-out people to a same-named Friends contact.
-  async function autoMatchFriends() {
-    const byName = new Map(friendsList.map(f => [normalizeName(f.name), f.id]));
-    let matched = 0;
-    const next = (contacts || []).map(c => {
-      if (c.friendId) return c;
-      const fid = byName.get(normalizeName(c.name));
-      if (fid) { matched += 1; return { ...c, friendId: fid }; }
-      return c;
-    });
-    if (matched > 0) await persist(next);
-    alert(matched > 0 ? `Linked ${matched} ${matched === 1 ? 'person' : 'people'} by name.` : 'No new name matches found.');
+  async function mapAllPredicted(predictions) {
+    const ids = Object.keys(predictions);
+    if (ids.length === 0) { alert('No predicted matches to map.'); return; }
+    if (!confirm(`Map ${ids.length} ${ids.length === 1 ? 'person' : 'people'} to their predicted Friends contact?`)) return;
+    const next = (contacts || []).map(c => predictions[c.id] ? { ...c, friendId: predictions[c.id].id } : c);
+    await persist(next);
   }
 
   const decorated = useMemo(() => (contacts || []).map(c => decorate(c, today)), [contacts, today]);
@@ -301,6 +322,19 @@ export function ReachOutPage() {
     if (dueOnly) rows = rows.filter(c => c._due);
     return [...rows].sort((a, b) => compareRows(a, b, sortKey, sortDir));
   }, [decorated, categoryFilter, dueOnly, sortKey, sortDir]);
+
+  // Fuzzy-predicted Friends match for each unlinked person (id -> friend).
+  const predictions = useMemo(() => {
+    const map = {};
+    if (friendsList.length === 0) return map;
+    for (const c of (contacts || [])) {
+      if (c.friendId) continue;
+      const m = bestFriendMatch(c.name, friendsList);
+      if (m) map[c.id] = m;
+    }
+    return map;
+  }, [contacts, friendsList]);
+  const predictedCount = Object.keys(predictions).length;
 
   // Daily goal: reach out to at least one family member and one friend today.
   const todayK = todayKey();
@@ -402,8 +436,8 @@ export function ReachOutPage() {
             className={dueOnly ? styles.toggleActive : styles.toggle}
             onClick={() => setDueOnly(v => !v)}
           >{dueOnly ? '● Due only' : 'Due only'}</button>
-          {friendsList.length > 0 && (
-            <button className={styles.toggle} onClick={autoMatchFriends} title="Link people to same-named Friends contacts">🔗 Match Friends</button>
+          {predictedCount > 0 && (
+            <button className={styles.toggleActive} onClick={() => mapAllPredicted(predictions)} title="Link all predicted Friends matches">✨ Map predicted ({predictedCount})</button>
           )}
           <details className={styles.colMenu}>
             <summary className={styles.colMenuBtn}>Columns ▾</summary>
@@ -494,6 +528,13 @@ export function ReachOutPage() {
                         />
                         {c.friendId && friendsList.some(f => f.id === c.friendId) && (
                           <Link to={`/friends?open=${c.friendId}`} className={styles.friendLink} title="Open in Friends">↗</Link>
+                        )}
+                        {!c.friendId && predictions[c.id] && (
+                          <button
+                            className={styles.friendSuggest}
+                            onClick={() => setFriendLink(c.id, predictions[c.id].id)}
+                            title={`Use predicted match: ${predictions[c.id].name}`}
+                          >≈ {predictions[c.id].name}</button>
                         )}
                       </div>
                     </td>
