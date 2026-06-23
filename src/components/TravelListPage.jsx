@@ -341,6 +341,12 @@ function sectionCounts(section) {
 
 const CACHE_KEY = 'rally.travelList.doc.v2';
 const OPEN_KEY = 'rally.travelList.open.v2';
+const CATS_KEY = 'rally.travelList.hiddenCats.v1';
+// Sections that can be toggled on/off from the top (matched by name).
+const TOGGLE_CATS = [
+  { key: 'flying', label: '✈️ Flying', match: (n) => /fly/i.test(n) },
+  { key: 'boat', label: '⛵ Boat', match: (n) => /boat/i.test(n) },
+];
 
 export function TravelListPage() {
   const { user } = useAuth();
@@ -354,6 +360,18 @@ export function TravelListPage() {
   });
   const [loaded, setLoaded] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  // Which toggleable categories are hidden ({ flying: true } = hidden).
+  const [hiddenCats, setHiddenCats] = useState(() => {
+    try { const raw = localStorage.getItem(CATS_KEY); if (raw) return JSON.parse(raw) || {}; } catch { /* ignore */ }
+    return {};
+  });
+  function toggleCat(key) {
+    setHiddenCats((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(CATS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
   const [open, setOpen] = useState(() => {
     try {
       const raw = localStorage.getItem(OPEN_KEY);
@@ -639,9 +657,30 @@ export function TravelListPage() {
         <button className={`${styles.btn} ${styles.btnDanger}`} onClick={resetDefaults}>Reset to defaults</button>
       </div>
 
+      {(() => {
+        const chips = TOGGLE_CATS.filter((c) => list.sections.some((s) => c.match(s.name || '')));
+        if (chips.length === 0) return null;
+        return (
+          <div className={styles.toolbar}>
+            <span className={styles.toggleLabel}>Categories:</span>
+            {chips.map((c) => (
+              <button
+                key={c.key}
+                className={`${styles.btn} ${!hiddenCats[c.key] ? styles.btnActive : ''}`}
+                onClick={() => toggleCat(c.key)}
+                aria-pressed={!hiddenCats[c.key]}
+              >{c.label}</button>
+            ))}
+          </div>
+        );
+      })()}
+
+      <div className={styles.sectionsGrid}>
       {list.sections.map((section, sIdx) => {
         const { total: leafTotal, done: leafDone } = sectionCounts(section);
         const sectionOpen = isOpen(section.id);
+        const cat = TOGGLE_CATS.find((c) => c.match(section.name || ''));
+        if (!editMode && cat && hiddenCats[cat.key]) return null;
         return (
           <div key={section.id} className={styles.section}>
             <div className={styles.sectionHeader} onClick={() => !editMode && setSectionOpen(section.id)}>
@@ -770,6 +809,7 @@ export function TravelListPage() {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
