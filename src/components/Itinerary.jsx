@@ -2763,22 +2763,20 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
     const base = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${encodeURIComponent(subject)}`;
     const gmailUrl = `${base}&body=${encodeURIComponent(body)}`;
 
-    // Gmail returns "Bad Request 400" for very long compose URLs. If the body
-    // would push us over, copy it to the clipboard and open an empty draft to
-    // paste into instead of failing.
-    if (gmailUrl.length > 1900) {
+    // Gmail rejects very long compose URLs with "Bad Request 400" (its request
+    // limit is ~8 KB). Only for a plan that large do we fall back to copying the
+    // body and opening an empty draft; normal plans get prefilled inline below.
+    if (gmailUrl.length > 7000) {
       let copied = false;
       try { await navigator.clipboard.writeText(body); copied = true; } catch { copied = false; }
       const openedEmpty = window.open(base, '_blank', 'noopener,noreferrer');
       if (!openedEmpty) {
-        setEmailResult('Pop-up blocked — please allow pop-ups for Rally and try again.');
-        setTimeout(() => setEmailResult(''), 8000);
+        alert('Pop-up blocked — please allow pop-ups for Rally and try again.');
         return;
       }
-      setEmailResult(copied
-        ? 'The plan was long, so it was copied to your clipboard — paste it into the email (Ctrl/Cmd+V).'
-        : 'The plan is long — copy it from the itinerary and paste into the email.');
-      setTimeout(() => setEmailResult(''), 9000);
+      alert(copied
+        ? 'This plan is long, so it was copied to your clipboard. Paste it into the email that just opened (Ctrl/Cmd+V).'
+        : 'This plan is long — copy it from the itinerary and paste into the email that just opened.');
       return;
     }
 
