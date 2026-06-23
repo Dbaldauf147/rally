@@ -55,6 +55,7 @@
 .editNoteInput { font-size: 0.8rem; color: var(--color-text-muted); }
 .editInput:focus, .editNoteInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
 .editActions { display: flex; align-items: center; gap: 0.2rem; flex-shrink: 0; }
+.moveSelect { height: 28px; max-width: 110px; font-family: inherit; font-size: 0.72rem; padding: 0 0.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; }
 
 .iconBtn, .iconBtnDanger { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.8rem; cursor: pointer; padding: 0; }
 .iconBtn:hover:not(:disabled) { background: var(--color-surface-alt); color: var(--color-text); }

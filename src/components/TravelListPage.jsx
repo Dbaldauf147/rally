@@ -247,7 +247,8 @@ const DEFAULT_SECTIONS = [
   },
 ];
 
-const DAY_BEFORE_SECTION = DEFAULT_SECTIONS[DEFAULT_SECTIONS.length - 1];
+const DAY_BEFORE_SECTION = DEFAULT_SECTIONS.find((s) => s.name === 'Day Before');
+const isDayBefore = (s) => (s.name || '').trim().toLowerCase() === 'day before';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `id-${Math.random().toString(36).slice(2)}-${Date.now()}`);
 
@@ -274,9 +275,11 @@ function seedSection(s) {
 
 // Build an editable, id-stamped list from the hardcoded defaults.
 function seedTravelList() {
+  // Day Before sits first (top-left of the grid).
+  const ordered = [DAY_BEFORE_SECTION, ...DEFAULT_SECTIONS.filter((s) => !isDayBefore(s))];
   return {
-    sections: DEFAULT_SECTIONS.map(seedSection),
-    meta: { leaveDate: '', returnDate: '', days: '', dayBeforeAdded: true },
+    sections: ordered.map(seedSection),
+    meta: { leaveDate: '', returnDate: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true },
   };
 }
 
@@ -300,13 +303,19 @@ function normalizeList(raw) {
       })),
     })),
   }));
-  // One-time migration: give existing lists the new "Day Before" section. The
-  // meta flag means it isn't re-added if the user later deletes it.
+  // One-time migrations for the "Day Before" section. Flags mean we don't fight
+  // the user: it isn't re-added if deleted, nor re-moved if they reorder it.
   let dayBeforeAdded = !!raw.meta?.dayBeforeAdded;
-  const hasDayBefore = sections.some((s) => (s.name || '').trim().toLowerCase() === 'day before');
-  if (!dayBeforeAdded && !hasDayBefore) {
-    sections.push(seedSection(DAY_BEFORE_SECTION));
+  let dayBeforeFronted = !!raw.meta?.dayBeforeFronted;
+  const idx = sections.findIndex(isDayBefore);
+  if (idx === -1 && !dayBeforeAdded) {
+    sections.unshift(seedSection(DAY_BEFORE_SECTION)); // add at the front
     dayBeforeAdded = true;
+    dayBeforeFronted = true;
+  } else if (idx > 0 && !dayBeforeFronted) {
+    const [s] = sections.splice(idx, 1); // move existing one to the front, once
+    sections.unshift(s);
+    dayBeforeFronted = true;
   }
   return {
     sections,
@@ -315,6 +324,7 @@ function normalizeList(raw) {
       returnDate: raw.meta?.returnDate || '',
       days: raw.meta?.days || '',
       dayBeforeAdded,
+      dayBeforeFronted,
     },
   };
 }
@@ -580,6 +590,24 @@ export function TravelListPage() {
     }));
   }
 
+  // Move a whole item (with its sub-items) from one section to another.
+  function moveItemToSection(fromSectionId, itemId, toSectionId) {
+    if (!toSectionId || toSectionId === fromSectionId) return;
+    updateList((l) => {
+      let moved = null;
+      const stripped = l.sections.map((s) => {
+        if (s.id !== fromSectionId) return s;
+        moved = s.items.find((it) => it.id === itemId) || null;
+        return { ...s, items: s.items.filter((it) => it.id !== itemId) };
+      });
+      if (!moved) return l;
+      return {
+        ...l,
+        sections: stripped.map((s) => s.id !== toSectionId ? s : { ...s, items: [...s.items, moved] }),
+      };
+    });
+  }
+
   // --- editing: sections ---
   function addSection() {
     const id = uid();
@@ -735,6 +763,20 @@ export function TravelListPage() {
                             <button className={styles.iconBtn} disabled={iIdx === 0} onClick={() => moveItem(section.id, item.id, -1)} title="Move up" aria-label="Move up">↑</button>
                             <button className={styles.iconBtn} disabled={iIdx === section.items.length - 1} onClick={() => moveItem(section.id, item.id, 1)} title="Move down" aria-label="Move down">↓</button>
                             <button className={styles.iconBtn} onClick={() => addChild(section.id, item.id)} title="Add sub-item" aria-label="Add sub-item">+↳</button>
+                            {list.sections.length > 1 && (
+                              <select
+                                className={styles.moveSelect}
+                                value=""
+                                onChange={(e) => { moveItemToSection(section.id, item.id, e.target.value); e.target.value = ''; }}
+                                title="Move to another list"
+                                aria-label="Move item to another list"
+                              >
+                                <option value="">Move to…</option>
+                                {list.sections.filter((s) => s.id !== section.id).map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                            )}
                             <button className={styles.iconBtnDanger} onClick={() => deleteItem(section.id, item.id)} title="Delete item" aria-label="Delete item">🗑️</button>
                           </div>
                         </div>
