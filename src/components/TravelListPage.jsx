@@ -226,59 +226,95 @@ const DEFAULT_SECTIONS = [
       { label: 'Download sudoku', defaultChecked: true },
     ],
   },
+  {
+    name: 'Day Before',
+    items: [
+      { label: 'Check in for flights online' },
+      { label: 'Download boarding passes' },
+      { label: 'Confirm ride / transportation to the airport' },
+      { label: 'Charge phone, battery pack, headphones, laptop' },
+      { label: 'Download offline maps, shows, music' },
+      { label: 'Pack medications / refill prescriptions' },
+      { label: 'Check destination weather' },
+      { label: 'Set out travel outfit' },
+      { label: 'Finish packing carry-on' },
+      { label: 'Empty fridge of perishables' },
+      { label: 'Set thermostat / turn off AC' },
+      { label: 'Confirm hotel / car reservations' },
+      { label: 'Get cash / currency if needed' },
+      { label: 'Set departure alarm' },
+    ],
+  },
 ];
 
+const DAY_BEFORE_SECTION = DEFAULT_SECTIONS[DEFAULT_SECTIONS.length - 1];
+
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `id-${Math.random().toString(36).slice(2)}-${Date.now()}`);
+
+// Id-stamp one default section into an editable section.
+function seedSection(s) {
+  return {
+    id: uid(),
+    name: s.name,
+    items: s.items.map((it) => ({
+      id: uid(),
+      label: it.label,
+      note: it.note || '',
+      checked: !!it.defaultChecked,
+      isGroup: !!it.isGroup,
+      children: (it.children || []).map((c) => ({
+        id: uid(),
+        label: c.label,
+        note: c.note || '',
+        checked: !!c.defaultChecked,
+      })),
+    })),
+  };
+}
 
 // Build an editable, id-stamped list from the hardcoded defaults.
 function seedTravelList() {
   return {
-    sections: DEFAULT_SECTIONS.map((s) => ({
-      id: uid(),
-      name: s.name,
-      items: s.items.map((it) => ({
-        id: uid(),
-        label: it.label,
-        note: it.note || '',
-        checked: !!it.defaultChecked,
-        isGroup: !!it.isGroup,
-        children: (it.children || []).map((c) => ({
-          id: uid(),
-          label: c.label,
-          note: c.note || '',
-          checked: !!c.defaultChecked,
-        })),
-      })),
-    })),
-    meta: { leaveDate: '', returnDate: '', days: '' },
+    sections: DEFAULT_SECTIONS.map(seedSection),
+    meta: { leaveDate: '', returnDate: '', days: '', dayBeforeAdded: true },
   };
 }
 
 // Defensive normalizer so older/partial documents still render.
 function normalizeList(raw) {
   if (!raw || !Array.isArray(raw.sections)) return seedTravelList();
-  return {
-    sections: raw.sections.map((s) => ({
-      id: s.id || uid(),
-      name: s.name || 'Untitled',
-      items: (s.items || []).map((it) => ({
-        id: it.id || uid(),
-        label: it.label || '',
-        note: it.note || '',
-        checked: !!it.checked,
-        isGroup: !!it.isGroup || (Array.isArray(it.children) && it.children.length > 0),
-        children: (it.children || []).map((c) => ({
-          id: c.id || uid(),
-          label: c.label || '',
-          note: c.note || '',
-          checked: !!c.checked,
-        })),
+  const sections = raw.sections.map((s) => ({
+    id: s.id || uid(),
+    name: s.name || 'Untitled',
+    items: (s.items || []).map((it) => ({
+      id: it.id || uid(),
+      label: it.label || '',
+      note: it.note || '',
+      checked: !!it.checked,
+      isGroup: !!it.isGroup || (Array.isArray(it.children) && it.children.length > 0),
+      children: (it.children || []).map((c) => ({
+        id: c.id || uid(),
+        label: c.label || '',
+        note: c.note || '',
+        checked: !!c.checked,
       })),
     })),
+  }));
+  // One-time migration: give existing lists the new "Day Before" section. The
+  // meta flag means it isn't re-added if the user later deletes it.
+  let dayBeforeAdded = !!raw.meta?.dayBeforeAdded;
+  const hasDayBefore = sections.some((s) => (s.name || '').trim().toLowerCase() === 'day before');
+  if (!dayBeforeAdded && !hasDayBefore) {
+    sections.push(seedSection(DAY_BEFORE_SECTION));
+    dayBeforeAdded = true;
+  }
+  return {
+    sections,
     meta: {
       leaveDate: raw.meta?.leaveDate || '',
       returnDate: raw.meta?.returnDate || '',
       days: raw.meta?.days || '',
+      dayBeforeAdded,
     },
   };
 }
