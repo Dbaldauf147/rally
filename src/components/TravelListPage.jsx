@@ -253,6 +253,25 @@ const isDayBefore = (s) => (s.name || '').trim().toLowerCase() === 'day before';
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `id-${Math.random().toString(36).slice(2)}-${Date.now()}`);
 
 // Id-stamp one default section into an editable section.
+// Item categories are tags you can filter from the top of the page.
+const DEFAULT_CATEGORIES = ['Flying', 'Boat', 'Formal Event'];
+function sectionCategory(name) {
+  const n = (name || '').toLowerCase();
+  if (/fly/.test(n)) return 'Flying';
+  if (/boat/.test(n)) return 'Boat';
+  if (/formal/.test(n)) return 'Formal Event';
+  return null;
+}
+// Seed item categories from the section they live in (Flying only → Flying, …),
+// only filling blanks. Used once on seed/migration.
+function tagItemsBySection(sections) {
+  for (const s of sections) {
+    const cat = sectionCategory(s.name);
+    if (!cat) continue;
+    for (const it of s.items) if (!it.category) it.category = cat;
+  }
+}
+
 function seedSection(s) {
   return {
     id: uid(),
@@ -262,6 +281,7 @@ function seedSection(s) {
       label: it.label,
       note: it.note || '',
       checked: !!it.defaultChecked,
+      category: it.category || '',
       isGroup: !!it.isGroup,
       children: (it.children || []).map((c) => ({
         id: uid(),
@@ -277,9 +297,11 @@ function seedSection(s) {
 function seedTravelList() {
   // Day Before sits first (top-left of the grid).
   const ordered = [DAY_BEFORE_SECTION, ...DEFAULT_SECTIONS.filter((s) => !isDayBefore(s))];
+  const sections = ordered.map(seedSection);
+  tagItemsBySection(sections);
   return {
-    sections: ordered.map(seedSection),
-    meta: { leaveDate: '', returnDate: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true },
+    sections,
+    meta: { leaveDate: '', returnDate: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true },
   };
 }
 
@@ -294,6 +316,7 @@ function normalizeList(raw) {
       label: it.label || '',
       note: it.note || '',
       checked: !!it.checked,
+      category: it.category || '',
       isGroup: !!it.isGroup || (Array.isArray(it.children) && it.children.length > 0),
       children: (it.children || []).map((c) => ({
         id: c.id || uid(),
@@ -317,6 +340,16 @@ function normalizeList(raw) {
     sections.unshift(s);
     dayBeforeFronted = true;
   }
+  // Categories: ensure the default set exists, and one-time tag existing items
+  // from their section so the new top filters work on day one.
+  const categories = Array.isArray(raw.meta?.categories) && raw.meta.categories.length
+    ? raw.meta.categories
+    : DEFAULT_CATEGORIES.slice();
+  let categoriesMigrated = !!raw.meta?.categoriesMigrated;
+  if (!categoriesMigrated) {
+    tagItemsBySection(sections);
+    categoriesMigrated = true;
+  }
   return {
     sections,
     meta: {
@@ -325,6 +358,8 @@ function normalizeList(raw) {
       days: raw.meta?.days || '',
       dayBeforeAdded,
       dayBeforeFronted,
+      categories,
+      categoriesMigrated,
     },
   };
 }
@@ -352,11 +387,6 @@ function sectionCounts(section) {
 const CACHE_KEY = 'rally.travelList.doc.v2';
 const OPEN_KEY = 'rally.travelList.open.v2';
 const CATS_KEY = 'rally.travelList.hiddenCats.v1';
-// Sections that can be toggled on/off from the top (matched by name).
-const TOGGLE_CATS = [
-  { key: 'flying', label: '✈️ Flying', match: (n) => /fly/i.test(n) },
-  { key: 'boat', label: '⛵ Boat', match: (n) => /boat/i.test(n) },
-];
 
 export function TravelListPage() {
   const { user } = useAuth();
@@ -385,22 +415,25 @@ export function TravelListPage() {
     });
   }
   // Double-click an item to open an editor popup for its label and note.
-  const [editItem, setEditItem] = useState(null); // { sectionId, itemId, label, note, isNew }
+  const [editItem, setEditItem] = useState(null); // { sectionId, itemId, label, note, category, isNew }
+  const [manageCats, setManageCats] = useState(false); // category manager open in the popup
+  const [newCatDraft, setNewCatDraft] = useState('');
+  function closeEditor() { setEditItem(null); setManageCats(false); setNewCatDraft(''); }
   function openItemEditor(sectionId, item) {
-    setEditItem({ sectionId, itemId: item.id, label: item.label || '', note: item.note || '', isNew: false });
+    setEditItem({ sectionId, itemId: item.id, label: item.label || '', note: item.note || '', category: item.category || '', isNew: false });
   }
   function saveItemEditor() {
     if (editItem) {
       const label = editItem.label.trim();
       if (!label && editItem.isNew) deleteItem(editItem.sectionId, editItem.itemId);
-      else updateItemFields(editItem.sectionId, editItem.itemId, { label, note: editItem.note.trim() });
+      else updateItemFields(editItem.sectionId, editItem.itemId, { label, note: editItem.note.trim(), category: editItem.category || '' });
     }
-    setEditItem(null);
+    closeEditor();
   }
   function cancelItemEditor() {
     // Drop a freshly-added item if it was left blank.
     if (editItem?.isNew && !editItem.label.trim()) deleteItem(editItem.sectionId, editItem.itemId);
-    setEditItem(null);
+    closeEditor();
   }
   // Drag an item onto another section to move it, or onto an item to reorder.
   const [dragItem, setDragItem] = useState(null); // { sectionId, itemId }
@@ -515,6 +548,33 @@ export function TravelListPage() {
     updateList((l) => ({ ...l, meta: { ...l.meta, ...patch } }));
   }
 
+  // --- categories ---
+  function addCategory(name) {
+    const n = (name || '').trim();
+    if (!n) return;
+    updateList((l) => {
+      const cats = l.meta.categories || [];
+      if (cats.includes(n)) return l;
+      return { ...l, meta: { ...l.meta, categories: [...cats, n] } };
+    });
+  }
+  function renameCategory(oldName, newName) {
+    const n = (newName || '').trim();
+    if (!n || n === oldName) return;
+    updateList((l) => ({
+      ...l,
+      meta: { ...l.meta, categories: (l.meta.categories || []).map((c) => (c === oldName ? n : c)) },
+      sections: l.sections.map((s) => ({ ...s, items: s.items.map((it) => it.category === oldName ? { ...it, category: n } : it) })),
+    }));
+  }
+  function removeCategory(name) {
+    updateList((l) => ({
+      ...l,
+      meta: { ...l.meta, categories: (l.meta.categories || []).filter((c) => c !== name) },
+      sections: l.sections.map((s) => ({ ...s, items: s.items.map((it) => it.category === name ? { ...it, category: '' } : it) })),
+    }));
+  }
+
   // Trip length, inclusive of both the leave and return day, computed from the
   // dates (e.g. Jun 24 → Jul 7 = 14 days). null when the dates aren't both set.
   const parseYMD = (s) => {
@@ -569,7 +629,7 @@ export function TravelListPage() {
         items: [...s.items, { id, label: '', note: '', checked: false, isGroup: false, children: [] }],
       }),
     }));
-    setEditItem({ sectionId, itemId: id, label: '', note: '', isNew: true }); // open the editor for the new item
+    setEditItem({ sectionId, itemId: id, label: '', note: '', category: '', isNew: true }); // open the editor for the new item
   }
   function addChild(sectionId, itemId) {
     updateList((l) => ({
@@ -758,30 +818,29 @@ export function TravelListPage() {
         <button className={styles.btn} onClick={addSection}>+ Add list</button>
       </div>
 
-      {(() => {
-        const chips = TOGGLE_CATS.filter((c) => list.sections.some((s) => c.match(s.name || '')));
-        if (chips.length === 0) return null;
-        return (
-          <div className={styles.toolbar}>
-            <span className={styles.toggleLabel}>Categories:</span>
-            {chips.map((c) => (
-              <button
-                key={c.key}
-                className={`${styles.btn} ${!hiddenCats[c.key] ? styles.btnActive : ''}`}
-                onClick={() => toggleCat(c.key)}
-                aria-pressed={!hiddenCats[c.key]}
-              >{c.label}</button>
-            ))}
-          </div>
-        );
-      })()}
+      {(list.meta.categories || []).length > 0 && (
+        <div className={styles.toolbar}>
+          <span className={styles.toggleLabel}>Categories:</span>
+          {(list.meta.categories || []).map((c) => (
+            <button
+              key={c}
+              className={`${styles.btn} ${!hiddenCats[c] ? styles.btnActive : ''}`}
+              onClick={() => toggleCat(c)}
+              aria-pressed={!hiddenCats[c]}
+              title={hiddenCats[c] ? `Show ${c} items` : `Hide ${c} items`}
+            >{c}</button>
+          ))}
+        </div>
+      )}
 
       <div className={styles.sectionsGrid}>
       {list.sections.map((section, sIdx) => {
         const { total: leafTotal, done: leafDone } = sectionCounts(section);
         const sectionOpen = isOpen(section.id);
-        const cat = TOGGLE_CATS.find((c) => c.match(section.name || ''));
-        if (!editMode && cat && hiddenCats[cat.key]) return null;
+        // Hide items whose category is toggled off; hide the whole list if every
+        // item gets filtered out that way.
+        const visibleItems = section.items.filter((it) => !(it.category && hiddenCats[it.category]));
+        if (section.items.length > 0 && visibleItems.length === 0) return null;
         const itemDropTarget = dragItem && dragItem.sectionId !== section.id;
         const sectionDropTarget = dragSection && dragSection !== section.id;
         return (
@@ -837,7 +896,7 @@ export function TravelListPage() {
 
             {(editMode || sectionOpen) && (
               <div className={styles.sectionBody}>
-                {section.items.map((item, iIdx) => {
+                {visibleItems.map((item, iIdx) => {
                   const hasChildren = item.children && item.children.length > 0;
                   return (
                     <div
@@ -920,6 +979,7 @@ export function TravelListPage() {
                           >
                             <div className={`${styles.itemLabel} ${!hasChildren && item.checked ? styles.itemLabelChecked : ''}`}>
                               {item.label}
+                              {item.category && <span className={styles.itemCatBadge}>{item.category}</span>}
                             </div>
                             {item.note && <div className={styles.itemNote}>{item.note}</div>}
                           </div>
@@ -1012,10 +1072,53 @@ export function TravelListPage() {
                 onChange={(e) => setEditItem((p) => ({ ...p, note: e.target.value }))}
               />
             </label>
+            <label className={styles.modalLabel}>
+              Category
+              <select
+                className={styles.metaInput}
+                value={editItem.category}
+                onChange={(e) => setEditItem((p) => ({ ...p, category: e.target.value }))}
+              >
+                <option value="">None</option>
+                {(list.meta.categories || []).map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <button
+              type="button"
+              className={styles.manageCatsToggle}
+              onClick={() => setManageCats((v) => !v)}
+            >{manageCats ? '▾ Manage categories' : '▸ Manage categories'}</button>
+            {manageCats && (
+              <div className={styles.manageCats}>
+                {(list.meta.categories || []).map((c) => (
+                  <div key={c} className={styles.manageCatRow}>
+                    <span className={styles.manageCatName}>{c}</span>
+                    <button type="button" className={styles.iconBtn} title="Rename" aria-label="Rename category"
+                      onClick={() => { const n = window.prompt('Rename category', c); if (n) { renameCategory(c, n); if (editItem.category === c) setEditItem((p) => ({ ...p, category: n.trim() })); } }}
+                    >✎</button>
+                    <button type="button" className={styles.iconBtnDanger} title="Remove" aria-label="Remove category"
+                      onClick={() => { if (confirm(`Remove the "${c}" category? Items keep their place but lose this tag.`)) { removeCategory(c); if (editItem.category === c) setEditItem((p) => ({ ...p, category: '' })); } }}
+                    >×</button>
+                  </div>
+                ))}
+                <div className={styles.manageCatAdd}>
+                  <input
+                    className={styles.metaInput}
+                    value={newCatDraft}
+                    placeholder="New category"
+                    onChange={(e) => setNewCatDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const n = newCatDraft.trim(); if (n) { addCategory(n); setEditItem((p) => ({ ...p, category: n })); setNewCatDraft(''); } } }}
+                  />
+                  <button type="button" className={styles.btn} disabled={!newCatDraft.trim()}
+                    onClick={() => { const n = newCatDraft.trim(); if (n) { addCategory(n); setEditItem((p) => ({ ...p, category: n })); setNewCatDraft(''); } }}
+                  >Add</button>
+                </div>
+              </div>
+            )}
             <div className={styles.modalActions}>
               <button
                 className={`${styles.btn} ${styles.btnDanger}`}
-                onClick={() => { deleteItem(editItem.sectionId, editItem.itemId); setEditItem(null); }}
+                onClick={() => { deleteItem(editItem.sectionId, editItem.itemId); closeEditor(); }}
               >Delete</button>
               <span style={{ flex: 1 }} />
               <button className={styles.btn} onClick={cancelItemEditor}>Cancel</button>
