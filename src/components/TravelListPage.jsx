@@ -430,6 +430,22 @@ export function TravelListPage() {
     updateList((l) => ({ ...l, meta: { ...l.meta, ...patch } }));
   }
 
+  // Trip length, inclusive of both the leave and return day, computed from the
+  // dates (e.g. Jun 24 → Jul 7 = 14 days). null when the dates aren't both set.
+  const computedDays = (() => {
+    const parse = (s) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+      if (!m) return null;
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      return isNaN(d) ? null : d;
+    };
+    const l = parse(list.meta.leaveDate);
+    const r = parse(list.meta.returnDate);
+    if (!l || !r) return null;
+    const diff = Math.round((r - l) / 86400000);
+    return diff >= 0 ? diff + 1 : null;
+  })();
+
   // --- editing: items ---
   function updateItemFields(sectionId, itemId, patch) {
     updateList((l) => ({
@@ -568,8 +584,10 @@ export function TravelListPage() {
             className={styles.metaInput}
             type="number"
             min="0"
-            value={list.meta.days}
+            value={computedDays != null ? computedDays : list.meta.days}
             onChange={(e) => setMeta({ days: e.target.value })}
+            readOnly={computedDays != null}
+            title={computedDays != null ? 'Calculated from your leave and return dates' : undefined}
           />
         </label>
       </div>
