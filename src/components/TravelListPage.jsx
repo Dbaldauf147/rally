@@ -382,6 +382,21 @@ export function TravelListPage() {
       return next;
     });
   }
+  // Double-click an item to rename it inline (without entering edit mode).
+  const [inlineEdit, setInlineEdit] = useState(null); // { sectionId, itemId }
+  const [inlineDraft, setInlineDraft] = useState('');
+  function startInline(sectionId, itemId, label) {
+    setInlineEdit({ sectionId, itemId });
+    setInlineDraft(label || '');
+  }
+  function commitInline() {
+    if (inlineEdit) updateItemFields(inlineEdit.sectionId, inlineEdit.itemId, { label: inlineDraft.trim() });
+    setInlineEdit(null);
+    setInlineDraft('');
+  }
+  // Drag an item onto another section to move it there.
+  const [dragItem, setDragItem] = useState(null); // { sectionId, itemId }
+  const [dragOverSection, setDragOverSection] = useState(null);
   const [open, setOpen] = useState(() => {
     try {
       const raw = localStorage.getItem(OPEN_KEY);
@@ -709,8 +724,21 @@ export function TravelListPage() {
         const sectionOpen = isOpen(section.id);
         const cat = TOGGLE_CATS.find((c) => c.match(section.name || ''));
         if (!editMode && cat && hiddenCats[cat.key]) return null;
+        const isDropTarget = dragItem && dragItem.sectionId !== section.id;
         return (
-          <div key={section.id} className={styles.section}>
+          <div
+            key={section.id}
+            className={`${styles.section} ${dragOverSection === section.id ? styles.sectionDragOver : ''}`}
+            onDragOver={(e) => { if (isDropTarget) { e.preventDefault(); if (dragOverSection !== section.id) setDragOverSection(section.id); } }}
+            onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget)) return; if (dragOverSection === section.id) setDragOverSection(null); }}
+            onDrop={(e) => {
+              if (!isDropTarget) return;
+              e.preventDefault();
+              moveItemToSection(dragItem.sectionId, dragItem.itemId, section.id);
+              setDragItem(null);
+              setDragOverSection(null);
+            }}
+          >
             <div className={styles.sectionHeader} onClick={() => !editMode && setSectionOpen(section.id)}>
               <div className={styles.sectionTitle}>
                 {!editMode && (
@@ -780,8 +808,28 @@ export function TravelListPage() {
                             <button className={styles.iconBtnDanger} onClick={() => deleteItem(section.id, item.id)} title="Delete item" aria-label="Delete item">🗑️</button>
                           </div>
                         </div>
+                      ) : inlineEdit && inlineEdit.itemId === item.id ? (
+                        <div className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''}`}>
+                          <span className={styles.checkbox} style={{ visibility: 'hidden' }} />
+                          <input
+                            className={styles.inlineEditInput}
+                            autoFocus
+                            value={inlineDraft}
+                            onChange={(e) => setInlineDraft(e.target.value)}
+                            onBlur={commitInline}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); commitInline(); }
+                              else if (e.key === 'Escape') { setInlineEdit(null); setInlineDraft(''); }
+                            }}
+                          />
+                        </div>
                       ) : (
-                        <label className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''}`}>
+                        <label
+                          className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''} ${dragItem && dragItem.itemId === item.id ? styles.itemDragging : ''}`}
+                          draggable
+                          onDragStart={(e) => { setDragItem({ sectionId: section.id, itemId: item.id }); e.dataTransfer.effectAllowed = 'move'; }}
+                          onDragEnd={() => { setDragItem(null); setDragOverSection(null); }}
+                        >
                           {!hasChildren ? (
                             <input
                               type="checkbox"
@@ -792,7 +840,11 @@ export function TravelListPage() {
                           ) : (
                             <span className={styles.checkbox} style={{ background: 'transparent' }} />
                           )}
-                          <div className={styles.itemBody}>
+                          <div
+                            className={styles.itemBody}
+                            onDoubleClick={(e) => { e.preventDefault(); startInline(section.id, item.id, item.label); }}
+                            title="Double-click to edit · drag to move"
+                          >
                             <div className={`${styles.itemLabel} ${!hasChildren && item.checked ? styles.itemLabelChecked : ''}`}>
                               {item.label}
                             </div>
