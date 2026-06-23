@@ -406,7 +406,8 @@ export function TravelListPage() {
   const [dragItem, setDragItem] = useState(null); // { sectionId, itemId }
   const [dragOverSection, setDragOverSection] = useState(null);
   const [dragOverItem, setDragOverItem] = useState(null); // itemId being hovered
-  function clearDrag() { setDragItem(null); setDragOverSection(null); setDragOverItem(null); }
+  const [dragSection, setDragSection] = useState(null); // sectionId being dragged
+  function clearDrag() { setDragItem(null); setDragOverSection(null); setDragOverItem(null); setDragSection(null); }
   const [open, setOpen] = useState(() => {
     try {
       const raw = localStorage.getItem(OPEN_KEY);
@@ -662,6 +663,21 @@ export function TravelListPage() {
     });
   }
 
+  // Reorder a section to sit just before another (drag a list onto another).
+  function reorderSection(draggedId, targetId) {
+    if (draggedId === targetId) return;
+    updateList((l) => {
+      const sections = l.sections.slice();
+      const from = sections.findIndex((s) => s.id === draggedId);
+      if (from === -1) return l;
+      const [moved] = sections.splice(from, 1);
+      const to = sections.findIndex((s) => s.id === targetId);
+      if (to === -1) return l;
+      sections.splice(to, 0, moved);
+      return { ...l, sections };
+    });
+  }
+
   // --- editing: sections ---
   function addSection() {
     const id = uid();
@@ -766,21 +782,26 @@ export function TravelListPage() {
         const sectionOpen = isOpen(section.id);
         const cat = TOGGLE_CATS.find((c) => c.match(section.name || ''));
         if (!editMode && cat && hiddenCats[cat.key]) return null;
-        const isDropTarget = dragItem && dragItem.sectionId !== section.id;
+        const itemDropTarget = dragItem && dragItem.sectionId !== section.id;
+        const sectionDropTarget = dragSection && dragSection !== section.id;
         return (
           <div
             key={section.id}
-            className={`${styles.section} ${dragOverSection === section.id ? styles.sectionDragOver : ''}`}
-            onDragOver={(e) => { if (isDropTarget) { e.preventDefault(); if (dragOverSection !== section.id) setDragOverSection(section.id); } }}
+            className={`${styles.section} ${dragOverSection === section.id ? styles.sectionDragOver : ''} ${dragSection === section.id ? styles.itemDragging : ''}`}
+            onDragOver={(e) => { if (itemDropTarget || sectionDropTarget) { e.preventDefault(); if (dragOverSection !== section.id) setDragOverSection(section.id); } }}
             onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget)) return; if (dragOverSection === section.id) setDragOverSection(null); }}
             onDrop={(e) => {
-              if (!isDropTarget) return;
-              e.preventDefault();
-              moveItemToSection(dragItem.sectionId, dragItem.itemId, section.id);
-              clearDrag();
+              if (itemDropTarget) { e.preventDefault(); moveItemToSection(dragItem.sectionId, dragItem.itemId, section.id); clearDrag(); }
+              else if (sectionDropTarget) { e.preventDefault(); reorderSection(dragSection, section.id); clearDrag(); }
             }}
           >
-            <div className={styles.sectionHeader} onClick={() => !editMode && setSectionOpen(section.id)}>
+            <div
+              className={styles.sectionHeader}
+              draggable
+              onDragStart={(e) => { setDragSection(section.id); e.dataTransfer.effectAllowed = 'move'; }}
+              onDragEnd={clearDrag}
+              onClick={() => !editMode && setSectionOpen(section.id)}
+            >
               <div className={styles.sectionTitle}>
                 {!editMode && (
                   <span className={`${styles.caret} ${sectionOpen ? styles.caretOpen : ''}`}>▶</span>
