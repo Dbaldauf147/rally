@@ -39,6 +39,12 @@
 .itemChild { margin-left: 1.5rem; }
 .checkbox { margin-top: 0.25rem; width: 16px; height: 16px; accent-color: var(--color-accent); cursor: pointer; flex-shrink: 0; }
 .itemBody { flex: 1; min-width: 0; cursor: grab; }
+.sectionHeaderRight { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.itemDeleteBtn { flex-shrink: 0; background: none; border: none; color: var(--color-text-muted); font-size: 1.15rem; line-height: 1; cursor: pointer; padding: 0 0.3rem; opacity: 0.5; }
+.itemDeleteBtn:hover { color: var(--color-danger); opacity: 1; }
+.rentDue, .rentNot { display: flex; align-items: center; gap: 0.4rem; padding: 0.6rem 0.85rem; margin-bottom: 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.85rem; }
+.rentDue { background: #FEE2E2; border: 1px solid #FCA5A5; color: #991B1B; }
+.rentNot { background: #DCFCE7; border: 1px solid #86EFAC; color: #166534; }
 .itemLabel { font-size: 0.9rem; color: var(--color-text); line-height: 1.4; }
 .itemLabelChecked { text-decoration: line-through; color: var(--color-text-muted); }
 .itemNote { font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.15rem; }
