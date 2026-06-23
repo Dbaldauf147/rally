@@ -25,6 +25,8 @@
 /* Drag-and-drop: target section + the item being dragged. */
 .sectionDragOver { border-color: var(--color-accent); box-shadow: 0 0 0 2px var(--color-accent-light); }
 .itemDragging { opacity: 0.45; }
+/* Insertion indicator when dragging an item before this one. */
+.itemDropBefore { box-shadow: inset 0 3px 0 -1px var(--color-accent); border-radius: 2px; }
 .inlineEditInput { flex: 1; min-width: 0; font-family: inherit; font-size: 0.9rem; padding: 0.25rem 0.4rem; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); }
 .sectionHeader { display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1rem; cursor: pointer; user-select: none; gap: 0.75rem; }
 .sectionHeader:hover { background: var(--color-surface-alt); }

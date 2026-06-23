@@ -394,9 +394,11 @@ export function TravelListPage() {
     setInlineEdit(null);
     setInlineDraft('');
   }
-  // Drag an item onto another section to move it there.
+  // Drag an item onto another section to move it, or onto an item to reorder.
   const [dragItem, setDragItem] = useState(null); // { sectionId, itemId }
   const [dragOverSection, setDragOverSection] = useState(null);
+  const [dragOverItem, setDragOverItem] = useState(null); // itemId being hovered
+  function clearDrag() { setDragItem(null); setDragOverSection(null); setDragOverItem(null); }
   const [open, setOpen] = useState(() => {
     try {
       const raw = localStorage.getItem(OPEN_KEY);
@@ -630,6 +632,31 @@ export function TravelListPage() {
     });
   }
 
+  // Move an item to just before a target item (reorder within or across lists).
+  function reorderItem(fromSectionId, itemId, toSectionId, targetItemId) {
+    if (itemId === targetItemId) return;
+    updateList((l) => {
+      let moved = null;
+      const stripped = l.sections.map((s) => {
+        if (s.id !== fromSectionId) return s;
+        moved = s.items.find((it) => it.id === itemId) || null;
+        return { ...s, items: s.items.filter((it) => it.id !== itemId) };
+      });
+      if (!moved) return l;
+      return {
+        ...l,
+        sections: stripped.map((s) => {
+          if (s.id !== toSectionId) return s;
+          const idx = s.items.findIndex((it) => it.id === targetItemId);
+          if (idx === -1) return { ...s, items: [...s.items, moved] };
+          const items = s.items.slice();
+          items.splice(idx, 0, moved);
+          return { ...s, items };
+        }),
+      };
+    });
+  }
+
   // --- editing: sections ---
   function addSection() {
     const id = uid();
@@ -750,8 +777,7 @@ export function TravelListPage() {
               if (!isDropTarget) return;
               e.preventDefault();
               moveItemToSection(dragItem.sectionId, dragItem.itemId, section.id);
-              setDragItem(null);
-              setDragOverSection(null);
+              clearDrag();
             }}
           >
             <div className={styles.sectionHeader} onClick={() => !editMode && setSectionOpen(section.id)}>
@@ -793,7 +819,25 @@ export function TravelListPage() {
                 {section.items.map((item, iIdx) => {
                   const hasChildren = item.children && item.children.length > 0;
                   return (
-                    <div key={item.id}>
+                    <div
+                      key={item.id}
+                      className={dragOverItem === item.id ? styles.itemDropBefore : undefined}
+                      onDragOver={(e) => {
+                        if (!dragItem) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const over = dragItem.itemId !== item.id ? item.id : null;
+                        if (dragOverItem !== over) setDragOverItem(over);
+                      }}
+                      onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget)) return; if (dragOverItem === item.id) setDragOverItem(null); }}
+                      onDrop={(e) => {
+                        if (!dragItem) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (dragItem.itemId !== item.id) reorderItem(dragItem.sectionId, dragItem.itemId, section.id, item.id);
+                        clearDrag();
+                      }}
+                    >
                       {editMode ? (
                         <div className={`${styles.editRow} ${item.isGroup ? styles.itemGroup : ''}`}>
                           <div className={styles.editFields}>
@@ -851,7 +895,7 @@ export function TravelListPage() {
                           className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''} ${dragItem && dragItem.itemId === item.id ? styles.itemDragging : ''}`}
                           draggable
                           onDragStart={(e) => { setDragItem({ sectionId: section.id, itemId: item.id }); e.dataTransfer.effectAllowed = 'move'; }}
-                          onDragEnd={() => { setDragItem(null); setDragOverSection(null); }}
+                          onDragEnd={clearDrag}
                         >
                           {!hasChildren ? (
                             <input
