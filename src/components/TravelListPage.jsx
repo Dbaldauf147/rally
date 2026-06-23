@@ -415,18 +415,38 @@ export function TravelListPage() {
     });
   }
   // Double-click an item to open an editor popup for its label and note.
-  const [editItem, setEditItem] = useState(null); // { sectionId, itemId, label, note, category, isNew }
+  const [editItem, setEditItem] = useState(null); // { sectionId, itemId, label, note, category, children, isNew }
   const [manageCats, setManageCats] = useState(false); // category manager open in the popup
   const [newCatDraft, setNewCatDraft] = useState('');
-  function closeEditor() { setEditItem(null); setManageCats(false); setNewCatDraft(''); }
+  const [subDraft, setSubDraft] = useState(''); // new sub-item label
+  function closeEditor() { setEditItem(null); setManageCats(false); setNewCatDraft(''); setSubDraft(''); }
   function openItemEditor(sectionId, item) {
-    setEditItem({ sectionId, itemId: item.id, label: item.label || '', note: item.note || '', category: item.category || '', isNew: false });
+    setEditItem({
+      sectionId, itemId: item.id, label: item.label || '', note: item.note || '', category: item.category || '',
+      children: (item.children || []).map((c) => ({ id: c.id, label: c.label || '', note: c.note || '', checked: !!c.checked })),
+      isNew: false,
+    });
+  }
+  // Sub-item editing inside the popup turns an item into a group.
+  function setSub(i, label) { setEditItem((p) => ({ ...p, children: p.children.map((c, idx) => idx === i ? { ...c, label } : c) })); }
+  function removeSub(i) { setEditItem((p) => ({ ...p, children: p.children.filter((_, idx) => idx !== i) })); }
+  function addSub() {
+    const n = subDraft.trim();
+    if (!n) return;
+    setEditItem((p) => ({ ...p, children: [...p.children, { id: uid(), label: n, note: '', checked: false }] }));
+    setSubDraft('');
   }
   function saveItemEditor() {
     if (editItem) {
       const label = editItem.label.trim();
       if (!label && editItem.isNew) deleteItem(editItem.sectionId, editItem.itemId);
-      else updateItemFields(editItem.sectionId, editItem.itemId, { label, note: editItem.note.trim(), category: editItem.category || '' });
+      else {
+        const children = editItem.children.filter((c) => c.label.trim()).map((c) => ({ ...c, label: c.label.trim() }));
+        updateItemFields(editItem.sectionId, editItem.itemId, {
+          label, note: editItem.note.trim(), category: editItem.category || '',
+          children, isGroup: children.length > 0,
+        });
+      }
     }
     closeEditor();
   }
@@ -638,7 +658,7 @@ export function TravelListPage() {
         items: [...s.items, { id, label: '', note: '', checked: false, isGroup: false, children: [] }],
       }),
     }));
-    setEditItem({ sectionId, itemId: id, label: '', note: '', category: '', isNew: true }); // open the editor for the new item
+    setEditItem({ sectionId, itemId: id, label: '', note: '', category: '', children: [], isNew: true }); // open the editor for the new item
   }
   function addChild(sectionId, itemId) {
     updateList((l) => ({
@@ -1124,6 +1144,33 @@ export function TravelListPage() {
                 </div>
               </div>
             )}
+
+            <div className={styles.modalLabel}>
+              Sub-items {editItem.children.length > 0 && `(${editItem.children.length})`}
+              {editItem.children.map((c, i) => (
+                <div key={c.id} className={styles.manageCatRow}>
+                  <input
+                    className={styles.metaInput}
+                    style={{ flex: 1 }}
+                    value={c.label}
+                    placeholder="Sub-item"
+                    onChange={(e) => setSub(i, e.target.value)}
+                  />
+                  <button type="button" className={styles.iconBtnDanger} title="Remove sub-item" aria-label="Remove sub-item" onClick={() => removeSub(i)}>×</button>
+                </div>
+              ))}
+              <div className={styles.manageCatAdd}>
+                <input
+                  className={styles.metaInput}
+                  value={subDraft}
+                  placeholder="Add a sub-item"
+                  onChange={(e) => setSubDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSub(); } }}
+                />
+                <button type="button" className={styles.btn} disabled={!subDraft.trim()} onClick={addSub}>Add</button>
+              </div>
+            </div>
+
             <div className={styles.modalActions}>
               <button
                 className={`${styles.btn} ${styles.btnDanger}`}
