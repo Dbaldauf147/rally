@@ -511,18 +511,25 @@ export function TravelListPage() {
 
   // Trip length, inclusive of both the leave and return day, computed from the
   // dates (e.g. Jun 24 → Jul 7 = 14 days). null when the dates aren't both set.
-  const computedDays = (() => {
-    const parse = (s) => {
-      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
-      if (!m) return null;
-      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-      return isNaN(d) ? null : d;
-    };
-    const l = parse(list.meta.leaveDate);
-    const r = parse(list.meta.returnDate);
-    if (!l || !r) return null;
-    const diff = Math.round((r - l) / 86400000);
-    return diff >= 0 ? diff + 1 : null;
+  const parseYMD = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+    if (!m) return null;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return isNaN(d) ? null : d;
+  };
+  const tripLeave = parseYMD(list.meta.leaveDate);
+  const tripReturn = parseYMD(list.meta.returnDate);
+  const computedDays = (tripLeave && tripReturn && tripReturn >= tripLeave)
+    ? Math.round((tripReturn - tripLeave) / 86400000) + 1
+    : null;
+  // Rent flag: does a 1st-of-the-month land within the travel dates (inclusive)?
+  // null when the dates aren't both set.
+  const rentDue = (() => {
+    if (!tripLeave || !tripReturn || tripReturn < tripLeave) return null;
+    const firstOfMonth = tripLeave.getDate() === 1
+      ? new Date(tripLeave)
+      : new Date(tripLeave.getFullYear(), tripLeave.getMonth() + 1, 1);
+    return firstOfMonth <= tripReturn;
   })();
 
   // --- editing: items ---
@@ -689,6 +696,14 @@ export function TravelListPage() {
         </label>
       </div>
 
+      {rentDue != null && (
+        <div className={rentDue ? styles.rentDue : styles.rentNot}>
+          🏠 {rentDue
+            ? 'Rent is due — the 1st of the month falls during your trip'
+            : 'Rent is not due during your trip'}
+        </div>
+      )}
+
       <div className={styles.toolbar}>
         <button
           className={`${styles.btn} ${editMode ? styles.btnActive : ''}`}
@@ -761,7 +776,15 @@ export function TravelListPage() {
                   <button className={styles.iconBtnDanger} onClick={() => deleteSection(section.id)} title="Delete section" aria-label="Delete section">🗑️</button>
                 </div>
               ) : (
-                <span className={styles.sectionCount}>{leafDone} / {leafTotal}</span>
+                <div className={styles.sectionHeaderRight}>
+                  <span className={styles.sectionCount}>{leafDone} / {leafTotal}</span>
+                  <button
+                    className={styles.iconBtnDanger}
+                    onClick={(e) => { e.stopPropagation(); deleteSection(section.id); }}
+                    title="Delete this list"
+                    aria-label="Delete list"
+                  >🗑️</button>
+                </div>
               )}
             </div>
 
@@ -850,6 +873,17 @@ export function TravelListPage() {
                             </div>
                             {item.note && <div className={styles.itemNote}>{item.note}</div>}
                           </div>
+                          <button
+                            className={styles.itemDeleteBtn}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (hasChildren && !confirm(`Delete "${item.label || 'this group'}" and its ${item.children.length} sub-items?`)) return;
+                              deleteItem(section.id, item.id);
+                            }}
+                            title="Delete item"
+                            aria-label="Delete item"
+                          >×</button>
                         </label>
                       )}
 
