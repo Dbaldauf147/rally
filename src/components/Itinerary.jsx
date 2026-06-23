@@ -2741,14 +2741,25 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
         const subById = new Map(allSubs.map(x => [x.id, x]));
         const destSubs = (Array.isArray(dailyBullets[key]) ? dailyBullets[key] : []).map(id => subById.get(id)).filter(Boolean);
 
+        const dayVideos = dayItems.filter(it => it.url && isInstagramUrl(it.url));
+
         const name = (dailyNames[key] || '').trim();
         const dateLabel = formatDateHeader(key);
         lines.push('');
         lines.push(`Day ${dayIndex} · ${dateLabel}${name ? ` · ${name}` : ''}`);
         if (finalDest) lines.push(`  📍 ${finalDest}`);
         for (const x of destSubs) lines.push(`  • ${x.text}`);
-        if (!finalDest && destSubs.length === 0) lines.push('  (no plans yet)');
+        for (const v of dayVideos) lines.push(`  📸 ${v.title || 'Instagram video'}: ${v.url}`);
+        if (!finalDest && destSubs.length === 0 && dayVideos.length === 0) lines.push('  (no plans yet)');
       }
+    }
+
+    // Instagram videos saved without a date yet.
+    const undatedVideos = (groups['Unscheduled'] || []).filter(it => it.url && isInstagramUrl(it.url));
+    if (undatedVideos.length) {
+      lines.push('');
+      lines.push('📸 Instagram videos (no date yet)');
+      for (const v of undatedVideos) lines.push(`  • ${v.title || 'Instagram video'}: ${v.url}`);
     }
 
     if (link) {
