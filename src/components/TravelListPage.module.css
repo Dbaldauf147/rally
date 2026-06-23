@@ -55,6 +55,12 @@
 .modalLabel { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 0.75rem; }
 .modalTextarea { font-family: inherit; font-size: 0.9rem; padding: 0.5rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); resize: vertical; }
 .modalActions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+.manageCatsToggle { background: none; border: none; color: var(--color-accent); font-size: 0.78rem; font-weight: 600; cursor: pointer; padding: 0 0 0.5rem; font-family: inherit; align-self: flex-start; }
+.manageCats { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem; margin-bottom: 0.75rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.manageCatRow { display: flex; align-items: center; gap: 0.4rem; }
+.manageCatName { flex: 1; font-size: 0.85rem; }
+.manageCatAdd { display: flex; gap: 0.4rem; margin-top: 0.25rem; }
+.itemCatBadge { margin-left: 0.4rem; font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-accent); background: var(--color-accent-light); border-radius: var(--radius-full); padding: 0.05rem 0.4rem; white-space: nowrap; }
 .itemLabel { font-size: 0.9rem; color: var(--color-text); line-height: 1.4; }
 .itemLabelChecked { text-decoration: line-through; color: var(--color-text-muted); }
 .itemNote { font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.15rem; }
