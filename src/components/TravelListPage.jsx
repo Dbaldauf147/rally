@@ -588,6 +588,15 @@ export function TravelListPage() {
   const computedDays = (tripLeave && tripReturn && tripReturn >= tripLeave)
     ? Math.round((tripReturn - tripLeave) / 86400000) + 1
     : null;
+  // In the Suitcase list, scale "N underwear/socks/shirts" to the trip length,
+  // capped at 7. Display-only — the stored label keeps its original number.
+  const clothingCap = computedDays != null ? Math.min(computedDays, 7) : null;
+  function displayLabel(label, sectionName) {
+    if (clothingCap == null || !label || !/suitcase/i.test(sectionName || '')) return label;
+    const m = /^(\d+)(\s+.+)$/.exec(label);
+    if (!m || !/(underwear|socks?|shirts?)/i.test(m[2])) return label;
+    return `${clothingCap}${m[2]}`;
+  }
   // Rent flag: does a 1st-of-the-month land within the travel dates (inclusive)?
   // null when the dates aren't both set.
   const rentDue = (() => {
@@ -978,7 +987,7 @@ export function TravelListPage() {
                             title="Double-click to edit · drag to move"
                           >
                             <div className={`${styles.itemLabel} ${!hasChildren && item.checked ? styles.itemLabelChecked : ''}`}>
-                              {item.label}
+                              {displayLabel(item.label, section.name)}
                               {item.category && <span className={styles.itemCatBadge}>{item.category}</span>}
                             </div>
                             {item.note && <div className={styles.itemNote}>{item.note}</div>}
@@ -1028,7 +1037,7 @@ export function TravelListPage() {
                             />
                             <div className={styles.itemBody}>
                               <div className={`${styles.itemLabel} ${child.checked ? styles.itemLabelChecked : ''}`}>
-                                {child.label}
+                                {displayLabel(child.label, section.name)}
                               </div>
                               {child.note && <div className={styles.itemNote}>{child.note}</div>}
                             </div>
