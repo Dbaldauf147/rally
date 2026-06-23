@@ -427,6 +427,9 @@ export function TravelListPage() {
       isNew: false,
     });
   }
+  function openChildEditor(sectionId, itemId, child) {
+    setEditItem({ sectionId, itemId, childId: child.id, label: child.label || '', note: child.note || '', children: [], isNew: false });
+  }
   // Sub-item editing inside the popup turns an item into a group.
   function setSub(i, label) { setEditItem((p) => ({ ...p, children: p.children.map((c, idx) => idx === i ? { ...c, label } : c) })); }
   function removeSub(i) { setEditItem((p) => ({ ...p, children: p.children.filter((_, idx) => idx !== i) })); }
@@ -439,8 +442,11 @@ export function TravelListPage() {
   function saveItemEditor() {
     if (editItem) {
       const label = editItem.label.trim();
-      if (!label && editItem.isNew) deleteItem(editItem.sectionId, editItem.itemId);
-      else {
+      if (editItem.childId) {
+        updateChildFields(editItem.sectionId, editItem.itemId, editItem.childId, { label, note: editItem.note.trim() });
+      } else if (!label && editItem.isNew) {
+        deleteItem(editItem.sectionId, editItem.itemId);
+      } else {
         const children = editItem.children.filter((c) => c.label.trim()).map((c) => ({ ...c, label: c.label.trim() }));
         updateItemFields(editItem.sectionId, editItem.itemId, {
           label, note: editItem.note.trim(), category: editItem.category || '',
@@ -1055,12 +1061,22 @@ export function TravelListPage() {
                               checked={!!child.checked}
                               onChange={() => toggleChild(section.id, item.id, child.id)}
                             />
-                            <div className={styles.itemBody}>
+                            <div
+                              className={styles.itemBody}
+                              onDoubleClick={(e) => { e.preventDefault(); openChildEditor(section.id, item.id, child); }}
+                              title="Double-click to edit"
+                            >
                               <div className={`${styles.itemLabel} ${child.checked ? styles.itemLabelChecked : ''}`}>
                                 {displayLabel(child.label, section.name)}
                               </div>
                               {child.note && <div className={styles.itemNote}>{child.note}</div>}
                             </div>
+                            <button
+                              className={styles.itemDeleteBtn}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteChild(section.id, item.id, child.id); }}
+                              title="Delete sub-item"
+                              aria-label="Delete sub-item"
+                            >×</button>
                           </label>
                         )
                       ))}
@@ -1079,9 +1095,9 @@ export function TravelListPage() {
       {editItem && (
         <div className={styles.overlay} onMouseDown={cancelItemEditor}>
           <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
-            <h2 className={styles.modalTitle}>Edit item</h2>
+            <h2 className={styles.modalTitle}>{editItem.childId ? 'Edit sub-item' : 'Edit item'}</h2>
             <label className={styles.modalLabel}>
-              Item
+              {editItem.childId ? 'Sub-item' : 'Item'}
               <input
                 className={styles.metaInput}
                 value={editItem.label}
@@ -1101,6 +1117,7 @@ export function TravelListPage() {
                 onChange={(e) => setEditItem((p) => ({ ...p, note: e.target.value }))}
               />
             </label>
+            {!editItem.childId && (<>
             <label className={styles.modalLabel}>
               Category
               <select
@@ -1170,11 +1187,16 @@ export function TravelListPage() {
                 <button type="button" className={styles.btn} disabled={!subDraft.trim()} onClick={addSub}>Add</button>
               </div>
             </div>
+            </>)}
 
             <div className={styles.modalActions}>
               <button
                 className={`${styles.btn} ${styles.btnDanger}`}
-                onClick={() => { deleteItem(editItem.sectionId, editItem.itemId); closeEditor(); }}
+                onClick={() => {
+                  if (editItem.childId) deleteChild(editItem.sectionId, editItem.itemId, editItem.childId);
+                  else deleteItem(editItem.sectionId, editItem.itemId);
+                  closeEditor();
+                }}
               >Delete</button>
               <span style={{ flex: 1 }} />
               <button className={styles.btn} onClick={cancelItemEditor}>Cancel</button>
