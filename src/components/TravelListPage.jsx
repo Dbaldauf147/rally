@@ -369,7 +369,9 @@ export function TravelListPage() {
     return seedTravelList();
   });
   const [loaded, setLoaded] = useState(false);
-  const [editMode, setEditMode] = useState(false);
+  // The list is always directly editable now (no separate edit mode). Kept as a
+  // constant so the legacy edit-only branches simply never render.
+  const editMode = false;
   // Which toggleable categories are hidden ({ flying: true } = hidden).
   const [hiddenCats, setHiddenCats] = useState(() => {
     try { const raw = localStorage.getItem(CATS_KEY); if (raw) return JSON.parse(raw) || {}; } catch { /* ignore */ }
@@ -382,17 +384,23 @@ export function TravelListPage() {
       return next;
     });
   }
-  // Double-click an item to rename it inline (without entering edit mode).
-  const [inlineEdit, setInlineEdit] = useState(null); // { sectionId, itemId }
-  const [inlineDraft, setInlineDraft] = useState('');
-  function startInline(sectionId, itemId, label) {
-    setInlineEdit({ sectionId, itemId });
-    setInlineDraft(label || '');
+  // Double-click an item to open an editor popup for its label and note.
+  const [editItem, setEditItem] = useState(null); // { sectionId, itemId, label, note, isNew }
+  function openItemEditor(sectionId, item) {
+    setEditItem({ sectionId, itemId: item.id, label: item.label || '', note: item.note || '', isNew: false });
   }
-  function commitInline() {
-    if (inlineEdit) updateItemFields(inlineEdit.sectionId, inlineEdit.itemId, { label: inlineDraft.trim() });
-    setInlineEdit(null);
-    setInlineDraft('');
+  function saveItemEditor() {
+    if (editItem) {
+      const label = editItem.label.trim();
+      if (!label && editItem.isNew) deleteItem(editItem.sectionId, editItem.itemId);
+      else updateItemFields(editItem.sectionId, editItem.itemId, { label, note: editItem.note.trim() });
+    }
+    setEditItem(null);
+  }
+  function cancelItemEditor() {
+    // Drop a freshly-added item if it was left blank.
+    if (editItem?.isNew && !editItem.label.trim()) deleteItem(editItem.sectionId, editItem.itemId);
+    setEditItem(null);
   }
   // Drag an item onto another section to move it, or onto an item to reorder.
   const [dragItem, setDragItem] = useState(null); // { sectionId, itemId }
@@ -502,11 +510,6 @@ export function TravelListPage() {
     }));
   }
 
-  function resetDefaults() {
-    if (!confirm('Reset the whole list — items and checks — back to defaults? This deletes your custom edits.')) return;
-    updateList(seedTravelList());
-  }
-
   function setMeta(patch) {
     updateList((l) => ({ ...l, meta: { ...l.meta, ...patch } }));
   }
@@ -557,13 +560,15 @@ export function TravelListPage() {
     }));
   }
   function addItem(sectionId) {
+    const id = uid();
     updateList((l) => ({
       ...l,
       sections: l.sections.map((s) => s.id !== sectionId ? s : {
         ...s,
-        items: [...s.items, { id: uid(), label: '', note: '', checked: false, isGroup: false, children: [] }],
+        items: [...s.items, { id, label: '', note: '', checked: false, isGroup: false, children: [] }],
       }),
     }));
+    setEditItem({ sectionId, itemId: id, label: '', note: '', isNew: true }); // open the editor for the new item
   }
   function addChild(sectionId, itemId) {
     updateList((l) => ({
@@ -732,14 +737,9 @@ export function TravelListPage() {
       )}
 
       <div className={styles.toolbar}>
-        <button
-          className={`${styles.btn} ${editMode ? styles.btnActive : ''}`}
-          onClick={() => setEditMode((v) => !v)}
-        >{editMode ? '✓ Done editing' : '✏️ Edit list'}</button>
         <button className={styles.btn} onClick={() => setAllChecked(true)}>Check all</button>
         <button className={styles.btn} onClick={() => setAllChecked(false)}>Uncheck all</button>
-        {editMode && <button className={styles.btn} onClick={addSection}>+ Add section</button>}
-        <button className={`${styles.btn} ${styles.btnDanger}`} onClick={resetDefaults}>Reset to defaults</button>
+        <button className={styles.btn} onClick={addSection}>+ Add list</button>
       </div>
 
       {(() => {
@@ -875,21 +875,6 @@ export function TravelListPage() {
                             <button className={styles.iconBtnDanger} onClick={() => deleteItem(section.id, item.id)} title="Delete item" aria-label="Delete item">🗑️</button>
                           </div>
                         </div>
-                      ) : inlineEdit && inlineEdit.itemId === item.id ? (
-                        <div className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''}`}>
-                          <span className={styles.checkbox} style={{ visibility: 'hidden' }} />
-                          <input
-                            className={styles.inlineEditInput}
-                            autoFocus
-                            value={inlineDraft}
-                            onChange={(e) => setInlineDraft(e.target.value)}
-                            onBlur={commitInline}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') { e.preventDefault(); commitInline(); }
-                              else if (e.key === 'Escape') { setInlineEdit(null); setInlineDraft(''); }
-                            }}
-                          />
-                        </div>
                       ) : (
                         <label
                           className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''} ${dragItem && dragItem.itemId === item.id ? styles.itemDragging : ''}`}
@@ -909,7 +894,7 @@ export function TravelListPage() {
                           )}
                           <div
                             className={styles.itemBody}
-                            onDoubleClick={(e) => { e.preventDefault(); startInline(section.id, item.id, item.label); }}
+                            onDoubleClick={(e) => { e.preventDefault(); openItemEditor(section.id, item); }}
                             title="Double-click to edit · drag to move"
                           >
                             <div className={`${styles.itemLabel} ${!hasChildren && item.checked ? styles.itemLabelChecked : ''}`}>
@@ -973,15 +958,51 @@ export function TravelListPage() {
                   );
                 })}
 
-                {editMode && (
-                  <button className={styles.addItemBtn} onClick={() => addItem(section.id)}>+ Add item</button>
-                )}
+                <button className={styles.addItemBtn} onClick={() => addItem(section.id)}>+ Add item</button>
               </div>
             )}
           </div>
         );
       })}
       </div>
+
+      {editItem && (
+        <div className={styles.overlay} onMouseDown={cancelItemEditor}>
+          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <h2 className={styles.modalTitle}>Edit item</h2>
+            <label className={styles.modalLabel}>
+              Item
+              <input
+                className={styles.metaInput}
+                value={editItem.label}
+                autoFocus
+                placeholder="What to pack / do"
+                onChange={(e) => setEditItem((p) => ({ ...p, label: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveItemEditor(); if (e.key === 'Escape') cancelItemEditor(); }}
+              />
+            </label>
+            <label className={styles.modalLabel}>
+              Note
+              <textarea
+                className={styles.modalTextarea}
+                value={editItem.note}
+                placeholder="Optional note"
+                rows={3}
+                onChange={(e) => setEditItem((p) => ({ ...p, note: e.target.value }))}
+              />
+            </label>
+            <div className={styles.modalActions}>
+              <button
+                className={`${styles.btn} ${styles.btnDanger}`}
+                onClick={() => { deleteItem(editItem.sectionId, editItem.itemId); setEditItem(null); }}
+              >Delete</button>
+              <span style={{ flex: 1 }} />
+              <button className={styles.btn} onClick={cancelItemEditor}>Cancel</button>
+              <button className={`${styles.btn} ${styles.btnActive}`} disabled={!editItem.label.trim()} onClick={saveItemEditor}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
