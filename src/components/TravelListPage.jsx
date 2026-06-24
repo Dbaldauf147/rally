@@ -853,20 +853,23 @@ export function TravelListPage() {
         <button className={styles.btn} onClick={addSection}>+ Add list</button>
       </div>
 
-      {(list.meta.categories || []).length > 0 && (
-        <div className={styles.toolbar}>
-          <span className={styles.toggleLabel}>Categories:</span>
-          {(list.meta.categories || []).map((c) => (
-            <button
-              key={c}
-              className={`${styles.btn} ${!hiddenCats[c] ? styles.btnActive : ''}`}
-              onClick={() => toggleCat(c)}
-              aria-pressed={!hiddenCats[c]}
-              title={hiddenCats[c] ? `Show ${c} items` : `Hide ${c} items`}
-            >{c}</button>
-          ))}
-        </div>
-      )}
+      <div className={styles.toolbar}>
+        <span className={styles.toggleLabel}>Categories:</span>
+        {(list.meta.categories || []).map((c) => (
+          <button
+            key={c}
+            className={`${styles.btn} ${!hiddenCats[c] ? styles.btnActive : ''}`}
+            onClick={() => toggleCat(c)}
+            aria-pressed={!hiddenCats[c]}
+            title={hiddenCats[c] ? `Show ${c} items` : `Hide ${c} items`}
+          >{c}</button>
+        ))}
+        <button
+          className={styles.btn}
+          onClick={() => { const n = window.prompt('New category name'); if (n && n.trim()) addCategory(n.trim()); }}
+          title="Create a new category"
+        >+ Category</button>
+      </div>
 
       <div className={styles.sectionsGrid}>
       {list.sections.map((section, sIdx) => {
