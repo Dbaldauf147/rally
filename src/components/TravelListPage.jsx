@@ -317,6 +317,8 @@ function normalizeList(raw) {
       note: it.note || '',
       checked: !!it.checked,
       category: it.category || '',
+      isHeader: !!it.isHeader,
+      collapsed: !!it.collapsed,
       isGroup: !!it.isGroup || (Array.isArray(it.children) && it.children.length > 0),
       children: (it.children || []).map((c) => ({
         id: c.id || uid(),
@@ -370,6 +372,7 @@ function countLeaves(sections) {
   let done = 0;
   for (const s of sections) {
     for (const it of s.items) {
+      if (it.isHeader) continue; // headers are dividers, not checklist leaves
       if (it.children && it.children.length > 0) {
         for (const c of it.children) { total++; if (c.checked) done++; }
       } else {
@@ -561,7 +564,7 @@ export function TravelListPage() {
       ...l,
       sections: l.sections.map((s) => ({
         ...s,
-        items: s.items.map((it) => ({
+        items: s.items.map((it) => it.isHeader ? it : ({
           ...it,
           checked: (it.children && it.children.length > 0) ? it.checked : value,
           children: it.children.map((c) => ({ ...c, checked: value })),
@@ -665,6 +668,37 @@ export function TravelListPage() {
       }),
     }));
     setEditItem({ sectionId, itemId: id, label: '', note: '', category: '', children: [], isNew: true }); // open the editor for the new item
+  }
+  // A group header is an item with isHeader: true — a collapsible named divider.
+  // Every item after it (until the next header) belongs to that bucket.
+  function addHeader(sectionId) {
+    const name = window.prompt('Group header name');
+    if (name == null) return;
+    const label = name.trim();
+    if (!label) return;
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: [...s.items, { id: uid(), label, note: '', checked: false, isHeader: true, collapsed: false, isGroup: false, children: [] }],
+      }),
+    }));
+  }
+  function renameHeader(sectionId, itemId, current) {
+    const name = window.prompt('Rename group header', current || '');
+    if (name == null) return;
+    const label = name.trim();
+    if (!label) return;
+    updateItemFields(sectionId, itemId, { label });
+  }
+  function toggleHeaderCollapsed(sectionId, itemId) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.map((it) => it.id !== itemId ? it : { ...it, collapsed: !it.collapsed }),
+      }),
+    }));
   }
   function addChild(sectionId, itemId) {
     updateList((l) => ({
@@ -879,6 +913,22 @@ export function TravelListPage() {
         // item gets filtered out that way.
         const visibleItems = section.items.filter((it) => !(it.category && hiddenCats[it.category]));
         if (section.items.length > 0 && visibleItems.length === 0) return null;
+        // Group headers bucket the items beneath them: track which items a
+        // collapsed header hides, and each header's leaf count for its badge.
+        const hiddenItemIds = new Set();
+        const headerStats = {};
+        {
+          let curHeader = null;
+          let collapsedActive = false;
+          for (const it of visibleItems) {
+            if (it.isHeader) { curHeader = it.id; collapsedActive = !!it.collapsed; headerStats[it.id] = { total: 0, done: 0 }; continue; }
+            if (collapsedActive) hiddenItemIds.add(it.id);
+            if (curHeader) {
+              const leaves = (it.children && it.children.length) ? it.children : [it];
+              for (const lf of leaves) { headerStats[curHeader].total++; if (lf.checked) headerStats[curHeader].done++; }
+            }
+          }
+        }
         const itemDropTarget = dragItem && dragItem.sectionId !== section.id;
         const sectionDropTarget = dragSection && dragSection !== section.id;
         return (
@@ -935,6 +985,7 @@ export function TravelListPage() {
             {(editMode || sectionOpen) && (
               <div className={styles.sectionBody}>
                 {visibleItems.map((item, iIdx) => {
+                  if (!item.isHeader && hiddenItemIds.has(item.id)) return null; // inside a collapsed header
                   const hasChildren = item.children && item.children.length > 0;
                   return (
                     <div
@@ -956,7 +1007,29 @@ export function TravelListPage() {
                         clearDrag();
                       }}
                     >
-                      {editMode ? (
+                      {item.isHeader ? (
+                        <div
+                          className={styles.groupHeader}
+                          draggable
+                          onDragStart={(e) => { setDragItem({ sectionId: section.id, itemId: item.id }); e.dataTransfer.effectAllowed = 'move'; }}
+                          onDragEnd={clearDrag}
+                          onClick={() => toggleHeaderCollapsed(section.id, item.id)}
+                          title="Click to collapse/expand · drag to move"
+                        >
+                          <span className={`${styles.caret} ${!item.collapsed ? styles.caretOpen : ''}`}>▶</span>
+                          <span className={styles.groupHeaderLabel}>{item.label || 'Group'}</span>
+                          <span className={styles.groupHeaderCount}>{(headerStats[item.id]?.done) || 0} / {(headerStats[item.id]?.total) || 0}</span>
+                          <span className={styles.groupHeaderActions} onClick={(e) => e.stopPropagation()}>
+                            <button className={styles.iconBtn} onClick={() => renameHeader(section.id, item.id, item.label)} title="Rename header" aria-label="Rename header">✎</button>
+                            <button
+                              className={styles.itemDeleteBtn}
+                              onClick={() => { if (confirm(`Delete the "${item.label || 'group'}" header? The items below stay in the list.`)) deleteItem(section.id, item.id); }}
+                              title="Delete header"
+                              aria-label="Delete header"
+                            >×</button>
+                          </span>
+                        </div>
+                      ) : editMode ? (
                         <div className={`${styles.editRow} ${item.isGroup ? styles.itemGroup : ''}`}>
                           <div className={styles.editFields}>
                             <input
@@ -1087,7 +1160,10 @@ export function TravelListPage() {
                   );
                 })}
 
-                <button className={styles.addItemBtn} onClick={() => addItem(section.id)}>+ Add item</button>
+                <div className={styles.addRow}>
+                  <button className={styles.addBtn} onClick={() => addItem(section.id)}>+ Add item</button>
+                  <button className={styles.addBtn} onClick={() => addHeader(section.id)}>+ Group header</button>
+                </div>
               </div>
             )}
           </div>
