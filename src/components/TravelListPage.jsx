@@ -909,6 +909,7 @@ export function TravelListPage() {
       {list.sections.map((section, sIdx) => {
         const { total: leafTotal, done: leafDone } = sectionCounts(section);
         const sectionOpen = isOpen(section.id);
+        const complete = leafTotal > 0 && leafDone === leafTotal; // every item checked → "Ready to Go!"
         // Hide items whose category is toggled off; hide the whole list if every
         // item gets filtered out that way.
         const visibleItems = section.items.filter((it) => !(it.category && hiddenCats[it.category]));
@@ -934,7 +935,7 @@ export function TravelListPage() {
         return (
           <div
             key={section.id}
-            className={`${styles.section} ${dragOverSection === section.id ? styles.sectionDragOver : ''} ${dragSection === section.id ? styles.itemDragging : ''}`}
+            className={`${styles.section} ${complete ? styles.sectionDone : ''} ${dragOverSection === section.id ? styles.sectionDragOver : ''} ${dragSection === section.id ? styles.itemDragging : ''}`}
             onDragOver={(e) => { if (itemDropTarget || sectionDropTarget) { e.preventDefault(); if (dragOverSection !== section.id) setDragOverSection(section.id); } }}
             onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget)) return; if (dragOverSection === section.id) setDragOverSection(null); }}
             onDrop={(e) => {
@@ -942,6 +943,7 @@ export function TravelListPage() {
               else if (sectionDropTarget) { e.preventDefault(); reorderSection(dragSection, section.id); clearDrag(); }
             }}
           >
+            {complete && <div className={styles.readyBanner}>🎉 Ready to Go!</div>}
             <div
               className={styles.sectionHeader}
               draggable

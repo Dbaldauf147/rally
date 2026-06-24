@@ -22,6 +22,12 @@
 .btnActive:hover { background: var(--color-accent); color: #fff; }
 
 .section { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); margin-bottom: 1rem; overflow: hidden; }
+/* Every item checked: the whole list goes green with a "Ready to Go!" banner. */
+.sectionDone { border-color: #86EFAC; background: #f0fdf4; }
+.sectionDone .sectionHeader { background: #DCFCE7; }
+.sectionDone .sectionHeader:hover { background: #bbf7d0; }
+.sectionDone .sectionBody { border-top-color: #bbf7d0; }
+.readyBanner { background: #16a34a; color: #fff; font-weight: 700; font-size: 0.78rem; text-align: center; padding: 0.4rem 0.6rem; letter-spacing: 0.03em; }
 /* Drag-and-drop: target section + the item being dragged. */
 .sectionDragOver { border-color: var(--color-accent); box-shadow: 0 0 0 2px var(--color-accent-light); }
 .itemDragging { opacity: 0.45; }
