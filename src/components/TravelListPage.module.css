@@ -96,6 +96,22 @@
 .addBtn { flex: 1; padding: 0.4rem 0.75rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font-size: 0.82rem; cursor: pointer; }
 .addBtn:hover { background: var(--color-surface-alt); color: var(--color-text); border-color: var(--color-accent); }
 
+/* Phone: collapse the leave/return/days card into one compact row instead of
+   three tall stacked fields. */
+@media (max-width: 760px) {
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+    padding: 0.55rem 0.6rem;
+    margin-bottom: 0.85rem;
+  }
+  .metaField { flex: 1 1 6rem; min-width: 0; gap: 0.15rem; }
+  .metaField:last-child { flex: 0 0 4.5rem; } /* Days is short */
+  .metaLabel { font-size: 0.6rem; letter-spacing: 0.02em; }
+  .metaInput { padding: 0.3rem 0.4rem; font-size: 0.8rem; width: 100%; min-width: 0; box-sizing: border-box; }
+}
+
 /* Group header: a collapsible named divider that buckets items beneath it. */
 .groupHeader { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.6rem; margin-top: 0.15rem; border-radius: var(--radius-sm); background: var(--color-surface-alt); cursor: pointer; user-select: none; }
 .groupHeader:hover { background: var(--color-border-light); }
