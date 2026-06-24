@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { doc, collection, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -150,8 +150,87 @@ function loadColVis() {
   } catch { return base; }
 }
 
+// Below this width we switch to the phone layout: Person leads, the Last Reach
+// Out and check columns are hidden, and the name long-presses to mark reached-out.
+const MOBILE_QUERY = '(max-width: 760px)';
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const onChange = (e) => setMobile(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return mobile;
+}
+
+// How long to hold the name before it counts as "reached out today". The fill
+// bar animates over the same duration, so the two must stay in sync.
+const HOLD_MS = 650;
+
+// The Person cell. On desktop it's a plain name (a row click opens the editor).
+// On mobile, press-and-hold runs a bar across the name and marks the person as
+// reached out today; a quick tap still opens the editor.
+function PersonCell({ name, isMobile, onComplete }) {
+  const [holding, setHolding] = useState(false);
+  const timerRef = useRef(null);
+  const completedRef = useRef(false);
+
+  function clearTimer() {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+  }
+  function startHold() {
+    completedRef.current = false;
+    setHolding(true);
+    clearTimer();
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      completedRef.current = true;
+      setHolding(false);
+      try { navigator.vibrate?.(15); } catch { /* unsupported */ }
+      onComplete();
+    }, HOLD_MS);
+  }
+  function cancelHold() {
+    clearTimer();
+    setHolding(false);
+  }
+  // A completed hold synthesises a click afterward — swallow it so the row's
+  // click handler doesn't also open the editor.
+  function onClickCapture(e) {
+    if (completedRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+      completedRef.current = false;
+    }
+  }
+  useEffect(() => clearTimer, []);
+
+  if (!isMobile) return <td className={styles.person}>{name}</td>;
+
+  return (
+    <td
+      className={styles.personHold}
+      onPointerDown={startHold}
+      onPointerUp={cancelHold}
+      onPointerLeave={cancelHold}
+      onPointerCancel={cancelHold}
+      onClickCapture={onClickCapture}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <span
+        className={styles.holdBar}
+        aria-hidden="true"
+        style={holding ? { width: '100%', transition: `width ${HOLD_MS}ms linear` } : { width: 0, transition: 'none' }}
+      />
+      <span className={styles.personName}>{name}</span>
+    </td>
+  );
+}
+
 export function ReachOutPage() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [contacts, setContacts] = useState(null); // null = loading
   const [friendsList, setFriendsList] = useState([]);
   const [friendDraft, setFriendDraft] = useState({}); // per-row in-progress typeahead text
@@ -346,6 +425,11 @@ export function ReachOutPage() {
     ...(!reachedFriendToday ? ['a friend'] : []),
   ];
 
+  // On mobile, Last Reach Out and the check column are hidden (the data is still
+  // tracked); the name long-press replaces the checkbox.
+  const showLast = !isMobile && colVis.lastReachOut !== false;
+  const showCheck = !isMobile && colVis.check !== false;
+
   if (contacts === null) {
     return <div className={styles.page}><div className={styles.header}><h1 className={styles.title}>Reach Out</h1></div><p className={styles.muted}>Loading…</p></div>;
   }
@@ -468,9 +552,10 @@ export function ReachOutPage() {
         <table className={styles.table}>
           <thead>
             <tr>
-              {colVis.lastReachOut !== false && <th className={styles.thSort} onClick={() => onSort('lastReachOut')}>Last Reach Out{sortArrow('lastReachOut')}</th>}
-              {colVis.check !== false && <th className={`${styles.colCheck} ${styles.thSort}`} title="Reached out today" onClick={() => onSort('check')}>✓{sortArrow('check')}</th>}
-              <th className={styles.thSort} onClick={() => onSort('person')}>Person{sortArrow('person')}</th>
+              {isMobile && <th className={styles.thSort} onClick={() => onSort('person')}>Person{sortArrow('person')}</th>}
+              {showLast && <th className={styles.thSort} onClick={() => onSort('lastReachOut')}>Last Reach Out{sortArrow('lastReachOut')}</th>}
+              {showCheck && <th className={`${styles.colCheck} ${styles.thSort}`} title="Reached out today" onClick={() => onSort('check')}>✓{sortArrow('check')}</th>}
+              {!isMobile && <th className={styles.thSort} onClick={() => onSort('person')}>Person{sortArrow('person')}</th>}
               {colVis.note !== false && <th className={styles.thSort} onClick={() => onSort('note')}>What's going on{sortArrow('note')}</th>}
               {colVis.category !== false && <th className={styles.thSort} onClick={() => onSort('category')}>Category{sortArrow('category')}</th>}
               {colVis.overdue !== false && <th className={styles.thSort} onClick={() => onSort('overdue')}>Overdue{sortArrow('overdue')}</th>}
@@ -490,13 +575,14 @@ export function ReachOutPage() {
               const rowClass = c._bdayToday ? styles.trBday : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
                 <tr key={c.id} className={rowClass} onClick={() => startEdit(c)} title="Click to edit">
-                  {colVis.lastReachOut !== false && <td>{fmtMDY(c._last)}</td>}
-                  {colVis.check !== false && (
+                  {isMobile && <PersonCell name={c.name} isMobile onComplete={() => toggleDone(c.id)} />}
+                  {showLast && <td>{fmtMDY(c._last)}</td>}
+                  {showCheck && (
                     <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={!!c.done} onChange={() => toggleDone(c.id)} aria-label="Reached out today" title="Reached out today" />
                     </td>
                   )}
-                  <td className={styles.person}>{c.name}</td>
+                  {!isMobile && <PersonCell name={c.name} isMobile={false} />}
                   {colVis.note !== false && <td className={styles.tdNote}>{c.note}</td>}
                   {colVis.category !== false && <td>{c.category}</td>}
                   {colVis.overdue !== false && <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>}
