@@ -2740,6 +2740,11 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
     const dailyBullets = (event?.dailyBullets && typeof event.dailyBullets === 'object') ? event.dailyBullets : {};
     const hiddenKeys = new Set(Array.isArray(event?.hiddenDailyKeys) ? event.hiddenDailyKeys : []);
 
+    // Every Instagram video on the trip; track which ones we list per-day so the
+    // rest (undated, outside the date range, or on hidden days) still get listed.
+    const allVideos = (Array.isArray(items) ? items : []).filter(it => it.url && isInstagramUrl(it.url));
+    const shownVideoIds = new Set();
+
     if (dStart && dEnd) {
       lines.push('');
       lines.push('🗓️ Daily plan');
@@ -2770,6 +2775,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
         const destSubs = (Array.isArray(dailyBullets[key]) ? dailyBullets[key] : []).map(id => subById.get(id)).filter(Boolean);
 
         const dayVideos = dayItems.filter(it => it.url && isInstagramUrl(it.url));
+        for (const v of dayVideos) shownVideoIds.add(v.id);
 
         const name = (dailyNames[key] || '').trim();
         const dateLabel = formatDateHeader(key);
@@ -2782,12 +2788,16 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
       }
     }
 
-    // Instagram videos saved without a date yet.
-    const undatedVideos = (groups['Unscheduled'] || []).filter(it => it.url && isInstagramUrl(it.url));
-    if (undatedVideos.length) {
+    // Any Instagram videos not already listed under a day (undated, outside the
+    // trip dates, or on a hidden day).
+    const otherVideos = allVideos.filter(v => !shownVideoIds.has(v.id));
+    if (otherVideos.length) {
       lines.push('');
-      lines.push('📸 Instagram videos (no date yet)');
-      for (const v of undatedVideos) lines.push(`  • ${v.title || 'Instagram video'}: ${v.url}`);
+      lines.push('📸 Instagram videos');
+      for (const v of otherVideos) {
+        const when = v.date ? ` (${formatDateHeader(v.date)})` : '';
+        lines.push(`  • ${v.title || 'Instagram video'}: ${v.url}${when}`);
+      }
     }
 
     if (link) {
