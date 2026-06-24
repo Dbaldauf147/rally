@@ -90,3 +90,15 @@
 
 .addItemBtn { margin: 0.4rem 0.6rem 0; padding: 0.4rem 0.75rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font-size: 0.82rem; cursor: pointer; width: calc(100% - 1.2rem); }
 .addItemBtn:hover { background: var(--color-surface-alt); color: var(--color-text); border-color: var(--color-accent); }
+
+/* Row of add buttons at the bottom of a section. */
+.addRow { display: flex; gap: 0.4rem; margin: 0.4rem 0.6rem 0; }
+.addBtn { flex: 1; padding: 0.4rem 0.75rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font-size: 0.82rem; cursor: pointer; }
+.addBtn:hover { background: var(--color-surface-alt); color: var(--color-text); border-color: var(--color-accent); }
+
+/* Group header: a collapsible named divider that buckets items beneath it. */
+.groupHeader { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.6rem; margin-top: 0.15rem; border-radius: var(--radius-sm); background: var(--color-surface-alt); cursor: pointer; user-select: none; }
+.groupHeader:hover { background: var(--color-border-light); }
+.groupHeaderLabel { flex: 1; min-width: 0; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.groupHeaderCount { font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; flex-shrink: 0; }
+.groupHeaderActions { display: inline-flex; align-items: center; gap: 0.15rem; flex-shrink: 0; }
