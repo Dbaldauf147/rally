@@ -2651,7 +2651,8 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
     setTimeout(() => setShareStatus(s => (s ? '' : s)), 3000);
   }
 
-  async function emailItinerary() {
+  // Attendees with a valid email (skips declined). Shared by the email actions.
+  function getAttendeeEmails() {
     const members = event?.members || {};
     const seen = new Set();
     const emails = [];
@@ -2665,10 +2666,37 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
       seen.add(key);
       emails.push(raw);
     }
-    if (emails.length === 0) {
-      alert('No attendees with valid email addresses found.');
+    return emails;
+  }
+
+  // Open a Gmail compose draft, falling back to clipboard for very long bodies
+  // (Gmail 400s past ~8 KB). Shared by Email daily plan / Email bookings.
+  async function openGmailDraft(subject, body, emails) {
+    const base = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${encodeURIComponent(subject)}`;
+    const gmailUrl = `${base}&body=${encodeURIComponent(body)}`;
+    if (gmailUrl.length > 7000) {
+      let copied = false;
+      try { await navigator.clipboard.writeText(body); copied = true; } catch { copied = false; }
+      const openedEmpty = window.open(base, '_blank', 'noopener,noreferrer');
+      if (!openedEmpty) { alert('Pop-up blocked — please allow pop-ups for Rally and try again.'); return; }
+      alert(copied
+        ? 'This email is long, so it was copied to your clipboard. Paste it into the draft that just opened (Ctrl/Cmd+V).'
+        : 'This email is long — copy it and paste into the draft that just opened.');
       return;
     }
+    const opened = window.open(gmailUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      setEmailResult('Pop-up blocked — please allow pop-ups for Rally and try again.');
+      setTimeout(() => setEmailResult(''), 8000);
+      return;
+    }
+    setEmailResult(`Gmail draft opened for ${emails.length} recipient${emails.length === 1 ? '' : 's'}.`);
+    setTimeout(() => setEmailResult(''), 5000);
+  }
+
+  async function emailItinerary() {
+    const emails = getAttendeeEmails();
+    if (emails.length === 0) { alert('No attendees with valid email addresses found.'); return; }
 
     const toDateStr = (d) => {
       if (!d) return '';
@@ -2769,36 +2797,84 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
     lines.push('');
     lines.push(`— ${fromName}`);
 
-    const body = lines.join('\n');
     const subject = `Daily plan for ${event?.title || 'our trip'}`;
-    const base = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${encodeURIComponent(subject)}`;
-    const gmailUrl = `${base}&body=${encodeURIComponent(body)}`;
+    await openGmailDraft(subject, lines.join('\n'), emails);
+  }
 
-    // Gmail rejects very long compose URLs with "Bad Request 400" (its request
-    // limit is ~8 KB). Only for a plan that large do we fall back to copying the
-    // body and opening an empty draft; normal plans get prefilled inline below.
-    if (gmailUrl.length > 7000) {
-      let copied = false;
-      try { await navigator.clipboard.writeText(body); copied = true; } catch { copied = false; }
-      const openedEmpty = window.open(base, '_blank', 'noopener,noreferrer');
-      if (!openedEmpty) {
-        alert('Pop-up blocked — please allow pop-ups for Rally and try again.');
-        return;
+  async function emailBookings() {
+    const emails = getAttendeeEmails();
+    if (emails.length === 0) { alert('No attendees with valid email addresses found.'); return; }
+
+    const fmtD = (d) => d ? new Date(d + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const fmtT = (t) => t ? new Date('2000-01-01T' + t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+    const dt = (d, t) => [fmtD(d), fmtT(t)].filter(Boolean).join(', ');
+
+    const bookingFields = ['tripId', 'reservationNumber', 'fromLocation', 'toLocation', 'endDate', 'passengers', 'ticketNumbers', 'seatNumbers', 'bookingId', 'hotelName', 'guests', 'roomType', 'eventName', 'venue', 'ticketCount', 'restaurantName', 'partySize'];
+    const isBooking = (it) => (it.type === 'travel' || it.type === 'lodging' || it.type === 'activity')
+      && (bookingFields.some((f) => it[f] && String(it[f]).trim()) || it.airline || it.flightNumber);
+    const bookings = (Array.isArray(items) ? items : []).filter(isBooking)
+      .sort((a, b) => (`${a.date || ''} ${a.time || ''}`).localeCompare(`${b.date || ''} ${b.time || ''}`));
+
+    if (bookings.length === 0) { alert('No bookings with details to email yet.'); return; }
+
+    const fromName = user?.displayName || user?.email || 'A friend';
+    const lines = [];
+    lines.push(`Hey! Here are the bookings for ${event?.title || 'our trip'}.`);
+
+    const add = (label, val) => { if (val && String(val).trim()) lines.push(`    ${label}: ${val}`); };
+    const groups = [
+      { type: 'travel', heading: '✈️ Flights & travel' },
+      { type: 'lodging', heading: '🏨 Lodging' },
+      { type: 'activity', heading: '🎟️ Events & reservations' },
+    ];
+    for (const g of groups) {
+      const rows = bookings.filter((b) => (b.type || 'activity') === g.type);
+      if (rows.length === 0) continue;
+      lines.push('');
+      lines.push(g.heading);
+      for (const b of rows) {
+        lines.push('');
+        if (g.type === 'travel') {
+          const route = [b.fromLocation, b.toLocation].filter(Boolean).join(' → ');
+          lines.push(`  ${b.title || route || 'Trip'}`);
+          add('Confirmation', b.reservationNumber);
+          add('Trip ID', b.tripId);
+          if (route) add('Route', route);
+          add('Depart', dt(b.date, b.time));
+          add('Arrive', dt(b.endDate || b.date, b.arrivalTime));
+          add('Airline / Flight', [b.airline, b.flightNumber].filter(Boolean).join(' '));
+          add('Passengers', b.passengers);
+          add('Tickets', b.ticketNumbers);
+          add('Seats', b.seatNumbers);
+        } else if (g.type === 'lodging') {
+          lines.push(`  ${b.hotelName || b.title || 'Lodging'}`);
+          add('Confirmation', b.reservationNumber || b.bookingId);
+          add('Check in', dt(b.date, b.time));
+          add('Check out', fmtD(b.endDate));
+          add('Guests', b.guests);
+          add('Room', b.roomType);
+          add('Location', b.location);
+        } else {
+          lines.push(`  ${b.eventName || b.restaurantName || b.title || 'Reservation'}`);
+          add('Confirmation', b.reservationNumber);
+          add('Venue', b.venue);
+          add('When', dt(b.date, b.time));
+          add('Tickets', b.ticketCount);
+          add('Party size', b.partySize);
+          add('Seats', b.seatNumbers);
+          add('Location', b.location);
+        }
+        if (b.cost) add('Cost', /^[\d.]/.test(String(b.cost).trim()) ? `$${b.cost}` : b.cost);
       }
-      alert(copied
-        ? 'This plan is long, so it was copied to your clipboard. Paste it into the email that just opened (Ctrl/Cmd+V).'
-        : 'This plan is long — copy it from the itinerary and paste into the email that just opened.');
-      return;
     }
 
-    const opened = window.open(gmailUrl, '_blank', 'noopener,noreferrer');
-    if (!opened) {
-      setEmailResult('Pop-up blocked — please allow pop-ups for Rally and try again.');
-      setTimeout(() => setEmailResult(''), 8000);
-      return;
-    }
-    setEmailResult(`Gmail draft opened for ${emails.length} recipient${emails.length === 1 ? '' : 's'}.`);
-    setTimeout(() => setEmailResult(''), 5000);
+    const link = event?.shareToken ? `${window.location.origin}/invite/${event.shareToken}?tab=itinerary` : '';
+    if (link) { lines.push(''); lines.push(`View on Rally: ${link}`); }
+    lines.push('');
+    lines.push(`— ${fromName}`);
+
+    const subject = `Bookings for ${event?.title || 'our trip'}`;
+    await openGmailDraft(subject, lines.join('\n'), emails);
   }
 
   async function exportPDF() {
@@ -3317,6 +3393,15 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
               title="Open an email draft to all attendees with the daily plan pre-filled"
             >
               📧 Email daily plan
+            </button>
+          )}
+          {canEdit && (
+            <button
+              className={styles.lodgingToggleBtn}
+              onClick={emailBookings}
+              title="Open an email draft to all attendees with the bookings pre-filled"
+            >
+              📧 Email bookings
             </button>
           )}
           {canEdit && !adding && !editingId && (
