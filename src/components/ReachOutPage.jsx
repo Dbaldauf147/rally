@@ -169,40 +169,40 @@ function useIsMobile() {
 const HOLD_MS = 650;
 
 // The Person cell. On desktop it's a plain name (a row click opens the editor).
-// On mobile, press-and-hold runs a bar across the name and marks the person as
-// reached out today; a quick tap still opens the editor.
-function PersonCell({ name, isMobile, onComplete }) {
+// On mobile the name is the whole row: a quick tap opens the "Reached out?"
+// yes/no popup, and a press-and-hold (a bar runs across the name) opens the
+// full details popup.
+function PersonCell({ name, isMobile, onTap, onHold }) {
   const [holding, setHolding] = useState(false);
   const timerRef = useRef(null);
-  const completedRef = useRef(false);
+  const heldRef = useRef(false);
 
   function clearTimer() {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
   }
-  function startHold() {
-    completedRef.current = false;
+  function startPress() {
+    heldRef.current = false;
     setHolding(true);
     clearTimer();
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      completedRef.current = true;
+      heldRef.current = true; // crossed into a hold → details, not a tap
       setHolding(false);
       try { navigator.vibrate?.(15); } catch { /* unsupported */ }
-      onComplete();
+      onHold();
     }, HOLD_MS);
   }
-  function cancelHold() {
+  function endPress() {
+    // Released before the hold timer fired → treat as a tap.
+    const wasHeld = heldRef.current;
     clearTimer();
     setHolding(false);
+    if (!wasHeld) onTap();
   }
-  // A completed hold synthesises a click afterward — swallow it so the row's
-  // click handler doesn't also open the editor.
-  function onClickCapture(e) {
-    if (completedRef.current) {
-      e.stopPropagation();
-      e.preventDefault();
-      completedRef.current = false;
-    }
+  function cancelPress() {
+    // Pointer left or a scroll cancelled the gesture — no tap, no hold.
+    clearTimer();
+    setHolding(false);
   }
   useEffect(() => clearTimer, []);
 
@@ -211,11 +211,11 @@ function PersonCell({ name, isMobile, onComplete }) {
   return (
     <td
       className={styles.personHold}
-      onPointerDown={startHold}
-      onPointerUp={cancelHold}
-      onPointerLeave={cancelHold}
-      onPointerCancel={cancelHold}
-      onClickCapture={onClickCapture}
+      onPointerDown={startPress}
+      onPointerUp={endPress}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
+      onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <span
@@ -239,6 +239,8 @@ export function ReachOutPage() {
   const [editingId, setEditingId] = useState(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
+  const [confirmReach, setConfirmReach] = useState(null); // contact pending the tap "Reached out?" popup
+  const [detailsContact, setDetailsContact] = useState(null); // contact whose details popup (long-press) is open
   const [colVis, setColVis] = useState(loadColVis);
   // Default sort: Overdue largest→smallest (matches the source sheet).
   const [sortKey, setSortKey] = useState('overdue');
@@ -344,6 +346,14 @@ export function ReachOutPage() {
       if (c.id !== id) return c;
       return c.done ? { ...c, done: false } : { ...c, done: true, lastReachOut: todayKey() };
     });
+    await persist(next);
+  }
+
+  // The mobile long-press confirm popup answers "Reached out?" with Yes → mark
+  // done + stamp today; No just closes. Unlike the checkbox toggle, Yes always
+  // marks reached-out (it never un-marks).
+  async function markReachedOut(id) {
+    const next = (contacts || []).map(c => c.id === id ? { ...c, done: true, lastReachOut: todayKey() } : c);
     await persist(next);
   }
 
@@ -556,14 +566,14 @@ export function ReachOutPage() {
               {showLast && <th className={styles.thSort} onClick={() => onSort('lastReachOut')}>Last Reach Out{sortArrow('lastReachOut')}</th>}
               {showCheck && <th className={`${styles.colCheck} ${styles.thSort}`} title="Reached out today" onClick={() => onSort('check')}>✓{sortArrow('check')}</th>}
               {!isMobile && <th className={styles.thSort} onClick={() => onSort('person')}>Person{sortArrow('person')}</th>}
-              {colVis.note !== false && <th className={styles.thSort} onClick={() => onSort('note')}>What's going on{sortArrow('note')}</th>}
-              {colVis.category !== false && <th className={styles.thSort} onClick={() => onSort('category')}>Category{sortArrow('category')}</th>}
-              {colVis.overdue !== false && <th className={styles.thSort} onClick={() => onSort('overdue')}>Overdue{sortArrow('overdue')}</th>}
-              {colVis.days !== false && <th className={styles.thSort} onClick={() => onSort('days')}>Days{sortArrow('days')}</th>}
-              {colVis.birthday !== false && <th className={styles.thSort} onClick={() => onSort('birthday')}>Birthday{sortArrow('birthday')}</th>}
-              {colVis.status !== false && <th className={styles.thSort} onClick={() => onSort('status')}>Status{sortArrow('status')}</th>}
-              {colVis.friend !== false && <th>Friend</th>}
-              <th className={styles.colActions} aria-label="Actions"></th>
+              {!isMobile && colVis.note !== false && <th className={styles.thSort} onClick={() => onSort('note')}>What's going on{sortArrow('note')}</th>}
+              {!isMobile && colVis.category !== false && <th className={styles.thSort} onClick={() => onSort('category')}>Category{sortArrow('category')}</th>}
+              {!isMobile && colVis.overdue !== false && <th className={styles.thSort} onClick={() => onSort('overdue')}>Overdue{sortArrow('overdue')}</th>}
+              {!isMobile && colVis.days !== false && <th className={styles.thSort} onClick={() => onSort('days')}>Days{sortArrow('days')}</th>}
+              {!isMobile && colVis.birthday !== false && <th className={styles.thSort} onClick={() => onSort('birthday')}>Birthday{sortArrow('birthday')}</th>}
+              {!isMobile && colVis.status !== false && <th className={styles.thSort} onClick={() => onSort('status')}>Status{sortArrow('status')}</th>}
+              {!isMobile && colVis.friend !== false && <th>Friend</th>}
+              {!isMobile && <th className={styles.colActions} aria-label="Actions"></th>}
             </tr>
           </thead>
           <tbody>
@@ -574,8 +584,8 @@ export function ReachOutPage() {
                 : styles.under;
               const rowClass = c._bdayToday ? styles.trBday : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
-                <tr key={c.id} className={rowClass} onClick={() => startEdit(c)} title="Click to edit">
-                  {isMobile && <PersonCell name={c.name} isMobile onComplete={() => toggleDone(c.id)} />}
+                <tr key={c.id} className={rowClass} onClick={isMobile ? undefined : () => startEdit(c)} title={isMobile ? undefined : 'Click to edit'}>
+                  {isMobile && <PersonCell name={c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => setDetailsContact(c)} />}
                   {showLast && <td>{fmtMDY(c._last)}</td>}
                   {showCheck && (
                     <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
@@ -583,16 +593,16 @@ export function ReachOutPage() {
                     </td>
                   )}
                   {!isMobile && <PersonCell name={c.name} isMobile={false} />}
-                  {colVis.note !== false && <td className={styles.tdNote}>{c.note}</td>}
-                  {colVis.category !== false && <td>{c.category}</td>}
-                  {colVis.overdue !== false && <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>}
-                  {colVis.days !== false && <td className={styles.colNum}>{c._hasCadence ? c.cadenceDays : ''}</td>}
-                  {colVis.birthday !== false && (
+                  {!isMobile && colVis.note !== false && <td className={styles.tdNote}>{c.note}</td>}
+                  {!isMobile && colVis.category !== false && <td>{c.category}</td>}
+                  {!isMobile && colVis.overdue !== false && <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>}
+                  {!isMobile && colVis.days !== false && <td className={styles.colNum}>{c._hasCadence ? c.cadenceDays : ''}</td>}
+                  {!isMobile && colVis.birthday !== false && (
                     <td className={c._bdayToday ? '' : (c._bdaySoon ? styles.bdaySoon : '')}>
                       {c._bdayToday && c._bday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}
                     </td>
                   )}
-                  {colVis.status !== false && (
+                  {!isMobile && colVis.status !== false && (
                     <td onClick={e => e.stopPropagation()}>
                       <select className={styles.statusSelect} value={c._status} onChange={e => setStatus(c.id, e.target.value)} aria-label="Status">
                         <option value="active">Active</option>
@@ -600,7 +610,7 @@ export function ReachOutPage() {
                       </select>
                     </td>
                   )}
-                  {colVis.friend !== false && (
+                  {!isMobile && colVis.friend !== false && (
                     <td onClick={e => e.stopPropagation()}>
                       <div className={styles.friendCell}>
                         <input
@@ -625,9 +635,11 @@ export function ReachOutPage() {
                       </div>
                     </td>
                   )}
-                  <td className={styles.colActions} onClick={e => e.stopPropagation()}>
-                    <button className={styles.iconBtn} onClick={() => remove(c.id)} title="Remove" aria-label="Remove">×</button>
-                  </td>
+                  {!isMobile && (
+                    <td className={styles.colActions} onClick={e => e.stopPropagation()}>
+                      <button className={styles.iconBtn} onClick={() => remove(c.id)} title="Remove" aria-label="Remove">×</button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -640,6 +652,51 @@ export function ReachOutPage() {
           {friendsList.map(f => <option key={f.id} value={f.name} />)}
         </datalist>
       </div>
+
+      {confirmReach && (
+        <div className={styles.overlay} onClick={() => setConfirmReach(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <p className={styles.modalText}>Reached out to <b>{confirmReach.name}</b> today?</p>
+            <div className={`${styles.modalActions} ${styles.confirmActions}`}>
+              <button className={styles.btn} onClick={() => setConfirmReach(null)}>No</button>
+              <button className={styles.btnPrimary} onClick={() => { markReachedOut(confirmReach.id); setConfirmReach(null); }}>Yes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailsContact && (() => {
+        const c = detailsContact;
+        const friendName = friendsList.find(f => f.id === c.friendId)?.name;
+        const overdueText = c._overdue == null ? null
+          : c._overdue > 0 ? `${c._overdue} day${c._overdue === 1 ? '' : 's'} overdue`
+          : c._overdue === 0 ? 'due today'
+          : `${-c._overdue} day${c._overdue === -1 ? '' : 's'} to go`;
+        return (
+          <div className={styles.overlay} onClick={() => setDetailsContact(null)}>
+            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+              <h2 className={styles.modalTitle}>{c.name}</h2>
+              <dl className={styles.detailList}>
+                {c.category && (<><dt>Category</dt><dd>{c.category}</dd></>)}
+                {c.note && (<><dt>What's going on</dt><dd>{c.note}</dd></>)}
+                <dt>Last reach out</dt>
+                <dd>{c._last ? fmtMDY(c._last) : '—'}{overdueText ? ` · ${overdueText}` : ''}</dd>
+                <dt>Every</dt><dd>{c._hasCadence ? `${c.cadenceDays} days` : '—'}</dd>
+                {c.method && (<><dt>Method</dt><dd>{c.method}</dd></>)}
+                {c._bday && (<><dt>Birthday</dt><dd>{c._bdayToday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}</dd></>)}
+                <dt>Status</dt><dd>{c._status === 'retired' ? 'Retired' : 'Active'}</dd>
+                {friendName && (<><dt>Friend</dt><dd>{friendName}</dd></>)}
+              </dl>
+              <div className={styles.modalActions}>
+                <button className={styles.btn} onClick={() => { const id = c.id; setDetailsContact(null); remove(id); }}>Delete</button>
+                <span style={{ flex: 1 }} />
+                <button className={styles.btn} onClick={() => setDetailsContact(null)}>Close</button>
+                <button className={styles.btnPrimary} onClick={() => { startEdit(c); setDetailsContact(null); }}>Edit</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
