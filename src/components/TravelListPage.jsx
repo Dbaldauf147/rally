@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { JetLagChecklist } from './JetLagChecklist';
 import styles from './TravelListPage.module.css';
 
 // Default master checklist. Editable copies are stored per-user in Firestore;
@@ -1172,6 +1173,8 @@ export function TravelListPage() {
         );
       })}
       </div>
+
+      <JetLagChecklist />
 
       {editItem && (
         <div className={styles.overlay} onMouseDown={cancelItemEditor}>
