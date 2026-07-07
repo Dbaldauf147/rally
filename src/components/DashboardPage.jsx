@@ -198,35 +198,44 @@ export function DashboardPage() {
   // --- Mobile Home: one date-sorted list of event pills, past events collapsed
   // on top. An event counts as "past" only once its END day has passed, so a
   // trip that's currently happening stays in the main list until it's over.
+  const dayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const mStart = (e) => {
     if (e.date) return e.date.toDate?.() || new Date(e.date);
     const months = (dateOptionMonths[e.id] || []).slice().sort();
     if (months[0]) { const [y, m] = months[0].split('-'); return new Date(+y, +m - 1, 1); }
     return null;
   };
+  // Effective last day of the trip. Mirrors EventDetail's guard against stale
+  // endDate values (a known data quirk): an endDate earlier than the start, or
+  // more than 60 days out, is treated as bogus and collapsed to the start day —
+  // otherwise a leftover far-future endDate keeps a finished trip "happening".
   const mEnd = (e) => {
-    const end = e.endDate?.toDate?.() || (e.endDate ? new Date(e.endDate) : null);
-    return end || mStart(e);
+    const start = mStart(e);
+    const endRaw = e.endDate?.toDate?.() || (e.endDate ? new Date(e.endDate) : null);
+    if (!endRaw || isNaN(endRaw.getTime())) return start;
+    if (!start || isNaN(start.getTime())) return endRaw;
+    if (dayOf(endRaw) < dayOf(start)) return start;
+    if (Math.floor((dayOf(endRaw) - dayOf(start)) / 86400000) > 60) return start;
+    return endRaw;
   };
-  const dayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const mIsPast = (e) => {
     if (e.stage !== 'finalized') return false; // still planning → never "past"
     const end = mEnd(e);
-    if (!end || isNaN(end)) return false;
+    if (!end || isNaN(end.getTime())) return false;
     return dayOf(end) < today;
   };
   const mIsNow = (e) => {
     if (e.stage !== 'finalized') return false;
     const s = mStart(e);
-    if (!s || isNaN(s)) return false;
+    if (!s || isNaN(s.getTime())) return false;
     const end = mEnd(e);
-    const endDay = end && !isNaN(end) ? dayOf(end) : dayOf(s);
+    const endDay = end && !isNaN(end.getTime()) ? dayOf(end) : dayOf(s);
     return dayOf(s) <= today && today <= endDay;
   };
   const byStart = (a, b) => {
     const da = mStart(a), db = mStart(b);
-    const va = da && !isNaN(da) ? da.getTime() : Infinity;
-    const vb = db && !isNaN(db) ? db.getTime() : Infinity;
+    const va = da && !isNaN(da.getTime()) ? da.getTime() : Infinity;
+    const vb = db && !isNaN(db.getTime()) ? db.getTime() : Infinity;
     return va - vb;
   };
   const mUpcoming = allEvents.filter(e => !mIsPast(e)).sort(byStart);
