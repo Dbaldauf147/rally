@@ -8,12 +8,27 @@ import { EventForm } from './EventForm';
 import { EventCard } from './EventCard';
 import styles from './DashboardPage.module.css';
 
+// Phone widths get a single date-sorted list instead of the stage/category board.
+const MOBILE_QUERY = '(max-width: 760px)';
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const onChange = (e) => setMobile(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return mobile;
+}
+
 export function DashboardPage() {
   const { user } = useAuth();
   const { events, createEvent } = useEvents();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [createType, setCreateType] = useState('event');
+  const isMobile = useIsMobile();
+  const [showPast, setShowPast] = useState(false);
 
   const [dateOptionCounts, setDateOptionCounts] = useState({});
   const [dateOptionMonths, setDateOptionMonths] = useState({}); // eventId -> Set of "YYYY-MM"
@@ -180,6 +195,43 @@ export function DashboardPage() {
     return 'Good evening';
   })();
 
+  // --- Mobile Home: one date-sorted list of event pills, past events collapsed
+  // on top. An event counts as "past" only once its END day has passed, so a
+  // trip that's currently happening stays in the main list until it's over.
+  const mStart = (e) => {
+    if (e.date) return e.date.toDate?.() || new Date(e.date);
+    const months = (dateOptionMonths[e.id] || []).slice().sort();
+    if (months[0]) { const [y, m] = months[0].split('-'); return new Date(+y, +m - 1, 1); }
+    return null;
+  };
+  const mEnd = (e) => {
+    const end = e.endDate?.toDate?.() || (e.endDate ? new Date(e.endDate) : null);
+    return end || mStart(e);
+  };
+  const dayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const mIsPast = (e) => {
+    if (e.stage !== 'finalized') return false; // still planning → never "past"
+    const end = mEnd(e);
+    if (!end || isNaN(end)) return false;
+    return dayOf(end) < today;
+  };
+  const mIsNow = (e) => {
+    if (e.stage !== 'finalized') return false;
+    const s = mStart(e);
+    if (!s || isNaN(s)) return false;
+    const end = mEnd(e);
+    const endDay = end && !isNaN(end) ? dayOf(end) : dayOf(s);
+    return dayOf(s) <= today && today <= endDay;
+  };
+  const byStart = (a, b) => {
+    const da = mStart(a), db = mStart(b);
+    const va = da && !isNaN(da) ? da.getTime() : Infinity;
+    const vb = db && !isNaN(db) ? db.getTime() : Infinity;
+    return va - vb;
+  };
+  const mUpcoming = allEvents.filter(e => !mIsPast(e)).sort(byStart);
+  const mPast = allEvents.filter(mIsPast).sort((a, b) => (mEnd(b)?.getTime() || 0) - (mEnd(a)?.getTime() || 0));
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -204,6 +256,34 @@ export function DashboardPage() {
           <p className={styles.emptyDesc}>Create your first event or trip to start planning with friends and family.</p>
           <button className={styles.createBtn} onClick={() => setShowCreate(true)}>+ Create Event</button>
         </div>
+      ) : isMobile ? (
+        <>
+          {mPast.length > 0 && (
+            <div className={styles.pastWrap}>
+              <button className={styles.pastToggle} onClick={() => setShowPast(v => !v)} aria-expanded={showPast}>
+                {showPast ? '▾' : '▸'} Past events ({mPast.length})
+              </button>
+              {showPast && (
+                <div className={styles.mobileList} style={{ marginTop: '0.6rem' }}>
+                  {mPast.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
+                </div>
+              )}
+            </div>
+          )}
+          <div className={styles.mobileList}>
+            {mUpcoming.length === 0 ? (
+              <p className={styles.emptyDesc} style={{ textAlign: 'left' }}>No upcoming events.</p>
+            ) : mUpcoming.map(e => {
+              const pct = (e.stage !== 'finalized' && dateOptionCounts[e.id] > 0) ? (votingProgress[e.id]?.pct ?? 0) : undefined;
+              return (
+                <div key={e.id} className={styles.mobileItem}>
+                  {mIsNow(e) && <span className={styles.nowBadge}>🟢 Happening now</span>}
+                  <EventCard event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={pct} />
+                </div>
+              );
+            })}
+          </div>
+        </>
       ) : (
         <>
           {(() => {

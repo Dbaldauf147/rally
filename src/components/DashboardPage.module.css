@@ -16,6 +16,15 @@
 .sectionTitle { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); margin: 0 0 0.75rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
 
+/* Mobile Home: a single date-sorted list of event pills. */
+.mobileList { display: flex; flex-direction: column; gap: 0.6rem; }
+.mobileItem { display: flex; flex-direction: column; gap: 0.3rem; }
+.mobileItem > * { width: 100%; }
+.nowBadge { align-self: flex-start; font-size: 0.68rem; font-weight: 700; color: #166534; background: #DCFCE7; border: 1px solid #86EFAC; border-radius: var(--radius-full); padding: 0.1rem 0.5rem; }
+.pastWrap { margin-bottom: 1.25rem; }
+.pastToggle { width: 100%; text-align: left; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; }
+.pastToggle:hover { background: var(--color-surface-alt); }
+
 /* Two-column dashboard layout */
 .dashColumns { display: grid; grid-template-columns: 1fr 320px; gap: 2rem; align-items: start; }
 .dashLeft { min-width: 0; }
