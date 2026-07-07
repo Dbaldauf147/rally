@@ -1,0 +1,51 @@
+.dayView { display: flex; flex-direction: column; gap: 0.9rem; }
+
+/* Prev / label / next */
+.nav { display: flex; align-items: center; gap: 0.75rem; }
+.navBtn {
+  flex-shrink: 0; width: 40px; height: 40px; border-radius: var(--radius-full);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text); font-size: 1.1rem; cursor: pointer;
+}
+.navBtn:hover:not(:disabled) { background: var(--color-surface-alt); border-color: var(--color-accent); }
+.navBtn:disabled { opacity: 0.35; cursor: default; }
+.navLabel { flex: 1; text-align: center; display: flex; flex-direction: column; gap: 0.1rem; }
+.dayNum { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-accent); }
+.dayDate { font-size: 1.05rem; font-weight: 700; color: var(--color-text); letter-spacing: -0.01em; }
+
+/* Tap-a-day chip strip */
+.chips { display: flex; gap: 0.4rem; overflow-x: auto; padding: 0.15rem 0.1rem 0.35rem; scrollbar-width: thin; }
+.chip {
+  position: relative; flex-shrink: 0; min-width: 52px; display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
+  padding: 0.4rem 0.55rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; font-family: inherit;
+}
+.chip:hover { background: var(--color-surface-alt); }
+.chipActive { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+.chipTop { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
+.chipBottom { font-size: 0.82rem; font-weight: 600; }
+.chipDot { position: absolute; top: 4px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); }
+.chipActive .chipDot { background: #fff; }
+
+/* Timeline */
+.timeline { display: flex; flex-direction: column; gap: 0.5rem; }
+.item {
+  display: flex; gap: 0.75rem; padding: 0.75rem 0.85rem;
+  border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface);
+}
+.itemTime { flex-shrink: 0; width: 72px; font-size: 0.82rem; font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; padding-top: 0.1rem; }
+.allDay { color: var(--color-text-muted); font-weight: 600; }
+.itemBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.itemHead { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.itemTitle { font-size: 0.95rem; font-weight: 600; color: var(--color-text); }
+.itemType { flex-shrink: 0; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
+.itemMeta { font-size: 0.82rem; color: var(--color-text-secondary); }
+.itemLoc { font-size: 0.82rem; color: var(--color-text-secondary); }
+.itemNotes { font-size: 0.83rem; color: var(--color-text-muted); line-height: 1.4; }
+.itemLink { align-self: flex-start; font-size: 0.82rem; font-weight: 600; color: var(--color-accent); text-decoration: none; }
+.itemLink:hover { text-decoration: underline; }
+
+/* Empty states */
+.empty { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 2.5rem 1rem; text-align: center; color: var(--color-text-muted); }
+.emptyIcon { font-size: 2rem; }
+.empty p { margin: 0; font-size: 0.9rem; max-width: 320px; }
