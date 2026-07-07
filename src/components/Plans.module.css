@@ -70,6 +70,23 @@
 .emptyWeekend.todayCell { box-shadow: inset 0 0 0 2px #dc2626; }
 .empty { color: var(--color-text-muted); font-style: italic; font-size: 0.8rem; }
 
+/* Mobile: the three weeks stacked in sequence, one full-width day per row so
+   event details have room to breathe. */
+.weekList { display: flex; flex-direction: column; gap: 1.25rem; }
+.weekSection { border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); }
+.weekHeading { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; margin: 0; padding: 0.65rem 0.85rem; background: var(--color-surface-alt); font-size: 0.9rem; font-weight: 700; color: var(--color-text); }
+.weekRange { font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted); }
+.dayList { display: flex; flex-direction: column; }
+.dayRow { display: flex; gap: 0.75rem; padding: 0.6rem 0.85rem; border-top: 1px solid var(--color-border); }
+.dayRowToday { background: #fffbeb; }
+.dayLabel { flex-shrink: 0; width: 58px; display: flex; flex-direction: column; }
+.dayName { font-size: 0.82rem; font-weight: 600; color: var(--color-text); }
+.dayDate { font-size: 0.72rem; color: var(--color-text-muted); }
+.dayRowToday .dayName { color: #b45309; }
+.dayEvents { flex: 1; min-width: 0; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; }
+/* Let titles wrap fully here (the table view truncates them). */
+.dayEvents .rallyLine, .dayEvents .votingLine, .dayEvents .eventLine { white-space: normal; overflow: visible; text-overflow: clip; }
+
 .calPickerCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem; margin-bottom: 1rem; }
 .calPickerHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
 .calPickerTitle { font-size: 0.95rem; font-weight: 600; margin: 0; color: var(--color-text); }
