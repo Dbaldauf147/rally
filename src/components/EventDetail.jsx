@@ -10,6 +10,7 @@ import { ChatPanel } from './ChatPanel';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
+import { DayView } from './DayView';
 import { Notes } from './Notes';
 import {
   syncEventToGoogleCalendar,
@@ -51,7 +52,7 @@ export function EventDetail() {
   const [editing, setEditing] = useState(false);
   const [activeTab, setActiveTab] = useState(() => {
     const t = searchParams.get('tab');
-    return ['details', 'itinerary', 'notes', 'chat'].includes(t) ? t : null;
+    return ['details', 'itinerary', 'day', 'notes', 'chat'].includes(t) ? t : null;
   });
   const initialTabPickedRef = useRef(false);
   const [inviteCopied, setInviteCopied] = useState(false);
@@ -827,6 +828,7 @@ export function EventDetail() {
   const tabs = [
     { key: 'details', label: 'People & Poll' },
     { key: 'itinerary', label: 'Itinerary' },
+    ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
     { key: 'notes', label: 'Notes' },
     { key: 'chat', label: 'Chat' },
   ];
@@ -1969,6 +1971,10 @@ export function EventDetail() {
           onSave={async (data) => { await updateEvent(eventId, data); }}
           onTripSummary={setTripSummary}
         />
+      )}
+
+      {activeTab === 'day' && (
+        <DayView event={event} />
       )}
 
       {activeTab === 'notes' && (
