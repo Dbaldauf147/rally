@@ -13,6 +13,19 @@ function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Phone widths stack the three weeks in sequence instead of side by side.
+const MOBILE_QUERY = '(max-width: 760px)';
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const onChange = (e) => setMobile(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return mobile;
+}
+
 // Google returns all-day events with date-only strings like "2026-05-04".
 // new Date("2026-05-04") parses as UTC midnight, which in any timezone
 // west of UTC rolls back to the previous calendar day. Parse the components
@@ -53,6 +66,7 @@ export function Plans() {
   const setView = (v) => setSearchParams(v === 'today' ? { view: 'today' } : {});
   const { user } = useAuth();
   const { events } = useEvents();
+  const isMobile = useIsMobile();
   // The user's saved Voting page prefs (state + custom dates), used to overlay
   // election dates onto this grid. Falls back to localStorage for fast paint.
   const [votingPrefs, setVotingPrefs] = useState(() => {
@@ -380,7 +394,38 @@ export function Plans() {
         </div>
       )}
 
-      {((googleConnected && selectedIds.length > 0) || hasRally || hasVoting) && (
+      {((googleConnected && selectedIds.length > 0) || hasRally || hasVoting) && isMobile && (
+        <div className={styles.weekList}>
+          {[
+            { label: 'This Week', start: week1Start, days: week1Days },
+            { label: 'Next Week', start: week2Start, days: week2Days },
+            { label: 'Week After Next', start: week3Start, days: week3Days },
+          ].map((wk) => (
+            <section key={wk.label} className={styles.weekSection}>
+              <h2 className={styles.weekHeading}>
+                {wk.label}
+                <span className={styles.weekRange}>{format(wk.start, 'MMM d')} – {format(addDays(wk.start, 6), 'MMM d')}</span>
+              </h2>
+              <div className={styles.dayList}>
+                {wk.days.map((day, i) => {
+                  const isToday = isSameDay(day, today);
+                  return (
+                    <div key={toDateStr(day)} className={`${styles.dayRow}${isToday ? ` ${styles.dayRowToday}` : ''}`}>
+                      <div className={styles.dayLabel}>
+                        <span className={styles.dayName}>{weekdayLabels[i]}</span>
+                        <span className={styles.dayDate}>{format(day, 'MMM d')}</span>
+                      </div>
+                      <div className={styles.dayEvents}>{renderCell(day)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {((googleConnected && selectedIds.length > 0) || hasRally || hasVoting) && !isMobile && (
         <table className={styles.table}>
           <colgroup>
             <col style={{ width: 130 }} />
