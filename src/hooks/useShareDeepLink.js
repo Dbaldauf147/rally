@@ -32,6 +32,19 @@ export function useShareDeepLink() {
         } catch {
           return;
         }
+        // Google Calendar OAuth return: rally://google-auth?accessToken=…
+        // Re-broadcast as the same window message the web popup flow uses, so
+        // Plans' existing listener stores the tokens and flips to connected.
+        if (parsed.host === 'google-auth') {
+          const at = parsed.searchParams.get('accessToken');
+          const rt = parsed.searchParams.get('refreshToken') || '';
+          const exp = Number(parsed.searchParams.get('expiresIn')) || 3600;
+          const err = parsed.searchParams.get('error');
+          if (at) window.postMessage({ type: 'google-auth-success', accessToken: at, refreshToken: rt, expiresIn: exp }, '*');
+          else if (err) window.postMessage({ type: 'google-auth-error', error: err }, '*');
+          import('@capacitor/browser').then(({ Browser }) => Browser.close()).catch(() => {});
+          return;
+        }
         // Accept rally://share?... (custom scheme) and https://…/share?...
         // (universal link), both produced by the Share Extension.
         if (parsed.host !== 'share' && parsed.pathname !== '/share') return;

@@ -1,5 +1,6 @@
 // Fetches the user's list of Google Calendars
 export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*'); // allow the native app (capacitor://) to call this
   const { accessToken } = req.query;
   if (!accessToken) return res.status(400).json({ error: 'Missing accessToken' });
 
