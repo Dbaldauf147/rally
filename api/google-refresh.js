@@ -1,5 +1,6 @@
 // Refreshes an expired Google OAuth access token using a refresh token
 export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*'); // allow the native app (capacitor://) to call this
   const { refreshToken } = req.query;
   if (!refreshToken) return res.status(400).json({ error: 'Missing refreshToken' });
 

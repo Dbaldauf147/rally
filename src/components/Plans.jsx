@@ -7,6 +7,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import { getVotingEventsForState, VOTING_TYPES } from '../electionDates';
+import { API_BASE, isNativeApp } from '../native';
 import styles from './Plans.module.css';
 
 function toDateStr(d) {
@@ -46,7 +47,7 @@ async function getValidGoogleToken() {
   const refreshToken = localStorage.getItem('google-cal-refresh');
   if (refreshToken) {
     try {
-      const res = await fetch(`/api/google-refresh?refreshToken=${encodeURIComponent(refreshToken)}`);
+      const res = await fetch(`${API_BASE}/api/google-refresh?refreshToken=${encodeURIComponent(refreshToken)}`);
       const data = await res.json();
       if (data.accessToken) {
         localStorage.setItem('google-cal-token', data.accessToken);
@@ -167,7 +168,7 @@ export function Plans() {
     if (!token) { setGoogleConnected(false); return; }
     setGoogleConnected(true);
     try {
-      const res = await fetch(`/api/google-calendars?accessToken=${encodeURIComponent(token)}`);
+      const res = await fetch(`${API_BASE}/api/google-calendars?accessToken=${encodeURIComponent(token)}`);
       const data = await res.json();
       if (data.needsAuth) { setGoogleConnected(false); return; }
       if (data.calendars) {
@@ -197,7 +198,7 @@ export function Plans() {
       const timeMax = new Date(week3End.getFullYear(), week3End.getMonth(), week3End.getDate(), 23, 59, 59).toISOString();
       for (const calId of selectedIds) {
         try {
-          const res = await fetch(`/api/google-calendar?accessToken=${encodeURIComponent(token)}&timeMin=${timeMin}&timeMax=${timeMax}&calendarId=${encodeURIComponent(calId)}`);
+          const res = await fetch(`${API_BASE}/api/google-calendar?accessToken=${encodeURIComponent(token)}&timeMin=${timeMin}&timeMax=${timeMax}&calendarId=${encodeURIComponent(calId)}`);
           const data = await res.json();
           if (data.needsAuth) { setGoogleConnected(false); continue; }
           if (!data.events) continue;
@@ -252,7 +253,19 @@ export function Plans() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
 
-  function connect() {
+  async function connect() {
+    if (isNativeApp()) {
+      // Native: open Google in the system browser (Google blocks embedded
+      // webviews). The callback returns via the rally://google-auth deep link,
+      // handled in useShareDeepLink → posts the same message this page listens for.
+      try {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: `${API_BASE}/api/google-auth?platform=native` });
+      } catch (err) {
+        console.warn('Could not open Google sign-in:', err);
+      }
+      return;
+    }
     window.open('/api/google-auth', 'google-auth', 'width=500,height=700,left=200,top=100');
   }
 
