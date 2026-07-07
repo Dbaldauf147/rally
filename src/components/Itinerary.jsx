@@ -1973,7 +1973,7 @@ function locationsEqual(a, b) {
   return false;
 }
 
-export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
+export function Itinerary({ event, onSave, canEdit, onTripSummary, onOpenDay }) {
   const { user } = useAuth();
   const isAdmin = user?.email === 'baldaufdan@gmail.com';
   const items = Array.isArray(event?.itinerary) ? event.itinerary : [];
@@ -4393,6 +4393,14 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary }) {
                       onClick={() => setDaySchedulePeekKey(d.key)}
                       title="Open this day's full schedule"
                     >📋 Details</button>
+                    {onOpenDay && (
+                      <button
+                        type="button"
+                        className={styles.dailyOpenScheduleBtn}
+                        onClick={() => onOpenDay(d.key)}
+                        title="Open the focused Day view for this day"
+                      >📅 Day view</button>
+                    )}
                     {canEdit ? (
                       <button
                         type="button"

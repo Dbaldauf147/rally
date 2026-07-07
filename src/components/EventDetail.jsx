@@ -46,7 +46,16 @@ export function EventDetail() {
   const { user } = useAuth();
   const { updateEvent, deleteEvent, cancelEvent, restoreEvent, rsvp } = useEvents();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Jump from the Itinerary into the focused Day View for a specific date.
+  function openDay(dayKey) {
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', 'day');
+    if (dayKey) next.set('day', dayKey);
+    setSearchParams(next);
+    setActiveTab('day');
+  }
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -1970,6 +1979,7 @@ export function EventDetail() {
           canEdit={isOwner || event.members?.[user?.uid]?.role === 'editor'}
           onSave={async (data) => { await updateEvent(eventId, data); }}
           onTripSummary={setTripSummary}
+          onOpenDay={openDay}
         />
       )}
 
