@@ -262,7 +262,10 @@ export function Plans() {
         const { Browser } = await import('@capacitor/browser');
         await Browser.open({ url: `${API_BASE}/api/google-auth?platform=native` });
       } catch (err) {
+        // Surface the failure instead of doing nothing — this usually means the
+        // build is missing the native Browser plugin (needs a fresh `cap sync`).
         console.warn('Could not open Google sign-in:', err);
+        setError('Could not open Google sign-in. Make sure the app is updated to the latest build, then try again.');
       }
       return;
     }
