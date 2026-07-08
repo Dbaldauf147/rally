@@ -434,6 +434,10 @@ export function ReachOutPage() {
     ...(!reachedFamilyToday ? ['a family member'] : []),
     ...(!reachedFriendToday ? ['a friend'] : []),
   ];
+  // How many distinct people were reached out to today (stamped lastReachOut).
+  // Past 2, the day counts as done.
+  const reachedTodayCount = (contacts || []).filter(c => c.lastReachOut === todayK).length;
+  const completedToday = reachedTodayCount > 2;
 
   // On mobile, Last Reach Out and the check column are hidden (the data is still
   // tracked); the name long-press replaces the checkbox.
@@ -450,7 +454,7 @@ export function ReachOutPage() {
         <div>
           <h1 className={styles.title}>Reach Out</h1>
           <p className={styles.subtitle}>
-            {dueCount > 0 ? `${dueCount} due now` : 'All caught up 🎉'} · {decorated.length} {decorated.length === 1 ? 'person' : 'people'}
+            {dueCount > 0 ? `${dueCount} due now` : 'All caught up 🎉'} · {decorated.length} {decorated.length === 1 ? 'person' : 'people'} · {reachedTodayCount} reached out today
           </p>
         </div>
         <div className={styles.headerActions}>
@@ -462,6 +466,13 @@ export function ReachOutPage() {
         <div className={styles.alert} role="status">
           <span className={styles.alertIcon}>🔔</span>
           <span>Reach out to {dailyNeeds.join(' and ')} today.</span>
+        </div>
+      )}
+
+      {completedToday && (
+        <div className={styles.completed} role="status">
+          <span className={styles.alertIcon}>✅</span>
+          <span>Completed for today — you've reached out to {reachedTodayCount} people.</span>
         </div>
       )}
 
