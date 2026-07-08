@@ -4,8 +4,24 @@
 // hand the tokens back by redirecting to the rally:// deep link, which reopens
 // the iOS app. (Tokens ride in the URL — acceptable for this personal app.)
 function nativePage(params) {
-  const qs = new URLSearchParams(params).toString();
-  return `<html><body><script>window.location.href='rally://google-auth?${qs}';</script><p>Connected! Returning to the app…</p></body></html>`;
+  const deepLink = `rally://google-auth?${new URLSearchParams(params).toString()}`;
+  const link = JSON.stringify(deepLink); // safe JS string literal
+  const isError = !!params.error;
+  // SFSafariViewController (what @capacitor/browser opens on iOS) silently blocks
+  // automatic JS redirects to a custom scheme. Fire the auto-redirect anyway, but
+  // also render a tappable button — a user tap IS allowed to open rally://.
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Rally</title></head>
+<body style="font-family:-apple-system,system-ui,sans-serif;text-align:center;padding:2.5rem 1.5rem;color:#111;background:#fff">
+  <h2 style="font-size:1.25rem;margin:0 0 .5rem">${isError ? 'Sign-in failed' : 'Connected!'}</h2>
+  <p style="color:#555;margin:0 0 1.5rem">${isError ? 'Return to Rally and try again.' : 'Returning to Rally…'}</p>
+  <a href="${deepLink}" style="display:inline-block;padding:.85rem 1.5rem;background:#2563eb;color:#fff;border-radius:12px;text-decoration:none;font-weight:600;font-size:1rem">Return to Rally</a>
+  <script>
+    function go(){ try { window.location.href = ${link}; } catch (e) {} }
+    go();
+    setTimeout(go, 400);
+  </script>
+</body></html>`;
 }
 
 export default async function handler(req, res) {
