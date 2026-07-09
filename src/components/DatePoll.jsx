@@ -417,9 +417,27 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         {isFinalized ? 'Finalized Dates' : 'Suggested Dates'}
       </h3>
       {isFinalized && (
-        <div style={{ padding: '0.5rem 0.75rem', background: 'var(--color-success-light)', borderRadius: 'var(--radius-md)', marginBottom: '0.75rem', fontSize: '0.82rem', color: 'var(--color-success)', fontWeight: 500 }}>
-          Dates have been finalized. Voting is closed.
-        </div>
+        finStart ? (
+          <div className={styles.chosenDateCallout}>
+            <span className={styles.chosenDateLabel}>✓ Chosen date</span>
+            <span className={styles.chosenDateValue}>
+              {(() => {
+                const s = new Date(finStart + 'T00:00:00');
+                const e = new Date(finEnd + 'T00:00:00');
+                if (finEnd && finEnd !== finStart) {
+                  return format(s, 'yyyy') === format(e, 'yyyy')
+                    ? `${format(s, 'MMM d')} – ${format(e, 'MMM d, yyyy')}`
+                    : `${format(s, 'MMM d, yyyy')} – ${format(e, 'MMM d, yyyy')}`;
+                }
+                return format(s, 'EEEE, MMMM d, yyyy');
+              })()}
+            </span>
+          </div>
+        ) : (
+          <div style={{ padding: '0.5rem 0.75rem', background: 'var(--color-success-light)', borderRadius: 'var(--radius-md)', marginBottom: '0.75rem', fontSize: '0.82rem', color: 'var(--color-success)', fontWeight: 500 }}>
+            Dates have been finalized. Voting is closed.
+          </div>
+        )
       )}
 
       {/* Calendar + side panel — read-only when finalized */}
