@@ -1,6 +1,6 @@
 // Rally service worker — offline app shell + runtime caching.
 // Bump CACHE_VERSION to force clients onto a fresh cache.
-const CACHE_VERSION = 'rally-v3';
+const CACHE_VERSION = 'rally-v4';
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
