@@ -1,6 +1,8 @@
 // Rally service worker — offline app shell + runtime caching.
-// Bump CACHE_VERSION to force clients onto a fresh cache.
-const CACHE_VERSION = 'rally-v4';
+// CACHE_VERSION is stamped with the per-build id at build time (see
+// vite.config.js), so every deploy automatically invalidates the old cache.
+// In dev the placeholder is served as-is, which is fine.
+const CACHE_VERSION = 'rally-__BUILD_ID__';
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
