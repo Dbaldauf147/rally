@@ -2091,17 +2091,21 @@ export function EventDetail() {
 
             {stage !== 'finalized' && allDateOptions.length > 0 && (
               <div style={{ marginBottom: '1rem' }}>
-                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Pick from voted dates</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '180px', overflowY: 'auto' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Pick from voted dates ({allDateOptions.length})</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '320px', overflowY: 'auto' }}>
                   {[...allDateOptions].sort((a, b) => {
                     const aYes = Object.values(a.votes || {}).filter(v => v.vote === 'yes').length;
                     const bYes = Object.values(b.votes || {}).filter(v => v.vote === 'yes').length;
-                    return bYes - aYes;
+                    // Most-yes first, then chronological so lower-voted dates stay
+                    // in a predictable order instead of feeling "missing".
+                    if (bYes !== aYes) return bYes - aYes;
+                    return (a.startDate || '').localeCompare(b.startDate || '');
                   }).map(opt => {
                     const yesCount = Object.values(opt.votes || {}).filter(v => v.vote === 'yes').length;
                     const maybeCount = Object.values(opt.votes || {}).filter(v => v.vote === 'maybe').length;
                     const isSelected = finalizeDate === opt.startDate;
                     const dateLabel = (() => {
+                      if (!opt.startDate) return opt.note || 'Untitled date';
                       try {
                         const d = new Date(opt.startDate + 'T12:00:00');
                         const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
