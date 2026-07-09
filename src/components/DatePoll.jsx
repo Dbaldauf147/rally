@@ -399,6 +399,18 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     return openOpts.length > 0 && openOpts[0].score > 0 ? openOpts[0].id : null;
   })();
 
+  // Once finalized, `finalizedDates` holds every locked-in day (chronological),
+  // so its ends bound the finalized range. An option is "the finalized one" when
+  // its whole range sits inside that window; the rest get greyed out.
+  const finDays = Array.isArray(finalizedDates) ? finalizedDates : [];
+  const finStart = finDays.length ? finDays[0] : null;
+  const finEnd = finDays.length ? finDays[finDays.length - 1] : null;
+  const isFinalizedOption = (opt) => {
+    if (!isFinalized || !finStart || !opt.startDate) return false;
+    const optEnd = opt.endDate || opt.startDate;
+    return opt.startDate >= finStart && optEnd <= finEnd;
+  };
+
   return (
     <div className={styles.container}>
       <h3 className={styles.title}>
@@ -581,11 +593,13 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const topPickCount = Object.values(opt.votes || {}).filter(v => v.topPick).length;
             const isMyTopPick = topPick === opt.id;
             const isReference = !!opt.noVote;
+            const isFinalOpt = isFinalizedOption(opt);
 
             return (
-              <div key={opt.id} className={`${styles.option} ${isBest ? styles.optionBest : ''} ${isReference ? styles.optionReference : ''}`} style={isMyTopPick && !isReference ? { borderColor: '#f59e0b' } : {}}>
-                {isBest && <div className={styles.bestBadge}>Most Popular</div>}
-                {isReference && <div className={styles.refBadge}>📌 Reference</div>}
+              <div key={opt.id} className={`${styles.option} ${isFinalOpt ? styles.optionFinalized : ''} ${isFinalized && !isFinalOpt ? styles.optionDimmed : ''} ${isBest && !isFinalized ? styles.optionBest : ''} ${isReference ? styles.optionReference : ''}`} style={isMyTopPick && !isReference && !isFinalized ? { borderColor: '#f59e0b' } : {}}>
+                {isFinalOpt && <div className={styles.finalizedBadge}>✓ Finalized</div>}
+                {isBest && !isFinalized && <div className={styles.bestBadge}>Most Popular</div>}
+                {isReference && !isFinalOpt && <div className={styles.refBadge}>📌 Reference</div>}
                 <div className={styles.optionHeader}>
                   <div className={styles.optionDates}>
                     {isReference && opt.note && (

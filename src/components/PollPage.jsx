@@ -123,6 +123,22 @@ function PollPageInner() {
   const stage = event?.stage || 'voting';
   const isFinalized = stage === 'finalized';
 
+  // When finalized, event.date/endDate is the locked-in range. Use it to spotlight
+  // the matching date option and grey out the rest.
+  const finRange = (() => {
+    if (!isFinalized || event?.dateTBD) return { start: null, end: null };
+    const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const s = event?.date?.toDate?.() || (event?.date ? new Date(event.date) : null);
+    if (!s || isNaN(s.getTime())) return { start: null, end: null };
+    const eRaw = event?.endDate?.toDate?.() || (event?.endDate ? new Date(event.endDate) : null);
+    const e = eRaw && !isNaN(eRaw.getTime()) && eRaw >= s ? eRaw : s;
+    return { start: ymd(s), end: ymd(e) };
+  })();
+  const isFinalizedOption = (opt) => {
+    if (!finRange.start || !opt.startDate) return false;
+    return opt.startDate >= finRange.start && (opt.endDate || opt.startDate) <= finRange.end;
+  };
+
   async function handleRsvp(response) {
     setRsvp(response);
     await updateDoc(doc(db, 'events', eventId), {
@@ -405,10 +421,20 @@ function PollPageInner() {
                 const noCount = votes.filter(v => v.vote === 'no').length;
                 const topPickCount = votes.filter(v => v.topPick).length;
                 const isMyTopPick = topPick === opt.id;
+                const isFinalOpt = isFinalizedOption(opt);
 
                 return (
-                  <div key={opt.id} className={styles.dateOption} style={isMyTopPick ? { borderColor: '#f59e0b', background: '#fffbeb' } : {}}>
+                  <div key={opt.id} className={styles.dateOption} style={
+                    isFinalOpt
+                      ? { borderColor: '#16a34a', borderWidth: '2px', background: '#f0fdf4', boxShadow: '0 0 0 3px #dcfce7' }
+                      : isFinalized
+                        ? { opacity: 0.5, filter: 'grayscale(0.85)' }
+                        : (isMyTopPick ? { borderColor: '#f59e0b', background: '#fffbeb' } : {})
+                  }>
                     <div className={styles.dateInfo}>
+                      {isFinalOpt && (
+                        <div style={{ display: 'inline-block', background: '#16a34a', color: '#fff', fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.3rem' }}>✓ Finalized</div>
+                      )}
                       <div className={styles.dateLabel}>
                         {isMyTopPick && <span style={{ marginRight: '0.3rem' }}>⭐</span>}
                         {isRange
