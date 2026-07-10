@@ -370,6 +370,109 @@ function RosterTable({
   );
 }
 
+// Drag-and-drop tier board: sort contacts into A/B/C priority tiers (plus an
+// Unassigned column). Lives on the "Tiers" sub-tab. The tier is stored as a
+// `tier` field on each friend doc.
+const TIER_COLUMNS = [
+  { key: 'A', title: 'Tier A', desc: 'Must-invite no matter the venue size', accent: '#16a34a', bg: '#f0fdf4' },
+  { key: 'B', title: 'Tier B', desc: 'Really want them there if space and budget allow', accent: '#2563eb', bg: '#eff6ff' },
+  { key: 'C', title: 'Tier C', desc: 'Would be nice — invite if others decline (your "B-list")', accent: '#d97706', bg: '#fffbeb' },
+  { key: '', title: 'Unassigned', desc: 'Drag contacts into a tier', accent: 'var(--color-text-muted)', bg: 'var(--color-surface-alt)' },
+];
+
+function TierBoard({ friends, onSetTier }) {
+  const [dragId, setDragId] = useState(null);
+  const [overCol, setOverCol] = useState(null);
+  const [search, setSearch] = useState('');
+
+  const q = search.trim().toLowerCase();
+  const byTier = { A: [], B: [], C: [], '': [] };
+  for (const f of friends) {
+    if (q && !(f.name || '').toLowerCase().includes(q)) continue;
+    const t = ['A', 'B', 'C'].includes(f.tier) ? f.tier : '';
+    byTier[t].push(f);
+  }
+  for (const k of Object.keys(byTier)) {
+    byTier[k].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }
+
+  const drop = (colKey) => {
+    if (dragId != null) onSetTier(dragId, colKey);
+    setDragId(null);
+    setOverCol(null);
+  };
+
+  return (
+    <div>
+      <input
+        type="text"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search contacts…"
+        style={{ width: '100%', maxWidth: '360px', padding: '0.55rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', marginBottom: '0.85rem' }}
+      />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
+        {TIER_COLUMNS.map(col => {
+          const list = byTier[col.key];
+          const isOver = overCol === col.key;
+          return (
+            <div
+              key={col.key || 'none'}
+              onDragOver={e => { e.preventDefault(); if (overCol !== col.key) setOverCol(col.key); }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOverCol(o => (o === col.key ? null : o)); }}
+              onDrop={e => { e.preventDefault(); drop(col.key); }}
+              style={{
+                border: `1px solid ${isOver ? col.accent : 'var(--color-border)'}`,
+                boxShadow: isOver ? `0 0 0 2px ${col.accent}33` : 'none',
+                borderRadius: 'var(--radius-lg)',
+                background: 'var(--color-surface)',
+                overflow: 'hidden',
+                minHeight: '120px',
+              }}
+            >
+              <div style={{ padding: '0.6rem 0.75rem', background: col.bg, borderBottom: '1px solid var(--color-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: col.accent }}>{col.title}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>{list.length}</span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: '0.15rem', lineHeight: 1.3 }}>{col.desc}</div>
+              </div>
+              <div style={{ padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', minHeight: '60px' }}>
+                {list.map(f => (
+                  <div
+                    key={f.id}
+                    draggable
+                    onDragStart={() => setDragId(f.id)}
+                    onDragEnd={() => { setDragId(null); setOverCol(null); }}
+                    title="Drag to another tier"
+                    style={{
+                      padding: '0.45rem 0.6rem',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--color-surface)',
+                      cursor: 'grab',
+                      opacity: dragId === f.id ? 0.4 : 1,
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>{f.name || '(unnamed)'}</div>
+                    {f.email && <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.email}</div>}
+                  </div>
+                ))}
+                {list.length === 0 && (
+                  <div style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.75rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                    Drop here
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function FriendsPage() {
   const { user } = useAuth();
   const [friends, setFriends] = useState([]);
@@ -453,6 +556,14 @@ export function FriendsPage() {
   async function removeFriend(id) {
     if (!user) return;
     await deleteDoc(doc(db, 'users', user.uid, 'friends', id));
+  }
+
+  // Drag-and-drop tier assignment on the Tiers sub-tab. '' clears the tier.
+  async function setFriendTier(id, tier) {
+    if (!user) return;
+    await updateDoc(doc(db, 'users', user.uid, 'friends', id), {
+      tier: ['A', 'B', 'C'].includes(tier) ? tier : deleteField(),
+    }).catch(err => console.error('Set tier error:', err));
   }
 
   function openEdit(friend) {
@@ -1067,6 +1178,7 @@ export function FriendsPage() {
       <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid var(--color-border)', marginBottom: '1rem' }}>
         {[
           { key: 'cards', label: 'Contacts' },
+          { key: 'tiers', label: 'Tiers' },
           { key: 'roster', label: 'Event Roster' },
         ].map(t => {
           const active = viewTab === t.key;
@@ -1371,6 +1483,10 @@ export function FriendsPage() {
         </div>
       )}
       </>)}
+
+      {viewTab === 'tiers' && (
+        <TierBoard friends={friends} onSetTier={setFriendTier} />
+      )}
 
       {viewTab === 'roster' && (
         <RosterTable
