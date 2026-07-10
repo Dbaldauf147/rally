@@ -844,19 +844,19 @@ export function WeddingPage() {
       <div className={styles.summary}>
         <div className={styles.summaryRow}>
           <span className={styles.summaryLabel}>By tier</span>
-          {summaries.category.map(([val, n]) => (
+          {summaries.group.map(([val, n]) => (
             <span key={val} className={styles.summaryChip} title={TIER_DESCRIPTIONS[val] || undefined}>
-              <span className={styles.summaryChipKey}>{val}</span>
+              <span className={styles.summaryChipKey}>{val === '—' ? 'Not categorized' : val}</span>
               <span className={styles.summaryChipCount}>{n}</span>
             </span>
           ))}
           <span className={styles.summaryTotal}>{contacts.length} total</span>
         </div>
         <div className={styles.summaryRow}>
-          <span className={styles.summaryLabel}>By group</span>
-          {summaries.group.map(([val, n]) => (
+          <span className={styles.summaryLabel}>By category</span>
+          {summaries.category.map(([val, n]) => (
             <span key={val} className={styles.summaryChip}>
-              <span className={styles.summaryChipKey}>{val}</span>
+              <span className={styles.summaryChipKey}>{val === '—' ? 'Not categorized' : val}</span>
               <span className={styles.summaryChipCount}>{n}</span>
             </span>
           ))}
@@ -864,7 +864,7 @@ export function WeddingPage() {
       </div>
 
       <div className={styles.tierLegend}>
-        <span className={styles.tierLegendTitle}>Category tiers</span>
+        <span className={styles.tierLegendTitle}>Guest tiers</span>
         {['A', 'B', 'C'].map((t) => (
           <span key={t} className={styles.tierLegendItem}>
             <span className={styles.tierBadge}>{t}</span>
@@ -1111,6 +1111,7 @@ export function WeddingPage() {
                           className={styles.cellSelect}
                           value={c.group || ''}
                           onChange={(e) => handleRowGroupChange(c.id, e.target.value)}
+                          title={TIER_DESCRIPTIONS[c.group] || undefined}
                         >
                           <option value="">— None —</option>
                           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
@@ -1121,7 +1122,6 @@ export function WeddingPage() {
                           className={styles.cellSelect}
                           value={c.category || ''}
                           onChange={(e) => handleRowCategoryChange(c.id, e.target.value)}
-                          title={TIER_DESCRIPTIONS[c.category] || undefined}
                         >
                           <option value="">— None —</option>
                           {categories.map((g) => <option key={g} value={g}>{g}</option>)}
