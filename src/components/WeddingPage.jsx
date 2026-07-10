@@ -166,6 +166,14 @@ const NEW_CATEGORY_SENTINEL = '__new_category__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
 const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
 
+// Guest priority tiers used in the Category column. Shown as a legend on the
+// page and as hover tooltips on each contact's category.
+const TIER_DESCRIPTIONS = {
+  A: 'Must-invite no matter the venue size',
+  B: 'Really want them there if space and budget allow',
+  C: 'Would be nice — invite if others decline (your "B-list" for second-round invites)',
+};
+
 const IMPORT_FIELDS = [
   { key: '', label: '— Skip —' },
   { key: 'fullName', label: 'Full Name (auto-split)' },
@@ -812,6 +820,16 @@ export function WeddingPage() {
       </div>
       <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>
 
+      <div className={styles.tierLegend}>
+        <span className={styles.tierLegendTitle}>Category tiers</span>
+        {['A', 'B', 'C'].map((t) => (
+          <span key={t} className={styles.tierLegendItem}>
+            <span className={styles.tierBadge}>{t}</span>
+            <span className={styles.tierDesc}>{TIER_DESCRIPTIONS[t]}</span>
+          </span>
+        ))}
+      </div>
+
       <div className={styles.toolbar}>
         <input
           className={styles.search}
@@ -1060,6 +1078,7 @@ export function WeddingPage() {
                           className={styles.cellSelect}
                           value={c.category || ''}
                           onChange={(e) => handleRowCategoryChange(c.id, e.target.value)}
+                          title={TIER_DESCRIPTIONS[c.category] || undefined}
                         >
                           <option value="">— None —</option>
                           {categories.map((g) => <option key={g} value={g}>{g}</option>)}
