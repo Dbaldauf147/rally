@@ -395,6 +395,27 @@ export function WeddingPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [contacts, savedCategories]);
 
+  // Guest count summaries broken down by Category (A/B/C tiers) and by Group.
+  // Tiers sort A→B→C first, everything else alphabetical, unassigned last.
+  const summaries = useMemo(() => {
+    const build = (field) => {
+      const m = new Map();
+      for (const c of contacts) {
+        const k = (c[field] || '').trim() || '—';
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+      const tierRank = { A: 0, B: 1, C: 2 };
+      return Array.from(m.entries()).sort((a, b) => {
+        if (a[0] === '—') return 1;
+        if (b[0] === '—') return -1;
+        const ra = tierRank[a[0]] ?? 99;
+        const rb = tierRank[b[0]] ?? 99;
+        return ra !== rb ? ra - rb : a[0].localeCompare(b[0]);
+      });
+    };
+    return { category: build('category'), group: build('group') };
+  }, [contacts]);
+
   const states = useMemo(() => {
     const set = new Set(contacts.map((c) => c.state).filter(Boolean));
     return Array.from(set).sort();
@@ -819,6 +840,28 @@ export function WeddingPage() {
         <div className={styles.count}>{filtered.length} of {contacts.length} contacts</div>
       </div>
       <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>
+
+      <div className={styles.summary}>
+        <div className={styles.summaryRow}>
+          <span className={styles.summaryLabel}>By tier</span>
+          {summaries.category.map(([val, n]) => (
+            <span key={val} className={styles.summaryChip} title={TIER_DESCRIPTIONS[val] || undefined}>
+              <span className={styles.summaryChipKey}>{val}</span>
+              <span className={styles.summaryChipCount}>{n}</span>
+            </span>
+          ))}
+          <span className={styles.summaryTotal}>{contacts.length} total</span>
+        </div>
+        <div className={styles.summaryRow}>
+          <span className={styles.summaryLabel}>By group</span>
+          {summaries.group.map(([val, n]) => (
+            <span key={val} className={styles.summaryChip}>
+              <span className={styles.summaryChipKey}>{val}</span>
+              <span className={styles.summaryChipCount}>{n}</span>
+            </span>
+          ))}
+        </div>
+      </div>
 
       <div className={styles.tierLegend}>
         <span className={styles.tierLegendTitle}>Category tiers</span>
