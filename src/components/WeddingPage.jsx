@@ -416,6 +416,19 @@ export function WeddingPage() {
     return { category: build('category'), group: build('group') };
   }, [contacts]);
 
+  // Click a summary chip to filter the table by that value; click it again to
+  // clear. The '—' bucket maps to the "no value" filter sentinel.
+  const summaryFilterValue = (val) => (val === '—' ? '__none__' : val);
+  function toggleSummaryFilter(field, val) {
+    const fv = summaryFilterValue(val);
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      if (next[field] === fv) delete next[field];
+      else next[field] = fv;
+      return next;
+    });
+  }
+
   const states = useMemo(() => {
     const set = new Set(contacts.map((c) => c.state).filter(Boolean));
     return Array.from(set).sort();
@@ -845,20 +858,32 @@ export function WeddingPage() {
         <div className={styles.summaryRow}>
           <span className={styles.summaryLabel}>By tier</span>
           {summaries.group.map(([val, n]) => (
-            <span key={val} className={styles.summaryChip} title={TIER_DESCRIPTIONS[val] || undefined}>
+            <button
+              key={val}
+              type="button"
+              className={`${styles.summaryChip} ${columnFilters.group === summaryFilterValue(val) ? styles.summaryChipActive : ''}`}
+              onClick={() => toggleSummaryFilter('group', val)}
+              title={TIER_DESCRIPTIONS[val] || 'Filter by this tier'}
+            >
               <span className={styles.summaryChipKey}>{val === '—' ? 'Not categorized' : val}</span>
               <span className={styles.summaryChipCount}>{n}</span>
-            </span>
+            </button>
           ))}
           <span className={styles.summaryTotal}>{contacts.length} total</span>
         </div>
         <div className={styles.summaryRow}>
           <span className={styles.summaryLabel}>By category</span>
           {summaries.category.map(([val, n]) => (
-            <span key={val} className={styles.summaryChip}>
+            <button
+              key={val}
+              type="button"
+              className={`${styles.summaryChip} ${columnFilters.category === summaryFilterValue(val) ? styles.summaryChipActive : ''}`}
+              onClick={() => toggleSummaryFilter('category', val)}
+              title="Filter by this category"
+            >
               <span className={styles.summaryChipKey}>{val === '—' ? 'Not categorized' : val}</span>
               <span className={styles.summaryChipCount}>{n}</span>
-            </span>
+            </button>
           ))}
         </div>
       </div>
