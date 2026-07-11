@@ -374,10 +374,25 @@ function RosterTable({
 // Unassigned column). Lives on the "Tiers" sub-tab. The tier is stored as a
 // `tier` field on each friend doc.
 const TIER_COLUMNS = [
-  { key: 'A', title: 'Tier A', desc: 'Must-invite no matter the venue size', accent: '#16a34a', bg: '#f0fdf4' },
-  { key: 'B', title: 'Tier B', desc: 'Really want them there if space and budget allow', accent: '#2563eb', bg: '#eff6ff' },
-  { key: 'C', title: 'Tier C', desc: 'Would be nice — invite if others decline (your "B-list")', accent: '#d97706', bg: '#fffbeb' },
+  { key: 'A', title: 'A-tier', desc: 'Inner circle — the people you’d call at 2am.', accent: '#16a34a', bg: '#f0fdf4' },
+  { key: 'B', title: 'B-tier', desc: 'Genuine friends you make plans with on purpose.', accent: '#2563eb', bg: '#eff6ff' },
+  { key: 'C', title: 'C-tier', desc: 'Friendly connections — warm, but context-dependent.', accent: '#d97706', bg: '#fffbeb' },
+  { key: 'D', title: 'D-tier', desc: 'Acquaintances — you know them, but aren’t really friends.', accent: '#9333ea', bg: '#faf5ff' },
   { key: '', title: 'Unassigned', desc: 'Drag contacts into a tier', accent: 'var(--color-text-muted)', bg: 'var(--color-surface-alt)' },
+];
+
+// Full descriptions + sorting tests, shown in an expandable guide on the board.
+const TIER_GUIDE = [
+  { key: 'A', title: 'A-tier: your inner circle', accent: '#16a34a', body: 'These are the people you’d call at 2am, who know the unpolished version of your life, and who show up when it costs them something. The relationship is reciprocal — they check on you as much as you check on them — and you can be fully yourself without managing an image. Most people have somewhere between two and five of these, and that’s normal. This tier is defined by trust and effort, not history.' },
+  { key: 'B', title: 'B-tier: genuine friends', accent: '#2563eb', body: 'You enjoy them, you trust them with real things (just not everything), and you make plans on purpose rather than only crossing paths. The friendship survives gaps — you can not talk for two months and pick right back up. Many of these are “context-plus” friendships: they started at work or through a hobby, but they’ve outgrown the original context.' },
+  { key: 'C', title: 'C-tier: friendly connections', accent: '#d97706', body: 'Coworkers you like, gym acquaintances, friends-of-friends, people you’re warm with but wouldn’t seek out one-on-one. The relationship mostly depends on shared context, and if that context disappeared, it would probably fade. That’s not a flaw — these people add real texture and community to life.' },
+  { key: 'D', title: 'D-tier: acquaintances', accent: '#9333ea', body: 'People you know by name and are cordial with — a neighbor you wave to, someone you’ve met a handful of times — but with no real relationship or shared history yet. Pleasant and low-stakes; easy to lose track of, and that’s fine.' },
+];
+const TIER_TESTS = [
+  { name: 'The crisis test', q: 'If something bad happened, would you tell them? Would they drop something to help?' },
+  { name: 'The effort test', q: 'Who initiates? If you stopped reaching out entirely, would the friendship survive?' },
+  { name: 'The energy test', q: 'Do you feel better or drained after seeing them?' },
+  { name: 'The honesty test', q: 'Can you disagree with them, or say no to them, without fearing the relationship?' },
 ];
 
 function TierBoard({ friends, onSetTier }) {
@@ -386,10 +401,10 @@ function TierBoard({ friends, onSetTier }) {
   const [search, setSearch] = useState('');
 
   const q = search.trim().toLowerCase();
-  const byTier = { A: [], B: [], C: [], '': [] };
+  const byTier = { A: [], B: [], C: [], D: [], '': [] };
   for (const f of friends) {
     if (q && !(f.name || '').toLowerCase().includes(q)) continue;
-    const t = ['A', 'B', 'C'].includes(f.tier) ? f.tier : '';
+    const t = ['A', 'B', 'C', 'D'].includes(f.tier) ? f.tier : '';
     byTier[t].push(f);
   }
   for (const k of Object.keys(byTier)) {
@@ -404,6 +419,29 @@ function TierBoard({ friends, onSetTier }) {
 
   return (
     <div>
+      <details style={{ marginBottom: '0.85rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', background: 'var(--color-surface)', overflow: 'hidden' }}>
+        <summary style={{ cursor: 'pointer', padding: '0.7rem 0.9rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)', userSelect: 'none' }}>
+          How to sort people into tiers
+        </summary>
+        <div style={{ padding: '0 0.9rem 0.9rem', display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+          {TIER_GUIDE.map(g => (
+            <div key={g.key}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: g.accent, marginBottom: '0.15rem' }}>{g.title}</div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.45 }}>{g.body}</div>
+            </div>
+          ))}
+          <div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--color-text)', marginBottom: '0.25rem' }}>A few honest tests to sort people</div>
+            <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              {TIER_TESTS.map(t => (
+                <li key={t.name} style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.45 }}>
+                  <strong style={{ color: 'var(--color-text)' }}>{t.name}:</strong> {t.q}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </details>
       <input
         type="text"
         value={search}
@@ -562,7 +600,7 @@ export function FriendsPage() {
   async function setFriendTier(id, tier) {
     if (!user) return;
     await updateDoc(doc(db, 'users', user.uid, 'friends', id), {
-      tier: ['A', 'B', 'C'].includes(tier) ? tier : deleteField(),
+      tier: ['A', 'B', 'C', 'D'].includes(tier) ? tier : deleteField(),
     }).catch(err => console.error('Set tier error:', err));
   }
 
