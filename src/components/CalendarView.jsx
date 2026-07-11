@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEvents } from '../hooks/useEvents';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday } from 'date-fns';
+import { getHolidayMap } from '../holidays';
 import styles from './CalendarView.module.css';
 
 export function CalendarView() {
@@ -188,6 +189,7 @@ export function CalendarView() {
   // Trim if last row is entirely next month
   const lastRow = calDays.slice(-7);
   const trimmed = lastRow.every(d => d.getMonth() !== currentDate.getMonth()) ? calDays.slice(0, -7) : calDays;
+  const holidayMap = getHolidayMap([...new Set(trimmed.map(d => d.getFullYear()))]);
 
   function getRallyEventsForDay(day) {
     return events.filter(e => {
@@ -250,6 +252,15 @@ export function CalendarView() {
           return (
             <div key={day.toISOString()} className={`${styles.cell} ${isToday(day) ? styles.cellToday : ''} ${!isCurrentMonth ? styles.cellOther : ''}`}>
               <span className={styles.dayNum}>{format(day, 'd')}</span>
+              {(holidayMap[format(day, 'yyyy-MM-dd')] || []).map((name, i) => (
+                <span
+                  key={`h-${i}`}
+                  title={`${name} — holiday`}
+                  style={{ display: 'block', padding: '0.05rem 0.3rem', marginBottom: '0.15rem', borderRadius: '4px', background: '#fff7ed', color: '#b45309', border: '1px solid #fed7aa', fontSize: '0.68rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                >
+                  🎉 {name}
+                </span>
+              ))}
               {allEvents.slice(0, 3).map((e, i) => (
                 e.source === 'rally' ? (
                   <button key={e.id} className={styles.eventChip} onClick={() => navigate(`/event/${e.id}`)}>
