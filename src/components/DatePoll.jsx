@@ -62,19 +62,29 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
 
   // Fetch Google Calendar events for the visible month from all selected calendars
   const fetchGoogleBusy = useCallback(async () => {
-    const selectedMulti = (() => {
-      try { return JSON.parse(localStorage.getItem('google-cal-selected-multi') || '[]'); } catch { return []; }
-    })();
-    const legacySingle = localStorage.getItem('google-cal-selected');
-    const calIds = selectedMulti.length > 0 ? selectedMulti : (legacySingle ? [legacySingle] : []);
-
     const token = await getValidGoogleToken();
     if (!token) {
       setGoogleConnected(false);
       return;
     }
     setGoogleConnected(true);
-    if (calIds.length === 0) return; // connected but no calendars picked yet
+
+    // Check availability against ALL of the user's Google calendars so nothing is
+    // missed — e.g. a secondary calendar like "Kismet" that wasn't in the curated
+    // Plans/Calendar selection. Fall back to the saved selection if the calendar
+    // list can't be fetched.
+    let calIds = [];
+    try {
+      const listRes = await fetch(`/api/google-calendars?accessToken=${encodeURIComponent(token)}`);
+      const listData = await listRes.json();
+      if (Array.isArray(listData.calendars)) calIds = listData.calendars.map(c => c.id);
+    } catch { /* ignore */ }
+    if (calIds.length === 0) {
+      try { calIds = JSON.parse(localStorage.getItem('google-cal-selected-multi') || '[]'); } catch { /* ignore */ }
+      const legacySingle = localStorage.getItem('google-cal-selected');
+      if (calIds.length === 0 && legacySingle) calIds = [legacySingle];
+    }
+    if (calIds.length === 0) return; // connected but no calendars available
 
     setLoadingGoogle(true);
     try {
