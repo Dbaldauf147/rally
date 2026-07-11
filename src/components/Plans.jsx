@@ -7,6 +7,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import { getVotingEventsForState, VOTING_TYPES } from '../electionDates';
+import { getHolidayMap } from '../holidays';
 import { API_BASE, isNativeApp } from '../native';
 import styles from './Plans.module.css';
 
@@ -142,6 +143,9 @@ export function Plans() {
     (votingByDay[ds] = votingByDay[ds] || []).push(ev);
   }
   const hasVoting = Object.keys(votingByDay).length > 0;
+
+  // Tracked holidays overlaid on the grid (covers the year(s) the window spans).
+  const holidayByDay = getHolidayMap([...new Set([winStart.getFullYear(), winEnd.getFullYear()])]);
 
   // Persist calendar selection
   useEffect(() => {
@@ -286,9 +290,20 @@ export function Plans() {
     const rally = rallyByDay[ds] || [];
     const voting = votingByDay[ds] || [];
     const items = eventsByDay[ds] || [];
-    if (rally.length === 0 && voting.length === 0 && items.length === 0) return <span className={styles.empty}>—</span>;
+    const holidays = holidayByDay[ds] || [];
+    if (rally.length === 0 && voting.length === 0 && items.length === 0 && holidays.length === 0) return <span className={styles.empty}>—</span>;
     return (
       <>
+        {holidays.map((name, i) => (
+          <span
+            key={`h-${i}`}
+            className={styles.votingLine}
+            style={{ background: '#fff7ed', color: '#b45309', borderColor: '#fed7aa', cursor: 'default' }}
+            title={`${name} — holiday`}
+          >
+            🎉 {name}
+          </span>
+        ))}
         {voting.map((v, i) => {
           const meta = VOTING_TYPES[v.type] || VOTING_TYPES.other;
           return (
