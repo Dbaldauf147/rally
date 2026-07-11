@@ -1198,6 +1198,15 @@ export function EventDetail() {
           setShowTextAll(false);
           setTextAllMessage('');
         };
+        // SMS link to a single recipient with the current draft — lets the user
+        // text people individually instead of as one group message.
+        const smsHref = (phone) => {
+          let c = String(phone).replace(/[^+\d]/g, '');
+          if (!c.startsWith('+')) c = c.startsWith('1') ? `+${c}` : `+1${c}`;
+          const body = encodeURIComponent(textAllMessage);
+          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+          return isIOS ? `sms:/open?addresses=${c}&body=${body}` : `sms:${c}?body=${body}`;
+        };
         return (
           <div style={{
             border: '1px solid var(--color-border)',
@@ -1219,18 +1228,32 @@ export function EventDetail() {
                 ×
               </button>
             </div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
+              💡 Tap a name to text just that person, or use “Open in Messages” below to send to everyone at once.
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem' }}>
               {recipients.map(([uid, m]) => (
-                <span key={uid} style={{
-                  fontSize: '0.7rem',
-                  padding: '0.15rem 0.45rem',
-                  background: 'var(--color-surface)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-full)',
-                  color: 'var(--color-text-secondary)',
-                }}>
-                  {m.name || 'Unnamed'}
-                </span>
+                <a
+                  key={uid}
+                  href={smsHref(m.phone)}
+                  onClick={() => { if (textAllMessage.trim()) updateEvent(eventId, { [`members.${uid}.texted`]: new Date().toISOString() }); }}
+                  title={`Text ${m.name || 'this person'} individually`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.2rem',
+                    fontSize: '0.7rem',
+                    padding: '0.15rem 0.5rem',
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-full)',
+                    color: 'var(--color-text-secondary)',
+                    textDecoration: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  💬 {m.name || 'Unnamed'}
+                </a>
               ))}
             </div>
             <textarea
