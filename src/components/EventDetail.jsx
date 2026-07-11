@@ -84,6 +84,7 @@ export function EventDetail() {
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [friendSearch, setFriendSearch] = useState('');
   const [friendGroupFilter, setFriendGroupFilter] = useState([]);
+  const [friendTagFilter, setFriendTagFilter] = useState([]);
   const [showFinalize, setShowFinalize] = useState(false);
   const [finalizeDate, setFinalizeDate] = useState('');
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
@@ -1576,6 +1577,7 @@ export function EventDetail() {
                   return (value || '').split(',').map(g => g.trim()).filter(Boolean);
                 }
                 const allGroups = [...new Set(friends.flatMap(f => friendGroupTokens(f.group)))].sort();
+                const allTags = [...new Set(friends.flatMap(f => (f.tag || '').split(';').map(t => t.trim()).filter(Boolean)))].sort();
                 const memberEmails = new Set(members.map(([, m]) => (m.email || '').toLowerCase()).filter(Boolean));
                 const memberNames = new Set(members.map(([, m]) => (m.name || '').toLowerCase()).filter(Boolean));
                 function notAlreadyMember(f) {
@@ -1588,6 +1590,10 @@ export function EventDetail() {
                   if (friendGroupFilter.length > 0) {
                     const tokens = friendGroupTokens(f.group);
                     if (!friendGroupFilter.some(g => tokens.includes(g))) return false;
+                  }
+                  if (friendTagFilter.length > 0) {
+                    const tags = (f.tag || '').split(';').map(t => t.trim());
+                    if (!friendTagFilter.some(t => tags.includes(t))) return false;
                   }
                   if (!friendSearch.trim()) return true;
                   const term = friendSearch.toLowerCase();
@@ -1650,7 +1656,28 @@ export function EventDetail() {
                       )}
                     </div>
                   )}
-                  {available.length > 0 && (friendGroupFilter.length > 0 || friendSearch.trim()) && (
+                  {allTags.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginRight: '0.2rem' }}>Tags:</span>
+                      {allTags.map(t => {
+                        const active = friendTagFilter.includes(t);
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setFriendTagFilter(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])}
+                            style={{ padding: '0.2rem 0.55rem', borderRadius: 'var(--radius-full)', border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`, background: active ? 'var(--color-accent-light)' : 'var(--color-surface)', color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)', fontSize: '0.72rem', fontWeight: active ? 600 : 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            {t}
+                          </button>
+                        );
+                      })}
+                      {friendTagFilter.length > 0 && (
+                        <button type="button" onClick={() => setFriendTagFilter([])} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.7rem', cursor: 'pointer', fontFamily: 'inherit' }}>Clear</button>
+                      )}
+                    </div>
+                  )}
+                  {available.length > 0 && (friendGroupFilter.length > 0 || friendTagFilter.length > 0 || friendSearch.trim()) && (
                     <button
                       type="button"
                       onClick={async () => {
@@ -1662,6 +1689,7 @@ export function EventDetail() {
                         setResult({ type: 'success', message: `${all.length} added: ${all.slice(0, 4).join(', ')}${all.length > 4 ? '...' : ''}` });
                         setTimeout(() => setResult(null), 3000);
                         setFriendGroupFilter([]);
+                        setFriendTagFilter([]);
                         setFriendSearch('');
                       }}
                       style={{ width: '100%', padding: '0.45rem', marginBottom: '0.5rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-accent)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
@@ -1671,7 +1699,7 @@ export function EventDetail() {
                   )}
                   <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
                     {available.length === 0 ? (
-                      <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', textAlign: 'center', margin: '0.5rem 0' }}>{friendSearch.trim() || friendGroupFilter.length > 0 ? 'No matching friends' : 'All friends already added'}</p>
+                      <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', textAlign: 'center', margin: '0.5rem 0' }}>{friendSearch.trim() || friendGroupFilter.length > 0 || friendTagFilter.length > 0 ? 'No matching friends' : 'All friends already added'}</p>
                     ) : available.map(f => (
                         <button key={f.id} onClick={async () => {
                           const added = await addFriendToEvent(f);
@@ -1692,7 +1720,7 @@ export function EventDetail() {
                         </button>
                       ))}
                   </div>
-                  <button onClick={() => { setShowAddFriend(false); setFriendSearch(''); setFriendGroupFilter([]); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <button onClick={() => { setShowAddFriend(false); setFriendSearch(''); setFriendGroupFilter([]); setFriendTagFilter([]); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Done
                   </button>
                 </div>
