@@ -399,11 +399,23 @@ function TierBoard({ friends, onSetTier }) {
   const [dragId, setDragId] = useState(null);
   const [overCol, setOverCol] = useState(null);
   const [search, setSearch] = useState('');
+  const [fGroup, setFGroup] = useState([]);
+  const [fTag, setFTag] = useState([]);
+
+  const tierGroupTokens = (v) => (v || '').split(',').map(g => g.trim()).filter(Boolean);
+  const allGroups = [...new Set(friends.flatMap(f => tierGroupTokens(f.group)))].sort();
+  const allTags = [...new Set(friends.flatMap(f => (f.tag || '').split(';').map(t => t.trim()).filter(Boolean)))].sort();
+  const toggle = (setter, val) => setter(prev => (prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]));
 
   const q = search.trim().toLowerCase();
   const byTier = { A: [], B: [], C: [], D: [], '': [] };
   for (const f of friends) {
     if (q && !(f.name || '').toLowerCase().includes(q)) continue;
+    if (fGroup.length > 0 && !tierGroupTokens(f.group).some(g => fGroup.includes(g))) continue;
+    if (fTag.length > 0) {
+      const tags = (f.tag || '').split(';').map(t => t.trim());
+      if (!fTag.some(t => tags.includes(t))) continue;
+    }
     const t = ['A', 'B', 'C', 'D'].includes(f.tier) ? f.tier : '';
     byTier[t].push(f);
   }
@@ -447,8 +459,23 @@ function TierBoard({ friends, onSetTier }) {
         value={search}
         onChange={e => setSearch(e.target.value)}
         placeholder="Search contacts…"
-        style={{ width: '100%', maxWidth: '360px', padding: '0.55rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', marginBottom: '0.85rem' }}
+        style={{ width: '100%', maxWidth: '360px', padding: '0.55rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', marginBottom: '0.6rem' }}
       />
+      {(allGroups.length > 0 || allTags.length > 0) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem', marginBottom: '0.85rem' }}>
+          {allGroups.length > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)' }}>Group</span>}
+          {allGroups.map(g => (
+            <button key={`g-${g}`} type="button" className={fGroup.includes(g) ? styles.groupChipActive : styles.groupChip} onClick={() => toggle(setFGroup, g)}>{g}</button>
+          ))}
+          {allTags.length > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', marginLeft: allGroups.length > 0 ? '0.35rem' : 0 }}>Tag</span>}
+          {allTags.map(t => (
+            <button key={`t-${t}`} type="button" className={fTag.includes(t) ? styles.groupChipActive : styles.groupChip} onClick={() => toggle(setFTag, t)}>{t}</button>
+          ))}
+          {(fGroup.length > 0 || fTag.length > 0) && (
+            <button type="button" onClick={() => { setFGroup([]); setFTag([]); }} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>Clear</button>
+          )}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
         {TIER_COLUMNS.map(col => {
           const list = byTier[col.key];
