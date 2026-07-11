@@ -214,6 +214,7 @@ export function CalendarView() {
 
   return (
     <div className={styles.page}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 0.75rem' }}>Rally Calendar</h1>
       <div className={styles.topBar}>
         <div className={styles.header}>
           <button className={styles.navBtn} onClick={prevMonth}>‹</button>
