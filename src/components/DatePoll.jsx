@@ -3,6 +3,7 @@ import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, 
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { format, eachDayOfInterval, startOfMonth, endOfMonth, getDay, addMonths, subMonths, isSameDay } from 'date-fns';
+import { getHolidayMap } from '../holidays';
 import styles from './DatePoll.module.css';
 
 function toDateStr(d) {
@@ -371,6 +372,9 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     ? calDays.slice(0, lastRowStart)
     : calDays;
 
+  // Tracked holidays for the year(s) the visible grid spans.
+  const holidayMap = getHolidayMap([...new Set(trimmed.map(d => d.getFullYear()))]);
+
   // Selection range for highlighting
   const selStartDate = selStart ? new Date(selStart + 'T00:00:00') : null;
   const selEndDate = selEnd ? new Date(selEnd + 'T00:00:00') : null;
@@ -487,13 +491,16 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const hasOverlap = !!overlapTitles && overlapTitles.length > 0;
             const finalizedTitles = finalizedEventDates.get(ds);
             const hasFinalizedConflict = !!finalizedTitles && finalizedTitles.length > 0;
+            const holidayNames = holidayMap[ds] || [];
+            const isHoliday = holidayNames.length > 0;
             const tooltipParts = [];
+            if (isHoliday) tooltipParts.push(holidayNames.join(', '));
             if (hasFinalizedConflict) tooltipParts.push(`Finalized elsewhere: ${finalizedTitles.join(', ')}`);
             if (hasOverlap) tooltipParts.push(`Also being voted on: ${overlapTitles.join(', ')}`);
             return (
               <button
                 key={ds}
-                className={`${styles.calDay} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth && !isFinalized ? styles.calDaySuggested : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isFinalizedHere && !isSelected ? styles.calDayFinalizedHere : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
+                className={`${styles.calDay} ${isHoliday && isCurrentMonth ? styles.calDayHoliday : ''} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth && !isFinalized ? styles.calDaySuggested : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isFinalizedHere && !isSelected ? styles.calDayFinalizedHere : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
                 title={tooltipParts.length > 0 ? tooltipParts.join(' · ') : undefined}
                 onClick={() => {
                   if (!isPast && !isFinalized) handleDayClick(day);
@@ -552,6 +559,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: 'var(--color-accent)' }} /> Selected</span>
           {!isFinalized && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#BBF7D0' }} /> Suggested</span>}
           {finalizedDates && finalizedDates.length > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#b45309', boxShadow: 'inset 0 0 0 2px #15803d' }} /> Finalized date</span>}
+          <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#f59e0b' }} /> Holiday</span>
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid var(--color-accent)', background: 'none' }} /> Today</span>
           {googleBusyDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #4285F4', background: 'none' }} /> Google Event</span>}
           {otherEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #f59e0b', background: 'none' }} /> Other Rally event voting</span>}

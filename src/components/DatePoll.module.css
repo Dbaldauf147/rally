@@ -19,6 +19,9 @@
 .calGrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
 .calDayLabel { text-align: center; font-size: 0.6rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; padding: 0.2rem 0; }
 .calDay { width: 100%; aspect-ratio: 1; border: none; border-radius: var(--radius-sm); background: none; font-size: 0.75rem; font-weight: 500; color: var(--color-text); cursor: pointer; font-family: inherit; transition: all 0.1s; display: flex; align-items: center; justify-content: center; position: relative; }
+/* Holiday marker: a small amber dot at the bottom of the day, layered over any
+   other state without hiding it. */
+.calDayHoliday::after { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: #f59e0b; }
 .calDay:hover:not(:disabled) { background: var(--color-accent-light); color: var(--color-accent); }
 .calDayOtherMonth { color: var(--color-text-muted); opacity: 0.4; }
 .calDayBusy { box-shadow: inset 0 0 0 2px #4285F4; border-radius: 50%; }
