@@ -559,7 +559,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: 'var(--color-accent)' }} /> Selected</span>
           {!isFinalized && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#BBF7D0' }} /> Suggested</span>}
           {finalizedDates && finalizedDates.length > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#b45309', boxShadow: 'inset 0 0 0 2px #15803d' }} /> Finalized date</span>}
-          <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#f59e0b' }} /> Holiday</span>
+          <span className={styles.legendItem}><span className={styles.legendDot} style={{ backgroundImage: 'repeating-linear-gradient(45deg, #dc2626, #dc2626 2px, #fecaca 2px, #fecaca 4px)' }} /> Holiday</span>
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid var(--color-accent)', background: 'none' }} /> Today</span>
           {googleBusyDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #4285F4', background: 'none' }} /> Google Event</span>}
           {otherEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #f59e0b', background: 'none' }} /> Other Rally event voting</span>}
