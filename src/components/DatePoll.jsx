@@ -375,6 +375,29 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   // Tracked holidays for the year(s) the visible grid spans.
   const holidayMap = getHolidayMap([...new Set(trimmed.map(d => d.getFullYear()))]);
 
+  // Other Rally events (voting + finalized) with dates in the visible month,
+  // grouped by event so they can be listed clearly under the calendar.
+  const otherRallyEvents = (() => {
+    const visibleDs = new Set(trimmed.filter(d => d.getMonth() === calMonth.getMonth()).map(d => toDateStr(d)));
+    const groups = new Map();
+    const collect = (map, type) => {
+      for (const [ds, titles] of map.entries()) {
+        if (!visibleDs.has(ds)) continue;
+        for (const t of titles) {
+          const key = `${type}|${t}`;
+          if (!groups.has(key)) groups.set(key, { title: t, type, dates: [] });
+          groups.get(key).dates.push(ds);
+        }
+      }
+    };
+    collect(otherEventDates, 'voting');
+    collect(finalizedEventDates, 'finalized');
+    const list = [...groups.values()];
+    list.forEach(g => g.dates.sort());
+    list.sort((a, b) => a.dates[0].localeCompare(b.dates[0]));
+    return list;
+  })();
+
   // Selection range for highlighting
   const selStartDate = selStart ? new Date(selStart + 'T00:00:00') : null;
   const selEndDate = selEnd ? new Date(selEnd + 'T00:00:00') : null;
@@ -566,6 +589,28 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           {finalizedEventDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid #16a34a', background: 'none' }} /> Other Rally event finalized</span>}
           {closedSuggestedDates.size > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#f3f4f6', color: '#dc2626', textAlign: 'center', fontSize: '0.7rem', lineHeight: '10px' }}>✕</span> Closed (no longer available)</span>}
         </div>
+
+        {otherRallyEvents.length > 0 && (
+          <div style={{ marginTop: '0.6rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.6rem', background: 'var(--color-surface)' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>Other Rally events this month</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {otherRallyEvents.map(g => {
+                const first = new Date(g.dates[0] + 'T00:00:00');
+                const last = new Date(g.dates[g.dates.length - 1] + 'T00:00:00');
+                const dateLabel = g.dates.length > 1 ? `${format(first, 'MMM d')} – ${format(last, 'MMM d')}` : format(first, 'MMM d');
+                const color = g.type === 'finalized' ? '#16a34a' : '#f59e0b';
+                return (
+                  <div key={`${g.type}-${g.title}`} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.title}</span>
+                    <span style={{ color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>· {dateLabel}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 600, color, flexShrink: 0 }}>{g.type === 'finalized' ? 'finalized' : 'voting'}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Side panel — Google Calendar events and other Rally events for selected day */}
