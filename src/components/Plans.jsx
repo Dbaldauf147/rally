@@ -342,6 +342,10 @@ export function Plans() {
       </div>
       {view === 'today' ? <TodayPage /> : (
     <div className={styles.page}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '1rem', background: '#fdf2f8', border: '1px solid #f9a8d4', borderRadius: 'var(--radius-md)', color: '#9d174d', fontSize: '0.9rem', fontWeight: 600 }}>
+        <span style={{ fontSize: '1.15rem' }} aria-hidden="true">💜</span>
+        <span>Reminder: plan a date with Joanne.</span>
+      </div>
       <div className={styles.header}>
         <div className={styles.titleBlock}>
           <h1 className={styles.title}>Plans</h1>
