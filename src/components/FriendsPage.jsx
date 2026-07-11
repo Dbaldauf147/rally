@@ -1204,6 +1204,25 @@ export function FriendsPage() {
   const allTags = [...new Set(friends.flatMap(f => (f.tag || '').split(';').map(t => t.trim()).filter(Boolean)))].sort();
   const allGuests = [...new Set(friends.map(f => f.guest).filter(Boolean))].sort();
 
+  // Column sorting for the contacts table. Empty values always sort last.
+  const [sortKey, setSortKey] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+  const onSort = (key) => {
+    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+  const sortArrow = (key) => (sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
+  const sortVal = (f, key) => {
+    switch (key) {
+      case 'email': return (f.email || '').toLowerCase();
+      case 'phone': return (f.phone || '').replace(/[^\d]/g, '');
+      case 'group': return groupTokens(f.group).join(', ').toLowerCase();
+      case 'guest': return (f.guest || '').toLowerCase();
+      case 'tags': return (f.tag || '').toLowerCase();
+      default: return (f.name || '').toLowerCase();
+    }
+  };
+
   let filtered = friends;
   // Text search
   if (search.trim()) {
@@ -1220,6 +1239,16 @@ export function FriendsPage() {
   if (filters.hasPhone === 'no') filtered = filtered.filter(f => !f.phone);
   if (filters.hasInstagram === 'yes') filtered = filtered.filter(f => f.instagram);
   if (filters.hasInstagram === 'no') filtered = filtered.filter(f => !f.instagram);
+
+  filtered = [...filtered].sort((a, b) => {
+    const va = sortVal(a, sortKey);
+    const vb = sortVal(b, sortKey);
+    if (!va && !vb) return 0;
+    if (!va) return 1;   // empties last, regardless of direction
+    if (!vb) return -1;
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
 
   return (
     <div className={styles.page}>
@@ -1493,12 +1522,12 @@ export function FriendsPage() {
                     style={{ accentColor: 'var(--color-accent)' }}
                   />
                 </th>
-                <th className={styles.th}>Name</th>
-                <th className={styles.th}>Email</th>
-                <th className={styles.th}>Phone</th>
-                <th className={styles.th}>Group</th>
-                <th className={styles.th}>Guest</th>
-                <th className={styles.th}>Tags</th>
+                <th className={styles.th} onClick={() => onSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by name">Name{sortArrow('name')}</th>
+                <th className={styles.th} onClick={() => onSort('email')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by email">Email{sortArrow('email')}</th>
+                <th className={styles.th} onClick={() => onSort('phone')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by phone">Phone{sortArrow('phone')}</th>
+                <th className={styles.th} onClick={() => onSort('group')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by group">Group{sortArrow('group')}</th>
+                <th className={styles.th} onClick={() => onSort('guest')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by guest">Guest{sortArrow('guest')}</th>
+                <th className={styles.th} onClick={() => onSort('tags')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by tags">Tags{sortArrow('tags')}</th>
                 <th className={styles.th}>Linked</th>
                 <th className={styles.thAction} />
               </tr>
