@@ -401,10 +401,12 @@ function TierBoard({ friends, onSetTier }) {
   const [search, setSearch] = useState('');
   const [fGroup, setFGroup] = useState([]);
   const [fTag, setFTag] = useState([]);
+  const [fGuest, setFGuest] = useState([]);
 
   const tierGroupTokens = (v) => (v || '').split(',').map(g => g.trim()).filter(Boolean);
   const allGroups = [...new Set(friends.flatMap(f => tierGroupTokens(f.group)))].sort();
   const allTags = [...new Set(friends.flatMap(f => (f.tag || '').split(';').map(t => t.trim()).filter(Boolean)))].sort();
+  const allGuests = [...new Set(friends.map(f => f.guest).filter(Boolean))].sort();
   const toggle = (setter, val) => setter(prev => (prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]));
 
   const q = search.trim().toLowerCase();
@@ -416,6 +418,7 @@ function TierBoard({ friends, onSetTier }) {
       const tags = (f.tag || '').split(';').map(t => t.trim());
       if (!fTag.some(t => tags.includes(t))) continue;
     }
+    if (fGuest.length > 0 && !fGuest.includes(f.guest)) continue;
     const t = ['A', 'B', 'C', 'D'].includes(f.tier) ? f.tier : '';
     byTier[t].push(f);
   }
@@ -461,7 +464,7 @@ function TierBoard({ friends, onSetTier }) {
         placeholder="Search contacts…"
         style={{ width: '100%', maxWidth: '360px', padding: '0.55rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', marginBottom: '0.6rem' }}
       />
-      {(allGroups.length > 0 || allTags.length > 0) && (
+      {(allGroups.length > 0 || allTags.length > 0 || allGuests.length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem', marginBottom: '0.85rem' }}>
           {allGroups.length > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)' }}>Group</span>}
           {allGroups.map(g => (
@@ -471,8 +474,12 @@ function TierBoard({ friends, onSetTier }) {
           {allTags.map(t => (
             <button key={`t-${t}`} type="button" className={fTag.includes(t) ? styles.groupChipActive : styles.groupChip} onClick={() => toggle(setFTag, t)}>{t}</button>
           ))}
-          {(fGroup.length > 0 || fTag.length > 0) && (
-            <button type="button" onClick={() => { setFGroup([]); setFTag([]); }} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>Clear</button>
+          {allGuests.length > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', marginLeft: (allGroups.length > 0 || allTags.length > 0) ? '0.35rem' : 0 }}>Guest of</span>}
+          {allGuests.map(g => (
+            <button key={`gu-${g}`} type="button" className={fGuest.includes(g) ? styles.groupChipActive : styles.groupChip} onClick={() => toggle(setFGuest, g)}>{g}</button>
+          ))}
+          {(fGroup.length > 0 || fTag.length > 0 || fGuest.length > 0) && (
+            <button type="button" onClick={() => { setFGroup([]); setFTag([]); setFGuest([]); }} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>Clear</button>
           )}
         </div>
       )}
