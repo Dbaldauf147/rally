@@ -192,6 +192,81 @@ function ComesWithPicker({ friends, editFriendId, value, onChange }) {
   );
 }
 
+// Tag editor with predictive-search dropdown. Stores tags as a "; "-joined
+// string (the existing `tag` field shape). Existing tags show as removable
+// chips; typing filters preexisting tags and offers to add a brand-new one.
+function TagPicker({ value, onChange, options = [] }) {
+  const [input, setInput] = useState('');
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const tags = (value || '').split(';').map(t => t.trim()).filter(Boolean);
+  const has = (t) => tags.some(x => x.toLowerCase() === t.toLowerCase());
+  const addTag = (t) => {
+    const clean = (t || '').replace(/[;,]+$/, '').trim();
+    if (clean && !has(clean)) onChange([...tags, clean].join('; '));
+    setInput('');
+  };
+  const removeTag = (t) => onChange(tags.filter(x => x !== t).join('; '));
+
+  const q = input.trim().toLowerCase();
+  const suggestions = options
+    .filter(o => !has(o))
+    .filter(o => !q || o.toLowerCase().includes(q))
+    .slice(0, 8);
+  const canAddNew = !!q && !options.some(o => o.toLowerCase() === q) && !has(q);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div
+        onClick={() => setOpen(true)}
+        style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center', padding: '0.35rem 0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', cursor: 'text' }}
+      >
+        {tags.map(t => (
+          <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.15rem 0.15rem 0.15rem 0.5rem', background: 'var(--color-accent-light)', color: 'var(--color-accent)', borderRadius: 'var(--radius-full)', fontSize: '0.78rem', fontWeight: 600 }}>
+            {t}
+            <button type="button" onClick={() => removeTag(t)} aria-label={`Remove ${t}`} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem', lineHeight: 1, padding: '0 0.15rem' }}>×</button>
+          </span>
+        ))}
+        <input
+          value={input}
+          onChange={e => { setInput(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ';' || e.key === ',') { e.preventDefault(); addTag(input); }
+            else if (e.key === 'Backspace' && !input && tags.length > 0) { removeTag(tags[tags.length - 1]); }
+          }}
+          placeholder={tags.length === 0 ? 'Type to search or add tags…' : 'Add tag…'}
+          style={{ flex: 1, minWidth: '120px', border: 'none', outline: 'none', background: 'transparent', fontSize: '0.88rem', fontFamily: 'inherit', color: 'var(--color-text)', padding: '0.2rem' }}
+        />
+      </div>
+      {open && (suggestions.length > 0 || canAddNew) && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '2px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: '200px', overflowY: 'auto' }}>
+          {suggestions.map(o => (
+            <button key={o} type="button" onClick={() => addTag(o)}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '0.45rem 0.65rem', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.85rem', color: 'var(--color-text)' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+            >{o}</button>
+          ))}
+          {canAddNew && (
+            <button type="button" onClick={() => addTag(input)}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '0.45rem 0.65rem', border: 'none', borderTop: suggestions.length > 0 ? '1px solid var(--color-border)' : 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.85rem', color: 'var(--color-accent)', fontWeight: 600 }}
+            >+ Add “{input.trim()}”</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Table view: pick one of your events, then RSVP each contact for it in a
 // single column. Renders inside the Friends & Contacts page on the "Event
 // Roster" sub-tab.
@@ -1695,7 +1770,7 @@ export function FriendsPage() {
               </label>
               <label className={styles.label}>
                 Tags
-                <input className={styles.input} value={newTag} onChange={e => setNewTag(e.target.value)} placeholder="VIP; Outdoors; Foodie (separate with ;)" />
+                <TagPicker value={newTag} onChange={setNewTag} options={allTags} />
               </label>
               <div className={styles.formActions}>
                 <button className={styles.saveBtn} type="submit">Add Contact</button>
@@ -1723,7 +1798,7 @@ export function FriendsPage() {
               </label>
               <label className={styles.label}>Guest<input className={styles.input} value={editFields.guest} onChange={e => editSet('guest', e.target.value)} /></label>
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
-              <label className={styles.label}>Tags<input className={styles.input} value={editFields.tag} onChange={e => editSet('tag', e.target.value)} placeholder="Separate with ;" /></label>
+              <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
               <div className={styles.label}>
                 🎁 Gift ideas
                 {(editFields.giftIdeas || []).length > 0 && (
