@@ -41,7 +41,7 @@ export function BottomTabBar() {
 
   const primary = [
     { to: '/', label: 'Home', icon: icons.home, end: true },
-    { to: '/calendar', label: 'Calendar', icon: icons.calendar },
+    { to: '/calendar', label: 'Rally Cal', icon: icons.calendar },
     { to: '/plans', label: 'Plans', icon: icons.plans },
     ...(isOwner ? [{ to: '/reachout', label: 'Reach Out', icon: icons.reachout }] : []),
   ];
