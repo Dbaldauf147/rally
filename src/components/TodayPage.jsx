@@ -539,16 +539,18 @@ export function TodayPage() {
                             ⋮⋮
                           </span>
                           <div className={styles.itemBody}>
-                            <input
-                              className={styles.itemInput}
-                              value={item.label}
-                              onChange={(e) => renameItem(item.id, e.target.value)}
-                              placeholder="(untitled)"
-                            />
-                            <div className={styles.itemMeta}>
+                            <div className={styles.itemTopRow}>
+                              <input
+                                className={styles.itemInput}
+                                value={item.label}
+                                onChange={(e) => renameItem(item.id, e.target.value)}
+                                placeholder="(untitled)"
+                              />
                               <span className={styles.itemTime}>
                                 {timeRangeLabel(item.startMin, previewDuration)}
                               </span>
+                            </div>
+                            <div className={styles.itemMeta}>
                               <select
                                 className={styles.durationSelect}
                                 value={item.durationMin}
