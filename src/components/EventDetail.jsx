@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { doc, collection, onSnapshot, updateDoc, arrayUnion, arrayRemove, getDocs, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
+import { WEB_ORIGIN } from '../native';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import { format } from 'date-fns';
@@ -618,7 +619,7 @@ export function EventDetail() {
     await restoreEvent(eventId);
   }
 
-  const inviteLink = `${window.location.origin}/invite/${event.shareToken}`;
+  const inviteLink = `${WEB_ORIGIN}/invite/${event.shareToken}`;
 
   const itineraryText = (() => {
     const items = (Array.isArray(event.itinerary) ? event.itinerary : [])
@@ -828,7 +829,7 @@ export function EventDetail() {
 
   function handleCopyLink() {
     const fromName = user?.displayName || 'Someone';
-    const pollUrl = `${window.location.origin}/poll/${eventId}?name=Friend`;
+    const pollUrl = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
     const message = `Hey! ${fromName} invited you to ${event.title}.\n\nVote here on what dates you can make: ${pollUrl}`;
     navigator.clipboard.writeText(message);
     setInviteCopied(true);
@@ -1021,8 +1022,8 @@ export function EventDetail() {
                     if (emails.length === 0) { alert('No contacts with emails to invite'); return; }
                     const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
                     const subject = encodeURIComponent(`You're invited: ${event.title}`);
-                    const addToCalLink = `${window.location.origin}${icsUrl}`;
-                    const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
+                    const addToCalLink = `${WEB_ORIGIN}${icsUrl}`;
+                    const pollLink = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
                     const body = encodeURIComponent(
                       `You're invited to ${event.title}!\n\n` +
                       `When: ${dateStr}\n` +
@@ -1048,8 +1049,8 @@ export function EventDetail() {
                     .map(([, m]) => m.phone);
                   if (phones.length === 0) return null;
                   const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
-                  const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
-                  const calendarLink = `${window.location.origin}${icsUrl}`;
+                  const pollLink = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
+                  const calendarLink = `${WEB_ORIGIN}${icsUrl}`;
                   const hasAnyVotes = Object.values(voteStats || {}).some(s => s && s.total > 0);
                   const pollMsg = event.stage === 'finalized'
                     ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails & RSVP: ${pollLink}`
@@ -1637,7 +1638,7 @@ export function EventDetail() {
                         </div>
                         {m.phone && uid !== user?.uid && (() => {
                           const name = m.name ? m.name.split(' ')[0] : 'Friend';
-                          const pollUrl = `${window.location.origin}/poll/${eventId}?name=${encodeURIComponent(name)}`;
+                          const pollUrl = `${WEB_ORIGIN}/poll/${eventId}?name=${encodeURIComponent(name)}`;
                           const recipientHasVoted = (voteStats[uid]?.total || 0) > 0;
                           const msg = stage === 'finalized'
                             ? `Hey ${name}! Just a reminder about ${event.title}${event.location ? ` at ${event.location}` : ''}.\n\nDetails & RSVP: ${pollUrl}`
@@ -1973,7 +1974,7 @@ export function EventDetail() {
                 return (
                   <button className={styles.editBtn} disabled={reminderSending} onClick={async () => {
                     const dateStr = event.date ? format(new Date(event.date.seconds ? event.date.seconds * 1000 : event.date), 'EEEE, MMMM d, yyyy · h:mm a') : '';
-                    const pollLink = `${window.location.origin}/poll/${eventId}?name=Friend`;
+                    const pollLink = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
                     setReminderSending(true);
                     try {
                       const res = await fetch('/api/send-reminder', {

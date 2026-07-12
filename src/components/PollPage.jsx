@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, addDoc, deleteDoc, collection, query, orderBy, getDocs, serverTimestamp, arrayUnion, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { WEB_ORIGIN } from '../native';
 import { format, eachDayOfInterval } from 'date-fns';
 import styles from './PollPage.module.css';
 
@@ -724,7 +725,7 @@ function InviteOthers({ eventTitle, eventId, eventDate, eventLocation, voterName
 
   function buildMessage(recipientName) {
     const name = recipientName || 'Friend';
-    const pollUrl = `${window.location.origin}/poll/${eventId}?name=${encodeURIComponent(name)}`;
+    const pollUrl = `${WEB_ORIGIN}/poll/${eventId}?name=${encodeURIComponent(name)}`;
     return `Hey${recipientName ? ` ${recipientName}` : ''}! ${voterName} invited you to ${eventTitle}.` +
       `\n\nVote here on what dates you can make: ${pollUrl}`;
   }
@@ -856,7 +857,7 @@ function InviteOthers({ eventTitle, eventId, eventDate, eventLocation, voterName
   }
 
   function handleCopyLink() {
-    const pollUrl = `${window.location.origin}/poll/${eventId}?name=Friend`;
+    const pollUrl = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
     const message = `Hey! ${voterName} invited you to ${eventTitle}.\n\nVote here on what dates you can make: ${pollUrl}`;
     navigator.clipboard.writeText(message);
     setCopied(true);
@@ -1015,13 +1016,13 @@ function InviteOthers({ eventTitle, eventId, eventDate, eventLocation, voterName
                 } catch {}
               }
               if (navigator.share) {
-                const pollUrl = `${window.location.origin}/poll/${eventId}?name=Friend`;
+                const pollUrl = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
                 try {
                   await navigator.share({ title: eventTitle, text: buildMessage(''), url: pollUrl });
                   setShowShareLog(true);
                 } catch {}
               } else {
-                navigator.clipboard.writeText(`${window.location.origin}/poll/${eventId}?name=Friend`);
+                navigator.clipboard.writeText(`${WEB_ORIGIN}/poll/${eventId}?name=Friend`);
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
               }
