@@ -95,6 +95,7 @@ export function EventDetail() {
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
+  const [dismissedContactWarn, setDismissedContactWarn] = useState(() => new Set()); // member uids whose missing-contact warning was dismissed
   const [calSyncing, setCalSyncing] = useState(false);
   const [calSyncMsg, setCalSyncMsg] = useState(null); // { type: 'success' | 'error', message: string }
   const [calTarget, setCalTarget] = useState(() => getSyncTargetCalendar());
@@ -1488,7 +1489,7 @@ export function EventDetail() {
                       }
                       return clusters;
                     })().map((cluster, ci) => (
-                      <div key={ci} style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '0.35rem', ...(cluster.length > 1 ? { border: '2px solid var(--color-accent)', borderRadius: 'calc(var(--radius-md) + 2px)', padding: '0.2rem', background: 'var(--color-accent-light)' } : {}) }}>
+                      <div key={ci} style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '0.35rem', ...(cluster.length > 1 ? { border: '2px solid var(--color-accent)', borderRadius: 'calc(var(--radius-md) + 2px)', padding: '0.2rem', background: 'var(--color-accent-light)', width: 'fit-content', maxWidth: '100%', alignSelf: 'flex-start' } : {}) }}>
                         {cluster.map(([uid, m]) => {
                       const dupeReason = getDuplicateReason(uid);
                       const isDupe = !!dupeReason;
@@ -1509,9 +1510,23 @@ export function EventDetail() {
                             {isDupe && <span style={{ fontSize: '0.62rem', fontWeight: 600, color: '#D97706', marginLeft: '0.35rem' }}>⚠ Possible duplicate ({dupeReason})</span>}
                           </span>
                           <div style={{ display: 'flex', gap: '0.3rem', marginTop: '1px', alignItems: 'center', flexWrap: 'wrap' }}>
-                            {(m.email || uid.includes('@')) && <span title={m.email || uid} style={{ fontSize: '0.7rem' }}>✉️</span>}
-                            {m.email2 && <span title={`Secondary email: ${m.email2}`} style={{ fontSize: '0.7rem', opacity: 0.75 }}>✉️</span>}
-                            {m.phone && <span title={m.phone} style={{ fontSize: '0.7rem' }}>💬</span>}
+                            {(() => {
+                              const hasEmail = !!m.email || uid.includes('@');
+                              const hasPhone = !!m.phone;
+                              if (hasEmail && hasPhone) return null;
+                              if (dismissedContactWarn.has(uid)) return null;
+                              const missing = !hasEmail && !hasPhone ? 'email & phone' : !hasEmail ? 'email' : 'phone';
+                              return (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6rem', fontWeight: 600, padding: '1px 4px 1px 7px', borderRadius: '999px', background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}>
+                                  ⚠ No {missing}
+                                  <button
+                                    onClick={e => { e.stopPropagation(); setDismissedContactWarn(prev => new Set(prev).add(uid)); }}
+                                    title="Dismiss"
+                                    style={{ background: 'none', border: 'none', color: '#B45309', cursor: 'pointer', fontSize: '0.8rem', lineHeight: 1, padding: '0 1px', fontFamily: 'inherit' }}
+                                  >&times;</button>
+                                </span>
+                              );
+                            })()}
                             {isOwner && uid !== user?.uid && (() => {
                               if (m._friendMatch) {
                                 return (
