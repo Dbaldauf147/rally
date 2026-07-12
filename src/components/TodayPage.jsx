@@ -549,6 +549,7 @@ export function TodayPage() {
                               <span className={styles.itemTime}>
                                 {timeRangeLabel(item.startMin, previewDuration)}
                               </span>
+                              <span className={styles.itemDur}>{durationToLabel(previewDuration)}</span>
                             </div>
                             <div className={styles.itemMeta}>
                               <select
