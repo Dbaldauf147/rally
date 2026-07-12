@@ -1528,17 +1528,11 @@ export function EventDetail() {
                                 </span>
                               );
                             })()}
-                            {isOwner && uid !== user?.uid && (() => {
-                              if (m._friendMatch) {
-                                return (
-                                  <span title={`Linked to Friend: ${m._friendMatch.name}`} style={{ fontSize: '0.58rem', fontWeight: 600, padding: '1px 6px', borderRadius: '999px', background: '#DCFCE7', color: '#166534' }}>
-                                    ✓ Linked
-                                  </span>
-                                );
-                              }
-                              const suggestions = m._friendSuggestions || [];
-                              if (suggestions.length > 0) {
-                                const top = suggestions[0];
+                            {/* Only warn when a contact is NOT linked to a Friend. */}
+                            {isOwner && uid !== user?.uid && !m._friendMatch && (() => {
+                              const warnStyle = { display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.58rem', fontWeight: 600, padding: '1px 6px', borderRadius: '999px', background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' };
+                              const top = (m._friendSuggestions || [])[0];
+                              if (top) {
                                 return (
                                   <button
                                     onClick={e => {
@@ -1547,16 +1541,16 @@ export function EventDetail() {
                                         linkMemberToFriend(uid, top);
                                       }
                                     }}
-                                    title={`Click to link to ${top.name}`}
-                                    style={{ fontSize: '0.58rem', fontWeight: 600, padding: '1px 6px', borderRadius: '999px', background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', cursor: 'pointer', fontFamily: 'inherit' }}
+                                    title={`Not linked to a Friend — click to link to ${top.name}`}
+                                    style={{ ...warnStyle, cursor: 'pointer', fontFamily: 'inherit' }}
                                   >
-                                    💡 {top.name}?
+                                    ⚠ Not linked · {top.name}?
                                   </button>
                                 );
                               }
                               return (
-                                <span title="No matching Friend — add this person from the Friends page" style={{ fontSize: '0.58rem', fontWeight: 600, padding: '1px 6px', borderRadius: '999px', background: '#F3F4F6', color: '#6B7280' }}>
-                                  No Friend found
+                                <span title="Not linked to a Friend — add this person from the Friends page" style={warnStyle}>
+                                  ⚠ Not linked
                                 </span>
                               );
                             })()}
