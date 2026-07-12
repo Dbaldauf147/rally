@@ -47,6 +47,9 @@ export function NavBar() {
             <NavLink to="/reachout" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Reach Out</NavLink>
           )}
           {isOwner && (
+            <NavLink to="/sports" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Sports</NavLink>
+          )}
+          {isOwner && (
             <NavLink to="/wedding" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Wedding</NavLink>
           )}
           {isOwner && (
