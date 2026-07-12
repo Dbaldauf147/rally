@@ -766,6 +766,8 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
 
       {/* Suggested date options with voting — available at the top */}
       {ranked.filter(o => !o.closed).length > 0 && (
+        <>
+        <h3 className={styles.title} style={{ marginTop: '0.5rem' }}>Selected Dates</h3>
         <div className={styles.optionsList}>
           {ranked.filter(o => !o.closed).map(opt => {
             const start = new Date(opt.startDate + 'T00:00:00');
@@ -892,6 +894,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             );
           })}
         </div>
+        </>
       )}
 
       {/* Other group date ranges — visible only after dates are finalized */}
