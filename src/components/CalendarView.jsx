@@ -198,10 +198,27 @@ export function CalendarView() {
     });
   }
 
+  // All-day Google events arrive as date-only strings (e.g. "2026-07-18"). Parsing
+  // those with `new Date(s)` treats them as UTC midnight, which lands on the
+  // previous day in western timezones — so parse them as LOCAL dates instead.
+  function parseGoogleDate(s) {
+    if (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [y, m, dd] = s.split('-').map(Number);
+      return new Date(y, m - 1, dd);
+    }
+    return new Date(s);
+  }
+
   function getGoogleEventsForDay(day) {
+    const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
     return googleEvents.filter(e => {
-      const d = new Date(e.start);
-      return isSameDay(d, day);
+      const start = parseGoogleDate(e.start);
+      if (!e.allDay) return isSameDay(start, day);
+      // Google's all-day end date is exclusive, so the last covered day is end − 1.
+      const endEx = e.end ? parseGoogleDate(e.end) : new Date(start.getTime() + 86400000);
+      const firstDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const lastDay = new Date(endEx.getFullYear(), endEx.getMonth(), endEx.getDate() - 1);
+      return dayStart >= firstDay && dayStart <= lastDay;
     });
   }
 
