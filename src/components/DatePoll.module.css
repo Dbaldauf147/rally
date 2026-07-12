@@ -2,7 +2,7 @@
 .title { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin: 0 0 1rem; }
 
 /* Calendar */
-.calendarCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.75rem; max-width: 480px; width: 100%; }
+.calendarCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.75rem; flex: 1 1 340px; min-width: 300px; max-width: 460px; }
 .modeToggle { display: flex; gap: 0; margin-bottom: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); overflow: hidden; }
 .modeBtn, .modeActive { flex: 1; padding: 0.3rem 0; border: none; font-size: 0.72rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; }
 .modeBtn { background: var(--color-surface); color: var(--color-text-muted); }
@@ -78,7 +78,7 @@
 }
 
 /* Right column holding the day-detail panel + persistent overlap menu */
-.calendarSide { flex: 1 1 320px; min-width: 300px; display: flex; flex-direction: column; gap: 0.75rem; }
+.calendarSide { flex: 1 1 300px; min-width: 280px; display: flex; flex-direction: column; gap: 0.75rem; }
 
 /* Persistent overlap menu — conflicts across every suggested date */
 .overlapPanel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.75rem; }
