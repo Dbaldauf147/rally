@@ -17,6 +17,7 @@ import { PTOPage } from './components/PTOPage';
 import { VotingPage } from './components/VotingPage';
 import { AdminPage } from './components/AdminPage';
 import { ReachOutPage } from './components/ReachOutPage';
+import { SportsPage } from './components/SportsPage';
 // Today is now a subtab of Plans; keep its old URL working via redirect below.
 import { NavBar } from './components/NavBar';
 import { BottomTabBar } from './components/BottomTabBar';
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="/holidays" element={<ProtectedRoute><HolidaysPage /></ProtectedRoute>} />
         <Route path="/pto" element={<ProtectedRoute><PTOPage /></ProtectedRoute>} />
         <Route path="/reachout" element={<ProtectedRoute><ReachOutPage /></ProtectedRoute>} />
+        <Route path="/sports" element={<ProtectedRoute><SportsPage /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/event/:eventId" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
