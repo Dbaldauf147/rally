@@ -409,37 +409,58 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     return list;
   })();
 
-  // Overlap menu (right of the calendar): for each open suggested date, gather
+  // Overlap menu (right of the calendar): for a given day range, gather
   // everything that clashes with it — Google Calendar events, other Rally events
   // (voting + finalized), and holidays — so conflicts are visible at a glance
   // without clicking into each day.
   const conflictColors = { google: '#4285F4', finalized: '#16a34a', voting: '#f59e0b', holiday: '#dc2626' };
+  function computeConflicts(startStr, endStr) {
+    const start = new Date(startStr + 'T00:00:00');
+    const end = new Date((endStr || startStr) + 'T00:00:00');
+    const isRange = !!endStr && endStr !== startStr;
+    const conflicts = [];
+    for (const d of eachDayOfInterval({ start, end })) {
+      const ds = toDateStr(d);
+      const dayLabel = isRange ? format(d, 'MMM d') : null;
+      for (const evt of (googleFullEvents[ds] || [])) {
+        conflicts.push({ type: 'google', dayLabel, title: evt.title, time: evt.allDay ? 'All day' : format(new Date(evt.start), 'h:mm a') });
+      }
+      for (const t of (finalizedEventDates.get(ds) || [])) {
+        conflicts.push({ type: 'finalized', dayLabel, title: t, time: 'Rally event finalized' });
+      }
+      for (const t of (otherEventDates.get(ds) || [])) {
+        conflicts.push({ type: 'voting', dayLabel, title: t, time: 'Rally event voting' });
+      }
+      for (const h of (holidayMap[ds] || [])) {
+        conflicts.push({ type: 'holiday', dayLabel, title: h, time: 'Holiday' });
+      }
+    }
+    return { start, end, isRange, conflicts };
+  }
+
+  // Dates currently selected on the calendar but not yet submitted, so overlaps
+  // show live as you pick each date.
+  const selectedOverlaps = [];
+  if (!isFinalized) {
+    const suggestedKeys = new Set(options.filter(o => !o.closed && o.startDate).map(o => `${o.startDate}|${o.endDate || o.startDate}`));
+    if (selMode === 'single') {
+      for (const ds of [...selectedDays].sort()) {
+        if (suggestedKeys.has(`${ds}|${ds}`)) continue;
+        selectedOverlaps.push({ key: `sel-${ds}`, ...computeConflicts(ds, ds) });
+      }
+    } else if (selStart) {
+      const endStr = selEnd || selStart;
+      if (!suggestedKeys.has(`${selStart}|${endStr}`)) {
+        selectedOverlaps.push({ key: `sel-${selStart}`, ...computeConflicts(selStart, endStr) });
+      }
+    }
+  }
+
+  // Already-submitted suggested dates.
   const suggestedOverlaps = options
     .filter(o => !o.closed && o.startDate)
-    .map(opt => {
-      const start = new Date(opt.startDate + 'T00:00:00');
-      const end = new Date((opt.endDate || opt.startDate) + 'T00:00:00');
-      const isRange = opt.endDate && opt.endDate !== opt.startDate;
-      const conflicts = [];
-      for (const d of eachDayOfInterval({ start, end })) {
-        const ds = toDateStr(d);
-        const dayLabel = isRange ? format(d, 'MMM d') : null;
-        for (const evt of (googleFullEvents[ds] || [])) {
-          conflicts.push({ type: 'google', dayLabel, title: evt.title, time: evt.allDay ? 'All day' : format(new Date(evt.start), 'h:mm a') });
-        }
-        for (const t of (finalizedEventDates.get(ds) || [])) {
-          conflicts.push({ type: 'finalized', dayLabel, title: t, time: 'Rally event finalized' });
-        }
-        for (const t of (otherEventDates.get(ds) || [])) {
-          conflicts.push({ type: 'voting', dayLabel, title: t, time: 'Rally event voting' });
-        }
-        for (const h of (holidayMap[ds] || [])) {
-          conflicts.push({ type: 'holiday', dayLabel, title: h, time: 'Holiday' });
-        }
-      }
-      return { opt, start, end, isRange, conflicts };
-    })
-    .sort((a, b) => (a.opt.startDate < b.opt.startDate ? -1 : 1));
+    .map(opt => ({ key: opt.id, ...computeConflicts(opt.startDate, opt.endDate) }))
+    .sort((a, b) => (a.start < b.start ? -1 : 1));
 
   // Selection range for highlighting
   const selStartDate = selStart ? new Date(selStart + 'T00:00:00') : null;
@@ -693,39 +714,50 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           </div>
         )}
 
-        {/* Persistent overlap menu — conflicts across every suggested date */}
-        {!isFinalized && suggestedOverlaps.length > 0 && (
+        {/* Persistent overlap menu — conflicts on the dates you've picked / suggested */}
+        {!isFinalized && (selectedOverlaps.length > 0 || suggestedOverlaps.length > 0) && (
           <div className={styles.overlapPanel}>
             <div className={styles.overlapHeader}>Event overlap</div>
-            <p className={styles.overlapSubhead}>Conflicts on each suggested date</p>
+            <p className={styles.overlapSubhead}>Conflicts on each date</p>
             <div className={styles.overlapList}>
-              {suggestedOverlaps.map(({ opt, start, end, isRange, conflicts }) => {
-                const label = isRange
-                  ? `${format(start, 'MMM d')} – ${format(end, 'MMM d')}`
-                  : format(start, 'EEE, MMM d');
-                return (
-                  <div key={opt.id} className={styles.overlapItem}>
-                    <div className={styles.overlapDate}>{label}</div>
-                    {conflicts.length === 0 ? (
-                      <div className={styles.overlapClear}>✓ No conflicts</div>
-                    ) : (
-                      <div className={styles.overlapConflicts}>
-                        {conflicts.map((c, i) => (
-                          <div key={i} className={styles.overlapConflict}>
-                            <span className={styles.overlapDot} style={{ background: conflictColors[c.type] }} />
-                            <div className={styles.overlapConflictText}>
-                              <span className={styles.overlapConflictTitle}>
-                                {c.dayLabel ? `${c.dayLabel}: ` : ''}{c.title}
-                              </span>
-                              {c.time && <span className={styles.overlapConflictTime}>{c.time}</span>}
-                            </div>
-                          </div>
-                        ))}
+              {(() => {
+                const renderRow = ({ key, start, end, isRange, conflicts }, pending) => {
+                  const label = isRange
+                    ? `${format(start, 'MMM d')} – ${format(end, 'MMM d')}`
+                    : format(start, 'EEE, MMM d');
+                  return (
+                    <div key={key} className={styles.overlapItem}>
+                      <div className={styles.overlapDate}>
+                        {label}
+                        {pending && <span className={styles.overlapPending}>selected</span>}
                       </div>
-                    )}
-                  </div>
+                      {conflicts.length === 0 ? (
+                        <div className={styles.overlapClear}>✓ No conflicts</div>
+                      ) : (
+                        <div className={styles.overlapConflicts}>
+                          {conflicts.map((c, i) => (
+                            <div key={i} className={styles.overlapConflict}>
+                              <span className={styles.overlapDot} style={{ background: conflictColors[c.type] }} />
+                              <div className={styles.overlapConflictText}>
+                                <span className={styles.overlapConflictTitle}>
+                                  {c.dayLabel ? `${c.dayLabel}: ` : ''}{c.title}
+                                </span>
+                                {c.time && <span className={styles.overlapConflictTime}>{c.time}</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                };
+                return (
+                  <>
+                    {selectedOverlaps.map(o => renderRow(o, true))}
+                    {suggestedOverlaps.map(o => renderRow(o, false))}
+                  </>
                 );
-              })}
+              })()}
             </div>
           </div>
         )}
