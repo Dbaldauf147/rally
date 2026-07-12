@@ -27,6 +27,33 @@ function localDateKey(date, tz) {
   }
 }
 
+const WEEKDAY_IDX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+// Weekday (0=Sun) in a given IANA timezone.
+function localWeekday(date, tz) {
+  try {
+    const s = new Intl.DateTimeFormat('en-US', { timeZone: tz || 'America/New_York', weekday: 'short' }).format(date);
+    return WEEKDAY_IDX[s] ?? date.getUTCDay();
+  } catch {
+    return date.getUTCDay();
+  }
+}
+
+// Whether a user's digest should go out on this cron run, per their frequency.
+// Daily → every run; weekly → only on the chosen weekday; monthly → only on the
+// chosen day-of-month (capped at 28 in the UI so it fires every month).
+function isDueToday(cfg, now) {
+  const freq = cfg.frequency || 'daily';
+  if (freq === 'weekly') {
+    return localWeekday(now, cfg.timezone) === (typeof cfg.sendWeekday === 'number' ? cfg.sendWeekday : 1);
+  }
+  if (freq === 'monthly') {
+    const dom = parseInt(localDateKey(now, cfg.timezone).slice(8, 10), 10);
+    return dom === (typeof cfg.sendDayOfMonth === 'number' ? cfg.sendDayOfMonth : 1);
+  }
+  return true; // daily
+}
+
 function fmtGameTime(iso, tz) {
   try {
     return new Intl.DateTimeFormat('en-US', {
@@ -191,7 +218,8 @@ export default async function handler(req, res) {
     }
   }
 
-  // Cron: daily digest for every enabled user not already sent today.
+  // Cron: send each enabled user's digest when it's due (per their frequency)
+  // and hasn't already gone out today.
   const now = new Date();
   const results = [];
   try {
@@ -200,6 +228,7 @@ export default async function handler(req, res) {
       const data = userDoc.data();
       const cfg = data.sportsConfig;
       if (!cfg?.enabled) continue;
+      if (!isDueToday(cfg, now)) continue; // not this user's send day
       const todayKey = localDateKey(now, cfg.timezone);
       if (cfg.lastSentDate === todayKey) continue; // already sent today
       const result = await sendDigestForUser(db, resendKey, userDoc.id, data);

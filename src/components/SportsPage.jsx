@@ -27,12 +27,26 @@ function hourLabel(h) {
   return `${h12}:00 ${period}`;
 }
 
+const FREQUENCIES = [
+  { key: 'daily', label: 'Every day' },
+  { key: 'weekly', label: 'Weekly' },
+  { key: 'monthly', label: 'Monthly' },
+];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// Cap monthly at the 28th so it fires in every month, including February.
+const DAY_OF_MONTH_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 const BROWSER_TZ = (() => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'; }
   catch { return 'America/New_York'; }
 })();
 
-const DEFAULT_CONFIG = { enabled: false, sendHour: 8, timezone: BROWSER_TZ, teams: [] };
+const DEFAULT_CONFIG = { enabled: false, frequency: 'daily', sendHour: 8, sendWeekday: 1, sendDayOfMonth: 1, timezone: BROWSER_TZ, teams: [] };
 
 export function SportsPage() {
   const { user } = useAuth();
@@ -58,7 +72,10 @@ export function SportsPage() {
       if (cfg) {
         setConfig({
           enabled: !!cfg.enabled,
+          frequency: FREQUENCIES.some((f) => f.key === cfg.frequency) ? cfg.frequency : 'daily',
           sendHour: typeof cfg.sendHour === 'number' ? cfg.sendHour : 8,
+          sendWeekday: typeof cfg.sendWeekday === 'number' ? cfg.sendWeekday : 1,
+          sendDayOfMonth: typeof cfg.sendDayOfMonth === 'number' ? cfg.sendDayOfMonth : 1,
           timezone: cfg.timezone || BROWSER_TZ,
           teams: Array.isArray(cfg.teams) ? cfg.teams : [],
         });
@@ -194,8 +211,33 @@ export function SportsPage() {
 
             <label className={styles.toggleRow}>
               <input type="checkbox" checked={config.enabled} onChange={(e) => persist({ ...config, enabled: e.target.checked })} />
-              <span>Email me a daily digest</span>
+              <span>Email me a digest</span>
             </label>
+
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>How often</span>
+              <select className={styles.select} value={config.frequency} onChange={(e) => persist({ ...config, frequency: e.target.value })}>
+                {FREQUENCIES.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+              </select>
+            </label>
+
+            {config.frequency === 'weekly' && (
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>On</span>
+                <select className={styles.select} value={config.sendWeekday} onChange={(e) => persist({ ...config, sendWeekday: parseInt(e.target.value, 10) })}>
+                  {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                </select>
+              </label>
+            )}
+
+            {config.frequency === 'monthly' && (
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>On the</span>
+                <select className={styles.select} value={config.sendDayOfMonth} onChange={(e) => persist({ ...config, sendDayOfMonth: parseInt(e.target.value, 10) })}>
+                  {DAY_OF_MONTH_OPTIONS.map((d) => <option key={d} value={d}>{ordinal(d)}</option>)}
+                </select>
+              </label>
+            )}
 
             <label className={styles.field}>
               <span className={styles.fieldLabel}>Send around</span>
@@ -206,7 +248,7 @@ export function SportsPage() {
             <div className={styles.tzNote}>Times in {config.timezone}</div>
 
             <p className={styles.planNote}>
-              Sends to <strong>{user.email}</strong>. On the current plan the digest goes out once daily at a fixed time; your chosen time applies once hourly scheduling is enabled.
+              Sends to <strong>{user.email}</strong>. Your chosen frequency and day apply; on the current plan it goes out at a fixed time of day, and the exact hour takes effect once hourly scheduling is enabled.
             </p>
 
             <button className={styles.btn} onClick={sendTest} disabled={testStatus === 'sending' || config.teams.length === 0}>
