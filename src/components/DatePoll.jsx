@@ -60,7 +60,14 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     return token || null;
   }
 
-  // Fetch Google Calendar events for the visible month from all selected calendars
+  // Earliest / latest suggested date across the poll, so the Google fetch window
+  // can span every date being voted on — not just the visible month — and the
+  // Event overlap panel shows conflicts for dates in other months too.
+  const optStart = options.reduce((min, o) => (o.startDate && (!min || o.startDate < min) ? o.startDate : min), null);
+  const optEnd = options.reduce((max, o) => { const e = o.endDate || o.startDate; return e && (!max || e > max) ? e : max; }, null);
+
+  // Fetch Google Calendar events for the visible month (and every suggested date)
+  // from all selected calendars
   const fetchGoogleBusy = useCallback(async () => {
     const token = await getValidGoogleToken();
     if (!token) {
@@ -79,8 +86,11 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
 
     setLoadingGoogle(true);
     try {
-      const mStart = startOfMonth(calMonth);
-      const mEnd = endOfMonth(calMonth);
+      let mStart = startOfMonth(calMonth);
+      let mEnd = endOfMonth(calMonth);
+      // Widen the window to include suggested dates outside the visible month.
+      if (optStart) { const d = new Date(optStart + 'T00:00:00'); if (!isNaN(d.getTime()) && d < mStart) mStart = startOfMonth(d); }
+      if (optEnd) { const d = new Date(optEnd + 'T00:00:00'); if (!isNaN(d.getTime()) && d > mEnd) mEnd = endOfMonth(d); }
       const dates = new Set();
       const map = {};
       const fullMap = {};
@@ -116,7 +126,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
       setGoogleFullEvents(fullMap);
     } catch {}
     setLoadingGoogle(false);
-  }, [calMonth]);
+  }, [calMonth, optStart, optEnd]);
 
   useEffect(() => {
     fetchGoogleBusy();
