@@ -570,6 +570,9 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             const isClosedSuggestion = closedSuggestedDates.has(ds) && !isSuggested;
             const isFinalizedHere = (Array.isArray(finalizedDates) ? finalizedDates : []).includes(ds);
             const isSelected = isInSelection(day);
+            // Already-suggested (open) dates render with the same filled "selected"
+            // look, so reopening an event shows the chosen dates as if freshly picked.
+            const showAsSelected = isSelected || (isSuggested && isCurrentMonth && !isFinalized);
             const isToday = isSameDay(day, today);
             const isPast = day < new Date(today.getFullYear(), today.getMonth(), today.getDate());
             const isBusy = googleBusyDates.has(ds);
@@ -587,7 +590,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             return (
               <button
                 key={ds}
-                className={`${styles.calDay} ${isHoliday && isCurrentMonth ? styles.calDayHoliday : ''} ${isSelected ? styles.calDaySelected : ''} ${isSuggested && isCurrentMonth && !isFinalized ? styles.calDaySuggested : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isFinalizedHere && !isSelected ? styles.calDayFinalizedHere : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !isSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !isSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !isSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
+                className={`${styles.calDay} ${isHoliday && isCurrentMonth ? styles.calDayHoliday : ''} ${showAsSelected ? styles.calDaySelected : ''} ${isClosedSuggestion && isCurrentMonth ? styles.calDayClosedSuggestion : ''} ${isFinalizedHere && !isSelected ? styles.calDayFinalizedHere : ''} ${isToday ? styles.calDayToday : ''} ${isPast ? styles.calDayPast : ''} ${!isCurrentMonth ? styles.calDayOtherMonth : ''} ${isBusy && !showAsSelected ? styles.calDayBusy : ''} ${hasFinalizedConflict && !showAsSelected ? styles.calDayFinalizedElsewhere : ''} ${hasOverlap && !showAsSelected && !hasFinalizedConflict ? styles.calDayOtherEvent : ''} ${viewingDay === ds ? styles.calDayViewing : ''}`}
                 title={tooltipParts.length > 0 ? tooltipParts.join(' · ') : undefined}
                 onClick={() => {
                   if (!isPast && !isFinalized) handleDayClick(day);
@@ -643,8 +646,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         )}
 
         <div className={styles.calLegend}>
-          <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: 'var(--color-accent)' }} /> Selected</span>
-          {!isFinalized && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#BBF7D0' }} /> Suggested</span>}
+          <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: 'var(--color-accent)' }} /> Selected / Suggested</span>
           {finalizedDates && finalizedDates.length > 0 && <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#b45309', boxShadow: 'inset 0 0 0 2px #15803d' }} /> Finalized date</span>}
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ backgroundImage: 'repeating-linear-gradient(45deg, #dc2626, #dc2626 2px, #fecaca 2px, #fecaca 4px)' }} /> Holiday</span>
           <span className={styles.legendItem}><span className={styles.legendDot} style={{ border: '2px solid var(--color-accent)', background: 'none' }} /> Today</span>
