@@ -445,7 +445,16 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         conflicts.push({ type: 'holiday', dayLabel, title: h, time: 'Holiday' });
       }
     }
-    return { start, end, isRange, conflicts };
+    // Drop duplicates — e.g. a multi-day all-day Google event registered on
+    // several days shows up once per day; collapse identical rows.
+    const seen = new Set();
+    const deduped = conflicts.filter(c => {
+      const key = `${c.type}|${c.dayLabel || ''}|${c.title}|${c.time}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return { start, end, isRange, conflicts: deduped };
   }
 
   // Dates currently selected on the calendar but not yet submitted, so overlaps
