@@ -90,8 +90,13 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
           const data = await res.json();
           if (!data.events) continue;
           for (const evt of data.events) {
-            const start = new Date(evt.start);
-            const end = new Date(evt.end || evt.start);
+            // All-day events arrive as date-only strings; parse them as LOCAL
+            // dates so they don't slip to the previous day in western timezones.
+            const parseG = (s) => (evt.allDay && /^\d{4}-\d{2}-\d{2}$/.test(s))
+              ? (() => { const [y, m, dd] = s.split('-').map(Number); return new Date(y, m - 1, dd); })()
+              : new Date(s);
+            const start = parseG(evt.start);
+            const end = parseG(evt.end || evt.start);
             const days = evt.allDay
               ? eachDayOfInterval({ start, end: new Date(end.getTime() - 86400000) })
               : [start];
@@ -125,11 +130,16 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     let cancelled = false;
     (async () => {
       try {
-        const eventsSnap = await getDocs(query(
-          collection(db, 'events'),
-          where('memberUids', 'array-contains', user.uid)
-        ));
-        const otherDocs = eventsSnap.docs.filter(d => d.id !== entityId);
+        // Match how the Rally Calendar (useEvents) finds events — by membership
+        // AND by creator — so an event the user created but isn't a UID member of
+        // still surfaces as a conflict here.
+        const [memberSnap, createdSnap] = await Promise.all([
+          getDocs(query(collection(db, 'events'), where('memberUids', 'array-contains', user.uid))),
+          getDocs(query(collection(db, 'events'), where('createdBy', '==', user.uid))),
+        ]);
+        const byId = new Map();
+        for (const d of [...memberSnap.docs, ...createdSnap.docs]) byId.set(d.id, d);
+        const otherDocs = [...byId.values()].filter(d => d.id !== entityId);
         const votingMap = new Map();
         const finalizedMap = new Map();
         await Promise.all(otherDocs.map(async d => {
