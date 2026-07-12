@@ -13,7 +13,7 @@ const itemSchema = z.object({
   time: z.string().describe('HH:MM 24-hour format. Departure time for flights, check-in time for lodging. Empty string if none.'),
   location: z.string().describe('For travel items use "Origin → Destination" (e.g., "JFK Airport → Barcelona Airport"). For lodging use the place name and city. Empty string if none.'),
   notes: z.string().describe('Confirmation number, seat, terminal, room type, or other useful details. Empty string if none.'),
-  type: z.enum(['activity', 'travel', 'lodging']).describe('"travel" for flights, trains, buses, ferries, drives, transfers, car rentals; "lodging" for hotels, Airbnb, resorts; "activity" for ticketed events, concerts, shows, tours, attractions, and dining reservations.'),
+  type: z.enum(['activity', 'travel', 'lodging']).describe('"travel" for flights, trains, buses, ferries, drives, transfers, car rentals; "lodging" for hotels, Airbnb, resorts; "activity" for ticketed events, concerts, shows, tours, attractions, and restaurant reservations.'),
   travelMode: z.enum(['flight', 'train', 'bus', 'ferry', 'car', 'transfer', 'other', '']).describe('For type "travel", the mode: "flight", "train", "bus", "ferry", "car" (rental/drive), or "transfer". Empty string for non-travel items.'),
   isFlight: z.boolean().describe('true if this is an airline flight, false otherwise.'),
   arrivalTime: z.string().describe('HH:MM 24-hour arrival time for flights. Empty string if not a flight or unknown.'),
@@ -32,9 +32,11 @@ const itemSchema = z.object({
   hotelName: z.string().describe('For lodging: the property name (e.g. "Hotel Arts Barcelona"). Empty string if not lodging.'),
   guests: z.string().describe('For lodging: number of guests, or guest names if that is all that is stated (e.g. "2" or "2 adults"). Empty string if none.'),
   roomType: z.string().describe('For lodging: the room type/description (e.g. "King Room", "Deluxe Double"). Empty string if none.'),
-  eventName: z.string().describe('For type "activity" event bookings: the event/show/tour/restaurant name (e.g. "FC Barcelona vs Real Madrid", "Sagrada Familia Tour"). Empty string otherwise.'),
+  eventName: z.string().describe('For type "activity" event bookings: the event/show/tour name (e.g. "FC Barcelona vs Real Madrid", "Sagrada Familia Tour"). Empty string otherwise.'),
   venue: z.string().describe('For event bookings: the venue / location name (e.g. "Camp Nou", "Teatro Real"). Empty string if none.'),
   ticketCount: z.string().describe('For event bookings: number of tickets/admissions (e.g. "2", "4 adults"). Empty string if none.'),
+  restaurantName: z.string().describe('For type "activity" restaurant reservations: the restaurant name (e.g. "Le Bernardin"). Empty string otherwise.'),
+  partySize: z.string().describe('For restaurant reservations: the number of people in the reservation (e.g. "2", "4"). Empty string if none.'),
   url: z.string().describe('Booking/management URL if present in the email, else empty string.'),
   imageQuery: z.string().describe('2-4 word image search query for lodging/activities (e.g., "hotel arts barcelona"). Empty string for flights/transfers.'),
 });
@@ -47,15 +49,16 @@ const responseSchema = z.object({
 const SYSTEM_PROMPT = `You extract bookings from a pasted email (typically a confirmation from an airline, train/bus line, hotel, car-rental, or an event/ticket/tour provider) and turn them into structured itinerary items.
 
 Rules:
-- Read the raw email text and pull out every flight, train, bus, ferry, transfer, car rental, lodging, and ticketed event/tour booking it describes.
+- Read the raw email text and pull out every flight, train, bus, ferry, transfer, car rental, lodging, ticketed event/tour, and restaurant reservation it describes.
 - Each leg of a trip is its own item. A round-trip is TWO items (outbound and return). A multi-leg/connecting journey is one item per leg unless the email clearly bundles them.
-- Use type "travel" for flights, trains, buses, ferries, drives, transfers, car rentals. Use type "lodging" for hotels, Airbnb, resorts. Use type "activity" for ticketed events, concerts, sports, shows, tours, attraction tickets, and dining reservations.
+- Use type "travel" for flights, trains, buses, ferries, drives, transfers, car rentals. Use type "lodging" for hotels, Airbnb, resorts. Use type "activity" for ticketed events, concerts, sports, shows, tours, attraction tickets, and restaurant reservations.
 - For every "travel" item, set travelMode to one of: "flight", "train", "bus", "ferry", "car", or "transfer". Set isFlight=true only for airline flights (travelMode "flight").
 - For travel (flights, trains, buses, ferries): fill time (departure, local), arrivalTime (local), fromLocation (origin station/airport/city) and toLocation (destination), and format location as "Origin → Destination". For flights also fill airline and flightNumber.
 - Capture booking identifiers when present: tripId (trip/itinerary ID), reservationNumber (confirmation/PNR/booking code), passengers (all traveller names), ticketNumbers, and seatNumbers. Leave any empty if not stated. Never invent them.
 - Set endDate when a leg ends on a different calendar day than it starts (e.g. an overnight/red-eye trip) or when the email explicitly states an arrival/check-out date; otherwise leave it empty.
 - For lodging: date = check-in date, endDate = check-out date, time = check-in time if stated, location = hotel name + city. Also fill hotelName, bookingId, reservationNumber (confirmation if separate from bookingId), guests, and roomType.
-- For event/activity bookings (concerts, sports, shows, tours, attractions, dining): set type "activity". Fill eventName (the event/show/tour name), venue (place/venue name), date and time, reservationNumber (confirmation/booking code), ticketCount (number of tickets/admissions), and seatNumbers/section if stated. Use the venue/city for location.
+- For event/activity bookings (concerts, sports, shows, tours, attractions): set type "activity". Fill eventName (the event/show/tour name), venue (place/venue name), date and time, reservationNumber (confirmation/booking code), ticketCount (number of tickets/admissions), and seatNumbers/section if stated. Use the venue/city for location.
+- For restaurant reservations (OpenTable, Resy, SevenRooms, direct restaurant confirmations): set type "activity". Fill restaurantName, date and time, reservationNumber (confirmation code), partySize (number of people), and use the restaurant name + city for location. Leave eventName/venue/ticketCount empty for restaurants.
 - Always resolve dates to absolute YYYY-MM-DD. If the email only gives a weekday or "tomorrow", use the email's own date context; if you cannot determine the year, assume the next occurrence relative to the trip context provided.
 - Put any extra useful details (address, phone, cancellation policy) in notes, but do NOT just repeat the structured fields there.
 - Only include the cost if a price is explicitly stated in the email. Never invent prices.
