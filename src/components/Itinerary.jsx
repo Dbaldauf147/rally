@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { WEB_ORIGIN } from '../native';
 import styles from './Itinerary.module.css';
 
 const TRAVEL_MODES = [
@@ -2621,8 +2622,8 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary, onOpenDay }) 
 
   async function shareItineraryLink() {
     const link = event?.shareToken
-      ? `${window.location.origin}/invite/${event.shareToken}?tab=itinerary`
-      : window.location.href;
+      ? `${WEB_ORIGIN}/invite/${event.shareToken}?tab=itinerary`
+      : `${WEB_ORIGIN}${window.location.pathname}${window.location.search}`;
     const title = event?.title ? `Itinerary — ${event.title}` : 'Trip itinerary';
     setShareStatus('');
     // Prefer the native share sheet on mobile so users can pick Messages /
@@ -2716,7 +2717,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary, onOpenDay }) 
     const endStr = toDateStr(event?.endDate);
     const dateRange = endStr && endStr !== startStr ? `${startStr} – ${endStr}` : startStr;
     const link = event?.shareToken
-      ? `${window.location.origin}/invite/${event.shareToken}?tab=itinerary`
+      ? `${WEB_ORIGIN}/invite/${event.shareToken}?tab=itinerary`
       : '';
 
     const lines = [];
@@ -2878,7 +2879,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary, onOpenDay }) 
       }
     }
 
-    const link = event?.shareToken ? `${window.location.origin}/invite/${event.shareToken}?tab=itinerary` : '';
+    const link = event?.shareToken ? `${WEB_ORIGIN}/invite/${event.shareToken}?tab=itinerary` : '';
     if (link) { lines.push(''); lines.push(`View on Rally: ${link}`); }
     lines.push('');
     lines.push(`— ${fromName}`);
