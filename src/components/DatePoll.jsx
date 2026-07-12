@@ -409,6 +409,38 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     return list;
   })();
 
+  // Overlap menu (right of the calendar): for each open suggested date, gather
+  // everything that clashes with it — Google Calendar events, other Rally events
+  // (voting + finalized), and holidays — so conflicts are visible at a glance
+  // without clicking into each day.
+  const conflictColors = { google: '#4285F4', finalized: '#16a34a', voting: '#f59e0b', holiday: '#dc2626' };
+  const suggestedOverlaps = options
+    .filter(o => !o.closed && o.startDate)
+    .map(opt => {
+      const start = new Date(opt.startDate + 'T00:00:00');
+      const end = new Date((opt.endDate || opt.startDate) + 'T00:00:00');
+      const isRange = opt.endDate && opt.endDate !== opt.startDate;
+      const conflicts = [];
+      for (const d of eachDayOfInterval({ start, end })) {
+        const ds = toDateStr(d);
+        const dayLabel = isRange ? format(d, 'MMM d') : null;
+        for (const evt of (googleFullEvents[ds] || [])) {
+          conflicts.push({ type: 'google', dayLabel, title: evt.title, time: evt.allDay ? 'All day' : format(new Date(evt.start), 'h:mm a') });
+        }
+        for (const t of (finalizedEventDates.get(ds) || [])) {
+          conflicts.push({ type: 'finalized', dayLabel, title: t, time: 'Rally event finalized' });
+        }
+        for (const t of (otherEventDates.get(ds) || [])) {
+          conflicts.push({ type: 'voting', dayLabel, title: t, time: 'Rally event voting' });
+        }
+        for (const h of (holidayMap[ds] || [])) {
+          conflicts.push({ type: 'holiday', dayLabel, title: h, time: 'Holiday' });
+        }
+      }
+      return { opt, start, end, isRange, conflicts };
+    })
+    .sort((a, b) => (a.opt.startDate < b.opt.startDate ? -1 : 1));
+
   // Selection range for highlighting
   const selStartDate = selStart ? new Date(selStart + 'T00:00:00') : null;
   const selEndDate = selEnd ? new Date(selEnd + 'T00:00:00') : null;
@@ -624,40 +656,80 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         )}
       </div>
 
-      {/* Side panel — Google Calendar events and other Rally events for selected day */}
-      {viewingDay && (googleFullEvents[viewingDay] || otherEventDates.has(viewingDay) || finalizedEventDates.has(viewingDay)) && (
-        <div className={styles.sidePanel}>
-          <div className={styles.sidePanelHeader}>
-            <h4 className={styles.sidePanelTitle}>{format(new Date(viewingDay + 'T00:00:00'), 'EEEE, MMM d')}</h4>
-            <button className={styles.sidePanelClose} onClick={() => setViewingDay(null)}>&times;</button>
-          </div>
-          <div className={styles.sidePanelEvents}>
-            {(googleFullEvents[viewingDay] || []).map((evt, i) => {
-              const start = new Date(evt.start);
-              const timeStr = evt.allDay ? 'All day' : format(start, 'h:mm a');
-              return (
-                <div key={`g-${i}`} className={styles.sidePanelEvent}>
-                  <div className={styles.sidePanelTime}>{timeStr}</div>
-                  <div className={styles.sidePanelEventTitle}>{evt.title}</div>
-                  {evt.location && <div className={styles.sidePanelLocation}>📍 {evt.location}</div>}
+      {/* Right column — day detail (on click) + persistent overlap menu */}
+      <div className={styles.calendarSide}>
+        {/* Side panel — Google Calendar events and other Rally events for selected day */}
+        {viewingDay && (googleFullEvents[viewingDay] || otherEventDates.has(viewingDay) || finalizedEventDates.has(viewingDay)) && (
+          <div className={styles.sidePanel}>
+            <div className={styles.sidePanelHeader}>
+              <h4 className={styles.sidePanelTitle}>{format(new Date(viewingDay + 'T00:00:00'), 'EEEE, MMM d')}</h4>
+              <button className={styles.sidePanelClose} onClick={() => setViewingDay(null)}>&times;</button>
+            </div>
+            <div className={styles.sidePanelEvents}>
+              {(googleFullEvents[viewingDay] || []).map((evt, i) => {
+                const start = new Date(evt.start);
+                const timeStr = evt.allDay ? 'All day' : format(start, 'h:mm a');
+                return (
+                  <div key={`g-${i}`} className={styles.sidePanelEvent}>
+                    <div className={styles.sidePanelTime}>{timeStr}</div>
+                    <div className={styles.sidePanelEventTitle}>{evt.title}</div>
+                    {evt.location && <div className={styles.sidePanelLocation}>📍 {evt.location}</div>}
+                  </div>
+                );
+              })}
+              {(finalizedEventDates.get(viewingDay) || []).map((title, i) => (
+                <div key={`f-${i}`} className={styles.sidePanelEvent} style={{ background: '#dcfce7', borderLeftColor: '#16a34a' }}>
+                  <div className={styles.sidePanelTime} style={{ color: '#15803d' }}>Rally event finalized</div>
+                  <div className={styles.sidePanelEventTitle}>{title}</div>
                 </div>
-              );
-            })}
-            {(finalizedEventDates.get(viewingDay) || []).map((title, i) => (
-              <div key={`f-${i}`} className={styles.sidePanelEvent} style={{ background: '#dcfce7', borderLeftColor: '#16a34a' }}>
-                <div className={styles.sidePanelTime} style={{ color: '#15803d' }}>Rally event finalized</div>
-                <div className={styles.sidePanelEventTitle}>{title}</div>
-              </div>
-            ))}
-            {(otherEventDates.get(viewingDay) || []).map((title, i) => (
-              <div key={`r-${i}`} className={styles.sidePanelEvent} style={{ background: '#fffbeb', borderLeftColor: '#f59e0b' }}>
-                <div className={styles.sidePanelTime} style={{ color: '#d97706' }}>Rally event voting</div>
-                <div className={styles.sidePanelEventTitle}>{title}</div>
-              </div>
-            ))}
+              ))}
+              {(otherEventDates.get(viewingDay) || []).map((title, i) => (
+                <div key={`r-${i}`} className={styles.sidePanelEvent} style={{ background: '#fffbeb', borderLeftColor: '#f59e0b' }}>
+                  <div className={styles.sidePanelTime} style={{ color: '#d97706' }}>Rally event voting</div>
+                  <div className={styles.sidePanelEventTitle}>{title}</div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Persistent overlap menu — conflicts across every suggested date */}
+        {!isFinalized && suggestedOverlaps.length > 0 && (
+          <div className={styles.overlapPanel}>
+            <div className={styles.overlapHeader}>Event overlap</div>
+            <p className={styles.overlapSubhead}>Conflicts on each suggested date</p>
+            <div className={styles.overlapList}>
+              {suggestedOverlaps.map(({ opt, start, end, isRange, conflicts }) => {
+                const label = isRange
+                  ? `${format(start, 'MMM d')} – ${format(end, 'MMM d')}`
+                  : format(start, 'EEE, MMM d');
+                return (
+                  <div key={opt.id} className={styles.overlapItem}>
+                    <div className={styles.overlapDate}>{label}</div>
+                    {conflicts.length === 0 ? (
+                      <div className={styles.overlapClear}>✓ No conflicts</div>
+                    ) : (
+                      <div className={styles.overlapConflicts}>
+                        {conflicts.map((c, i) => (
+                          <div key={i} className={styles.overlapConflict}>
+                            <span className={styles.overlapDot} style={{ background: conflictColors[c.type] }} />
+                            <div className={styles.overlapConflictText}>
+                              <span className={styles.overlapConflictTitle}>
+                                {c.dayLabel ? `${c.dayLabel}: ` : ''}{c.title}
+                              </span>
+                              {c.time && <span className={styles.overlapConflictTime}>{c.time}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
       </div>
 
       {/* Suggested date options with voting — available at the top */}
