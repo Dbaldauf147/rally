@@ -449,6 +449,35 @@ export function EventDetail() {
     return [uid, { ...m, _friendMatch: null, _friendSuggestions: suggestFriends(m) }];
   });
 
+  // Attendance status (Going / Not going / TBD). Defaults to TBD, is derived from
+  // how the person voted, and can be manually overridden per member. A stored
+  // `m.attendance` wins; otherwise we infer from their date votes.
+  function deriveAttendance(uid) {
+    const vs = voteStats[uid];
+    if (!vs || vs.total === 0) return 'tbd';
+    if (vs.yes > 0) return 'going';           // works for at least one date → going
+    if (vs.no > 0 && vs.maybe === 0) return 'notgoing'; // voted, all "no" → not going
+    return 'tbd';                              // only maybes / unclear → TBD
+  }
+  function getAttendance(uid, m) {
+    const o = m?.attendance;
+    if (o === 'going' || o === 'notgoing' || o === 'tbd') return { status: o, overridden: true };
+    return { status: deriveAttendance(uid), overridden: false };
+  }
+  function setAttendance(uid, val, currentlyOverridden, currentStatus) {
+    // Clicking the already-active manual choice clears the override → back to auto.
+    if (currentlyOverridden && currentStatus === val) {
+      updateEvent(eventId, { [`members.${uid}.attendance`]: deleteField() });
+    } else {
+      updateEvent(eventId, { [`members.${uid}.attendance`]: val });
+    }
+  }
+  const ATTENDANCE_OPTS = [
+    { key: 'going', label: 'Going', color: '#16a34a', bg: '#dcfce7' },
+    { key: 'tbd', label: 'TBD', color: '#6b7280', bg: '#f3f4f6' },
+    { key: 'notgoing', label: 'Not going', color: '#dc2626', bg: '#fee2e2' },
+  ];
+
   async function linkMemberToFriend(uid, friend) {
     if (!friend) return;
     const updates = {};
@@ -1368,6 +1397,23 @@ export function EventDetail() {
                 );
               })()}
             </h3>
+
+            {/* Attendance tally — Going / TBD / Not going across all attendees */}
+            {(() => {
+              const counts = { going: 0, tbd: 0, notgoing: 0 };
+              for (const [uid, m] of members) counts[getAttendance(uid, m).status]++;
+              return (
+                <div style={{ display: 'flex', gap: '0.4rem', margin: '0 0 0.85rem', flexWrap: 'wrap' }}>
+                  {ATTENDANCE_OPTS.map(c => (
+                    <span key={c.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.3rem 0.7rem', borderRadius: 'var(--radius-full)', background: c.bg, color: c.color, fontSize: '0.78rem', fontWeight: 700 }}>
+                      {c.label}
+                      <span style={{ background: c.color, color: '#fff', borderRadius: '999px', minWidth: '1.1rem', textAlign: 'center', padding: '0 0.3rem', fontSize: '0.72rem' }}>{counts[c.key]}</span>
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
+
             {(() => {
               // Build a map of which group each host belongs to
               const hostGroup = {};
@@ -1533,6 +1579,43 @@ export function EventDetail() {
                                     title="Mark as doesn't need to vote"
                                   >Skip vote</button>
                                 )}
+                              </div>
+                            );
+                          })()}
+                          {/* Going / TBD / Not going — defaults to TBD, follows votes, owner can override */}
+                          {(() => {
+                            const { status, overridden } = getAttendance(uid, m);
+                            if (!isOwner) {
+                              const opt = ATTENDANCE_OPTS.find(o => o.key === status);
+                              return (
+                                <div style={{ marginTop: '4px' }}>
+                                  <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '999px', background: opt.bg, color: opt.color, fontSize: '0.62rem', fontWeight: 700 }}>{opt.label}</span>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div
+                                onClick={e => e.stopPropagation()}
+                                style={{ display: 'inline-flex', gap: '2px', marginTop: '5px', border: '1px solid var(--color-border)', borderRadius: '999px', padding: '2px', background: 'var(--color-surface)' }}
+                                title={overridden ? 'Manually set — click the active option again to follow votes' : 'Auto from votes — click to override'}
+                              >
+                                {ATTENDANCE_OPTS.map(o => {
+                                  const active = status === o.key;
+                                  return (
+                                    <button
+                                      key={o.key}
+                                      onClick={e => { e.stopPropagation(); setAttendance(uid, o.key, overridden, status); }}
+                                      style={{
+                                        fontSize: '0.62rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px',
+                                        border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                                        background: active ? o.bg : 'transparent',
+                                        color: active ? o.color : '#9ca3af',
+                                      }}
+                                    >
+                                      {o.label}{active && overridden ? ' ✎' : ''}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             );
                           })()}
