@@ -4,8 +4,15 @@
 .title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
 .subtitle { color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.15rem; }
 
-.grid { display: grid; grid-template-columns: 1fr 320px; gap: 1.5rem; align-items: start; }
-@media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+.grid { display: grid; grid-template-columns: 1fr 300px; gap: 1.5rem; align-items: start; }
+/* Season calendars take the wide left column; teams sit top-right with delivery below. */
+.colSeasons { grid-column: 1; grid-row: 1 / span 2; }
+.colTeams { grid-column: 2; grid-row: 1; }
+.colDelivery { grid-column: 2; grid-row: 2; }
+@media (max-width: 800px) {
+  .grid { grid-template-columns: 1fr; }
+  .colSeasons, .colTeams, .colDelivery { grid-column: 1; grid-row: auto; }
+}
 
 .card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1.25rem; }
 .cardTitle { font-size: 1rem; font-weight: 700; margin: 0 0 0.85rem; }
