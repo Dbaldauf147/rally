@@ -46,6 +46,23 @@ const BROWSER_TZ = (() => {
   catch { return 'America/New_York'; }
 })();
 
+function fmtSeasonDate(iso) {
+  try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+  catch { return ''; }
+}
+
+// Where "now" sits relative to a season window, for the status pill.
+function seasonStatus(season) {
+  if (!season?.startDate || !season?.endDate) return { label: 'Dates unavailable', tone: 'muted' };
+  const now = Date.now();
+  const start = new Date(season.startDate).getTime();
+  const end = new Date(season.endDate).getTime();
+  const days = (ms) => Math.max(1, Math.ceil(ms / 86400000));
+  if (now < start) return { label: `Starts in ${days(start - now)} day${days(start - now) === 1 ? '' : 's'}`, tone: 'upcoming' };
+  if (now > end) return { label: 'Season ended', tone: 'ended' };
+  return { label: `In season · ${days(end - now)} day${days(end - now) === 1 ? '' : 's'} left`, tone: 'active' };
+}
+
 // Content sections the digest can include, toggled per user.
 const TOPICS = [
   { key: 'scores', label: 'Recent scores' },
@@ -68,8 +85,20 @@ export function SportsPage() {
   const [teamsError, setTeamsError] = useState('');
   const [pickTeamId, setPickTeamId] = useState('');
   const [testStatus, setTestStatus] = useState(null); // 'sending' | 'sent' | 'error:msg'
+  const [seasons, setSeasons] = useState({}); // sportPath -> season
+  const [seasonsLoading, setSeasonsLoading] = useState(false);
 
   const league = useMemo(() => LEAGUES.find((l) => l.key === leagueKey) || LEAGUES[0], [leagueKey]);
+
+  // Distinct leagues among the followed teams — one season calendar per league.
+  const trackedLeagues = useMemo(() => {
+    const map = new Map();
+    for (const t of config.teams) {
+      if (!map.has(t.sportPath)) map.set(t.sportPath, { sportPath: t.sportPath, label: t.leagueLabel || t.leagueKey });
+    }
+    return [...map.values()];
+  }, [config.teams]);
+  const trackedPathsKey = trackedLeagues.map((l) => l.sportPath).sort().join(',');
 
   // Load saved config.
   useEffect(() => {
@@ -112,6 +141,24 @@ export function SportsPage() {
       .finally(() => { if (!cancelled) setTeamsLoading(false); });
     return () => { cancelled = true; };
   }, [league.sportPath]);
+
+  // Load each tracked league's season window (start/end) when the set changes.
+  useEffect(() => {
+    if (!trackedPathsKey) { setSeasons({}); return; }
+    let cancelled = false;
+    setSeasonsLoading(true);
+    fetch(`/api/sports-seasons?sportPaths=${encodeURIComponent(trackedPathsKey)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const m = {};
+        for (const s of data.seasons || []) m[s.sportPath] = s.season;
+        setSeasons(m);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setSeasonsLoading(false); });
+    return () => { cancelled = true; };
+  }, [trackedPathsKey]);
 
   async function persist(next) {
     setConfig(next);
@@ -210,6 +257,37 @@ export function SportsPage() {
                     <button className={styles.removeBtn} onClick={() => removeTeam(t.leagueKey, t.teamId)} title="Remove" aria-label={`Remove ${t.name}`}>×</button>
                   </li>
                 ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Season calendars — one per league among followed teams */}
+          <section className={styles.card}>
+            <h2 className={styles.cardTitle}>Season calendars</h2>
+            {trackedLeagues.length === 0 ? (
+              <div className={styles.empty}>Add teams to see when their seasons start and end.</div>
+            ) : seasonsLoading ? (
+              <div className={styles.empty}>Loading seasons…</div>
+            ) : (
+              <ul className={styles.seasonList}>
+                {trackedLeagues.map((l) => {
+                  const s = seasons[l.sportPath];
+                  const status = seasonStatus(s);
+                  return (
+                    <li key={l.sportPath} className={styles.seasonItem}>
+                      <div className={styles.seasonTop}>
+                        <span className={styles.seasonLeague}>{l.label}</span>
+                        {s?.displayName && <span className={styles.seasonYear}>{s.displayName}</span>}
+                      </div>
+                      <div className={styles.seasonDates}>
+                        {s?.startDate && s?.endDate
+                          ? <>{fmtSeasonDate(s.startDate)} <span className={styles.seasonArrow}>→</span> {fmtSeasonDate(s.endDate)}</>
+                          : 'Dates unavailable'}
+                      </div>
+                      <span className={`${styles.seasonStatus} ${styles[`status_${status.tone}`]}`}>{status.label}</span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
