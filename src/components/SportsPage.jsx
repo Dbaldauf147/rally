@@ -247,8 +247,8 @@ export function SportsPage() {
         <div className={styles.empty}>Loading…</div>
       ) : (
         <div className={styles.grid}>
-          {/* Followed teams */}
-          <section className={styles.card}>
+          {/* Followed teams — top-right sidebar */}
+          <section className={`${styles.card} ${styles.colTeams}`}>
             <h2 className={styles.cardTitle}>Your teams</h2>
             <div className={styles.addRow}>
               <select className={styles.select} value={leagueKey} onChange={(e) => setLeagueKey(e.target.value)}>
@@ -282,8 +282,8 @@ export function SportsPage() {
             )}
           </section>
 
-          {/* Season calendars — one per league among followed teams */}
-          <section className={styles.card}>
+          {/* Season calendars — wide left column */}
+          <section className={`${styles.card} ${styles.colSeasons}`}>
             <h2 className={styles.cardTitle}>Season calendars</h2>
             {trackedLeagues.length === 0 ? (
               <div className={styles.empty}>Add teams to see when their seasons start and end.</div>
@@ -327,8 +327,8 @@ export function SportsPage() {
             )}
           </section>
 
-          {/* Schedule + delivery */}
-          <aside className={styles.card}>
+          {/* Schedule + delivery — right column under teams */}
+          <aside className={`${styles.card} ${styles.colDelivery}`}>
             <h2 className={styles.cardTitle}>Delivery</h2>
 
             <label className={styles.toggleRow}>
