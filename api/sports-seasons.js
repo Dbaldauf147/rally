@@ -1,7 +1,9 @@
-// Proxy for ESPN season windows (when each sport's season starts/ends). ESPN's
-// API sends no CORS headers, so the Sports page can't call it directly. Accepts
-// a comma-separated list of whitelisted sportPaths and returns each league's
-// current season start/end.
+// Proxy for ESPN season windows + phases (when each sport's season starts/ends,
+// and its sub-phases like Regular Season / Postseason). ESPN's API sends no CORS
+// headers, so the Sports page can't call it directly. Accepts a comma-separated
+// list of whitelisted sportPaths.
+import { fetchSeasonWithPhases } from '../lib/espnSeason.js';
+
 const ALLOWED_SPORT_PATHS = new Set([
   'football/nfl',
   'basketball/nba',
@@ -12,23 +14,6 @@ const ALLOWED_SPORT_PATHS = new Set([
   'soccer/usa.1',
   'soccer/eng.1',
 ]);
-
-async function fetchSeason(sportPath) {
-  const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${sportPath}/scoreboard`);
-  if (!res.ok) throw new Error(`ESPN HTTP ${res.status}`);
-  const data = await res.json();
-  const season = data?.leagues?.[0]?.season;
-  if (!season) return { sportPath, season: null };
-  return {
-    sportPath,
-    season: {
-      year: season.year,
-      displayName: season.displayName || String(season.year || ''),
-      startDate: season.startDate || null,
-      endDate: season.endDate || null,
-    },
-  };
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -42,7 +27,11 @@ export default async function handler(req, res) {
 
   try {
     const seasons = await Promise.all(
-      paths.map((p) => fetchSeason(p).catch(() => ({ sportPath: p, season: null }))),
+      paths.map((p) =>
+        fetchSeasonWithPhases(p)
+          .then((season) => ({ sportPath: p, season }))
+          .catch(() => ({ sportPath: p, season: null })),
+      ),
     );
     res.setHeader('Cache-Control', 's-maxage=21600, stale-while-revalidate=86400');
     return res.status(200).json({ seasons });

@@ -7,6 +7,7 @@
 //     digest immediately to their own account email, ignoring the daily dedupe.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { fetchSeasonWithPhases } from '../lib/espnSeason.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -126,16 +127,6 @@ async function fetchTeamStanding(team) {
   return { record, standing: t.standingSummary || '' };
 }
 
-// Current season window (start/end) for a league, from the scoreboard endpoint.
-async function fetchSeason(sportPath) {
-  const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${sportPath}/scoreboard`);
-  if (!res.ok) throw new Error(`ESPN HTTP ${res.status}`);
-  const data = await res.json();
-  const s = data?.leagues?.[0]?.season;
-  if (!s) return null;
-  return { displayName: s.displayName || String(s.year || ''), startDate: s.startDate || null, endDate: s.endDate || null };
-}
-
 function seasonStatusText(season) {
   if (!season?.startDate || !season?.endDate) return 'Dates unavailable';
   const now = Date.now();
@@ -194,15 +185,22 @@ const sectionLabel = (text, first) =>
 
 function buildSeasonBlock(seasons, tz) {
   if (!seasons || seasons.length === 0) return '';
+  const now = Date.now();
   const rows = seasons.map(({ label, season }) => {
     const dates = season?.startDate && season?.endDate
       ? `${fmtSeasonDate(season.startDate, tz)} → ${fmtSeasonDate(season.endDate, tz)}`
       : 'Dates unavailable';
+    const phases = (season?.phases || []).map((p) => {
+      const active = now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime();
+      return `<div style="margin:1px 0;font-size:0.82rem;color:${active ? '#4f46e5' : '#6b7280'};font-weight:${active ? 600 : 400};">
+        ${p.name}: ${fmtSeasonDate(p.startDate, tz)} → ${fmtSeasonDate(p.endDate, tz)}${active ? ' — now' : ''}</div>`;
+    }).join('');
     return `
-      <div style="margin:4px 0;">
+      <div style="margin:6px 0;">
         <span style="font-weight:700;color:#111827;">${label}</span>
         <span style="color:#6b7280;font-size:0.8rem;">${season?.displayName ? ' · ' + season.displayName : ''}</span>
         <div style="color:#1f2937;">${dates} <span style="color:#6b7280;">· ${seasonStatusText(season)}</span></div>
+        ${phases ? `<div style="margin-top:2px;padding-left:0.5rem;border-left:2px solid #e5e7eb;">${phases}</div>` : ''}
       </div>`;
   }).join('');
   return `
@@ -282,7 +280,7 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
     }
     seasons = await Promise.all(
       [...byPath.entries()].map(async ([sportPath, label]) => {
-        try { return { label, season: await fetchSeason(sportPath) }; }
+        try { return { label, season: await fetchSeasonWithPhases(sportPath) }; }
         catch { return { label, season: null }; }
       }),
     );
