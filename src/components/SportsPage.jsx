@@ -46,7 +46,15 @@ const BROWSER_TZ = (() => {
   catch { return 'America/New_York'; }
 })();
 
-const DEFAULT_CONFIG = { enabled: false, frequency: 'daily', sendHour: 8, sendWeekday: 1, sendDayOfMonth: 1, timezone: BROWSER_TZ, teams: [] };
+// Content sections the digest can include, toggled per user.
+const TOPICS = [
+  { key: 'scores', label: 'Recent scores' },
+  { key: 'upcoming', label: 'Upcoming games' },
+  { key: 'standings', label: 'Records & standings' },
+];
+const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true };
+
+const DEFAULT_CONFIG = { enabled: false, frequency: 'daily', sendHour: 8, sendWeekday: 1, sendDayOfMonth: 1, timezone: BROWSER_TZ, topics: { ...DEFAULT_TOPICS }, teams: [] };
 
 export function SportsPage() {
   const { user } = useAuth();
@@ -77,6 +85,7 @@ export function SportsPage() {
           sendWeekday: typeof cfg.sendWeekday === 'number' ? cfg.sendWeekday : 1,
           sendDayOfMonth: typeof cfg.sendDayOfMonth === 'number' ? cfg.sendDayOfMonth : 1,
           timezone: cfg.timezone || BROWSER_TZ,
+          topics: cfg.topics && typeof cfg.topics === 'object' ? { ...DEFAULT_TOPICS, ...cfg.topics } : { ...DEFAULT_TOPICS },
           teams: Array.isArray(cfg.teams) ? cfg.teams : [],
         });
       }
@@ -214,6 +223,22 @@ export function SportsPage() {
               <span>Email me a digest</span>
             </label>
 
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Include in email</span>
+              <div className={styles.topicList}>
+                {TOPICS.map((t) => (
+                  <label key={t.key} className={styles.topicRow}>
+                    <input
+                      type="checkbox"
+                      checked={!!config.topics[t.key]}
+                      onChange={(e) => persist({ ...config, topics: { ...config.topics, [t.key]: e.target.checked } })}
+                    />
+                    <span>{t.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <label className={styles.field}>
               <span className={styles.fieldLabel}>How often</span>
               <select className={styles.select} value={config.frequency} onChange={(e) => persist({ ...config, frequency: e.target.value })}>
@@ -251,7 +276,7 @@ export function SportsPage() {
               Sends to <strong>{user.email}</strong>. Your chosen frequency and day apply; on the current plan it goes out at a fixed time of day, and the exact hour takes effect once hourly scheduling is enabled.
             </p>
 
-            <button className={styles.btn} onClick={sendTest} disabled={testStatus === 'sending' || config.teams.length === 0}>
+            <button className={styles.btn} onClick={sendTest} disabled={testStatus === 'sending' || config.teams.length === 0 || !Object.values(config.topics).some(Boolean)}>
               {testStatus === 'sending' ? 'Sending…' : 'Send test email now'}
             </button>
             {testStatus === 'sent' && <div className={styles.okText}>✓ Sent — check your inbox.</div>}

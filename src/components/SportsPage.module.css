@@ -39,6 +39,8 @@
 .toggleRow { display: flex; align-items: center; gap: 0.55rem; font-size: 0.9rem; cursor: pointer; margin-bottom: 1rem; }
 
 .field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.4rem; }
+.topicList { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.1rem; }
+.topicRow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; }
 .fieldLabel { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); font-weight: 600; }
 .tzNote { font-size: 0.72rem; color: var(--color-text-muted); margin-bottom: 1rem; }
 
