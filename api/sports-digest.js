@@ -66,14 +66,19 @@ function fmtGameTime(iso, tz) {
   }
 }
 
-// The content sections a digest can include. Defaults keep the original
-// behavior (scores + upcoming) plus standings for existing configs.
-const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true };
+// The content sections a digest can include. Any key not explicitly set to
+// false is treated as on, so newly added topics default on for existing
+// configs (and legacy configs with no topics field get everything).
+const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true, seasons: true };
 function normalizeTopics(cfg) {
   const t = cfg?.topics;
-  // Legacy configs (no topics field) fall back to the defaults.
   if (!t || typeof t !== 'object') return { ...DEFAULT_TOPICS };
-  return { scores: !!t.scores, upcoming: !!t.upcoming, standings: !!t.standings };
+  return {
+    scores: t.scores !== false,
+    upcoming: t.upcoming !== false,
+    standings: t.standings !== false,
+    seasons: t.seasons !== false,
+  };
 }
 
 // Recent results + upcoming games from the team's schedule endpoint.
@@ -121,6 +126,35 @@ async function fetchTeamStanding(team) {
   return { record, standing: t.standingSummary || '' };
 }
 
+// Current season window (start/end) for a league, from the scoreboard endpoint.
+async function fetchSeason(sportPath) {
+  const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${sportPath}/scoreboard`);
+  if (!res.ok) throw new Error(`ESPN HTTP ${res.status}`);
+  const data = await res.json();
+  const s = data?.leagues?.[0]?.season;
+  if (!s) return null;
+  return { displayName: s.displayName || String(s.year || ''), startDate: s.startDate || null, endDate: s.endDate || null };
+}
+
+function seasonStatusText(season) {
+  if (!season?.startDate || !season?.endDate) return 'Dates unavailable';
+  const now = Date.now();
+  const start = new Date(season.startDate).getTime();
+  const end = new Date(season.endDate).getTime();
+  const days = (ms) => Math.max(1, Math.ceil(ms / 86400000));
+  if (now < start) return `Starts in ${days(start - now)} days`;
+  if (now > end) return 'Season ended';
+  return `In season · ${days(end - now)} days left`;
+}
+
+function fmtSeasonDate(iso, tz) {
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: tz || 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso));
+  } catch {
+    return new Date(iso).toLocaleDateString();
+  }
+}
+
 // Gather all requested content for one team, only fetching what's toggled on.
 async function fetchTeamDigest(team, topics) {
   const out = { name: team.name, results: [], upcoming: [], record: '', standing: '' };
@@ -158,7 +192,28 @@ function upcomingLine(g, tz) {
 const sectionLabel = (text, first) =>
   `<div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:${first ? '0' : '0.6rem'} 0 0.15rem;">${text}</div>`;
 
-function buildEmailHtml(teamDigests, tz, topics) {
+function buildSeasonBlock(seasons, tz) {
+  if (!seasons || seasons.length === 0) return '';
+  const rows = seasons.map(({ label, season }) => {
+    const dates = season?.startDate && season?.endDate
+      ? `${fmtSeasonDate(season.startDate, tz)} → ${fmtSeasonDate(season.endDate, tz)}`
+      : 'Dates unavailable';
+    return `
+      <div style="margin:4px 0;">
+        <span style="font-weight:700;color:#111827;">${label}</span>
+        <span style="color:#6b7280;font-size:0.8rem;">${season?.displayName ? ' · ' + season.displayName : ''}</span>
+        <div style="color:#1f2937;">${dates} <span style="color:#6b7280;">· ${seasonStatusText(season)}</span></div>
+      </div>`;
+  }).join('');
+  return `
+    <div style="background:#eef2ff;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
+      <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">Season calendars</h2>
+      ${rows}
+    </div>`;
+}
+
+function buildEmailHtml(teamDigests, tz, topics, seasons) {
+  const seasonBlock = topics.seasons ? buildSeasonBlock(seasons, tz) : '';
   const sections = teamDigests
     .map((t) => {
       const blocks = [];
@@ -190,6 +245,7 @@ function buildEmailHtml(teamDigests, tz, topics) {
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:2rem;">
       <h1 style="font-size:1.5rem;color:#4f46e5;margin:0 0 0.25rem;">Rally Sports</h1>
       <p style="color:#525252;margin:0 0 1.25rem;">Your daily rundown 🏟️</p>
+      ${seasonBlock}
       ${sections}
       <p style="color:#9ca3af;font-size:0.75rem;margin-top:1.5rem;">Scores &amp; schedules via ESPN. You're getting this because you set up a Sports digest in Rally.</p>
     </div>`;
@@ -203,7 +259,7 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
   if (teams.length === 0) return { uid, skipped: 'no teams' };
 
   const topics = normalizeTopics(cfg);
-  if (!topics.scores && !topics.upcoming && !topics.standings) {
+  if (!topics.scores && !topics.upcoming && !topics.standings && !topics.seasons) {
     return { uid, skipped: 'no topics selected' };
   }
 
@@ -217,7 +273,22 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
     }
   }
 
-  const html = buildEmailHtml(digests, tz, topics);
+  // Season calendars are league-level: one per distinct league among the teams.
+  let seasons = [];
+  if (topics.seasons) {
+    const byPath = new Map();
+    for (const t of teams) {
+      if (!byPath.has(t.sportPath)) byPath.set(t.sportPath, t.leagueLabel || t.leagueKey || t.sportPath);
+    }
+    seasons = await Promise.all(
+      [...byPath.entries()].map(async ([sportPath, label]) => {
+        try { return { label, season: await fetchSeason(sportPath) }; }
+        catch { return { label, season: null }; }
+      }),
+    );
+  }
+
+  const html = buildEmailHtml(digests, tz, topics, seasons);
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
