@@ -101,6 +101,26 @@ export function SportsPage() {
   }, [config.teams]);
   const trackedPathsKey = trackedLeagues.map((l) => l.sportPath).sort().join(',');
 
+  // Order the season calendars soonest-to-furthest: in-season first (ending
+  // soonest), then upcoming (starting soonest), then ended, then unknown.
+  const sortedLeagues = useMemo(() => {
+    const rank = (l) => {
+      const s = seasons[l.sportPath];
+      if (!s?.startDate || !s?.endDate) return [3, 0];
+      const now = Date.now();
+      const start = new Date(s.startDate).getTime();
+      const end = new Date(s.endDate).getTime();
+      if (now >= start && now <= end) return [0, end];   // in season → soonest end first
+      if (now < start) return [1, start];                // upcoming → soonest start first
+      return [2, -end];                                  // ended → most recent first
+    };
+    return [...trackedLeagues].sort((a, b) => {
+      const [ga, ta] = rank(a);
+      const [gb, tb] = rank(b);
+      return ga !== gb ? ga - gb : ta - tb;
+    });
+  }, [trackedLeagues, seasons]);
+
   // Load saved config.
   useEffect(() => {
     if (!user) return;
@@ -271,7 +291,7 @@ export function SportsPage() {
               <div className={styles.empty}>Loading seasons…</div>
             ) : (
               <ul className={styles.seasonList}>
-                {trackedLeagues.map((l) => {
+                {sortedLeagues.map((l) => {
                   const s = seasons[l.sportPath];
                   const status = seasonStatus(s);
                   return (
