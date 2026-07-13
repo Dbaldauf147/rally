@@ -286,6 +286,20 @@ export function SportsPage() {
                           : 'Dates unavailable'}
                       </div>
                       <span className={`${styles.seasonStatus} ${styles[`status_${status.tone}`]}`}>{status.label}</span>
+                      {s?.phases?.length > 0 && (
+                        <ul className={styles.phaseList}>
+                          {s.phases.map((p, i) => {
+                            const now = Date.now();
+                            const active = now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime();
+                            return (
+                              <li key={i} className={`${styles.phaseItem} ${active ? styles.phaseActive : ''}`}>
+                                <span className={styles.phaseName}>{p.name}{active ? ' • now' : ''}</span>
+                                <span className={styles.phaseDates}>{fmtSeasonDate(p.startDate)} – {fmtSeasonDate(p.endDate)}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
                     </li>
                   );
                 })}
