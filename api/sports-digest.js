@@ -66,8 +66,18 @@ function fmtGameTime(iso, tz) {
   }
 }
 
-// Fetch one team's schedule and split into recent results + upcoming games.
-async function fetchTeamDigest(team, tz) {
+// The content sections a digest can include. Defaults keep the original
+// behavior (scores + upcoming) plus standings for existing configs.
+const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true };
+function normalizeTopics(cfg) {
+  const t = cfg?.topics;
+  // Legacy configs (no topics field) fall back to the defaults.
+  if (!t || typeof t !== 'object') return { ...DEFAULT_TOPICS };
+  return { scores: !!t.scores, upcoming: !!t.upcoming, standings: !!t.standings };
+}
+
+// Recent results + upcoming games from the team's schedule endpoint.
+async function fetchTeamSchedule(team) {
   const url = `https://site.api.espn.com/apis/site/v2/sports/${team.sportPath}/teams/${team.teamId}/schedule`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`ESPN HTTP ${res.status}`);
@@ -97,11 +107,36 @@ async function fetchTeamDigest(team, tz) {
   }
   results.sort((a, b) => a.when - b.when);
   upcoming.sort((a, b) => a.when - b.when);
-  return {
-    name: team.name,
-    results,
-    upcoming: upcoming.slice(0, 3),
-  };
+  return { results, upcoming: upcoming.slice(0, 3) };
+}
+
+// Overall W-L record + division standing from the team info endpoint.
+async function fetchTeamStanding(team) {
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${team.sportPath}/teams/${team.teamId}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`ESPN HTTP ${res.status}`);
+  const data = await res.json();
+  const t = data.team || {};
+  const record = (t.record?.items || []).find((i) => i.type === 'total')?.summary || '';
+  return { record, standing: t.standingSummary || '' };
+}
+
+// Gather all requested content for one team, only fetching what's toggled on.
+async function fetchTeamDigest(team, topics) {
+  const out = { name: team.name, results: [], upcoming: [], record: '', standing: '' };
+  if (topics.scores || topics.upcoming) {
+    const sched = await fetchTeamSchedule(team);
+    out.results = sched.results;
+    out.upcoming = sched.upcoming;
+  }
+  if (topics.standings) {
+    try {
+      const st = await fetchTeamStanding(team);
+      out.record = st.record;
+      out.standing = st.standing;
+    } catch { /* standings are best-effort */ }
+  }
+  return out;
 }
 
 function resultLine(g) {
@@ -120,22 +155,33 @@ function upcomingLine(g, tz) {
   return `<span style="font-weight:600;">${matchup}</span> <span style="color:#6b7280;">· ${fmtGameTime(g.iso, tz)}</span>`;
 }
 
-function buildEmailHtml(teamDigests, tz) {
+const sectionLabel = (text, first) =>
+  `<div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:${first ? '0' : '0.6rem'} 0 0.15rem;">${text}</div>`;
+
+function buildEmailHtml(teamDigests, tz, topics) {
   const sections = teamDigests
     .map((t) => {
-      const resultsHtml = t.results.length
-        ? t.results.map((g) => `<div style="margin:2px 0;color:#1f2937;">${resultLine(g)}</div>`).join('')
-        : '<div style="color:#9ca3af;">No games in the last few days.</div>';
-      const upcomingHtml = t.upcoming.length
-        ? t.upcoming.map((g) => `<div style="margin:2px 0;color:#1f2937;">${upcomingLine(g, tz)}</div>`).join('')
-        : '<div style="color:#9ca3af;">No upcoming games scheduled.</div>';
+      const blocks = [];
+      if (topics.standings && (t.record || t.standing)) {
+        const parts = [t.record, t.standing].filter(Boolean).join(' · ');
+        blocks.push(`${sectionLabel('Record &amp; standing', blocks.length === 0)}<div style="margin:2px 0;color:#1f2937;font-weight:600;">${parts}</div>`);
+      }
+      if (topics.scores) {
+        const html = t.results.length
+          ? t.results.map((g) => `<div style="margin:2px 0;color:#1f2937;">${resultLine(g)}</div>`).join('')
+          : '<div style="color:#9ca3af;">No games in the last few days.</div>';
+        blocks.push(`${sectionLabel('Recent scores', blocks.length === 0)}${html}`);
+      }
+      if (topics.upcoming) {
+        const html = t.upcoming.length
+          ? t.upcoming.map((g) => `<div style="margin:2px 0;color:#1f2937;">${upcomingLine(g, tz)}</div>`).join('')
+          : '<div style="color:#9ca3af;">No upcoming games scheduled.</div>';
+        blocks.push(`${sectionLabel('Upcoming', blocks.length === 0)}${html}`);
+      }
       return `
         <div style="background:#f5f3ef;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
           <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">${t.name}</h2>
-          <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin-bottom:0.15rem;">Recent scores</div>
-          ${resultsHtml}
-          <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:0.6rem 0 0.15rem;">Upcoming</div>
-          ${upcomingHtml}
+          ${blocks.join('')}
         </div>`;
     })
     .join('');
@@ -156,17 +202,22 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
   if (!email) return { uid, skipped: 'no email' };
   if (teams.length === 0) return { uid, skipped: 'no teams' };
 
+  const topics = normalizeTopics(cfg);
+  if (!topics.scores && !topics.upcoming && !topics.standings) {
+    return { uid, skipped: 'no topics selected' };
+  }
+
   const tz = cfg.timezone || 'America/New_York';
   const digests = [];
   for (const team of teams) {
     try {
-      digests.push(await fetchTeamDigest(team, tz));
+      digests.push(await fetchTeamDigest(team, topics));
     } catch (err) {
-      digests.push({ name: team.name, results: [], upcoming: [], error: err.message });
+      digests.push({ name: team.name, results: [], upcoming: [], record: '', standing: '', error: err.message });
     }
   }
 
-  const html = buildEmailHtml(digests, tz);
+  const html = buildEmailHtml(digests, tz, topics);
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
