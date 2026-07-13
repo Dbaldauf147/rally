@@ -10,6 +10,14 @@ function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Display name as first name + last-name initial, e.g. "John Smith" -> "John S."
+function firstNameWithInitial(name) {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'Guest';
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+}
+
 export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange, onUpdateAltRange, onEditDate, finalizedDates = [] }) {
   const isFinalized = stage === 'finalized';
   const { user } = useAuth();
@@ -898,12 +906,12 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                         <div className={styles.voterList}>
                           {castVoters.map(([uid, v]) => (
                             <span key={uid} className={styles[`voter_${v.vote}`]}>
-                              {v.name?.split(' ')[0] || 'Guest'}{v.topPick ? ' ⭐' : ''}
+                              {firstNameWithInitial(v.name)}{v.topPick ? ' ⭐' : ''}
                             </span>
                           ))}
                           {missing.map(([uid, m]) => (
                             <span key={uid} className={styles.voter_missing} title="Hasn't voted yet">
-                              {(m.name || 'Guest').split(' ')[0]}
+                              {firstNameWithInitial(m.name)}
                             </span>
                           ))}
                         </div>
