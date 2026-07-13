@@ -90,6 +90,7 @@ export function EventDetail() {
   const [finalizeDate, setFinalizeDate] = useState('');
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
   const [showTextAll, setShowTextAll] = useState(false);
+  const [textAllMissingOnly, setTextAllMissingOnly] = useState(false); // limit Text-All to poll non-responders
   const [phantomFriendVotes, setPhantomFriendVotes] = useState(null); // null=unchecked, number=vote count
   const [cleaningPhantom, setCleaningPhantom] = useState(false);
   const [editingOptionId, setEditingOptionId] = useState(null);
@@ -1058,18 +1059,34 @@ export function EventDetail() {
                       ? `People have suggested additional dates for ${event.title}. Would any of these new dates work for you?\n\nVote here: ${pollLink}`
                       : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
                   const calMsg = `You're invited to ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}.\n\nAdd to your calendar: ${calendarLink}`;
+                  // Members with a phone who haven't voted on the poll yet (and aren't skipping).
+                  const missingPhoneCount = members.filter(
+                    ([uid, m]) => uid !== user?.uid && m.phone && !voteStats[uid]?.total && !m.skipVote,
+                  ).length;
+                  const nudgeMsg = `Hey! We're still waiting on your vote for ${event.title}. Could you take a sec to pick the dates that work for you?\n\nVote here: ${pollLink}`;
                   return (
                     <>
                       {activeTab !== 'itinerary' && (
                         <button className={styles.shareBtn} onClick={() => {
                           setTextAllMessage(pollMsg);
+                          setTextAllMissingOnly(false);
                           setShowTextAll(true);
                         }}>
                           💬 Text All Poll ({phones.length})
                         </button>
                       )}
+                      {activeTab !== 'itinerary' && event.stage !== 'finalized' && missingPhoneCount > 0 && (
+                        <button className={styles.shareBtn} onClick={() => {
+                          setTextAllMessage(nudgeMsg);
+                          setTextAllMissingOnly(true);
+                          setShowTextAll(true);
+                        }}>
+                          💬 Text Non-Responders ({missingPhoneCount})
+                        </button>
+                      )}
                       <button className={styles.shareBtn} onClick={() => {
                         setTextAllMessage(calMsg);
+                        setTextAllMissingOnly(false);
                         setShowTextAll(true);
                       }}>
                         📅 Text All Calendar Invite ({phones.length})
@@ -1202,7 +1219,9 @@ export function EventDetail() {
       )}
 
       {showTextAll && (() => {
-        const recipients = members.filter(([uid, m]) => uid !== user?.uid && m.phone);
+        const recipients = members.filter(([uid, m]) =>
+          uid !== user?.uid && m.phone && (!textAllMissingOnly || (!voteStats[uid]?.total && !m.skipVote)),
+        );
         const phones = recipients.map(([, m]) => m.phone);
         if (phones.length === 0) return null;
         const sendText = () => {
@@ -1248,7 +1267,7 @@ export function EventDetail() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Edit text draft — sending to {recipients.length}
+                Edit text draft — {textAllMissingOnly ? 'non-responders' : 'sending to'} {recipients.length}
               </span>
               <button
                 onClick={() => { if (!textAllSending) { setShowTextAll(false); setTextAllMessage(''); } }}
