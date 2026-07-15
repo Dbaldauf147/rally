@@ -120,21 +120,53 @@
 .dotFilled { background: var(--color-accent); }
 .dotEmpty { background: rgba(255, 255, 255, 0.6); border: 1px solid #94a3b8; }
 
-/* ---- Sections ---- */
+/* ---- Host columns ---- */
 
-.section {
+.columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+/* Three columns get unreadably narrow on a phone; stack them instead. */
+@media (max-width: 560px) {
+  .columns { grid-template-columns: 1fr; }
+}
+
+.column {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: 0.85rem;
+  padding: 0.7rem;
+  min-width: 0;
 }
 
-.sectionTitle {
-  margin: 0 0 0.6rem;
-  font-size: 0.78rem;
+.columnHead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.hostDot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.hostName {
+  font-size: 0.85rem;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--color-text);
+}
+
+.hostCount {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
   color: var(--color-text-muted);
 }
 
@@ -167,35 +199,20 @@
 .rosterItem {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 0;
+  gap: 0.4rem;
+  padding: 0.35rem 0;
   border-bottom: 1px solid var(--color-border-light, #f1f1f1);
 }
 
 .rosterItem:last-child { border-bottom: none; }
 
-.seatNum {
-  flex: none;
-  width: 1.4rem;
-  height: 1.4rem;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--color-accent);
-  color: #fff;
-  font-size: 0.68rem;
-  font-weight: 700;
-}
-
 .rosterName {
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--color-text);
-}
-
-.addedBy {
-  font-size: 0.7rem;
-  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .removeBtn {
@@ -216,77 +233,19 @@
 
 /* ---- Add people ---- */
 
-.peopleGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.5rem;
-}
-
-.person,
-.personOn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 0.7rem;
-  border-radius: var(--radius-md);
-  font-size: 0.85rem;
-  font-weight: 600;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.person {
-  border: 2px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.person:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  background: #eef2ff;
-}
-
-.person:disabled { opacity: 0.5; cursor: default; }
-
-.personOn {
-  border: 2px solid var(--color-accent);
-  background: #eef2ff;
-  color: var(--color-accent);
-  cursor: default;
-}
-
-.personMark {
-  flex: none;
-  font-weight: 700;
-}
-
-.personName {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.addNewLabel {
-  margin: 0.85rem 0 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-text-muted);
-}
-
 .addNewRow {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
 }
 
 .input {
   flex: 1;
   min-width: 0;
-  padding: 0.55rem 0.7rem;
+  padding: 0.45rem 0.55rem;
   border: 2px solid var(--color-border);
   border-radius: var(--radius-md);
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   font-family: inherit;
   outline: none;
 }
@@ -296,12 +255,12 @@
 
 .addBtn {
   flex: none;
-  padding: 0.55rem 1.1rem;
+  padding: 0.45rem 0.7rem;
   border: none;
   border-radius: var(--radius-md);
   background: var(--color-accent);
   color: #fff;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;

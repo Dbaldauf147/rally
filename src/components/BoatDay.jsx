@@ -6,6 +6,20 @@ import styles from './BoatDay.module.css';
 export const BOAT_CAPACITY = 24;
 export const BOAT_NAME = 'The Kismet';
 
+// The three people who each bring a crew aboard. Fixed in code like BOAT_NAME —
+// The Kismet is a specific boat with specific hosts. Seats are SHARED across all
+// three: she is full at BOAT_CAPACITY however the split falls, so any column can
+// take the last seat.
+export const HOSTS = [
+  { key: 'dan', name: 'Dan', color: '#4f46e5' },
+  { key: 'mike', name: 'Mike', color: '#059669' },
+  { key: 'johnny', name: 'Johnny', color: '#ea580c' },
+];
+
+const HOST_KEYS = HOSTS.map(h => h.key);
+const hostColor = key => HOSTS.find(h => h.key === key)?.color || '#94a3b8';
+const hostName = key => HOSTS.find(h => h.key === key)?.name || 'crew';
+
 // Seat positions in the SVG's coordinate space — two benches inside the hull,
 // drawn as a cutaway. The list length is the capacity; the hull art is drawn to
 // contain exactly these, and the bow is left clear for the name.
@@ -34,55 +48,58 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
     [boat.roster],
   );
   const [busyId, setBusyId] = useState(null);
+  const [busyHost, setBusyHost] = useState(null);
   const [error, setError] = useState('');
-  const [newName, setNewName] = useState('');
+  const [drafts, setDrafts] = useState({});
 
-  const aboardIds = useMemo(() => new Set(roster.map(r => r.id)), [roster]);
   const full = roster.length >= BOAT_CAPACITY;
 
-  // The viewer, plus everyone on the event who comes "by way of" the viewer.
-  const myPeople = useMemo(() => {
-    const entries = Object.entries(event.members || {})
-      .filter(([, m]) => m && typeof m === 'object' && m.name);
-    const out = [];
-    const self = entries.find(([uid]) => uid === viewerId);
-    if (self) out.push({ id: self[0], name: self[1].name, self: true });
-    else if (viewerId && viewerName) out.push({ id: viewerId, name: viewerName, self: true });
-    const linked = [];
-    for (const [uid, m] of entries) {
-      if (uid !== viewerId && m.plusOneOf === viewerId) linked.push({ id: uid, name: m.name });
-    }
-    // Firestore map key order isn't stable across snapshots, so sort by name —
-    // otherwise these buttons reshuffle under the user's finger after each add.
-    linked.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    return [...out, ...linked];
-  }, [event.members, viewerId, viewerName]);
+  // Seats fill host by host, so the boat reads as three colour-blocked crews
+  // rather than a scatter. Anything with an unrecognised host still gets a seat.
+  const seated = useMemo(() => [
+    ...HOSTS.flatMap(h => roster.filter(r => r.host === h.key)),
+    ...roster.filter(r => !HOST_KEYS.includes(r.host)),
+  ], [roster]);
 
-  async function addPerson(person) {
+  // Typeahead over everyone on the event who isn't aboard yet.
+  const suggestions = useMemo(() => {
+    const aboard = new Set(roster.map(r => (r.name || '').toLowerCase()));
+    return Object.values(event.members || {})
+      .filter(m => m && typeof m === 'object' && m.name && !aboard.has(m.name.toLowerCase()))
+      .map(m => m.name)
+      .sort((a, b) => a.localeCompare(b));
+  }, [event.members, roster]);
+
+  async function addPerson(rawName, hostKey) {
+    const name = (rawName || '').trim();
+    if (!name) return;
     setError('');
-    setBusyId(person.id);
+    setBusyHost(hostKey);
     try {
       await runTransaction(db, async (tx) => {
         const ref = doc(db, 'events', eventId);
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Event not found.');
         const current = Array.isArray(snap.data().boatDay?.roster) ? snap.data().boatDay.roster : [];
-        if (current.some(r => r.id === person.id)) return; // already aboard — someone beat us to it
+        // Capacity is checked inside the transaction so two people tapping Add at
+        // once can't oversubscribe the last seat.
         if (current.length >= BOAT_CAPACITY) throw new Error(`The boat is full — ${BOAT_CAPACITY} people max.`);
         tx.update(ref, {
           'boatDay.roster': [...current, {
-            id: person.id,
-            name: person.name,
+            id: slugId(name),
+            name,
+            host: hostKey,
             addedBy: viewerId || '',
             addedByName: viewerName || '',
             addedAt: new Date().toISOString(), // serverTimestamp() is not allowed inside arrays
           }],
         });
       });
+      setDrafts(d => ({ ...d, [hostKey]: '' }));
     } catch (e) {
       setError(e.message || 'Could not add that person.');
     } finally {
-      setBusyId(null);
+      setBusyHost(null);
     }
   }
 
@@ -96,13 +113,6 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
     } finally {
       setBusyId(null);
     }
-  }
-
-  async function addNewPerson() {
-    const name = newName.trim();
-    if (!name) return;
-    await addPerson({ id: slugId(name), name });
-    setNewName('');
   }
 
   const canRemove = (item) => isOwner || item.addedBy === viewerId || item.id === viewerId;
@@ -163,9 +173,9 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
 
           <text className={styles.boatName} x="74" y="226">{BOAT_NAME}</text>
 
-          {/* Seats */}
+          {/* Seats, coloured by whose crew is in them */}
           {SEATS.map((seat, i) => {
-            const person = roster[i];
+            const person = seated[i];
             return (
               <circle
                 key={i}
@@ -173,97 +183,94 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
                 cy={seat.y}
                 r="6"
                 className={person ? styles.seatFilled : styles.seatEmpty}
+                style={person ? { fill: hostColor(person.host) } : undefined}
               >
-                {person && <title>{person.name}</title>}
+                {person && <title>{person.name} — with {hostName(person.host)}</title>}
               </circle>
             );
           })}
         </svg>
 
         <div className={styles.legend}>
-          <span><i className={styles.dotFilled} /> Aboard</span>
+          {HOSTS.map(h => (
+            <span key={h.key}>
+              <i className={styles.dotFilled} style={{ background: h.color }} /> {h.name}
+            </span>
+          ))}
           <span><i className={styles.dotEmpty} /> Open seat</span>
         </div>
       </div>
 
       {error && <p className={styles.error}>{error}</p>}
 
-      {/* Who's aboard */}
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Aboard ({roster.length})</h3>
-        {roster.length === 0 ? (
-          <p className={styles.empty}>Nobody's on the boat yet. Add yourself and your people below.</p>
-        ) : (
-          <ul className={styles.roster}>
-            {roster.map((item, i) => (
-              <li key={item.id} className={styles.rosterItem}>
-                <span className={styles.seatNum}>{i + 1}</span>
-                <span className={styles.rosterName}>{item.name}</span>
-                {item.addedByName && item.addedBy !== item.id && (
-                  <span className={styles.addedBy}>added by {item.addedByName}</span>
-                )}
-                {canRemove(item) && (
-                  <button
-                    className={styles.removeBtn}
-                    onClick={() => removePerson(item)}
-                    disabled={busyId === item.id}
-                    title={`Remove ${item.name}`}
-                  >
-                    ✕
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {/* One column per host. Seats are shared, so a column never locks on its
+          own count — only when the whole boat is full. */}
+      <div className={styles.columns}>
+        {HOSTS.map(host => {
+          const crew = roster.filter(r => r.host === host.key);
+          const draft = drafts[host.key] || '';
+          return (
+            <div key={host.key} className={styles.column}>
+              <div className={styles.columnHead}>
+                <i className={styles.hostDot} style={{ background: host.color }} />
+                <span className={styles.hostName}>{host.name}</span>
+                <span className={styles.hostCount}>{crew.length}</span>
+              </div>
 
-      {/* Add people */}
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Add your people</h3>
-        {myPeople.length > 0 ? (
-          <div className={styles.peopleGrid}>
-            {myPeople.map(p => {
-              const on = aboardIds.has(p.id);
-              return (
+              {crew.length === 0 ? (
+                <p className={styles.empty}>Nobody yet.</p>
+              ) : (
+                <ul className={styles.roster}>
+                  {crew.map(item => (
+                    <li key={item.id} className={styles.rosterItem}>
+                      <span
+                        className={styles.rosterName}
+                        title={item.addedByName ? `Added by ${item.addedByName}` : undefined}
+                      >
+                        {item.name}
+                      </span>
+                      {canRemove(item) && (
+                        <button
+                          className={styles.removeBtn}
+                          onClick={() => removePerson(item)}
+                          disabled={busyId === item.id}
+                          title={`Remove ${item.name}`}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className={styles.addNewRow}>
+                <input
+                  type="text"
+                  className={styles.input}
+                  list="boatPeople"
+                  value={draft}
+                  onChange={e => setDrafts(d => ({ ...d, [host.key]: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') addPerson(draft, host.key); }}
+                  placeholder={full ? 'Boat is full' : 'Add a name…'}
+                  disabled={full}
+                />
                 <button
-                  key={p.id}
-                  className={on ? styles.personOn : styles.person}
-                  onClick={() => !on && addPerson(p)}
-                  disabled={on || busyId === p.id || full}
+                  className={styles.addBtn}
+                  onClick={() => addPerson(draft, host.key)}
+                  disabled={full || !draft.trim() || busyHost === host.key}
                 >
-                  <span className={styles.personMark}>{on ? '✓' : '+'}</span>
-                  <span className={styles.personName}>
-                    {p.name}{p.self ? ' (you)' : ''}
-                  </span>
+                  Add
                 </button>
-              );
-            })}
-          </div>
-        ) : (
-          <p className={styles.empty}>Nobody is linked to you on this event yet.</p>
-        )}
-
-        <p className={styles.addNewLabel}>Someone else?</p>
-        <div className={styles.addNewRow}>
-          <input
-            type="text"
-            className={styles.input}
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') addNewPerson(); }}
-            placeholder="Type a name…"
-            disabled={full}
-          />
-          <button
-            className={styles.addBtn}
-            onClick={addNewPerson}
-            disabled={!newName.trim() || full}
-          >
-            Add
-          </button>
-        </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
+
+      <datalist id="boatPeople">
+        {suggestions.map(n => <option key={n} value={n} />)}
+      </datalist>
     </div>
   );
 }
