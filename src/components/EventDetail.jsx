@@ -13,7 +13,7 @@ import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
-import { BoatDay, BOAT_CAPACITY } from './BoatDay';
+import { BoatDay, BOAT_CAPACITY, BOAT_NAME } from './BoatDay';
 import {
   syncEventToGoogleCalendar,
   removeEventFromGoogleCalendar,
@@ -2208,8 +2208,8 @@ export function EventDetail() {
                     </div>
                     <div style={{ fontSize: '0.75rem', color: enabled ? '#0369A1' : 'var(--color-text-muted)', marginTop: '0.15rem' }}>
                       {enabled
-                        ? `${aboard} of ${BOAT_CAPACITY} seats filled · manage on the Boat tab`
-                        : `Add a ${BOAT_CAPACITY}-person sailboat roster anyone can add to`}
+                        ? `${aboard} of ${BOAT_CAPACITY} seats filled on ${BOAT_NAME} · manage on the Boat tab`
+                        : `Add a ${BOAT_CAPACITY}-seat roster for ${BOAT_NAME} that anyone can add to`}
                     </div>
                   </div>
                   <button
@@ -2239,7 +2239,7 @@ export function EventDetail() {
                   <button
                     onClick={() => {
                       const fromName = user?.displayName || 'Someone';
-                      navigator.clipboard.writeText(`${fromName} is planning a boat day for ${event.title}. Add your people here: ${boatUrl}`);
+                      navigator.clipboard.writeText(`${fromName} is planning a boat day on ${BOAT_NAME} for ${event.title}. Add your people here: ${boatUrl}`);
                       setBoatCopied(true);
                       setTimeout(() => setBoatCopied(false), 2000);
                     }}
