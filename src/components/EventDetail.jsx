@@ -1541,9 +1541,13 @@ export function EventDetail() {
                                 const topBorder = ci > 0 && idx === 0 ? { borderTop: '2px solid var(--color-border)' } : {};
                                 return (
                                   <tr key={uid}>
-                                    <td style={{ ...tdName, background: linked ? 'var(--color-accent-light)' : 'var(--color-surface)', borderLeft: `3px solid ${linked ? 'var(--color-accent)' : 'transparent'}`, ...topBorder }}>
+                                    <td
+                                      onClick={isOwner ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
+                                      title={isOwner ? 'Click to edit this person’s votes' : undefined}
+                                      style={{ ...tdName, background: linked ? 'var(--color-accent-light)' : 'var(--color-surface)', borderLeft: `3px solid ${linked ? 'var(--color-accent)' : 'transparent'}`, ...topBorder, ...(isOwner ? { cursor: 'pointer' } : {}) }}
+                                    >
                                       {idx > 0 && <span title={`Linked to ${cluster[0][1].name || 'above'}`} style={{ color: 'var(--color-accent)', marginRight: '0.25rem' }}>↳</span>}
-                                      {m.name || 'Guest'}
+                                      <span style={isOwner ? { textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : undefined}>{m.name || 'Guest'}</span>
                                       {linked && <span title="Linked / plus-one — counts as connected" style={{ marginLeft: '0.3rem', fontSize: '0.68rem' }}>🔗</span>}
                                     </td>
                                     {openOptions.map(o => <td key={o.id} style={{ ...td, ...(linked ? { background: 'var(--color-accent-light)' } : {}), ...topBorder }}>{pill(o.votes?.[uid]?.vote)}</td>)}
