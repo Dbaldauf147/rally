@@ -4,13 +4,18 @@ import { db } from '../firebase';
 import styles from './BoatDay.module.css';
 
 export const BOAT_CAPACITY = 24;
+export const BOAT_NAME = 'The Kismet';
 
-// Seat positions in the SVG's coordinate space — two benches inside the hull.
-// The list length is the capacity; the hull art is drawn to contain exactly these.
+// Seat positions in the SVG's coordinate space — two benches inside the hull,
+// drawn as a cutaway. The list length is the capacity; the hull art is drawn to
+// contain exactly these, and the bow is left clear for the name.
 const SEATS = [
-  ...Array.from({ length: 12 }, (_, i) => ({ x: 62 + i * 27, y: 211 })),
-  ...Array.from({ length: 12 }, (_, i) => ({ x: 92 + i * 22, y: 235 })),
+  ...Array.from({ length: 12 }, (_, i) => ({ x: 158 + i * 25.5, y: 216 })),
+  ...Array.from({ length: 12 }, (_, i) => ({ x: 166 + i * 24, y: 234 })),
 ];
+
+// Stanchion feet along the sheer, for the lifelines.
+const STANCHIONS = [90, 120, 150, 380, 410, 440];
 
 function slugId(name) {
   const base = name.trim().replace(/\s+/g, '_').toLowerCase().replace(/[^a-z0-9_]/g, '');
@@ -106,26 +111,57 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
     <div className={styles.wrap}>
       <div className={styles.boatCard}>
         <div className={styles.countRow}>
-          <span className={styles.count}>{roster.length} / {BOAT_CAPACITY} aboard</span>
-          {full && <span className={styles.fullTag}>Boat is full</span>}
+          <span className={styles.boatTitle}>⛵ {BOAT_NAME}</span>
+          <span className={styles.countGroup}>
+            <span className={styles.count}>{roster.length} / {BOAT_CAPACITY} aboard</span>
+            {full && <span className={styles.fullTag}>Full</span>}
+          </span>
         </div>
 
-        <svg className={styles.boat} viewBox="0 0 420 300" role="img"
-             aria-label={`Sailboat with ${roster.length} of ${BOAT_CAPACITY} seats filled`}>
-          {/* Water */}
-          <path className={styles.water} d="M0 262 Q 35 254 70 262 T 140 262 T 210 262 T 280 262 T 350 262 T 420 262 V300 H0 Z" />
-          <path className={styles.waterLine} d="M40 280 Q 70 274 100 280 T 160 280" />
-          <path className={styles.waterLine} d="M260 286 Q 290 280 320 286 T 380 286" />
+        {/* Catalina 42-ish masthead sloop, drawn in profile with the bow to the
+            left. Layer order matters: keel and hull go down before the water so
+            she floats in it rather than on it, and the mast goes on after the
+            sails so it reads in front of them. */}
+        <svg className={styles.boat} viewBox="0 0 520 310" role="img"
+             aria-label={`${BOAT_NAME}, a sailboat with ${roster.length} of ${BOAT_CAPACITY} seats filled`}>
+          {/* Standing rigging: forestay + backstay */}
+          <line className={styles.stay} x1="230" y1="8" x2="50" y2="188" />
+          <line className={styles.stay} x1="230" y1="8" x2="462" y2="192" />
 
-          {/* Mast + sails */}
-          <path className={styles.sail} d="M156 42 L156 186 L268 186 Z" />
-          <path className={styles.jib} d="M144 46 L144 186 L66 186 Z" />
-          <rect className={styles.mast} x="146" y="30" width="5" height="158" rx="2" />
-          <path className={styles.flag} d="M151 32 L182 40 L151 48 Z" />
+          {/* Fin keel + spade rudder */}
+          <path className={styles.keel} d="M236 244 L296 244 L282 290 L256 290 Z" />
+          <path className={styles.rudder} d="M410 246 L422 246 L418 282 L408 282 Z" />
 
-          {/* Hull */}
-          <path className={styles.hull} d="M26 190 L394 190 L364 250 Q 210 276 56 250 Z" />
-          <line className={styles.deck} x1="26" y1="190" x2="394" y2="190" />
+          {/* Hull: curved near-plumb stem, gentle sheer, reverse transom */}
+          <path className={styles.hull} d="M50 188 Q255 200 462 194 L448 242 Q255 260 72 232 Q54 220 50 188 Z" />
+          <path className={styles.stripe} d="M58 199 Q255 211 456 205" />
+
+          {/* Lifelines */}
+          <path className={styles.lifeline} d="M64 180 Q255 192 452 186" />
+          {STANCHIONS.map(x => (
+            <line key={x} className={styles.stanchion} x1={x} y1="192" x2={x} y2="180" />
+          ))}
+
+          {/* Coachroof + ports */}
+          <path className={styles.cabin} d="M196 196 L214 174 L330 176 L348 196 Z" />
+          <rect className={styles.port} x="224" y="181" width="22" height="6" rx="3" />
+          <rect className={styles.port} x="254" y="181" width="22" height="6" rx="3" />
+          <rect className={styles.port} x="284" y="182" width="22" height="6" rx="3" />
+          <rect className={styles.port} x="314" y="183" width="13" height="6" rx="3" />
+
+          {/* Boom, then sails: genoa first so the main layers over its foot */}
+          <line className={styles.boom} x1="232" y1="166" x2="366" y2="170" />
+          <path className={styles.jib} d="M228 10 L52 188 L270 164 Q246 84 228 10 Z" />
+          <path className={styles.sail} d="M236 14 L236 164 L364 168 Q310 88 236 14 Z" />
+          <rect className={styles.mast} x="228" y="8" width="4.5" height="190" rx="2" />
+          <path className={styles.flag} d="M233 10 L260 18 L233 26 Z" />
+
+          {/* Water over the hull's bottom */}
+          <path className={styles.water} d="M0 244 Q44 237 88 244 T176 244 T264 244 T352 244 T440 244 T520 244 V310 H0 Z" />
+          <path className={styles.waterLine} d="M52 270 Q82 264 112 270 T172 270" />
+          <path className={styles.waterLine} d="M344 284 Q374 278 404 284 T464 284" />
+
+          <text className={styles.boatName} x="74" y="226">{BOAT_NAME}</text>
 
           {/* Seats */}
           {SEATS.map((seat, i) => {
@@ -135,7 +171,7 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
                 key={i}
                 cx={seat.x}
                 cy={seat.y}
-                r="7.5"
+                r="6"
                 className={person ? styles.seatFilled : styles.seatEmpty}
               >
                 {person && <title>{person.name}</title>}
