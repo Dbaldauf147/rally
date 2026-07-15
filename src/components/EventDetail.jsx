@@ -97,6 +97,7 @@ export function EventDetail() {
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
+  const [votedView, setVotedView] = useState('table'); // Voted group display: 'table' | 'cards'
   const [dismissedContactWarn, setDismissedContactWarn] = useState(() => new Set()); // member uids whose missing-contact warning was dismissed
   const [calSyncing, setCalSyncing] = useState(false);
   const [calSyncMsg, setCalSyncMsg] = useState(null); // { type: 'success' | 'error', message: string }
@@ -1470,10 +1471,61 @@ export function EventDetail() {
               if (groupMembers.length === 0) return null;
               return (
                 <div key={group.key} style={{ marginBottom: '0.75rem' }}>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: group.color, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
-                    {group.label} ({groupMembers.length})
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: group.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      {group.label} ({groupMembers.length})
+                    </span>
+                    {group.key === 'voted' && (
+                      <button
+                        onClick={() => setVotedView(v => (v === 'table' ? 'cards' : 'table'))}
+                        style={{ fontSize: '0.62rem', fontWeight: 600, padding: '0.1rem 0.5rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+                        title="Toggle between table and card view"
+                      >
+                        {votedView === 'table' ? '▤ Card view' : '▦ Table view'}
+                      </button>
+                    )}
                   </div>
-                  <div className={styles.memberList}>
+                  {group.key === 'voted' && votedView === 'table' && (() => {
+                    const openOptions = allDateOptions.filter(o => !o.closed);
+                    if (openOptions.length === 0) return null;
+                    const fmtOpt = (o) => {
+                      try {
+                        const s = format(new Date(o.startDate + 'T00:00:00'), 'MMM d');
+                        return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'MMM d')}` : s;
+                      } catch { return o.note || '—'; }
+                    };
+                    const pill = (vote) => {
+                      const map = { yes: ['✓', '#DCFCE7', '#16A34A', 'Works'], maybe: ['?', '#FEF3C7', '#D97706', 'Maybe'], no: ['✗', '#FEE2E2', '#DC2626', "Can't"] };
+                      const p = map[vote];
+                      if (!p) return <span title="No vote on this date" style={{ color: 'var(--color-text-muted)' }}>–</span>;
+                      return <span title={p[3]} style={{ display: 'inline-block', minWidth: '1.3rem', textAlign: 'center', padding: '0.1rem 0.35rem', borderRadius: '999px', background: p[1], color: p[2], fontWeight: 700, fontSize: '0.72rem' }}>{p[0]}</span>;
+                    };
+                    const th = { textAlign: 'center', padding: '0.4rem 0.6rem', fontSize: '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)' };
+                    const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' };
+                    const td = { textAlign: 'center', padding: '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
+                    const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)' };
+                    return (
+                      <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+                        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                          <thead>
+                            <tr>
+                              <th style={thName}>Person</th>
+                              {openOptions.map(o => <th key={o.id} style={th}>{fmtOpt(o)}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {groupMembers.map(([uid, m]) => (
+                              <tr key={uid}>
+                                <td style={tdName}>{m.name || 'Guest'}</td>
+                                {openOptions.map(o => <td key={o.id} style={td}>{pill(o.votes?.[uid]?.vote)}</td>)}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                  <div className={styles.memberList} style={group.key === 'voted' && votedView === 'table' ? { display: 'none' } : undefined}>
                     {(() => {
                       // Group linked members together (handles mutual links, one-way links, and unlinked)
                       const processed = new Set();
