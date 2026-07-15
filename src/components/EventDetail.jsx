@@ -1504,6 +1504,27 @@ export function EventDetail() {
                     const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' };
                     const td = { textAlign: 'center', padding: '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
                     const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)' };
+                    // Keep linked (+1) members adjacent and boxed together, mirroring the card view.
+                    const processed = new Set();
+                    const clusters = [];
+                    const memberMap = new Map(groupMembers.map(e => [e[0], e]));
+                    for (const entry of groupMembers) {
+                      const [uid, m] = entry;
+                      if (processed.has(uid)) continue;
+                      processed.add(uid);
+                      const cluster = [entry];
+                      const linked = m.plusOneOf ? memberMap.get(m.plusOneOf) : null;
+                      if (linked && !processed.has(linked[0])) {
+                        processed.add(linked[0]);
+                        cluster.push(linked);
+                        const ll = linked[1].plusOneOf && linked[1].plusOneOf !== uid ? memberMap.get(linked[1].plusOneOf) : null;
+                        if (ll && !processed.has(ll[0])) { processed.add(ll[0]); cluster.push(ll); }
+                      }
+                      for (const other of groupMembers) {
+                        if (!processed.has(other[0]) && other[1].plusOneOf === uid) { processed.add(other[0]); cluster.push(other); }
+                      }
+                      clusters.push(cluster);
+                    }
                     return (
                       <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
                         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -1514,12 +1535,22 @@ export function EventDetail() {
                             </tr>
                           </thead>
                           <tbody>
-                            {groupMembers.map(([uid, m]) => (
-                              <tr key={uid}>
-                                <td style={tdName}>{m.name || 'Guest'}</td>
-                                {openOptions.map(o => <td key={o.id} style={td}>{pill(o.votes?.[uid]?.vote)}</td>)}
-                              </tr>
-                            ))}
+                            {clusters.map((cluster, ci) => {
+                              const linked = cluster.length > 1;
+                              return cluster.map(([uid, m], idx) => {
+                                const topBorder = ci > 0 && idx === 0 ? { borderTop: '2px solid var(--color-border)' } : {};
+                                return (
+                                  <tr key={uid}>
+                                    <td style={{ ...tdName, background: linked ? 'var(--color-accent-light)' : 'var(--color-surface)', borderLeft: `3px solid ${linked ? 'var(--color-accent)' : 'transparent'}`, ...topBorder }}>
+                                      {idx > 0 && <span title={`Linked to ${cluster[0][1].name || 'above'}`} style={{ color: 'var(--color-accent)', marginRight: '0.25rem' }}>↳</span>}
+                                      {m.name || 'Guest'}
+                                      {linked && <span title="Linked / plus-one — counts as connected" style={{ marginLeft: '0.3rem', fontSize: '0.68rem' }}>🔗</span>}
+                                    </td>
+                                    {openOptions.map(o => <td key={o.id} style={{ ...td, ...(linked ? { background: 'var(--color-accent-light)' } : {}), ...topBorder }}>{pill(o.votes?.[uid]?.vote)}</td>)}
+                                  </tr>
+                                );
+                              });
+                            })}
                           </tbody>
                         </table>
                       </div>
