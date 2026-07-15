@@ -13,6 +13,7 @@ import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
+import { BoatDay, BOAT_CAPACITY } from './BoatDay';
 import {
   syncEventToGoogleCalendar,
   removeEventFromGoogleCalendar,
@@ -62,7 +63,7 @@ export function EventDetail() {
   const [editing, setEditing] = useState(false);
   const [activeTab, setActiveTab] = useState(() => {
     const t = searchParams.get('tab');
-    return ['details', 'itinerary', 'day', 'notes', 'chat'].includes(t) ? t : null;
+    return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat'].includes(t) ? t : null;
   });
   const initialTabPickedRef = useRef(false);
   const [inviteCopied, setInviteCopied] = useState(false);
@@ -71,6 +72,7 @@ export function EventDetail() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteResult, setInviteResult] = useState('');
+  const [boatCopied, setBoatCopied] = useState(false);
   const [editMember, setEditMember] = useState(null); // { uid, name, email, rsvp, role }
   const [editMemberFields, setEditMemberFields] = useState({});
   const [friendLinkSearch, setFriendLinkSearch] = useState('');
@@ -875,6 +877,7 @@ export function EventDetail() {
     { key: 'details', label: 'People & Poll' },
     { key: 'itinerary', label: 'Itinerary' },
     ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
+    ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
     { key: 'notes', label: 'Notes' },
     { key: 'chat', label: 'Chat' },
   ];
@@ -2177,6 +2180,83 @@ export function EventDetail() {
             </div>
           )}
 
+          {/* Boat Day — owner only */}
+          {isOwner && (() => {
+            const bd = event.boatDay || {};
+            const enabled = !!bd.enabled;
+            const aboard = Array.isArray(bd.roster) ? bd.roster.length : 0;
+            const boatUrl = `${WEB_ORIGIN}/boat/${eventId}?name=Friend`;
+
+            return (
+              <div style={{
+                marginTop: '1rem',
+                padding: '1rem',
+                background: enabled ? '#F0F9FF' : 'var(--color-surface)',
+                border: `1px solid ${enabled ? '#0EA5E9' : 'var(--color-border)'}`,
+                borderRadius: 'var(--radius-lg)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                      ⛵ Boat Day
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: enabled ? '#0369A1' : 'var(--color-text-muted)', marginTop: '0.15rem' }}>
+                      {enabled
+                        ? `${aboard} of ${BOAT_CAPACITY} seats filled · manage on the Boat tab`
+                        : `Add a ${BOAT_CAPACITY}-person sailboat roster anyone can add to`}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => updateEvent(eventId, {
+                      'boatDay.enabled': !enabled,
+                      // Preserve the roster across a disable/re-enable.
+                      ...(Array.isArray(bd.roster) ? {} : { 'boatDay.roster': [] }),
+                    })}
+                    style={{
+                      flex: 'none',
+                      padding: '0.4rem 1rem',
+                      border: 'none',
+                      borderRadius: 'var(--radius-full)',
+                      background: enabled ? '#DC2626' : '#0EA5E9',
+                      color: '#fff',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {enabled ? 'Disable' : 'Enable Boat Day'}
+                  </button>
+                </div>
+
+                {enabled && (
+                  <button
+                    onClick={() => {
+                      const fromName = user?.displayName || 'Someone';
+                      navigator.clipboard.writeText(`${fromName} is planning a boat day for ${event.title}. Add your people here: ${boatUrl}`);
+                      setBoatCopied(true);
+                      setTimeout(() => setBoatCopied(false), 2000);
+                    }}
+                    style={{
+                      marginTop: '0.75rem',
+                      padding: '0.4rem 0.9rem',
+                      border: '1px solid #0EA5E9',
+                      borderRadius: 'var(--radius-full)',
+                      background: 'transparent',
+                      color: '#0369A1',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {boatCopied ? '✓ Copied!' : '🔗 Copy boat link'}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Auto-reminder schedule — owner only, voting stage */}
           {isOwner && stage === 'voting' && (() => {
             const ar = event.autoReminders || {};
@@ -2284,6 +2364,16 @@ export function EventDetail() {
 
       {activeTab === 'day' && (
         <DayView event={event} />
+      )}
+
+      {activeTab === 'boat' && (
+        <BoatDay
+          event={event}
+          eventId={eventId}
+          viewerId={user?.uid}
+          viewerName={event.members?.[user?.uid]?.name || user?.displayName || 'You'}
+          isOwner={isOwner}
+        />
       )}
 
       {activeTab === 'notes' && (
