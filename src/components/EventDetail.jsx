@@ -1494,11 +1494,17 @@ export function EventDetail() {
                         return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'MMM d')}` : s;
                       } catch { return o.note || '—'; }
                     };
-                    const pill = (vote) => {
+                    const pill = (vote, inherited) => {
                       const map = { yes: ['✓', '#DCFCE7', '#16A34A', 'Works'], maybe: ['?', '#FEF3C7', '#D97706', 'Maybe'], no: ['✗', '#FEE2E2', '#DC2626', "Can't"] };
                       const p = map[vote];
                       if (!p) return <span title="No vote on this date" style={{ color: 'var(--color-text-muted)' }}>–</span>;
-                      return <span title={p[3]} style={{ display: 'inline-block', minWidth: '1.3rem', textAlign: 'center', padding: '0.1rem 0.35rem', borderRadius: '999px', background: p[1], color: p[2], fontWeight: 700, fontSize: '0.72rem' }}>{p[0]}</span>;
+                      const base = { display: 'inline-block', minWidth: '1.3rem', textAlign: 'center', padding: '0.1rem 0.35rem', borderRadius: '999px', fontSize: '0.72rem' };
+                      // Inherited (assumed-by-way-of) votes get an outlined/dashed pill so they
+                      // read as "same vote, but assumed" rather than directly cast.
+                      if (inherited) {
+                        return <span title={`${p[3]} — assumed via linked person`} style={{ ...base, background: 'transparent', color: p[2], border: `1px dashed ${p[2]}`, fontWeight: 600 }}>{p[0]}</span>;
+                      }
+                      return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
                     };
                     const th = { textAlign: 'center', padding: '0.4rem 0.6rem', fontSize: '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)' };
                     const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' };
@@ -1557,7 +1563,18 @@ export function EventDetail() {
                                       </span>
                                     )}
                                   </td>
-                                  {openOptions.map(o => <td key={o.id} style={{ ...td, ...topBorder }}>{pill(o.votes?.[uid]?.vote)}</td>)}
+                                  {openOptions.map(o => {
+                                    // Own vote wins; otherwise inherit the linked person's vote (assumed by way of).
+                                    const own = o.votes?.[uid]?.vote;
+                                    const ownActive = own && own !== 'none';
+                                    let voteVal = ownActive ? own : null;
+                                    let inherited = false;
+                                    if (!ownActive && m.plusOneOf) {
+                                      const hv = o.votes?.[m.plusOneOf]?.vote;
+                                      if (hv && hv !== 'none') { voteVal = hv; inherited = true; }
+                                    }
+                                    return <td key={o.id} style={{ ...td, ...topBorder }}>{pill(voteVal, inherited)}</td>;
+                                  })}
                                 </tr>
                               );
                             }))}
