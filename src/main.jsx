@@ -33,7 +33,43 @@ class GlobalErrorBoundary extends React.Component {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      window.__swReg = reg;
+
+      // Whether an old worker was already controlling this page at load. Only
+      // then does a controller change mean "a NEW version just took over" — on
+      // the very first install the initial claim shouldn't trigger a reload.
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || reloading) return;
+        reloading = true;
+        window.location.reload();
+      });
+
+      // Tell the app a new version has finished installing and is waiting.
+      const announceReady = () => {
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          window.dispatchEvent(new CustomEvent('sw-update-ready', { detail: reg }));
+        }
+      };
+      announceReady(); // in case one was already waiting
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed') announceReady();
+        });
+      });
+
+      // Proactively poll for a new build so we don't wait for a full navigation.
+      const check = () => reg.update().catch(() => {});
+      setInterval(check, 60 * 1000);
+      window.addEventListener('focus', check);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') check();
+      });
+    }).catch(err => {
       console.warn('Service worker registration failed:', err);
     });
   });

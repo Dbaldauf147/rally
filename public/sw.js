@@ -6,12 +6,19 @@ const CACHE_VERSION = 'rally-__BUILD_ID__';
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
+  // Note: we do NOT skipWaiting here. A new build installs and then WAITS,
+  // so the running app can prompt the user and control when it swaps in
+  // (via the SKIP_WAITING message below). This makes updates reliable.
   event.waitUntil(
     caches.open(CACHE_VERSION)
       .then((cache) => cache.addAll(SHELL))
-      .catch(() => {})
-      .then(() => self.skipWaiting()),
+      .catch(() => {}),
   );
+});
+
+// The page tells the waiting worker to take over (Update Now button).
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
