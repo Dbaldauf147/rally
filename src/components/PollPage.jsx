@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, addDoc, deleteDoc, collection, query, orderBy, getDocs, serverTimestamp, arrayUnion, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -63,9 +63,11 @@ function PollPageInner() {
   const [suggestNote, setSuggestNote] = useState('');
   const [suggesting, setSuggesting] = useState(false);
   const [expandedOption, setExpandedOption] = useState(null);
-  const [localVotes, setLocalVotes] = useState({}); // { optionId: 'yes'|'maybe'|'no' }
+  const [localVotes, setLocalVotes] = useState({}); // { optionId: 'yes'|'maybe'|'no' } — held locally until Save
   const [topPick, setTopPick] = useState(null); // optionId of user's top choice
-  // Votes auto-save on each click — no submit button needed
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const votesInitedRef = useRef(false); // one-time init of localVotes/topPick from Firestore
 
   const [loadError, setLoadError] = useState(null);
 
@@ -96,24 +98,21 @@ function PollPageInner() {
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(o => !o.closed && !o.noVote);
         setDateOptions(opts);
-        // Initialize localVotes from existing votes if user already voted
-        setLocalVotes(prev => {
-          if (Object.keys(prev).length > 0) return prev; // don't overwrite user's in-progress selections
+        // One-time init of the voter's in-progress selections from any existing
+        // votes. After this, localVotes is the single source of truth (so
+        // un-voting sticks) and only "Save" writes back to Firestore.
+        if (!votesInitedRef.current) {
+          votesInitedRef.current = true;
           const existing = {};
+          let existingTop = null;
           for (const opt of opts) {
             const myVote = opt.votes?.[visitorId]?.vote;
             if (myVote && myVote !== 'none') existing[opt.id] = myVote;
+            if (opt.votes?.[visitorId]?.topPick) existingTop = opt.id;
           }
-          return existing;
-        });
-        // Initialize top pick from existing data
-        setTopPick(prev => {
-          if (prev) return prev;
-          for (const opt of opts) {
-            if (opt.votes?.[visitorId]?.topPick) return opt.id;
-          }
-          return null;
-        });
+          setLocalVotes(existing);
+          setTopPick(existingTop);
+        }
       },
       () => {}
     );
@@ -165,6 +164,7 @@ function PollPageInner() {
           };
           const ref = await addDoc(collection(db, 'events', eventId, 'dateOptions'), newOption);
           setDateOptions(prev => [...prev, { id: ref.id, ...newOption }]);
+          setLocalVotes(prev => ({ ...prev, [ref.id]: 'yes' }));
         }
         setSuggestDates([]);
         setSinglePickerValue('');
@@ -178,6 +178,7 @@ function PollPageInner() {
         };
         const ref = await addDoc(collection(db, 'events', eventId, 'dateOptions'), newOption);
         setDateOptions(prev => [...prev, { id: ref.id, ...newOption }]);
+        setLocalVotes(prev => ({ ...prev, [ref.id]: 'yes' }));
         setSuggestStart('');
         setSuggestEnd('');
       }
@@ -188,8 +189,8 @@ function PollPageInner() {
     setSuggesting(false);
   }
 
-  async function handleVote(optionId, vote) {
-    // Toggle: if same vote, clear it
+  function handleVote(optionId, vote) {
+    // Toggle: if same vote, clear it. Selections are held locally until "Save".
     const current = localVotes[optionId];
     const newVote = current === vote ? 'none' : vote;
     setLocalVotes(prev => {
@@ -200,51 +201,41 @@ function PollPageInner() {
       }
       return { ...prev, [optionId]: newVote };
     });
-    // Auto-save to Firestore immediately (preserve topPick flag)
-    const isTopPick = topPick === optionId;
-    await updateDoc(doc(db, 'events', eventId, 'dateOptions', optionId), {
-      [`votes.${visitorId}`]: { vote: newVote, name: voterName, ...(isTopPick ? { topPick: true } : {}) },
-    }).catch(() => {});
-    // Register as event member
-    updateDoc(doc(db, 'events', eventId), {
-      [`members.${visitorId}`]: { role: 'viewer', rsvp: 'pending', name: voterName },
-      memberUids: arrayUnion(visitorId),
-    }).catch(() => {});
-    // Show saved toast
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaveError(null);
   }
 
-  async function handleTopPick(optionId) {
-    const prevTopPick = topPick;
-    const isToggleOff = prevTopPick === optionId;
-    const newTopPick = isToggleOff ? null : optionId;
-    setTopPick(newTopPick);
-
-    // Clear topPick from previous option
-    if (prevTopPick && prevTopPick !== optionId) {
-      const prevOpt = dateOptions.find(o => o.id === prevTopPick);
-      const prevVote = prevOpt?.votes?.[visitorId];
-      if (prevVote) {
-        await updateDoc(doc(db, 'events', eventId, 'dateOptions', prevTopPick), {
-          [`votes.${visitorId}`]: { vote: prevVote.vote || 'none', name: voterName },
+  // Commit all selections at once — but only once every listed date is voted on.
+  async function saveVotes() {
+    const remaining = dateOptions.filter(o => !localVotes[o.id]).length;
+    if (remaining > 0) {
+      const total = dateOptions.length;
+      setSaveError(`Please vote on all ${total} date${total === 1 ? '' : 's'} before saving — ${remaining} still ${remaining === 1 ? 'needs' : 'need'} a vote.`);
+      return;
+    }
+    setSaveError(null);
+    setSaving(true);
+    try {
+      for (const opt of dateOptions) {
+        const vote = localVotes[opt.id];
+        const isTopPick = topPick === opt.id;
+        await updateDoc(doc(db, 'events', eventId, 'dateOptions', opt.id), {
+          [`votes.${visitorId}`]: { vote, name: voterName, ...(isTopPick ? { topPick: true } : {}) },
         }).catch(() => {});
       }
+      await updateDoc(doc(db, 'events', eventId), {
+        [`members.${visitorId}`]: { role: 'viewer', rsvp: rsvp || 'pending', name: voterName },
+        memberUids: arrayUnion(visitorId),
+      }).catch(() => {});
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } finally {
+      setSaving(false);
     }
+  }
 
-    // Set topPick on new option (or clear it)
-    const currentOpt = dateOptions.find(o => o.id === optionId);
-    const currentVote = localVotes[optionId] || currentOpt?.votes?.[visitorId]?.vote || 'none';
-    await updateDoc(doc(db, 'events', eventId, 'dateOptions', optionId), {
-      [`votes.${visitorId}`]: {
-        vote: currentVote,
-        name: voterName,
-        ...(isToggleOff ? {} : { topPick: true }),
-      },
-    }).catch(() => {});
-
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  function handleTopPick(optionId) {
+    // Held locally until "Save"; the save writes topPick onto the chosen option.
+    setTopPick(prev => (prev === optionId ? null : optionId));
   }
 
   async function handleRemoveSuggestion(optionId) {
@@ -415,7 +406,7 @@ function PollPageInner() {
                 const end = new Date((opt.endDate || opt.startDate) + 'T00:00:00');
                 const isRange = opt.endDate && opt.endDate !== opt.startDate;
                 const dayCount = isRange ? eachDayOfInterval({ start, end }).length : 1;
-                const myVote = localVotes[opt.id] || opt.votes?.[visitorId]?.vote;
+                const myVote = localVotes[opt.id];
                 const votes = Object.values(opt.votes || {});
                 const yesCount = votes.filter(v => v.vote === 'yes').length;
                 const maybeCount = votes.filter(v => v.vote === 'maybe').length;
@@ -525,12 +516,27 @@ function PollPageInner() {
               })}
             </div>
 
-            {/* Auto-save hint */}
-            {!isFinalized && Object.keys(localVotes).length > 0 && (
-              <div style={{ marginTop: '0.5rem', textAlign: 'center', fontSize: '0.75rem', color: '#6b7280' }}>
-                Votes save automatically as you select
-              </div>
-            )}
+            {/* Save — requires a vote on every listed date */}
+            {!isFinalized && dateOptions.length > 0 && (() => {
+              const remaining = dateOptions.filter(o => !localVotes[o.id]).length;
+              const total = dateOptions.length;
+              return (
+                <div style={{ marginTop: '0.75rem' }}>
+                  {saveError && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', padding: '0.55rem 0.7rem', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '8px', fontSize: '0.8rem', color: '#b91c1c', marginBottom: '0.5rem' }}>
+                      <span>⚠</span><span>{saveError}</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={saveVotes}
+                    disabled={saving}
+                    style={{ width: '100%', padding: '0.8rem', border: 'none', borderRadius: '10px', background: remaining > 0 ? '#9ca3af' : '#4f46e5', color: '#fff', fontSize: '0.95rem', fontWeight: 700, cursor: saving ? 'default' : 'pointer', fontFamily: 'inherit', opacity: saving ? 0.7 : 1 }}
+                  >
+                    {saving ? 'Saving…' : remaining > 0 ? `Vote on all ${total} dates to save (${remaining} left)` : 'Save my votes'}
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         )}
 
