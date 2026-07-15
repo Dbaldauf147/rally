@@ -1532,13 +1532,36 @@ export function EventDetail() {
                       }
                       clusters.push(cluster);
                     }
+                    // Per-date tally of the effective (own or inherited) votes shown in this table.
+                    const tallyFor = (o) => {
+                      let yes = 0, maybe = 0, no = 0;
+                      for (const [uid, m] of groupMembers) {
+                        const own = o.votes?.[uid]?.vote;
+                        let v = own && own !== 'none' ? own : null;
+                        if (!v && m.plusOneOf) { const hv = o.votes?.[m.plusOneOf]?.vote; if (hv && hv !== 'none') v = hv; }
+                        if (v === 'yes') yes++; else if (v === 'maybe') maybe++; else if (v === 'no') no++;
+                      }
+                      return { yes, maybe, no };
+                    };
                     return (
                       <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
                         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                           <thead>
                             <tr>
                               <th style={thName}>Person</th>
-                              {openOptions.map(o => <th key={o.id} style={th}>{fmtOpt(o)}</th>)}
+                              {openOptions.map(o => {
+                                const t = tallyFor(o);
+                                return (
+                                  <th key={o.id} style={th}>
+                                    <div>{fmtOpt(o)}</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '0.3rem', fontSize: '0.62rem', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}>
+                                      <span style={{ color: '#16A34A' }}>Going {t.yes}</span>
+                                      <span style={{ color: '#D97706' }}>TBD {t.maybe}</span>
+                                      <span style={{ color: '#DC2626' }}>Not going {t.no}</span>
+                                    </div>
+                                  </th>
+                                );
+                              })}
                             </tr>
                           </thead>
                           <tbody>
