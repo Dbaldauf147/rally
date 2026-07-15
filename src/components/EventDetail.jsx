@@ -1504,7 +1504,8 @@ export function EventDetail() {
                     const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' };
                     const td = { textAlign: 'center', padding: '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
                     const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)' };
-                    // Keep linked (+1) members adjacent and boxed together, mirroring the card view.
+                    // Keep linked (+1) members adjacent so connected people stay together.
+                    const memberByUid = new Map(members);
                     const processed = new Set();
                     const clusters = [];
                     const memberMap = new Map(groupMembers.map(e => [e[0], e]));
@@ -1535,26 +1536,31 @@ export function EventDetail() {
                             </tr>
                           </thead>
                           <tbody>
-                            {clusters.map((cluster, ci) => {
-                              const linked = cluster.length > 1;
-                              return cluster.map(([uid, m], idx) => {
-                                const topBorder = ci > 0 && idx === 0 ? { borderTop: '2px solid var(--color-border)' } : {};
-                                return (
-                                  <tr key={uid}>
-                                    <td
-                                      onClick={isOwner ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
-                                      title={isOwner ? 'Click to edit this person’s votes' : undefined}
-                                      style={{ ...tdName, background: linked ? 'var(--color-accent-light)' : 'var(--color-surface)', borderLeft: `3px solid ${linked ? 'var(--color-accent)' : 'transparent'}`, ...topBorder, ...(isOwner ? { cursor: 'pointer' } : {}) }}
-                                    >
-                                      {idx > 0 && <span title={`Linked to ${cluster[0][1].name || 'above'}`} style={{ color: 'var(--color-accent)', marginRight: '0.25rem' }}>↳</span>}
-                                      <span style={isOwner ? { textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : undefined}>{m.name || 'Guest'}</span>
-                                      {linked && <span title="Linked / plus-one — counts as connected" style={{ marginLeft: '0.3rem', fontSize: '0.68rem' }}>🔗</span>}
-                                    </td>
-                                    {openOptions.map(o => <td key={o.id} style={{ ...td, ...(linked ? { background: 'var(--color-accent-light)' } : {}), ...topBorder }}>{pill(o.votes?.[uid]?.vote)}</td>)}
-                                  </tr>
-                                );
-                              });
-                            })}
+                            {clusters.map((cluster, ci) => cluster.map(([uid, m], idx) => {
+                              const topBorder = ci > 0 && idx === 0 ? { borderTop: '2px solid var(--color-border)' } : {};
+                              const target = m.plusOneOf ? memberByUid.get(m.plusOneOf) : null;
+                              const mutual = !!(target && target.plusOneOf === uid);
+                              return (
+                                <tr key={uid}>
+                                  <td
+                                    onClick={isOwner ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
+                                    title={isOwner ? 'Click to edit this person’s votes' : undefined}
+                                    style={{ ...tdName, ...topBorder, ...(isOwner ? { cursor: 'pointer' } : {}) }}
+                                  >
+                                    <span style={isOwner ? { textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : undefined}>{m.name || 'Guest'}</span>
+                                    {target && (
+                                      <span
+                                        title={mutual ? `Mutually linked with ${target.name || 'Guest'}` : `Assumed yes by way of ${target.name || 'Guest'}`}
+                                        style={{ marginLeft: '0.4rem', fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}
+                                      >
+                                        {mutual ? '⇄' : '↳'} {target.name || 'Guest'}
+                                      </span>
+                                    )}
+                                  </td>
+                                  {openOptions.map(o => <td key={o.id} style={{ ...td, ...topBorder }}>{pill(o.votes?.[uid]?.vote)}</td>)}
+                                </tr>
+                              );
+                            }))}
                           </tbody>
                         </table>
                       </div>
