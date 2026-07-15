@@ -493,6 +493,9 @@ export function EventDetail() {
     }
   }
   const isOwner = event.members?.[user?.uid]?.role === 'owner';
+  // Editing attendees/votes is allowed for organizers AND editors, matching the
+  // rest of the page's permission model (see canEdit/canManageAll below).
+  const canManageMembers = isOwner || event.members?.[user?.uid]?.role === 'editor';
   const myRsvp = event.members?.[user?.uid]?.rsvp || 'pending';
 
   // Detect possible duplicates by phone, email, or first name
@@ -1572,11 +1575,11 @@ export function EventDetail() {
                               return (
                                 <tr key={uid}>
                                   <td
-                                    onClick={isOwner ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
-                                    title={isOwner ? 'Click to edit this person’s votes' : undefined}
-                                    style={{ ...tdName, ...topBorder, ...(isOwner ? { cursor: 'pointer' } : {}) }}
+                                    onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
+                                    title={canManageMembers ? 'Click to edit this person’s votes' : undefined}
+                                    style={{ ...tdName, ...topBorder, ...(canManageMembers ? { cursor: 'pointer' } : {}) }}
                                   >
-                                    <span style={isOwner ? { textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : undefined}>{m.name || 'Guest'}</span>
+                                    <span style={canManageMembers ? { textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : undefined}>{m.name || 'Guest'}</span>
                                     {target && (
                                       <span
                                         title={mutual ? `Mutually linked with ${target.name || 'Guest'}` : `Assumed yes by way of ${target.name || 'Guest'}`}
@@ -1654,7 +1657,7 @@ export function EventDetail() {
                         onDragLeave={() => { if (dropTargetUid === uid) setDropTargetUid(null); }}
                         onDrop={e => { e.preventDefault(); e.stopPropagation(); if (dragMemberUid && dragMemberUid !== uid) handleDragMerge(dragMemberUid, uid); setDragMemberUid(null); setDropTargetUid(null); }}
                         onDragEnd={() => { setDragMemberUid(null); setDropTargetUid(null); }}
-                        onClick={isOwner ? () => { if (!dragMemberUid) { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } } : undefined}
+                        onClick={canManageMembers ? () => { if (!dragMemberUid) { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } } : undefined}
                         style={{ ...(isOwner ? { cursor: dragMemberUid ? 'grabbing' : 'grab' } : {}), ...(isDupe ? { background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 'var(--radius-md)' } : {}), ...(dropTargetUid === uid ? { background: '#DBEAFE', border: '2px solid #3B82F6', borderRadius: 'var(--radius-md)' } : {}), ...(dragMemberUid === uid ? { opacity: 0.4 } : {}) }}
                       >
                         <div style={{ flex: 1, minWidth: 0 }}>
