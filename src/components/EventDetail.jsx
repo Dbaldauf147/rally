@@ -190,7 +190,8 @@ export function EventDetail() {
   // Auto-sync: backfill missing contact info from friends and propagate across events
   const syncedRef = useRef(false);
   useEffect(() => {
-    const isOwnerNow = event?.members?.[user?.uid]?.role === 'owner';
+    const isOwnerNow = event?.members?.[user?.uid]?.role === 'owner'
+      || (!!user?.uid && event?.createdBy === user.uid);
     if (syncedRef.current || !isOwnerNow || !event?.members || friends.length === 0) return;
     syncedRef.current = true;
 
@@ -312,7 +313,8 @@ export function EventDetail() {
   // generic ?name=Friend invite link before name confirmation was required.
   useEffect(() => {
     const hasFriendMember = !!event?.members?.friend;
-    const isOwnerNow = event?.members?.[user?.uid]?.role === 'owner';
+    const isOwnerNow = event?.members?.[user?.uid]?.role === 'owner'
+      || (!!user?.uid && event?.createdBy === user.uid);
     if (!hasFriendMember || !isOwnerNow) {
       setPhantomFriendVotes(null);
       return;
@@ -494,7 +496,11 @@ export function EventDetail() {
       await updateDoc(doc(db, 'events', eventId), updates).catch(() => {});
     }
   }
-  const isOwner = event.members?.[user?.uid]?.role === 'owner';
+  // Fall back to createdBy: a members map can lose its owner role (some events
+  // were written without one), which otherwise locks the creator out of their
+  // own event. SharePage resolves ownership the same way.
+  const isOwner = event.members?.[user?.uid]?.role === 'owner'
+    || (!!user?.uid && event.createdBy === user.uid);
   // Editing attendees/votes is allowed for organizers AND editors, matching the
   // rest of the page's permission model (see canEdit/canManageAll below).
   const canManageMembers = isOwner || event.members?.[user?.uid]?.role === 'editor';
