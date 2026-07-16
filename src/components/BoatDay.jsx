@@ -11,14 +11,44 @@ export const BOAT_NAME = 'The Kismet';
 // three: she is full at BOAT_CAPACITY however the split falls, so any column can
 // take the last seat.
 export const HOSTS = [
-  { key: 'dan', name: 'Dan', color: '#4f46e5' },
-  { key: 'mike', name: 'Mike', color: '#059669' },
-  { key: 'johnny', name: 'Johnny', color: '#ea580c' },
+  { key: 'dan', name: 'Dan', color: '#4f46e5', aliases: [] },
+  { key: 'mike', name: 'Mike', color: '#059669', aliases: ['sunnie'] },
+  { key: 'johnny', name: 'Johnny', color: '#ea580c', aliases: [] },
 ];
 
 const HOST_KEYS = HOSTS.map(h => h.key);
 const hostColor = key => HOSTS.find(h => h.key === key)?.color || '#94a3b8';
 const hostName = key => HOSTS.find(h => h.key === key)?.name || 'crew';
+
+// A Friends contact's free-text "guest of" value ties them to a host: it maps to
+// the first host whose name — or an alias — appears in the value. So "Mike &
+// Sunnie" → mike, "Johnny" → johnny, "Dan" → dan. Returns null if nothing matches.
+export function hostForGuest(guest) {
+  const g = (guest || '').toLowerCase();
+  if (!g) return null;
+  for (const h of HOSTS) {
+    const tokens = [h.name.toLowerCase(), ...(h.aliases || [])];
+    if (tokens.some(t => g.includes(t))) return h.key;
+  }
+  return null;
+}
+
+// Build the per-host guest lists the public boat page shows as tap-to-add chips.
+// The owner computes this from their (private) Friends and writes it onto the
+// event doc, because whoever opens the public link can't read those Friends.
+export function buildBoatSuggestions(friends) {
+  const out = Object.fromEntries(HOST_KEYS.map(k => [k, []]));
+  for (const f of friends || []) {
+    const key = hostForGuest(f.guest);
+    if (key && out[key] && (f.name || '').trim()) {
+      out[key].push({ id: f.id, name: f.name.trim() });
+    }
+  }
+  for (const k of HOST_KEYS) {
+    out[k].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }
+  return out;
+}
 
 // Seat positions in the SVG's coordinate space — two benches inside the hull,
 // drawn as a cutaway. The list length is the capacity; the hull art is drawn to
@@ -61,16 +91,18 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
     ...roster.filter(r => !HOST_KEYS.includes(r.host)),
   ], [roster]);
 
-  // Typeahead over everyone on the event who isn't aboard yet.
-  const suggestions = useMemo(() => {
-    const aboard = new Set(roster.map(r => (r.name || '').toLowerCase()));
-    return Object.values(event.members || {})
-      .filter(m => m && typeof m === 'object' && m.name && !aboard.has(m.name.toLowerCase()))
-      .map(m => m.name)
-      .sort((a, b) => a.localeCompare(b));
-  }, [event.members, roster]);
+  // Names already aboard, for dimming a guest chip once they've boarded.
+  const aboardNames = useMemo(
+    () => new Set(roster.map(r => (r.name || '').toLowerCase())),
+    [roster],
+  );
 
-  async function addPerson(rawName, hostKey) {
+  // Per-host guest lists the owner published from their Friends (see
+  // buildBoatSuggestions). Whoever opens the link can't read those Friends, so
+  // these ride along on the event doc.
+  const guestLists = boat.suggestions && typeof boat.suggestions === 'object' ? boat.suggestions : {};
+
+  async function addPerson(rawName, hostKey, explicitId) {
     const name = (rawName || '').trim();
     if (!name) return;
     setError('');
@@ -81,12 +113,15 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Event not found.');
         const current = Array.isArray(snap.data().boatDay?.roster) ? snap.data().boatDay.roster : [];
+        // Guard against a double-add of the same person (e.g. tapping a guest
+        // chip twice before the snapshot catches up).
+        if (current.some(r => (r.name || '').toLowerCase() === name.toLowerCase())) return;
         // Capacity is checked inside the transaction so two people tapping Add at
         // once can't oversubscribe the last seat.
         if (current.length >= BOAT_CAPACITY) throw new Error(`The boat is full — ${BOAT_CAPACITY} people max.`);
         tx.update(ref, {
           'boatDay.roster': [...current, {
-            id: slugId(name),
+            id: explicitId || slugId(name),
             name,
             host: hostKey,
             addedBy: viewerId || '',
@@ -209,6 +244,9 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
         {HOSTS.map(host => {
           const crew = roster.filter(r => r.host === host.key);
           const draft = drafts[host.key] || '';
+          // This host's guests who aren't aboard yet — one tap boards them.
+          const chips = (guestLists[host.key] || [])
+            .filter(g => g && g.name && !aboardNames.has(g.name.toLowerCase()));
           return (
             <div key={host.key} className={styles.column}>
               <div className={styles.columnHead}>
@@ -244,15 +282,30 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
                 </ul>
               )}
 
+              {chips.length > 0 && (
+                <div className={styles.chips}>
+                  {chips.map(g => (
+                    <button
+                      key={g.id || g.name}
+                      className={styles.chip}
+                      onClick={() => addPerson(g.name, host.key, g.id)}
+                      disabled={full || busyHost === host.key}
+                      title={`Add ${g.name}`}
+                    >
+                      + {g.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className={styles.addNewRow}>
                 <input
                   type="text"
                   className={styles.input}
-                  list="boatPeople"
                   value={draft}
                   onChange={e => setDrafts(d => ({ ...d, [host.key]: e.target.value }))}
                   onKeyDown={e => { if (e.key === 'Enter') addPerson(draft, host.key); }}
-                  placeholder={full ? 'Boat is full' : 'Add a name…'}
+                  placeholder={full ? 'Boat is full' : 'Add someone else…'}
                   disabled={full}
                 />
                 <button
@@ -267,10 +320,6 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
           );
         })}
       </div>
-
-      <datalist id="boatPeople">
-        {suggestions.map(n => <option key={n} value={n} />)}
-      </datalist>
     </div>
   );
 }
