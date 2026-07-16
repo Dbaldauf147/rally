@@ -188,6 +188,21 @@ export function EventDetail() {
     return unsub;
   }, [user]);
 
+  // Keep Boat Day's per-host guest chips in sync with the owner's Friends.
+  // Whoever opens the public boat link can't read those Friends, so the owner
+  // has to publish the matched lists onto the (public) event doc. Doing it here
+  // means it just happens on load — no button to hunt for — and refreshes
+  // automatically after Friends change. Owner-only, and a no-op when unchanged.
+  useEffect(() => {
+    const owner = event?.members?.[user?.uid]?.role === 'owner'
+      || (!!user?.uid && event?.createdBy === user?.uid);
+    if (!owner || !event?.boatDay?.enabled || !friends || friends.length === 0) return;
+    const next = buildBoatSuggestions(friends);
+    if (JSON.stringify(event.boatDay.suggestions || null) === JSON.stringify(next)) return;
+    updateEvent(eventId, { 'boatDay.suggestions': next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.boatDay?.enabled, friends, eventId, user]);
+
   // Auto-sync: backfill missing contact info from friends and propagate across events
   const syncedRef = useRef(false);
   useEffect(() => {
