@@ -2,6 +2,10 @@
   "appId": "com.danbaldauf.rally",
   "appName": "Rally",
   "webDir": "dist",
+  "server": {
+    "url": "https://rally-seven-theta.vercel.app",
+    "cleartext": false
+  },
   "ios": {
     "contentInset": "always"
   }
