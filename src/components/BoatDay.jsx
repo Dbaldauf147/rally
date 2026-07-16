@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { doc, runTransaction, updateDoc, arrayRemove } from 'firebase/firestore';
+import { doc, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase';
 import styles from './BoatDay.module.css';
 
@@ -78,7 +78,6 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
     [boat.roster],
   );
   const [busyId, setBusyId] = useState(null);
-  const [busyHost, setBusyHost] = useState(null);
   const [error, setError] = useState('');
   const [drafts, setDrafts] = useState({});
 
@@ -91,66 +90,55 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
     ...roster.filter(r => !HOST_KEYS.includes(r.host)),
   ], [roster]);
 
-  // Names already aboard, for dimming a guest chip once they've boarded.
-  const aboardNames = useMemo(
-    () => new Set(roster.map(r => (r.name || '').toLowerCase())),
-    [roster],
-  );
-
   // Per-host guest lists the owner published from their Friends (see
   // buildBoatSuggestions). Whoever opens the link can't read those Friends, so
   // these ride along on the event doc.
   const guestLists = boat.suggestions && typeof boat.suggestions === 'object' ? boat.suggestions : {};
 
-  async function addPerson(rawName, hostKey, explicitId) {
-    const name = (rawName || '').trim();
+  // Maybe / Not-going responses ride alongside the roster. Going people sit in
+  // the roster and take seats; maybe and no sit here and don't.
+  const responses = useMemo(
+    () => (Array.isArray(boat.responses) ? boat.responses : []),
+    [boat.responses],
+  );
+
+  // The single write path for a person's status. 'going' seats them in the
+  // roster (capacity-checked inside the transaction), 'maybe'/'no' park them in
+  // responses without a seat, and 'clear' returns them to undecided. Routing
+  // everything through here keeps a person in exactly one place at a time.
+  async function setStatus(person, status) {
+    const name = (person.name || '').trim();
     if (!name) return;
+    const id = person.id || slugId(name);
+    const host = person.host || null;
+    const nlow = name.toLowerCase();
     setError('');
-    setBusyHost(hostKey);
+    setBusyId(id);
     try {
       await runTransaction(db, async (tx) => {
         const ref = doc(db, 'events', eventId);
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Event not found.');
-        const current = Array.isArray(snap.data().boatDay?.roster) ? snap.data().boatDay.roster : [];
-        // Guard against a double-add of the same person (e.g. tapping a guest
-        // chip twice before the snapshot catches up).
-        if (current.some(r => (r.name || '').toLowerCase() === name.toLowerCase())) return;
-        // Capacity is checked inside the transaction so two people tapping Add at
-        // once can't oversubscribe the last seat.
-        if (current.length >= BOAT_CAPACITY) throw new Error(`The boat is full — ${BOAT_CAPACITY} people max.`);
-        tx.update(ref, {
-          'boatDay.roster': [...current, {
-            id: explicitId || slugId(name),
-            name,
-            host: hostKey,
-            addedBy: viewerId || '',
-            addedByName: viewerName || '',
-            addedAt: new Date().toISOString(), // serverTimestamp() is not allowed inside arrays
-          }],
-        });
+        const bd = snap.data().boatDay || {};
+        const notThis = arr => (Array.isArray(arr) ? arr : []).filter(x => (x.name || '').toLowerCase() !== nlow);
+        let nextRoster = notThis(bd.roster);
+        let nextResp = notThis(bd.responses);
+        const stamp = { id, name, host, addedBy: viewerId || '', addedByName: viewerName || '', at: new Date().toISOString() };
+        if (status === 'going') {
+          if (nextRoster.length >= BOAT_CAPACITY) throw new Error(`The boat is full — ${BOAT_CAPACITY} people max.`);
+          nextRoster = [...nextRoster, { ...stamp, addedAt: stamp.at }];
+        } else if (status === 'maybe' || status === 'no') {
+          nextResp = [...nextResp, { ...stamp, status }];
+        }
+        tx.update(ref, { 'boatDay.roster': nextRoster, 'boatDay.responses': nextResp });
       });
-      setDrafts(d => ({ ...d, [hostKey]: '' }));
+      if (host) setDrafts(d => ({ ...d, [host]: '' }));
     } catch (e) {
-      setError(e.message || 'Could not add that person.');
-    } finally {
-      setBusyHost(null);
-    }
-  }
-
-  async function removePerson(item) {
-    setError('');
-    setBusyId(item.id);
-    try {
-      await updateDoc(doc(db, 'events', eventId), { 'boatDay.roster': arrayRemove(item) });
-    } catch {
-      setError('Could not remove that person.');
+      setError(e.message || 'Could not update that person.');
     } finally {
       setBusyId(null);
     }
   }
-
-  const canRemove = (item) => isOwner || item.addedBy === viewerId || item.id === viewerId;
 
   return (
     <div className={styles.wrap}>
@@ -242,61 +230,79 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
           own count — only when the whole boat is full. */}
       <div className={styles.columns}>
         {HOSTS.map(host => {
-          const crew = roster.filter(r => r.host === host.key);
+          const crew = roster.filter(r => r.host === host.key);           // going
+          const resp = responses.filter(r => r.host === host.key);        // maybe / no
+          const statusByName = new Map();
+          crew.forEach(r => statusByName.set((r.name || '').toLowerCase(), 'going'));
+          resp.forEach(r => statusByName.set((r.name || '').toLowerCase(), r.status === 'no' ? 'no' : 'maybe'));
+
+          // One row per person in this column: the host themselves, their tied
+          // guests, and anyone already given a status. Deduped by name.
+          const people = [];
+          const seen = new Set();
+          const addRow = (name, id) => {
+            const k = (name || '').toLowerCase();
+            if (!k || seen.has(k)) return;
+            seen.add(k);
+            people.push({ id, name, host: host.key, status: statusByName.get(k) || 'none' });
+          };
+          addRow(host.name, `host_${host.key}`);
+          (guestLists[host.key] || []).forEach(g => addRow(g.name, g.id));
+          crew.forEach(r => addRow(r.name, r.id));
+          resp.forEach(r => addRow(r.name, r.id));
+          const rank = { going: 0, none: 1, maybe: 2, no: 3 };
+          people.sort((a, b) => (rank[a.status] - rank[b.status]) || (a.name || '').localeCompare(b.name || ''));
+
           const draft = drafts[host.key] || '';
-          // This host's guests who aren't aboard yet — one tap boards them.
-          const chips = (guestLists[host.key] || [])
-            .filter(g => g && g.name && !aboardNames.has(g.name.toLowerCase()));
+          const maybeN = resp.filter(r => r.status !== 'no').length;
+          const noN = resp.filter(r => r.status === 'no').length;
+
+          const STATES = [
+            { k: 'going', label: 'Going', cls: styles.segGoing },
+            { k: 'maybe', label: 'Maybe', cls: styles.segMaybe },
+            { k: 'no', label: 'No', cls: styles.segNo },
+          ];
+
           return (
             <div key={host.key} className={styles.column}>
               <div className={styles.columnHead}>
                 <i className={styles.hostDot} style={{ background: host.color }} />
                 <span className={styles.hostName}>{host.name}</span>
-                <span className={styles.hostCount}>{crew.length}</span>
+                <span className={styles.hostCount}>
+                  {crew.length} going{maybeN ? ` · ${maybeN} maybe` : ''}{noN ? ` · ${noN} no` : ''}
+                </span>
               </div>
 
-              {crew.length === 0 ? (
-                <p className={styles.empty}>Nobody yet.</p>
-              ) : (
-                <ul className={styles.roster}>
-                  {crew.map(item => (
-                    <li key={item.id} className={styles.rosterItem}>
-                      <span
-                        className={styles.rosterName}
-                        title={item.addedByName ? `Added by ${item.addedByName}` : undefined}
-                      >
-                        {item.name}
+              <ul className={styles.people}>
+                {people.map(p => {
+                  const isSelf = p.id === `host_${host.key}`;
+                  return (
+                    <li key={p.id || p.name} className={styles.personRow}>
+                      <span className={styles.pName} title={p.name}>
+                        {p.name}{isSelf ? ' · host' : ''}
                       </span>
-                      {canRemove(item) && (
-                        <button
-                          className={styles.removeBtn}
-                          onClick={() => removePerson(item)}
-                          disabled={busyId === item.id}
-                          title={`Remove ${item.name}`}
-                        >
-                          ✕
-                        </button>
-                      )}
+                      <div className={styles.seg}>
+                        {STATES.map(opt => {
+                          const active = p.status === opt.k;
+                          // Only 'Going' is capacity-limited; Maybe/No never are.
+                          const blocked = opt.k === 'going' && full && !active;
+                          return (
+                            <button
+                              key={opt.k}
+                              className={`${styles.segBtn} ${active ? opt.cls : ''}`}
+                              onClick={() => setStatus(p, active ? 'clear' : opt.k)}
+                              disabled={busyId === p.id || blocked}
+                              title={active ? `Clear ${p.name}` : `${p.name}: ${opt.label}`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </li>
-                  ))}
-                </ul>
-              )}
-
-              {chips.length > 0 && (
-                <div className={styles.chips}>
-                  {chips.map(g => (
-                    <button
-                      key={g.id || g.name}
-                      className={styles.chip}
-                      onClick={() => addPerson(g.name, host.key, g.id)}
-                      disabled={full || busyHost === host.key}
-                      title={`Add ${g.name}`}
-                    >
-                      + {g.name}
-                    </button>
-                  ))}
-                </div>
-              )}
+                  );
+                })}
+              </ul>
 
               <div className={styles.addNewRow}>
                 <input
@@ -304,14 +310,14 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
                   className={styles.input}
                   value={draft}
                   onChange={e => setDrafts(d => ({ ...d, [host.key]: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') addPerson(draft, host.key); }}
+                  onKeyDown={e => { if (e.key === 'Enter') setStatus({ name: draft, host: host.key }, 'going'); }}
                   placeholder={full ? 'Boat is full' : 'Add someone else…'}
                   disabled={full}
                 />
                 <button
                   className={styles.addBtn}
-                  onClick={() => addPerson(draft, host.key)}
-                  disabled={full || !draft.trim() || busyHost === host.key}
+                  onClick={() => setStatus({ name: draft, host: host.key }, 'going')}
+                  disabled={full || !draft.trim()}
                 >
                   Add
                 </button>
