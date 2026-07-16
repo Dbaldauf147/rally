@@ -157,18 +157,35 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
     return () => document.removeEventListener('mousedown', h);
   }, [menuFor]);
 
-  // How many going on each boat, for per-boat capacity.
-  const goingByBoat = useMemo(() => {
-    const out = {};
-    roster.forEach(r => { const b = colBoat(r.host); out[b] = (out[b] || 0) + 1; });
+  // Everyone aboard, unified from the roster (canonical, carries `tier`) and any
+  // legacy responses (old going→1, maybe→2, no→3). Every tier takes a seat, so
+  // this one list drives both the boats and the capacity.
+  const onBoard = useMemo(() => {
+    const out = [];
+    const seen = new Set();
+    const add = (r, tier) => {
+      const k = (r.name || '').toLowerCase();
+      if (!k || seen.has(k)) return;
+      seen.add(k);
+      out.push({ ...r, tier });
+    };
+    roster.forEach(r => add(r, [1, 2, 3].includes(r.tier) ? r.tier : 1));
+    responses.forEach(r => add(r, r.status === 'no' ? 3 : 2));
     return out;
-  }, [roster]);
-  const boatFull = key => (goingByBoat[key] || 0) >= boatCap(key);
+  }, [roster, responses]);
 
-  // The single write path. 'going' seats them on their column's boat (capacity
-  // checked inside the transaction), 'maybe'/'no' park them without a seat, and
-  // 'clear' removes them. A person is only ever in one place.
-  async function setStatus(person, status, newCol) {
+  const seatsByBoat = useMemo(() => {
+    const out = {};
+    onBoard.forEach(r => { const b = colBoat(r.host); out[b] = (out[b] || 0) + 1; });
+    return out;
+  }, [onBoard]);
+  const boatFull = key => (seatsByBoat[key] || 0) >= boatCap(key);
+
+  // The single write path. A tier (1/2/3) seats them on their column's boat —
+  // every tier takes a seat, so capacity is checked inside the transaction —
+  // and tier 0/null clears them off. A person is only ever in one place, and any
+  // legacy `responses` entry for them is folded away on the next touch.
+  async function setTier(person, tier, newCol) {
     const name = (person.name || '').trim();
     if (!name) return;
     const host = newCol || person.host || null;
@@ -184,15 +201,14 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
         const bd = snap.data().boatDay || {};
         const notThis = arr => (Array.isArray(arr) ? arr : []).filter(x => (x.name || '').toLowerCase() !== nlow);
         let nextRoster = notThis(bd.roster);
-        let nextResp = notThis(bd.responses);
-        const stamp = { id, name, host, addedBy: viewerId || '', addedByName: viewerName || '', at: new Date().toISOString() };
-        if (status === 'going') {
+        const nextResp = notThis(bd.responses); // person leaves the legacy list too
+        if (tier) {
           const bkey = colBoat(host);
-          const onBoat = nextRoster.filter(r => colBoat(r.host) === bkey).length;
-          if (onBoat >= boatCap(bkey)) throw new Error(`${boatByKey[bkey]?.name || 'That boat'} is full — ${boatCap(bkey)} people max.`);
-          nextRoster = [...nextRoster, { ...stamp, addedAt: stamp.at }];
-        } else if (status === 'maybe' || status === 'no') {
-          nextResp = [...nextResp, { ...stamp, status }];
+          // Seats used = everyone still aboard that boat, across roster + legacy.
+          const seatsUsed = nextRoster.filter(r => colBoat(r.host) === bkey).length
+            + nextResp.filter(r => colBoat(r.host) === bkey).length;
+          if (seatsUsed >= boatCap(bkey)) throw new Error(`${boatByKey[bkey]?.name || 'That boat'} is full — ${boatCap(bkey)} people max.`);
+          nextRoster = [...nextRoster, { id, name, host, tier, addedBy: viewerId || '', addedByName: viewerName || '', addedAt: new Date().toISOString() }];
         }
         tx.update(ref, { 'boatDay.roster': nextRoster, 'boatDay.responses': nextResp });
       });
@@ -204,40 +220,39 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
     }
   }
 
-  // Move a person to another column/boat: they board it (going), leaving wherever
-  // they were. Capacity of the destination is enforced by setStatus.
-  const moveTo = (person, colKey) => { setMenuFor(null); setStatus(person, 'going', colKey); };
+  // Move a person to another column/boat, keeping their tier (default 1).
+  // The destination's capacity is enforced by setTier.
+  const moveTo = (person, colKey) => { setMenuFor(null); setTier(person, person.tier || 1, colKey); };
 
-  const STATES = [
-    { k: 'going', label: 'Going', cls: styles.segGoing },
-    { k: 'maybe', label: 'Maybe', cls: styles.segMaybe },
-    { k: 'no', label: 'No', cls: styles.segNo },
+  const TIERS = [
+    { t: 1, label: 'T1', cls: styles.segT1 },
+    { t: 2, label: 'T2', cls: styles.segT2 },
+    { t: 3, label: 'T3', cls: styles.segT3 },
   ];
 
   function renderColumn(col) {
-    const crew = roster.filter(r => r.host === col.key);            // going
-    const resp = responses.filter(r => r.host === col.key);         // maybe / no
-    const statusByName = new Map();
-    crew.forEach(r => statusByName.set((r.name || '').toLowerCase(), 'going'));
-    resp.forEach(r => statusByName.set((r.name || '').toLowerCase(), r.status === 'no' ? 'no' : 'maybe'));
+    const aboard = onBoard.filter(r => r.host === col.key);
+    const boardNames = new Set(onBoard.map(r => (r.name || '').toLowerCase()));
 
     const people = [];
     const seen = new Set();
-    const addRow = (name, id) => {
+    const addRow = (name, id, tier) => {
       const k = (name || '').toLowerCase();
       if (!k || seen.has(k)) return;
       seen.add(k);
-      people.push({ id, name, host: col.key, status: statusByName.get(k) || 'none' });
+      people.push({ id, name, host: col.key, tier: tier || null });
     };
-    (guestLists[col.key] || []).forEach(g => addRow(g.name, g.id));
-    crew.forEach(r => addRow(r.name, r.id));
-    resp.forEach(r => addRow(r.name, r.id));
-    const rank = { going: 0, none: 1, maybe: 2, no: 3 };
-    people.sort((a, b) => (rank[a.status] - rank[b.status]) || (a.name || '').localeCompare(b.name || ''));
+    aboard.forEach(r => addRow(r.name, r.id, r.tier));
+    // This column's tied guests who aren't aboard any boat yet.
+    (guestLists[col.key] || []).forEach(g => {
+      if (!boardNames.has((g.name || '').toLowerCase())) addRow(g.name, g.id, null);
+    });
+    people.sort((a, b) => ((a.tier || 9) - (b.tier || 9)) || (a.name || '').localeCompare(b.name || ''));
 
     const draft = drafts[col.key] || '';
-    const maybeN = resp.filter(r => r.status !== 'no').length;
-    const noN = resp.filter(r => r.status === 'no').length;
+    const t1 = aboard.filter(r => r.tier === 1).length;
+    const t2 = aboard.filter(r => r.tier === 2).length;
+    const t3 = aboard.filter(r => r.tier === 3).length;
     const boatIsFull = boatFull(col.boat);
 
     return (
@@ -246,7 +261,7 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
           <i className={styles.hostDot} style={{ background: col.color }} />
           <span className={styles.hostName}>{col.name}</span>
           <span className={styles.hostCount}>
-            {crew.length}{maybeN ? ` · ${maybeN}?` : ''}{noN ? ` · ${noN}✕` : ''}
+            {aboard.length}{aboard.length ? ` (${t1}/${t2}/${t3})` : ''}
           </span>
         </div>
         {col.boat !== 'kyle' && col.boat !== 'nick' && (
@@ -285,16 +300,18 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
                   )}
                 </div>
                 <div className={styles.seg}>
-                  {STATES.map(opt => {
-                    const active = p.status === opt.k;
-                    const blocked = opt.k === 'going' && boatIsFull && !active;
+                  {TIERS.map(opt => {
+                    const active = p.tier === opt.t;
+                    // Assigning a tier to someone not aboard needs a free seat;
+                    // re-tiering someone already aboard is seat-neutral.
+                    const blocked = boatIsFull && !p.tier;
                     return (
                       <button
-                        key={opt.k}
+                        key={opt.t}
                         className={`${styles.segBtn} ${active ? opt.cls : ''}`}
-                        onClick={() => setStatus(p, active ? 'clear' : opt.k)}
+                        onClick={() => setTier(p, active ? null : opt.t)}
                         disabled={busyId === p.id || blocked}
-                        title={active ? `Clear ${p.name}` : `${p.name}: ${opt.label}`}
+                        title={active ? `Take ${p.name} off the boat` : `${p.name}: Tier ${opt.t}`}
                       >
                         {opt.label}
                       </button>
@@ -312,13 +329,13 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
             className={styles.input}
             value={draft}
             onChange={e => setDrafts(d => ({ ...d, [col.key]: e.target.value }))}
-            onKeyDown={e => { if (e.key === 'Enter') setStatus({ name: draft, host: col.key }, 'going'); }}
+            onKeyDown={e => { if (e.key === 'Enter') setTier({ name: draft, host: col.key }, 1); }}
             placeholder={boatIsFull ? 'Boat is full' : 'Add someone else…'}
             disabled={boatIsFull}
           />
           <button
             className={styles.addBtn}
-            onClick={() => setStatus({ name: draft, host: col.key }, 'going')}
+            onClick={() => setTier({ name: draft, host: col.key }, 1)}
             disabled={boatIsFull || !draft.trim()}
           >
             Add
@@ -333,7 +350,12 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
       {/* The fleet — one hull per boat, left to right. */}
       <div className={styles.fleet}>
         {BOATS.map(b => {
-          const seated = columnsForBoat(b.key).flatMap(c => roster.filter(r => r.host === c.key));
+          // Everyone aboard this boat, ordered by column then tier (tier 1 first)
+          // so seats fill in priority order.
+          const colIndex = h => { const i = COLUMNS.findIndex(c => c.key === h); return i < 0 ? 99 : i; };
+          const seated = onBoard
+            .filter(r => colBoat(r.host) === b.key)
+            .sort((a, c) => (colIndex(a.host) - colIndex(c.host)) || (a.tier - c.tier));
           return (
             <div key={b.key} className={styles.fleetBoat}>
               <div className={styles.countRow}>
