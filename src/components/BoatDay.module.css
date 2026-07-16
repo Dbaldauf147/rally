@@ -170,12 +170,6 @@
   color: var(--color-text-muted);
 }
 
-.empty {
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--color-text-muted);
-}
-
 .error {
   margin: 0;
   padding: 0.5rem 0.75rem;
@@ -186,9 +180,9 @@
   font-weight: 500;
 }
 
-/* ---- Roster ---- */
+/* ---- People rows + Going/Maybe/No control ---- */
 
-.roster {
+.people {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -196,17 +190,17 @@
   flex-direction: column;
 }
 
-.rosterItem {
+.personRow {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem 0;
   border-bottom: 1px solid var(--color-border-light, #f1f1f1);
 }
 
-.rosterItem:last-child { border-bottom: none; }
+.personRow:last-child { border-bottom: none; }
 
-.rosterName {
+.pName {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--color-text);
@@ -215,49 +209,31 @@
   white-space: nowrap;
 }
 
-.removeBtn {
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  line-height: 1;
-  padding: 0.25rem 0.4rem;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.removeBtn:hover { background: #fee2e2; color: #dc2626; }
-.removeBtn:disabled { opacity: 0.4; cursor: default; }
-
-/* ---- Guest chips (tap to add this host's people) ---- */
-
-.chips {
+.seg {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.5rem;
+  gap: 0.25rem;
 }
 
-.chip {
-  padding: 0.25rem 0.55rem;
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-full);
-  background: var(--color-accent-light, #eef2ff);
-  color: var(--color-accent);
-  font-size: 0.78rem;
+.segBtn {
+  flex: 1;
+  min-width: 0;
+  padding: 0.22rem 0.3rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  white-space: nowrap;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.chip:hover:not(:disabled) { filter: brightness(0.96); }
-.chip:disabled { opacity: 0.5; cursor: default; }
+.segBtn:disabled { opacity: 0.45; cursor: default; }
+
+/* Active states — colour matches the meaning, not the host. */
+.segGoing { background: #059669; border-color: #059669; color: #fff; }
+.segMaybe { background: #d97706; border-color: #d97706; color: #fff; }
+.segNo { background: #dc2626; border-color: #dc2626; color: #fff; }
 
 /* ---- Add people ---- */
 
