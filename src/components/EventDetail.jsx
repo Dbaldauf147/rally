@@ -13,7 +13,7 @@ import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
-import { BoatDay, BOAT_CAPACITY, BOAT_NAME } from './BoatDay';
+import { BoatDay, BOAT_CAPACITY, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
 import {
   syncEventToGoogleCalendar,
   removeEventFromGoogleCalendar,
@@ -73,6 +73,7 @@ export function EventDetail() {
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteResult, setInviteResult] = useState('');
   const [boatCopied, setBoatCopied] = useState(false);
+  const [boatSynced, setBoatSynced] = useState(false);
   const [editMember, setEditMember] = useState(null); // { uid, name, email, rsvp, role }
   const [editMemberFields, setEditMemberFields] = useState({});
   const [friendLinkSearch, setFriendLinkSearch] = useState('');
@@ -2192,6 +2193,11 @@ export function EventDetail() {
             const enabled = !!bd.enabled;
             const aboard = Array.isArray(bd.roster) ? bd.roster.length : 0;
             const boatUrl = `${WEB_ORIGIN}/boat/${eventId}?name=Friend`;
+            // Guest lists come from this owner's private Friends, tied to a host by
+            // the contact's "guest of" value. Published onto the event so whoever
+            // opens the public link (who can't read Friends) still sees them.
+            const guestSuggestions = buildBoatSuggestions(friends);
+            const guestTotal = Object.values(guestSuggestions).reduce((n, a) => n + a.length, 0);
 
             return (
               <div style={{
@@ -2217,6 +2223,8 @@ export function EventDetail() {
                       'boatDay.enabled': !enabled,
                       // Preserve the roster across a disable/re-enable.
                       ...(Array.isArray(bd.roster) ? {} : { 'boatDay.roster': [] }),
+                      // Publish guest lists on enable so they're there from the start.
+                      ...(!enabled ? { 'boatDay.suggestions': guestSuggestions } : {}),
                     })}
                     style={{
                       flex: 'none',
@@ -2236,28 +2244,50 @@ export function EventDetail() {
                 </div>
 
                 {enabled && (
-                  <button
-                    onClick={() => {
-                      const fromName = user?.displayName || 'Someone';
-                      navigator.clipboard.writeText(`${fromName} is planning a boat day on ${BOAT_NAME} for ${event.title}. Add your people here: ${boatUrl}`);
-                      setBoatCopied(true);
-                      setTimeout(() => setBoatCopied(false), 2000);
-                    }}
-                    style={{
-                      marginTop: '0.75rem',
-                      padding: '0.4rem 0.9rem',
-                      border: '1px solid #0EA5E9',
-                      borderRadius: 'var(--radius-full)',
-                      background: 'transparent',
-                      color: '#0369A1',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    {boatCopied ? '✓ Copied!' : '🔗 Copy boat link'}
-                  </button>
+                  <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                    <button
+                      onClick={() => {
+                        const fromName = user?.displayName || 'Someone';
+                        navigator.clipboard.writeText(`${fromName} is planning a boat day on ${BOAT_NAME} for ${event.title}. Add your people here: ${boatUrl}`);
+                        setBoatCopied(true);
+                        setTimeout(() => setBoatCopied(false), 2000);
+                      }}
+                      style={{
+                        padding: '0.4rem 0.9rem',
+                        border: '1px solid #0EA5E9',
+                        borderRadius: 'var(--radius-full)',
+                        background: 'transparent',
+                        color: '#0369A1',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      {boatCopied ? '✓ Copied!' : '🔗 Copy boat link'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        updateEvent(eventId, { 'boatDay.suggestions': guestSuggestions });
+                        setBoatSynced(true);
+                        setTimeout(() => setBoatSynced(false), 2000);
+                      }}
+                      title="Rebuild each host's guest chips from your Friends (by their “guest of” value)"
+                      style={{
+                        padding: '0.4rem 0.9rem',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-full)',
+                        background: 'transparent',
+                        color: 'var(--color-text-secondary)',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      {boatSynced ? '✓ Updated' : `↻ Update guest lists (${guestTotal})`}
+                    </button>
+                  </div>
                 )}
               </div>
             );

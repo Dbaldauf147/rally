@@ -231,6 +231,34 @@
 .removeBtn:hover { background: #fee2e2; color: #dc2626; }
 .removeBtn:disabled { opacity: 0.4; cursor: default; }
 
+/* ---- Guest chips (tap to add this host's people) ---- */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.chip {
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-light, #eef2ff);
+  color: var(--color-accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip:hover:not(:disabled) { filter: brightness(0.96); }
+.chip:disabled { opacity: 0.5; cursor: default; }
+
 /* ---- Add people ---- */
 
 .addNewRow {
