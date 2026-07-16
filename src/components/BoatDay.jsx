@@ -236,8 +236,8 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
           crew.forEach(r => statusByName.set((r.name || '').toLowerCase(), 'going'));
           resp.forEach(r => statusByName.set((r.name || '').toLowerCase(), r.status === 'no' ? 'no' : 'maybe'));
 
-          // One row per person in this column: the host themselves, their tied
-          // guests, and anyone already given a status. Deduped by name.
+          // One row per person in this column: this host's tied guests, plus
+          // anyone already given a status. Deduped by name.
           const people = [];
           const seen = new Set();
           const addRow = (name, id) => {
@@ -246,7 +246,6 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
             seen.add(k);
             people.push({ id, name, host: host.key, status: statusByName.get(k) || 'none' });
           };
-          addRow(host.name, `host_${host.key}`);
           (guestLists[host.key] || []).forEach(g => addRow(g.name, g.id));
           crew.forEach(r => addRow(r.name, r.id));
           resp.forEach(r => addRow(r.name, r.id));
@@ -274,12 +273,10 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
               </div>
 
               <ul className={styles.people}>
-                {people.map(p => {
-                  const isSelf = p.id === `host_${host.key}`;
-                  return (
+                {people.map(p => (
                     <li key={p.id || p.name} className={styles.personRow}>
                       <span className={styles.pName} title={p.name}>
-                        {p.name}{isSelf ? ' · host' : ''}
+                        {p.name}
                       </span>
                       <div className={styles.seg}>
                         {STATES.map(opt => {
@@ -300,8 +297,7 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner = false 
                         })}
                       </div>
                     </li>
-                  );
-                })}
+                ))}
               </ul>
 
               <div className={styles.addNewRow}>
