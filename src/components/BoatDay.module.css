@@ -279,10 +279,10 @@
 
 .segBtn:disabled { opacity: 0.45; cursor: default; }
 
-/* Active tier — everyone aboard, deeper colour = higher priority. */
-.segT1 { background: #059669; border-color: #059669; color: #fff; }
-.segT2 { background: #0284c7; border-color: #0284c7; color: #fff; }
-.segT3 { background: #64748b; border-color: #64748b; color: #fff; }
+/* Active states — colour matches the meaning, not the host. */
+.segGoing { background: #059669; border-color: #059669; color: #fff; }
+.segMaybe { background: #d97706; border-color: #d97706; color: #fff; }
+.segNo { background: #dc2626; border-color: #dc2626; color: #fff; }
 
 /* ---- Add people ---- */
 
