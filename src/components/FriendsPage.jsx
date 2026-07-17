@@ -725,6 +725,7 @@ export function FriendsPage() {
       guest: friend.guest || '',
       tag: friend.tag || '',
       instagram: friend.instagram || '',
+      notes: friend.notes || '',
       linkedTo: friend.linkedTo || '',
       giftIdeas: Array.isArray(friend.giftIdeas) ? friend.giftIdeas : [],
     });
@@ -747,6 +748,7 @@ export function FriendsPage() {
       workEmail: (editFields.workEmail || '').trim().toLowerCase(),
       addresses: cleanedAddresses,
       address: cleanedAddresses[0]?.value || '',
+      notes: (editFields.notes || '').trim(),
       giftIdeas,
       createdAt: editFriend.createdAt || new Date().toISOString(),
     };
@@ -1799,6 +1801,17 @@ export function FriendsPage() {
               <label className={styles.label}>Guest<input className={styles.input} value={editFields.guest} onChange={e => editSet('guest', e.target.value)} /></label>
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
               <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
+              <label className={styles.label}>
+                📝 Notes
+                <textarea
+                  className={styles.input}
+                  value={editFields.notes || ''}
+                  onChange={e => editSet('notes', e.target.value)}
+                  placeholder="Anything you want to remember about this contact…"
+                  rows={4}
+                  style={{ resize: 'vertical', minHeight: '4.5rem', fontFamily: 'inherit', lineHeight: 1.4 }}
+                />
+              </label>
               <div className={styles.label}>
                 🎁 Gift ideas
                 {(editFields.giftIdeas || []).length > 0 && (
