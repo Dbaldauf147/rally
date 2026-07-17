@@ -74,6 +74,14 @@ export function EventDetail() {
   const [inviteResult, setInviteResult] = useState('');
   const [boatCopied, setBoatCopied] = useState(false);
   const [boatSynced, setBoatSynced] = useState(false);
+  // Track a narrow (phone) viewport so the Voted table can tighten up its cells
+  // instead of forcing a wide horizontal scroll.
+  const [isNarrow, setIsNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 600);
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < 600);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [editMember, setEditMember] = useState(null); // { uid, name, email, rsvp, role }
   const [editMemberFields, setEditMemberFields] = useState({});
   const [friendLinkSearch, setFriendLinkSearch] = useState('');
@@ -1534,10 +1542,12 @@ export function EventDetail() {
                       }
                       return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
                     };
-                    const th = { textAlign: 'center', padding: '0.4rem 0.6rem', fontSize: '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)' };
+                    // Tighter cells + smaller type on a phone so more of the table
+                    // fits before it needs to scroll sideways.
+                    const th = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)' };
                     const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' };
-                    const td = { textAlign: 'center', padding: '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
-                    const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)' };
+                    const td = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
+                    const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: isNarrow ? '0.76rem' : '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)', maxWidth: isNarrow ? '7.5rem' : 'none', overflow: 'hidden', textOverflow: 'ellipsis' };
                     // Keep linked (+1) members adjacent so connected people stay together.
                     const memberByUid = new Map(members);
                     const processed = new Set();

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, addDoc, deleteDoc, collection, query, orderBy, getDocs, serverTimestamp, arrayUnion, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { WEB_ORIGIN } from '../native';
 import { format, eachDayOfInterval } from 'date-fns';
 import styles from './PollPage.module.css';
@@ -34,6 +35,7 @@ export function PollPage() {
 
 function PollPageInner() {
   const { eventId } = useParams();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const nameParam = decodeURIComponent(searchParams.get('name') || 'Guest');
   const isGenericName = nameParam === 'Friend' || nameParam === 'Guest';
@@ -44,6 +46,7 @@ function PollPageInner() {
   // else's name from a forwarded/pre-filled link.
   const [nameConfirmed, setNameConfirmed] = useState(hasVid && !isGenericName);
   const [selectedMemberUid, setSelectedMemberUid] = useState(null);
+  const [signedInMatch, setSignedInMatch] = useState(false); // auto-identified via login
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const voterName = nameConfirmed ? editedName : nameParam;
   const visitorId = searchParams.get('vid')
@@ -119,6 +122,28 @@ function PollPageInner() {
 
     return () => { unsub(); unsub2(); };
   }, [eventId]);
+
+  // If the visitor is signed in to Rally, recognise them: match their account
+  // to a member of this event (by uid, or by an exact email match) and vote as
+  // that person automatically — no "who are you?" step. Only fires on a strong
+  // match, respects an explicit ?vid= link, and once they've picked/reset it
+  // won't re-run, so "not you?" still works.
+  const authMatchedRef = useRef(false);
+  useEffect(() => {
+    if (authMatchedRef.current || hasVid || nameConfirmed) return;
+    if (!user || !event?.members) return;
+    const email = (user.email || '').toLowerCase();
+    const entries = Object.entries(event.members).filter(([, m]) => m && typeof m === 'object');
+    let match = entries.find(([uid]) => uid === user.uid);
+    if (!match && email) match = entries.find(([, m]) => (m.email || '').toLowerCase() === email);
+    if (!match) return;
+    authMatchedRef.current = true;
+    const [uid, m] = match;
+    setSelectedMemberUid(uid);
+    setEditedName(m.name || user.displayName || '');
+    setSignedInMatch(true);
+    setNameConfirmed(true);
+  }, [user, event, hasVid, nameConfirmed]);
 
   const stage = event?.stage || 'voting';
   const isFinalized = stage === 'finalized';
@@ -374,9 +399,10 @@ function PollPageInner() {
         })() : (
           <p style={{ fontSize: '0.82rem', color: '#6b7280', textAlign: 'center', margin: '0 0 1rem' }}>
             Voting as <strong style={{ color: '#1a1a1a' }}>{voterName}</strong>
+            {signedInMatch && <span style={{ color: '#16a34a', fontWeight: 600 }}> · signed in</span>}
             {' · '}
             <button
-              onClick={() => { setNameConfirmed(false); setSelectedMemberUid(null); setEditedName(''); }}
+              onClick={() => { setNameConfirmed(false); setSelectedMemberUid(null); setEditedName(''); setSignedInMatch(false); }}
               style={{ background: 'none', border: 'none', color: '#4f46e5', fontSize: '0.82rem', cursor: 'pointer', padding: 0, fontFamily: 'inherit', textDecoration: 'underline' }}
             >
               not you?
