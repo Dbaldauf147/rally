@@ -1480,12 +1480,27 @@ export function EventDetail() {
                 else if (voteStats[uid]?.total > 0) hostGroup[uid] = 'voted';
                 else hostGroup[uid] = 'waiting';
               }
+              // Each linked person's partner, made symmetric: whoever they point
+              // to (plusOneOf), or — if they point at no one — whoever points at
+              // them. So a one-way link (A comes with B) still lets B inherit A's
+              // vote, not just A inherit B's. Prevents the linked partner of a
+              // voter from being stranded in "Waiting".
+              const partnerOf = {};
+              for (const [uid, m] of members) {
+                if (m.plusOneOf) partnerOf[uid] = m.plusOneOf;
+              }
+              for (const [uid] of members) {
+                if (partnerOf[uid]) continue;
+                const inbound = members.find(([u2, m2]) => m2.plusOneOf === uid);
+                if (inbound) partnerOf[uid] = inbound[0];
+              }
               // Linked members go to the highest-priority group between them
               // Priority: voted > skip > waiting
               function getGroup(uid, m) {
                 const own = m.skipVote ? 'skip' : voteStats[uid]?.total > 0 ? 'voted' : 'waiting';
-                if (!m.plusOneOf) return own;
-                const linked = hostGroup[m.plusOneOf] || 'waiting';
+                const partner = partnerOf[uid];
+                if (!partner) return own;
+                const linked = hostGroup[partner] || 'waiting';
                 // Pick whichever is higher priority
                 const priority = { voted: 0, skip: 1, waiting: 2 };
                 return (priority[own] ?? 2) <= (priority[linked] ?? 2) ? own : linked;
@@ -1573,10 +1588,11 @@ export function EventDetail() {
                     // Per-date tally of the effective (own or inherited) votes shown in this table.
                     const tallyFor = (o) => {
                       let yes = 0, maybe = 0, no = 0;
-                      for (const [uid, m] of groupMembers) {
+                      for (const [uid] of groupMembers) {
                         const own = o.votes?.[uid]?.vote;
                         let v = own && own !== 'none' ? own : null;
-                        if (!v && m.plusOneOf) { const hv = o.votes?.[m.plusOneOf]?.vote; if (hv && hv !== 'none') v = hv; }
+                        const partner = partnerOf[uid];
+                        if (!v && partner) { const hv = o.votes?.[partner]?.vote; if (hv && hv !== 'none') v = hv; }
                         if (v === 'yes') yes++; else if (v === 'maybe') maybe++; else if (v === 'no') no++;
                       }
                       return { yes, maybe, no };
@@ -1605,8 +1621,9 @@ export function EventDetail() {
                           <tbody>
                             {clusters.map((cluster, ci) => cluster.map(([uid, m], idx) => {
                               const topBorder = ci > 0 && idx === 0 ? { borderTop: '2px solid var(--color-border)' } : {};
-                              const target = m.plusOneOf ? memberByUid.get(m.plusOneOf) : null;
-                              const mutual = !!(target && target.plusOneOf === uid);
+                              const partner = partnerOf[uid];
+                              const target = partner ? memberByUid.get(partner) : null;
+                              const mutual = !!(target && m.plusOneOf === partner && target.plusOneOf === uid);
                               return (
                                 <tr key={uid}>
                                   <td
@@ -1630,8 +1647,8 @@ export function EventDetail() {
                                     const ownActive = own && own !== 'none';
                                     let voteVal = ownActive ? own : null;
                                     let inherited = false;
-                                    if (!ownActive && m.plusOneOf) {
-                                      const hv = o.votes?.[m.plusOneOf]?.vote;
+                                    if (!ownActive && partner) {
+                                      const hv = o.votes?.[partner]?.vote;
                                       if (hv && hv !== 'none') { voteVal = hv; inherited = true; }
                                     }
                                     return <td key={o.id} style={{ ...td, ...topBorder }}>{pill(voteVal, inherited)}</td>;
