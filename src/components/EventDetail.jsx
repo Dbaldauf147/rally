@@ -2280,17 +2280,45 @@ export function EventDetail() {
               const keys = [];
               const added = [];
               const usedKeys = new Set(members.map(([uid]) => uid));
+              // Whether someone is already a real poll member (by email or name),
+              // matching the "+ Add Friends" dedup so we don't re-add partners.
+              const memberEmails = new Set(members.map(([, m]) => (m.email || '').toLowerCase()).filter(Boolean));
+              const memberNames = new Set(members.map(([, m]) => (m.name || '').trim().toLowerCase()).filter(Boolean));
+              const alreadyMember = (name, email) =>
+                (email && memberEmails.has(email.toLowerCase())) || (name && memberNames.has(name.trim().toLowerCase()));
+              const keyFor = (email, id, name) => (email || id || name).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
+              // Create (or return the existing batched key for) a member. plusOneOf
+              // links this person to their partner. Returns the key used.
+              const ensureMember = (name, email, phone, id, plusOneOf) => {
+                let key = keyFor(email, id, name);
+                if (!updates[`members.${key}`]) {
+                  if (usedKeys.has(key)) key = `${key}_${Math.random().toString(36).slice(2, 6)}`;
+                  updates[`members.${key}`] = { role: 'viewer', rsvp: 'pending', name: name || '', email: email || '', phone: phone || '' };
+                  usedKeys.add(key);
+                  keys.push(key);
+                  added.push(name);
+                }
+                if (plusOneOf) updates[`members.${key}`].plusOneOf = plusOneOf;
+                return key;
+              };
               for (const r of importableGuests) {
                 const name = r.name.trim();
                 const friend = friends.find(f => (f.name || '').trim().toLowerCase() === name.toLowerCase());
-                let key = ((friend?.email) || friend?.id || r.id || name).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
-                // Don't clobber an existing member or a same-key twin within this batch.
-                if (usedKeys.has(key)) key = `${key}_${Math.random().toString(36).slice(2, 6)}`;
-                usedKeys.add(key);
-                updates[`members.${key}`] = { role: 'viewer', rsvp: 'pending', name, email: friend?.email || '', phone: friend?.phone || '' };
-                keys.push(key);
-                added.push(name);
+                const key = ensureMember(name, friend?.email, friend?.phone, friend?.id || r.id);
+                if (!friend) continue;
+                // Couple linking (mirrors + Add Friends): pull in the friend's linked
+                // partner and any friends who link to them, with a mutual plusOneOf
+                // so they cluster as a couple and inherit each other's "assumed yes".
+                const linked = friend.linkedTo ? friends.find(x => x.id === friend.linkedTo) : null;
+                if (linked && !alreadyMember(linked.name, linked.email)) {
+                  const linkedKey = ensureMember(linked.name, linked.email, linked.phone, linked.id, key);
+                  updates[`members.${key}`].plusOneOf = linkedKey;
+                }
+                for (const rl of friends.filter(x => x.linkedTo === friend.id && !alreadyMember(x.name, x.email))) {
+                  ensureMember(rl.name, rl.email, rl.phone, rl.id, key);
+                }
               }
+              if (keys.length === 0) return;
               updates.memberUids = arrayUnion(...keys);
               try {
                 await updateDoc(doc(db, 'events', eventId), updates);
