@@ -549,6 +549,39 @@ export function EventDetail() {
   function isDuplicate(uid) { return !!getDuplicateReason(uid); }
   const stage = event.stage || 'voting'; // 'voting' | 'finalized'
 
+  // The chosen date(s) once an event is finalized, as 'YYYY-MM-DD' strings
+  // (chronological). Shared by the DatePoll below and the voted-table column
+  // highlight so both agree on which option won.
+  const finalizedDays = (() => {
+    if (stage !== 'finalized' || event.dateTBD) return [];
+    const start = event.date?.toDate?.() || (event.date ? new Date(event.date) : null);
+    const endRaw = event.endDate?.toDate?.() || (event.endDate ? new Date(event.endDate) : null);
+    if (!start || isNaN(start.getTime())) return [];
+    let end = endRaw && !isNaN(endRaw.getTime()) ? endRaw : start;
+    const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    if (endDay < startDay) end = start;
+    const dayDiff = Math.floor((endDay - startDay) / 86400000);
+    if (dayDiff > 60) end = start;
+    const out = [];
+    const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    while (cur <= last) {
+      out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
+      cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+  })();
+  const finStart = finalizedDays.length ? finalizedDays[0] : null;
+  const finEnd = finalizedDays.length ? finalizedDays[finalizedDays.length - 1] : null;
+  // An option is "the chosen one" when its whole range sits inside the
+  // finalized window — mirrors DatePoll's isFinalizedOption.
+  const isChosenOption = (o) => {
+    if (!finStart || !o.startDate) return false;
+    const optEnd = o.endDate || o.startDate;
+    return o.startDate >= finStart && optEnd <= finEnd;
+  };
+
   async function handleDragMerge(srcUid, tgtUid) {
     const srcMember = members.find(([u]) => u === srcUid)?.[1];
     const tgtMember = members.find(([u]) => u === tgtUid)?.[1];
@@ -1605,9 +1638,11 @@ export function EventDetail() {
                               <th style={thName}>Person</th>
                               {openOptions.map(o => {
                                 const t = tallyFor(o);
+                                const chosen = isChosenOption(o);
                                 return (
-                                  <th key={o.id} style={th}>
-                                    <div>{fmtOpt(o)}</div>
+                                  <th key={o.id} style={chosen ? { ...th, background: 'linear-gradient(135deg, var(--color-surface) 0%, var(--color-success-light) 100%)', borderBottom: '2px solid var(--color-success)', color: 'var(--color-success)' } : th}>
+                                    {chosen && <div style={{ fontSize: '0.58rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-success)', marginBottom: '0.1rem' }}>✓ Chosen</div>}
+                                    <div style={chosen ? { fontWeight: 800, color: 'var(--color-text)' } : undefined}>{fmtOpt(o)}</div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '0.3rem', fontSize: '0.62rem', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}>
                                       <span style={{ color: '#16A34A' }}>Going {t.yes}</span>
                                       <span style={{ color: '#D97706' }}>TBD {t.maybe}</span>
@@ -1651,7 +1686,8 @@ export function EventDetail() {
                                       const hv = o.votes?.[partner]?.vote;
                                       if (hv && hv !== 'none') { voteVal = hv; inherited = true; }
                                     }
-                                    return <td key={o.id} style={{ ...td, ...topBorder }}>{pill(voteVal, inherited)}</td>;
+                                    const chosen = isChosenOption(o);
+                                    return <td key={o.id} style={{ ...td, ...topBorder, ...(chosen ? { background: 'var(--color-success-light)' } : {}) }}>{pill(voteVal, inherited)}</td>;
                                   })}
                                 </tr>
                               );
@@ -2107,29 +2143,7 @@ export function EventDetail() {
             onAddAltRange={addAltRange}
             onRemoveAltRange={removeAltRange}
             onUpdateAltRange={updateAltRange}
-            finalizedDates={(() => {
-              if (stage !== 'finalized' || event.dateTBD) return [];
-              const start = event.date?.toDate?.() || (event.date ? new Date(event.date) : null);
-              const endRaw = event.endDate?.toDate?.() || (event.endDate ? new Date(event.endDate) : null);
-              if (!start || isNaN(start.getTime())) return [];
-              let end = endRaw && !isNaN(endRaw.getTime()) ? endRaw : start;
-              // Defensive: if a stale endDate is earlier than start, or wildly far
-              // apart, fall back to a single-day finalization on the start date so
-              // we always at least surface event.date as gold.
-              const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-              const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-              if (endDay < startDay) end = start;
-              const dayDiff = Math.floor((endDay - startDay) / 86400000);
-              if (dayDiff > 60) end = start;
-              const out = [];
-              const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-              const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-              while (cur <= last) {
-                out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
-                cur.setDate(cur.getDate() + 1);
-              }
-              return out;
-            })()}
+            finalizedDates={finalizedDays}
             onEditDate={(opt) => {
               setEditingOptionId(opt.id);
               setFinalizeDate(opt.startDate || '');
@@ -2767,6 +2781,20 @@ export function EventDetail() {
                       if (editMemberFields.phone && editMemberFields.phone !== friendMatch.phone) updates.phone = editMemberFields.phone;
                       if (editMemberFields.email && editMemberFields.email !== friendMatch.email) updates.email = editMemberFields.email;
                       if (editMemberFields.name && editMemberFields.name !== friendMatch.name) updates.name = editMemberFields.name;
+                      // Sync "Assumed Yes By Way Of" (plusOneOf) -> friend's linkedTo
+                      if (editMemberFields.plusOneOf) {
+                        const targetMember = members.find(([uid]) => uid === editMemberFields.plusOneOf)?.[1];
+                        const targetFriend = targetMember && friends.find(f =>
+                          (f.email && targetMember.email && f.email.toLowerCase() === targetMember.email.toLowerCase()) ||
+                          (f.name && targetMember.name && f.name.toLowerCase() === targetMember.name.toLowerCase())
+                        );
+                        if (targetFriend && targetFriend.id !== friendMatch.id && (friendMatch.linkedTo || '') !== targetFriend.id) {
+                          updates.linkedTo = targetFriend.id;
+                        }
+                      } else if (friendMatch.linkedTo) {
+                        // Cleared on the event -> clear on the friend
+                        updates.linkedTo = '';
+                      }
                       if (Object.keys(updates).length > 0) {
                         await updateDoc(doc(db, 'users', user.uid, 'friends', friendMatch.id), updates).catch(() => {});
                       }
