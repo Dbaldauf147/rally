@@ -3,6 +3,29 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './HolidaysPage.module.css';
 
+// Nth occurrence of a weekday in a month, as a local yyyy-mm-dd string.
+// month0 is 0-based (8 = September); weekday is 0=Sun … 6=Sat.
+function nthWeekdayOfMonth(year, month0, weekday, n) {
+  const first = new Date(year, month0, 1);
+  const offset = (weekday - first.getDay() + 7) % 7;
+  const d = new Date(year, month0, 1 + offset + (n - 1) * 7);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+// Cow Harbor Day: 3rd Saturday of September each year (computed, not hardcoded,
+// so bumping the seed year recomputes it).
+const HOLIDAY_YEAR = 2026;
+const COW_HARBOR_ID = 'h-cowharbor';
+const COW_HARBOR = {
+  id: COW_HARBOR_ID,
+  name: 'Cow Harbor Day',
+  date: nthWeekdayOfMonth(HOLIDAY_YEAR, 8 /* Sep */, 6 /* Sat */, 3),
+  timeOff: false,
+  note: '3rd Saturday of September',
+};
+
 // US federal holidays for 2026. Editable in the UI — these are just seeds.
 const DEFAULT_HOLIDAYS = [
   { id: 'h-2026-newyears', name: "New Year's Day", date: '2026-01-01', timeOff: true, note: '' },
@@ -12,6 +35,7 @@ const DEFAULT_HOLIDAYS = [
   { id: 'h-2026-juneteenth', name: 'Juneteenth', date: '2026-06-19', timeOff: true, note: '' },
   { id: 'h-2026-july4', name: 'Independence Day', date: '2026-07-04', timeOff: true, note: '' },
   { id: 'h-2026-labor', name: 'Labor Day', date: '2026-09-07', timeOff: true, note: '' },
+  COW_HARBOR,
   { id: 'h-2026-columbus', name: 'Columbus Day', date: '2026-10-12', timeOff: true, note: '' },
   { id: 'h-2026-veterans', name: 'Veterans Day', date: '2026-11-11', timeOff: true, note: '' },
   { id: 'h-2026-thanksgiving', name: 'Thanksgiving Day', date: '2026-11-26', timeOff: true, note: '' },
@@ -53,8 +77,14 @@ function loadStored() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_HOLIDAYS;
-    const parsed = JSON.parse(raw);
+    let parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return DEFAULT_HOLIDAYS;
+    // One-time backfill of Cow Harbor Day for users who already had a saved
+    // list before it existed. The flag means a later deletion isn't undone.
+    if (!localStorage.getItem('rally.holidays.cowharbor.seeded')) {
+      if (!parsed.some((h) => h.id === COW_HARBOR_ID)) parsed = [...parsed, COW_HARBOR];
+      localStorage.setItem('rally.holidays.cowharbor.seeded', '1');
+    }
     return parsed;
   } catch {
     return DEFAULT_HOLIDAYS;
