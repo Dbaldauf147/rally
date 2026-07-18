@@ -323,6 +323,12 @@ export function EventDetail() {
             if (!m?.plusOneOf || m.plusOneOf !== hostUid) {
               updates[`members.${uid}.plusOneOf`] = hostUid;
             }
+            // Keep it mutual: the host comes by way of this person too — but
+            // don't clobber an existing link the host already has elsewhere.
+            const hm = otherMembers[hostUid];
+            if (!hm?.plusOneOf) {
+              updates[`members.${hostUid}.plusOneOf`] = uid;
+            }
           }
 
           if (Object.keys(updates).length > 0) {
@@ -1970,6 +1976,8 @@ export function EventDetail() {
                     if (linked && notAlreadyMember(linked)) {
                       const linkedKey = (linked.email || linked.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
                       updates[`members.${linkedKey}`] = { role: 'viewer', rsvp: 'pending', name: linked.name || '', email: linked.email || '', phone: linked.phone || '', plusOneOf: key };
+                      // Mutual: the person we're adding also comes by way of their partner.
+                      updates[`members.${key}`].plusOneOf = linkedKey;
                       updates.memberUids = arrayUnion(key, linkedKey);
                       addedNames.push(linked.name);
                     }
@@ -2769,7 +2777,24 @@ export function EventDetail() {
 
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
                 <button onClick={async () => {
-                  await updateEvent(eventId, { [`members.${editMember.uid}`]: editMemberFields });
+                  const selfUid = editMember.uid;
+                  const newPartner = editMemberFields.plusOneOf || null;
+                  const prevPartner = editMember.plusOneOf || null;
+                  const memberUpdates = { [`members.${selfUid}`]: editMemberFields };
+                  // "Assumed yes by way of" is mutual: if A comes by way of B,
+                  // make B come by way of A too, so both inherit each other's vote.
+                  if (newPartner) {
+                    memberUpdates[`members.${newPartner}.plusOneOf`] = selfUid;
+                  }
+                  // If the link changed or was cleared, drop the old partner's
+                  // back-reference — but only when it actually pointed back here.
+                  if (prevPartner && prevPartner !== newPartner) {
+                    const prevM = members.find(([u]) => u === prevPartner)?.[1];
+                    if (prevM && prevM.plusOneOf === selfUid) {
+                      memberUpdates[`members.${prevPartner}.plusOneOf`] = deleteField();
+                    }
+                  }
+                  await updateEvent(eventId, memberUpdates);
                   if (user) {
                     // Sync to friends list
                     const friendMatch = friends.find(f =>
