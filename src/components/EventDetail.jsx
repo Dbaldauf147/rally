@@ -2266,6 +2266,41 @@ export function EventDetail() {
             const guestSuggestions = buildBoatSuggestions(friends);
             const guestTotal = Object.values(guestSuggestions).reduce((n, a) => n + a.length, 0);
 
+            // People currently aboard (the boat roster) who aren't yet on the poll.
+            // Matched to a Friend by name so we reuse the same member key/contact
+            // info the "+ Add Friends" flow uses, keeping dedup consistent.
+            const roster = Array.isArray(bd.roster) ? bd.roster : [];
+            const existingNames = new Set(members.map(([, m]) => (m.name || '').trim().toLowerCase()).filter(Boolean));
+            const importableGuests = roster.filter(r => (r.name || '').trim() && !existingNames.has(r.name.trim().toLowerCase()));
+            async function importBoatGuests() {
+              if (importableGuests.length === 0) return;
+              const preview = importableGuests.map(r => r.name.trim()).slice(0, 6).join(', ');
+              if (!window.confirm(`Add ${importableGuests.length} boat guest${importableGuests.length !== 1 ? 's' : ''} to the poll?\n\n${preview}${importableGuests.length > 6 ? '…' : ''}`)) return;
+              const updates = {};
+              const keys = [];
+              const added = [];
+              const usedKeys = new Set(members.map(([uid]) => uid));
+              for (const r of importableGuests) {
+                const name = r.name.trim();
+                const friend = friends.find(f => (f.name || '').trim().toLowerCase() === name.toLowerCase());
+                let key = ((friend?.email) || friend?.id || r.id || name).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
+                // Don't clobber an existing member or a same-key twin within this batch.
+                if (usedKeys.has(key)) key = `${key}_${Math.random().toString(36).slice(2, 6)}`;
+                usedKeys.add(key);
+                updates[`members.${key}`] = { role: 'viewer', rsvp: 'pending', name, email: friend?.email || '', phone: friend?.phone || '' };
+                keys.push(key);
+                added.push(name);
+              }
+              updates.memberUids = arrayUnion(...keys);
+              try {
+                await updateDoc(doc(db, 'events', eventId), updates);
+                setResult({ type: 'success', message: `${added.length} boat guest${added.length !== 1 ? 's' : ''} added to poll: ${added.slice(0, 4).join(', ')}${added.length > 4 ? '…' : ''}` });
+              } catch (e) {
+                setResult({ type: 'error', message: `Couldn't import boat guests: ${e.message || e}` });
+              }
+              setTimeout(() => setResult(null), 3500);
+            }
+
             return (
               <div style={{
                 marginTop: '1rem',
@@ -2354,6 +2389,25 @@ export function EventDetail() {
                     >
                       {boatSynced ? '✓ Updated' : `↻ Update guest lists (${guestTotal})`}
                     </button>
+                    {importableGuests.length > 0 && (
+                      <button
+                        onClick={importBoatGuests}
+                        title="Add everyone currently aboard the boat as guests on this date poll"
+                        style={{
+                          padding: '0.4rem 0.9rem',
+                          border: 'none',
+                          borderRadius: 'var(--radius-full)',
+                          background: '#0EA5E9',
+                          color: '#fff',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        ⛵ Add {importableGuests.length} boat guest{importableGuests.length !== 1 ? 's' : ''} to poll
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
