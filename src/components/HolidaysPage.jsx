@@ -3,44 +3,69 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './HolidaysPage.module.css';
 
-// Nth occurrence of a weekday in a month, as a local yyyy-mm-dd string.
-// month0 is 0-based (8 = September); weekday is 0=Sun … 6=Sat.
+const HOLIDAY_YEAR = 2026;
+
+// ---- Date-rule helpers (all return a local yyyy-mm-dd string) ----
+const pad = (n) => String(n).padStart(2, '0');
+const fixed = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`; // m is 1-based
+const isoOf = (dt) => fixed(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
+// Nth occurrence of a weekday in a month. month0 is 0-based (8 = Sep); weekday 0=Sun … 6=Sat.
 function nthWeekdayOfMonth(year, month0, weekday, n) {
   const first = new Date(year, month0, 1);
   const offset = (weekday - first.getDay() + 7) % 7;
-  const d = new Date(year, month0, 1 + offset + (n - 1) * 7);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
+  return isoOf(new Date(year, month0, 1 + offset + (n - 1) * 7));
+}
+// Last occurrence of a weekday in a month (e.g. last Monday of May).
+function lastWeekdayOfMonth(year, month0, weekday) {
+  const d = new Date(year, month0 + 1, 0); // last day of the month
+  d.setDate(d.getDate() - ((d.getDay() - weekday + 7) % 7));
+  return isoOf(d);
+}
+// Shift an ISO date by whole days (Memorial-Day-weekend Friday, day-after-Thanksgiving).
+function shiftIso(iso, days) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return isoOf(dt);
 }
 
-// Cow Harbor Day: 3rd Saturday of September each year (computed, not hardcoded,
-// so bumping the seed year recomputes it).
-const HOLIDAY_YEAR = 2026;
+// Every holiday, defined by its recurrence rule and computed for HOLIDAY_YEAR
+// (not hardcoded) — bump the year and every date recomputes. `rule` is the
+// plain-English explanation shown on the page. Existing federal holidays keep
+// their original ids so a saved list still matches. Month0: Jan=0 … Dec=11;
+// weekday: Sun=0 … Sat=6.
 const COW_HARBOR_ID = 'h-cowharbor';
-const COW_HARBOR = {
-  id: COW_HARBOR_ID,
-  name: 'Cow Harbor Day',
-  date: nthWeekdayOfMonth(HOLIDAY_YEAR, 8 /* Sep */, 6 /* Sat */, 3),
-  timeOff: false,
-  note: '3rd Saturday of September',
-};
-
-// US federal holidays for 2026. Editable in the UI — these are just seeds.
-const DEFAULT_HOLIDAYS = [
-  { id: 'h-2026-newyears', name: "New Year's Day", date: '2026-01-01', timeOff: true, note: '' },
-  { id: 'h-2026-mlk', name: 'Martin Luther King Jr. Day', date: '2026-01-19', timeOff: true, note: '' },
-  { id: 'h-2026-presidents', name: "Presidents' Day", date: '2026-02-16', timeOff: true, note: '' },
-  { id: 'h-2026-memorial', name: 'Memorial Day', date: '2026-05-25', timeOff: true, note: '' },
-  { id: 'h-2026-juneteenth', name: 'Juneteenth', date: '2026-06-19', timeOff: true, note: '' },
-  { id: 'h-2026-july4', name: 'Independence Day', date: '2026-07-04', timeOff: true, note: '' },
-  { id: 'h-2026-labor', name: 'Labor Day', date: '2026-09-07', timeOff: true, note: '' },
-  COW_HARBOR,
-  { id: 'h-2026-columbus', name: 'Columbus Day', date: '2026-10-12', timeOff: true, note: '' },
-  { id: 'h-2026-veterans', name: 'Veterans Day', date: '2026-11-11', timeOff: true, note: '' },
-  { id: 'h-2026-thanksgiving', name: 'Thanksgiving Day', date: '2026-11-26', timeOff: true, note: '' },
-  { id: 'h-2026-christmas', name: 'Christmas Day', date: '2026-12-25', timeOff: true, note: '' },
+const Y = HOLIDAY_YEAR;
+const MEMORIAL_DAY = lastWeekdayOfMonth(Y, 4, 1); // last Mon in May
+const THANKSGIVING = nthWeekdayOfMonth(Y, 10, 4, 4); // 4th Thu in Nov
+const HOLIDAY_DEFS = [
+  { id: 'h-2026-newyears', name: "New Year's Day", timeOff: true, rule: 'Always January 1', date: fixed(Y, 1, 1) },
+  { id: 'h-2026-mlk', name: 'Martin Luther King Jr. Day', timeOff: true, rule: 'Third Monday in January', date: nthWeekdayOfMonth(Y, 0, 1, 3) },
+  { id: 'h-2026-presidents', name: "Presidents' Day", timeOff: true, rule: 'Third Monday in February', date: nthWeekdayOfMonth(Y, 1, 1, 3) },
+  { id: 'h-stpatricks', name: "St. Patrick's Day", timeOff: false, rule: 'Always March 17', date: fixed(Y, 3, 17) },
+  { id: 'h-mothers', name: "Mother's Day", timeOff: false, rule: 'Second Sunday in May', date: nthWeekdayOfMonth(Y, 4, 0, 2) },
+  { id: 'h-memorial-fri', name: 'Memorial Day Weekend', timeOff: true, rule: 'Friday before Memorial Day', date: shiftIso(MEMORIAL_DAY, -3) },
+  { id: 'h-2026-memorial', name: 'Memorial Day', timeOff: true, rule: 'Last Monday in May', date: MEMORIAL_DAY },
+  { id: 'h-2026-juneteenth', name: 'Juneteenth', timeOff: true, rule: 'Always June 19', date: fixed(Y, 6, 19) },
+  { id: 'h-fathers', name: "Father's Day", timeOff: false, rule: 'Third Sunday in June', date: nthWeekdayOfMonth(Y, 5, 0, 3) },
+  { id: 'h-2026-july4', name: 'Independence Day', timeOff: true, rule: 'Always July 4', date: fixed(Y, 7, 4) },
+  { id: 'h-2026-labor', name: 'Labor Day', timeOff: true, rule: 'First Monday in September', date: nthWeekdayOfMonth(Y, 8, 1, 1) },
+  { id: COW_HARBOR_ID, name: 'Cow Harbor Day', timeOff: false, rule: 'Third Saturday in September', date: nthWeekdayOfMonth(Y, 8, 6, 3) },
+  { id: 'h-2026-columbus', name: 'Columbus Day', timeOff: true, rule: 'Second Monday in October', date: nthWeekdayOfMonth(Y, 9, 1, 2) },
+  { id: 'h-halloween', name: 'Halloween', timeOff: false, rule: 'Always October 31', date: fixed(Y, 10, 31) },
+  { id: 'h-2026-veterans', name: 'Veterans Day', timeOff: true, rule: 'Always November 11', date: fixed(Y, 11, 11) },
+  { id: 'h-2026-thanksgiving', name: 'Thanksgiving Day', timeOff: true, rule: 'Fourth Thursday in November', date: THANKSGIVING },
+  { id: 'h-day-after-thanksgiving', name: 'Day after Thanksgiving', timeOff: true, rule: 'Friday after Thanksgiving', date: shiftIso(THANKSGIVING, 1) },
+  { id: 'h-christmas-eve', name: 'Christmas Eve', timeOff: true, rule: 'Always December 24', date: fixed(Y, 12, 24) },
+  { id: 'h-2026-christmas', name: 'Christmas Day', timeOff: true, rule: 'Always December 25', date: fixed(Y, 12, 25) },
+  { id: 'h-newyears-eve', name: "New Year's Eve", timeOff: true, rule: 'Always December 31', date: fixed(Y, 12, 31) },
 ];
+
+// Rule text looked up by id, so a saved holiday list (no `rule` field yet) still
+// shows its rule.
+const HOLIDAY_RULES = Object.fromEntries(HOLIDAY_DEFS.map((h) => [h.id, h.rule]));
+
+const DEFAULT_HOLIDAYS = HOLIDAY_DEFS.map((h) => ({ ...h, note: '' }));
 
 const STORAGE_KEY = 'rally.holidays.v1';
 
@@ -79,11 +104,14 @@ function loadStored() {
     if (!raw) return DEFAULT_HOLIDAYS;
     let parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return DEFAULT_HOLIDAYS;
-    // One-time backfill of Cow Harbor Day for users who already had a saved
-    // list before it existed. The flag means a later deletion isn't undone.
-    if (!localStorage.getItem('rally.holidays.cowharbor.seeded')) {
-      if (!parsed.some((h) => h.id === COW_HARBOR_ID)) parsed = [...parsed, COW_HARBOR];
-      localStorage.setItem('rally.holidays.cowharbor.seeded', '1');
+    // One-time backfill of newly-added holidays (Cow Harbor Day, the eve/weekend
+    // days, Mother's/Father's Day, etc.) for users who already had a saved list.
+    // Matched by id so nothing duplicates; the flag means later deletions stick.
+    if (!localStorage.getItem('rally.holidays.seed.v2')) {
+      const have = new Set(parsed.map((h) => h.id));
+      const missing = DEFAULT_HOLIDAYS.filter((h) => !have.has(h.id));
+      if (missing.length) parsed = [...parsed, ...missing];
+      localStorage.setItem('rally.holidays.seed.v2', '1');
     }
     return parsed;
   } catch {
@@ -193,6 +221,11 @@ export function HolidaysPage() {
                     </span>
                   )}
                 </div>
+                {(h.rule || HOLIDAY_RULES[h.id]) && (
+                  <div className={styles.ruleLine} title="How this date is set each year">
+                    🔁 {h.rule || HOLIDAY_RULES[h.id]}
+                  </div>
+                )}
                 <input
                   className={styles.noteInput}
                   value={h.note || ''}
