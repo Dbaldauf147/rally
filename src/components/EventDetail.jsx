@@ -641,7 +641,10 @@ export function EventDetail() {
       alert('That start date is invalid. Try again.');
       return;
     }
-    const updates = { stage: 'finalized', date: d };
+    // Picking a concrete date means the event is no longer "date TBD". Clear the
+    // flag so the hero shows the real date and the voted-table chosen-column
+    // highlight (which short-circuits on dateTBD) can actually render.
+    const updates = { stage: 'finalized', date: d, dateTBD: deleteField() };
     if (finalizeEndDate && finalizeEndDate !== finalizeDate) {
       const ed = new Date(finalizeEndDate + 'T12:00:00');
       if (isNaN(ed.getTime())) {
