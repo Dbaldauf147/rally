@@ -31,6 +31,7 @@ export function getHolidaysForYear(year) {
   const memorial = nthWeekday(year, 4, 1, -1);        // last Monday of May
   const fathersDay = nthWeekday(year, 5, 0, 3);       // 3rd Sunday of June
   const labor = nthWeekday(year, 8, 1, 1);            // 1st Monday of September
+  const cowHarbor = nthWeekday(year, 8, 6, 3);        // 3rd Saturday of September
   const thanksgiving = nthWeekday(year, 10, 4, 4);    // 4th Thursday of November
 
   const single = (name, d) => ({ name, dates: [ymd(d)] });
@@ -50,6 +51,7 @@ export function getHolidaysForYear(year) {
     single("Father's Day", fathersDay),
     single('Independence Day', new Date(year, 6, 4)),
     longWeekend('Labor Day', labor),
+    single('Cow Harbor Day', cowHarbor),
     single('Halloween', new Date(year, 9, 31)),
     single('Thanksgiving Day', thanksgiving),
     single('Day after Thanksgiving', addDays(thanksgiving, 1)),
