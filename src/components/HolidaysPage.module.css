@@ -1,4 +1,4 @@
-.page { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+.page { max-width: 1000px; margin: 0 auto; padding: 2rem 1rem 4rem; }
 .header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; }
 .title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
 .progress { font-size: 0.85rem; color: var(--color-text-muted); }
@@ -9,27 +9,29 @@
 .nextName { font-size: 1rem; font-weight: 600; }
 .nextMeta { font-size: 0.82rem; color: var(--color-text-muted); }
 
-.list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.5rem; }
-.row { display: flex; align-items: flex-start; gap: 0.65rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.75rem 0.85rem; }
+.tableWrap { border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow-x: auto; margin-bottom: 1.5rem; background: var(--color-surface); }
+.table { width: 100%; border-collapse: collapse; }
+.table thead th { text-align: left; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--color-border); white-space: nowrap; background: var(--color-surface-alt); }
+.table tbody td { padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--color-border-light); vertical-align: middle; }
+.table tbody tr:last-child td { border-bottom: none; }
+.thOff, .tdOff { text-align: center; width: 3rem; }
 .rowPast { opacity: 0.6; }
-.offToggle { display: flex; align-items: center; padding-top: 0.35rem; }
 .checkbox { width: 18px; height: 18px; accent-color: var(--color-accent); cursor: pointer; }
 
-.rowBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.4rem; }
-.nameInput { font-size: 0.95rem; font-weight: 600; color: var(--color-text); border: 1px solid transparent; background: transparent; border-radius: var(--radius-sm); padding: 0.2rem 0.35rem; margin-left: -0.35rem; }
+.nameInput { width: 100%; min-width: 8rem; font-size: 0.92rem; font-weight: 600; color: var(--color-text); border: 1px solid transparent; background: transparent; border-radius: var(--radius-sm); padding: 0.25rem 0.35rem; }
 .nameInput:hover { border-color: var(--color-border-light); }
 .nameInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-bg); }
 
-.rowMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.dateCell { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
 .dateInput { padding: 0.3rem 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-size: 0.82rem; color: var(--color-text); }
 .dateInput:focus { outline: none; border-color: var(--color-accent); }
-.dayBadge { font-size: 0.8rem; color: var(--color-text-muted); }
-.countdown { font-size: 0.72rem; font-weight: 600; color: var(--color-accent); background: var(--color-accent-light, rgba(99,102,241,0.12)); padding: 0.15rem 0.5rem; border-radius: 999px; }
+.dayBadge { font-size: 0.8rem; color: var(--color-text-muted); white-space: nowrap; }
+.countdown { font-size: 0.72rem; font-weight: 600; color: var(--color-accent); background: var(--color-accent-light, rgba(99,102,241,0.12)); padding: 0.15rem 0.5rem; border-radius: 999px; white-space: nowrap; }
 .countdownPast { color: var(--color-text-muted); background: var(--color-surface-alt); }
 
-.ruleLine { font-size: 0.75rem; color: var(--color-text-muted); font-style: italic; }
+.ruleCell { font-size: 0.8rem; color: var(--color-text-secondary); font-style: italic; white-space: nowrap; }
 
-.noteInput { font-size: 0.82rem; color: var(--color-text-secondary); border: 1px solid var(--color-border-light); background: var(--color-bg); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; }
+.noteInput { width: 100%; min-width: 8rem; font-size: 0.82rem; color: var(--color-text-secondary); border: 1px solid var(--color-border-light); background: var(--color-bg); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; }
 .noteInput:focus { outline: none; border-color: var(--color-accent); }
 
 .removeBtn { flex-shrink: 0; width: 26px; height: 26px; border: none; background: transparent; color: var(--color-text-muted); font-size: 1.2rem; line-height: 1; cursor: pointer; border-radius: var(--radius-sm); }
