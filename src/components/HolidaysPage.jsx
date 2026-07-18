@@ -186,57 +186,76 @@ export function HolidaysPage() {
         </div>
       )}
 
-      <div className={styles.list}>
-        {sorted.map((h) => {
-          const until = daysUntil(h.date);
-          const isPast = until != null && until < 0;
-          return (
-            <div key={h.id} className={`${styles.row} ${isPast ? styles.rowPast : ''}`}>
-              <label className={styles.offToggle} title="Taking this day off">
-                <input
-                  type="checkbox"
-                  className={styles.checkbox}
-                  checked={!!h.timeOff}
-                  onChange={() => update(h.id, { timeOff: !h.timeOff })}
-                />
-              </label>
-              <div className={styles.rowBody}>
-                <input
-                  className={styles.nameInput}
-                  value={h.name}
-                  onChange={(e) => update(h.id, { name: e.target.value })}
-                  placeholder="Holiday name"
-                />
-                <div className={styles.rowMeta}>
-                  <input
-                    className={styles.dateInput}
-                    type="date"
-                    value={h.date}
-                    onChange={(e) => update(h.id, { date: e.target.value })}
-                  />
-                  <span className={styles.dayBadge}>{formatLong(h.date)}</span>
-                  {until != null && (
-                    <span className={`${styles.countdown} ${isPast ? styles.countdownPast : ''}`}>
-                      {until === 0 ? 'Today' : isPast ? `${Math.abs(until)}d ago` : `in ${until}d`}
-                    </span>
-                  )}
-                </div>
-                {(h.rule || HOLIDAY_RULES[h.id]) && (
-                  <div className={styles.ruleLine} title="How this date is set each year">
-                    🔁 {h.rule || HOLIDAY_RULES[h.id]}
-                  </div>
-                )}
-                <input
-                  className={styles.noteInput}
-                  value={h.note || ''}
-                  onChange={(e) => update(h.id, { note: e.target.value })}
-                  placeholder="Plans / notes (optional)"
-                />
-              </div>
-              <button className={styles.removeBtn} onClick={() => remove(h.id)} title="Remove">×</button>
-            </div>
-          );
-        })}
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th className={styles.thOff} title="Taking this day off">Off</th>
+              <th>Holiday</th>
+              <th>Date</th>
+              <th>When it lands</th>
+              <th>Notes</th>
+              <th aria-label="Remove" />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((h) => {
+              const until = daysUntil(h.date);
+              const isPast = until != null && until < 0;
+              return (
+                <tr key={h.id} className={isPast ? styles.rowPast : ''}>
+                  <td className={styles.tdOff}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={!!h.timeOff}
+                      onChange={() => update(h.id, { timeOff: !h.timeOff })}
+                      title="Taking this day off"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className={styles.nameInput}
+                      value={h.name}
+                      onChange={(e) => update(h.id, { name: e.target.value })}
+                      placeholder="Holiday name"
+                    />
+                  </td>
+                  <td>
+                    <div className={styles.dateCell}>
+                      <input
+                        className={styles.dateInput}
+                        type="date"
+                        value={h.date}
+                        onChange={(e) => update(h.id, { date: e.target.value })}
+                      />
+                      <span className={styles.dayBadge}>{formatLong(h.date)}</span>
+                      {until != null && (
+                        <span className={`${styles.countdown} ${isPast ? styles.countdownPast : ''}`}>
+                          {until === 0 ? 'Today' : isPast ? `${Math.abs(until)}d ago` : `in ${until}d`}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <span className={styles.ruleCell}>{h.rule || HOLIDAY_RULES[h.id] || '—'}</span>
+                  </td>
+                  <td>
+                    <input
+                      className={styles.noteInput}
+                      value={h.note || ''}
+                      onChange={(e) => update(h.id, { note: e.target.value })}
+                      placeholder="Plans / notes"
+                    />
+                  </td>
+                  <td>
+                    <button className={styles.removeBtn} onClick={() => remove(h.id)} title="Remove">×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       <div className={styles.addCard}>
