@@ -27,6 +27,8 @@
 .countdown { font-size: 0.72rem; font-weight: 600; color: var(--color-accent); background: var(--color-accent-light, rgba(99,102,241,0.12)); padding: 0.15rem 0.5rem; border-radius: 999px; }
 .countdownPast { color: var(--color-text-muted); background: var(--color-surface-alt); }
 
+.ruleLine { font-size: 0.75rem; color: var(--color-text-muted); font-style: italic; }
+
 .noteInput { font-size: 0.82rem; color: var(--color-text-secondary); border: 1px solid var(--color-border-light); background: var(--color-bg); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; }
 .noteInput:focus { outline: none; border-color: var(--color-accent); }
 
