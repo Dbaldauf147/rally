@@ -588,6 +588,141 @@ export function EventDetail() {
     return o.startDate >= finStart && optEnd <= finEnd;
   };
 
+  // The vote matrix: one row per guest (couples clustered), one column per open
+  // date option, each cell showing the person's vote (own or assumed-yes via a
+  // linked partner). Rendered for whatever member rows are passed, so it works
+  // for the whole guest list before anyone has voted — not just the voted group.
+  const renderVoteTable = (rowMembers) => {
+    const openOptions = allDateOptions.filter(o => !o.closed);
+    if (openOptions.length === 0) return null;
+    // Symmetric partner map so a linked guest inherits their partner's vote.
+    const partnerOf = {};
+    for (const [uid, m] of members) if (m.plusOneOf) partnerOf[uid] = m.plusOneOf;
+    for (const [uid] of members) {
+      if (partnerOf[uid]) continue;
+      const inbound = members.find(([, m2]) => m2.plusOneOf === uid);
+      if (inbound) partnerOf[uid] = inbound[0];
+    }
+    const fmtOpt = (o) => {
+      try {
+        const s = format(new Date(o.startDate + 'T00:00:00'), 'MMM d');
+        return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'MMM d')}` : s;
+      } catch { return o.note || '—'; }
+    };
+    const pill = (vote, inherited) => {
+      const map = { yes: ['✓', '#DCFCE7', '#16A34A', 'Works'], maybe: ['?', '#FEF3C7', '#D97706', 'Maybe'], no: ['✗', '#FEE2E2', '#DC2626', "Can't"] };
+      const p = map[vote];
+      if (!p) return <span title="No vote on this date" style={{ color: 'var(--color-text-muted)' }}>–</span>;
+      const base = { display: 'inline-block', minWidth: '1.3rem', textAlign: 'center', padding: '0.1rem 0.35rem', borderRadius: '999px', fontSize: '0.72rem' };
+      if (inherited) {
+        return <span title={`${p[3]} — assumed via linked person`} style={{ ...base, background: 'transparent', color: p[2], border: `1px dashed ${p[2]}`, fontWeight: 600 }}>{p[0]}</span>;
+      }
+      return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
+    };
+    const th = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)' };
+    const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' };
+    const td = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
+    const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: isNarrow ? '0.76rem' : '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)', maxWidth: isNarrow ? '7.5rem' : 'none', overflow: 'hidden', textOverflow: 'ellipsis' };
+    // Keep linked (+1) members adjacent so connected people stay together.
+    const memberByUid = new Map(members);
+    const processed = new Set();
+    const clusters = [];
+    const memberMap = new Map(rowMembers.map(e => [e[0], e]));
+    for (const entry of rowMembers) {
+      const [uid, m] = entry;
+      if (processed.has(uid)) continue;
+      processed.add(uid);
+      const cluster = [entry];
+      const linked = m.plusOneOf ? memberMap.get(m.plusOneOf) : null;
+      if (linked && !processed.has(linked[0])) {
+        processed.add(linked[0]);
+        cluster.push(linked);
+        const ll = linked[1].plusOneOf && linked[1].plusOneOf !== uid ? memberMap.get(linked[1].plusOneOf) : null;
+        if (ll && !processed.has(ll[0])) { processed.add(ll[0]); cluster.push(ll); }
+      }
+      for (const other of rowMembers) {
+        if (!processed.has(other[0]) && other[1].plusOneOf === uid) { processed.add(other[0]); cluster.push(other); }
+      }
+      clusters.push(cluster);
+    }
+    const tallyFor = (o) => {
+      let yes = 0, maybe = 0, no = 0;
+      for (const [uid] of rowMembers) {
+        const own = o.votes?.[uid]?.vote;
+        let v = own && own !== 'none' ? own : null;
+        const partner = partnerOf[uid];
+        if (!v && partner) { const hv = o.votes?.[partner]?.vote; if (hv && hv !== 'none') v = hv; }
+        if (v === 'yes') yes++; else if (v === 'maybe') maybe++; else if (v === 'no') no++;
+      }
+      return { yes, maybe, no };
+    };
+    return (
+      <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead>
+            <tr>
+              <th style={thName}>Person</th>
+              {openOptions.map(o => {
+                const t = tallyFor(o);
+                const chosen = isChosenOption(o);
+                return (
+                  <th key={o.id} style={chosen ? { ...th, background: 'linear-gradient(135deg, var(--color-surface) 0%, var(--color-success-light) 100%)', borderBottom: '2px solid var(--color-success)', color: 'var(--color-success)' } : th}>
+                    {chosen && <div style={{ fontSize: '0.58rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-success)', marginBottom: '0.1rem' }}>✓ Chosen</div>}
+                    <div style={chosen ? { fontWeight: 800, color: 'var(--color-text)' } : undefined}>{fmtOpt(o)}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '0.3rem', fontSize: '0.62rem', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}>
+                      <span style={{ color: '#16A34A' }}>Going {t.yes}</span>
+                      <span style={{ color: '#D97706' }}>TBD {t.maybe}</span>
+                      <span style={{ color: '#DC2626' }}>Not going {t.no}</span>
+                    </div>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {clusters.map((cluster, ci) => cluster.map(([uid, m], idx) => {
+              const topBorder = ci > 0 && idx === 0 ? { borderTop: '2px solid var(--color-border)' } : {};
+              const partner = partnerOf[uid];
+              const target = partner ? memberByUid.get(partner) : null;
+              const mutual = !!(target && m.plusOneOf === partner && target.plusOneOf === uid);
+              return (
+                <tr key={uid}>
+                  <td
+                    onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
+                    title={canManageMembers ? 'Click to edit this person’s votes' : undefined}
+                    style={{ ...tdName, ...topBorder, ...(canManageMembers ? { cursor: 'pointer' } : {}) }}
+                  >
+                    <span style={canManageMembers ? { textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : undefined}>{m.name || 'Guest'}</span>
+                    {target && (
+                      <span
+                        title={mutual ? `Mutually linked with ${target.name || 'Guest'}` : `Assumed yes by way of ${target.name || 'Guest'}`}
+                        style={{ marginLeft: '0.4rem', fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}
+                      >
+                        {mutual ? '⇄' : '↳'} {target.name || 'Guest'}
+                      </span>
+                    )}
+                  </td>
+                  {openOptions.map(o => {
+                    const own = o.votes?.[uid]?.vote;
+                    const ownActive = own && own !== 'none';
+                    let voteVal = ownActive ? own : null;
+                    let inherited = false;
+                    if (!ownActive && partner) {
+                      const hv = o.votes?.[partner]?.vote;
+                      if (hv && hv !== 'none') { voteVal = hv; inherited = true; }
+                    }
+                    const chosen = isChosenOption(o);
+                    return <td key={o.id} style={{ ...td, ...topBorder, ...(chosen ? { background: 'var(--color-success-light)' } : {}) }}>{pill(voteVal, inherited)}</td>;
+                  })}
+                </tr>
+              );
+            }))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   async function handleDragMerge(srcUid, tgtUid) {
     const srcMember = members.find(([u]) => u === srcUid)?.[1];
     const tgtMember = members.find(([u]) => u === tgtUid)?.[1];
@@ -1514,7 +1649,39 @@ export function EventDetail() {
               );
             })()}
 
+            {/* People view toggle + full guest table. Unlike the old per-group
+                table, this renders the whole invited list, so it's available
+                before anyone votes. */}
             {(() => {
+              const openOptions = allDateOptions.filter(o => !o.closed);
+              if (openOptions.length === 0) return null;
+              const passesMissing = (uid, m) => {
+                const hasEmail = !!m.email || uid.includes('@');
+                const hasPhone = !!m.phone;
+                if (missingFilter === 'phone' && hasPhone) return false;
+                if (missingFilter === 'email' && hasEmail) return false;
+                if (missingFilter === 'both' && (hasEmail || hasPhone)) return false;
+                return true;
+              };
+              const rows = members.filter(([uid, m]) => passesMissing(uid, m));
+              return (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <button
+                    onClick={() => setVotedView(v => (v === 'table' ? 'cards' : 'table'))}
+                    style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', marginBottom: votedView === 'table' ? '0.6rem' : 0 }}
+                    title="Toggle between table and card view for everyone"
+                  >
+                    {votedView === 'table' ? '▤ Card view' : '▦ Table view'}
+                  </button>
+                  {votedView === 'table' && renderVoteTable(rows)}
+                </div>
+              );
+            })()}
+
+            {(() => {
+              // In table view the unified guest table above already shows
+              // everyone, so skip the grouped card lists entirely.
+              if (votedView === 'table' && allDateOptions.some(o => !o.closed)) return null;
               // Build a map of which group each host belongs to
               const hostGroup = {};
               for (const [uid, m] of members) {
@@ -1568,145 +1735,8 @@ export function EventDetail() {
                     <span style={{ fontSize: '0.72rem', fontWeight: 600, color: group.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                       {group.label} ({groupMembers.length})
                     </span>
-                    {group.key === 'voted' && (
-                      <button
-                        onClick={() => setVotedView(v => (v === 'table' ? 'cards' : 'table'))}
-                        style={{ fontSize: '0.62rem', fontWeight: 600, padding: '0.1rem 0.5rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
-                        title="Toggle between table and card view"
-                      >
-                        {votedView === 'table' ? '▤ Card view' : '▦ Table view'}
-                      </button>
-                    )}
                   </div>
-                  {group.key === 'voted' && votedView === 'table' && (() => {
-                    const openOptions = allDateOptions.filter(o => !o.closed);
-                    if (openOptions.length === 0) return null;
-                    const fmtOpt = (o) => {
-                      try {
-                        const s = format(new Date(o.startDate + 'T00:00:00'), 'MMM d');
-                        return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'MMM d')}` : s;
-                      } catch { return o.note || '—'; }
-                    };
-                    const pill = (vote, inherited) => {
-                      const map = { yes: ['✓', '#DCFCE7', '#16A34A', 'Works'], maybe: ['?', '#FEF3C7', '#D97706', 'Maybe'], no: ['✗', '#FEE2E2', '#DC2626', "Can't"] };
-                      const p = map[vote];
-                      if (!p) return <span title="No vote on this date" style={{ color: 'var(--color-text-muted)' }}>–</span>;
-                      const base = { display: 'inline-block', minWidth: '1.3rem', textAlign: 'center', padding: '0.1rem 0.35rem', borderRadius: '999px', fontSize: '0.72rem' };
-                      // Inherited (assumed-by-way-of) votes get an outlined/dashed pill so they
-                      // read as "same vote, but assumed" rather than directly cast.
-                      if (inherited) {
-                        return <span title={`${p[3]} — assumed via linked person`} style={{ ...base, background: 'transparent', color: p[2], border: `1px dashed ${p[2]}`, fontWeight: 600 }}>{p[0]}</span>;
-                      }
-                      return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
-                    };
-                    // Tighter cells + smaller type on a phone so more of the table
-                    // fits before it needs to scroll sideways.
-                    const th = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)' };
-                    const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' };
-                    const td = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
-                    const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: isNarrow ? '0.76rem' : '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)', maxWidth: isNarrow ? '7.5rem' : 'none', overflow: 'hidden', textOverflow: 'ellipsis' };
-                    // Keep linked (+1) members adjacent so connected people stay together.
-                    const memberByUid = new Map(members);
-                    const processed = new Set();
-                    const clusters = [];
-                    const memberMap = new Map(groupMembers.map(e => [e[0], e]));
-                    for (const entry of groupMembers) {
-                      const [uid, m] = entry;
-                      if (processed.has(uid)) continue;
-                      processed.add(uid);
-                      const cluster = [entry];
-                      const linked = m.plusOneOf ? memberMap.get(m.plusOneOf) : null;
-                      if (linked && !processed.has(linked[0])) {
-                        processed.add(linked[0]);
-                        cluster.push(linked);
-                        const ll = linked[1].plusOneOf && linked[1].plusOneOf !== uid ? memberMap.get(linked[1].plusOneOf) : null;
-                        if (ll && !processed.has(ll[0])) { processed.add(ll[0]); cluster.push(ll); }
-                      }
-                      for (const other of groupMembers) {
-                        if (!processed.has(other[0]) && other[1].plusOneOf === uid) { processed.add(other[0]); cluster.push(other); }
-                      }
-                      clusters.push(cluster);
-                    }
-                    // Per-date tally of the effective (own or inherited) votes shown in this table.
-                    const tallyFor = (o) => {
-                      let yes = 0, maybe = 0, no = 0;
-                      for (const [uid] of groupMembers) {
-                        const own = o.votes?.[uid]?.vote;
-                        let v = own && own !== 'none' ? own : null;
-                        const partner = partnerOf[uid];
-                        if (!v && partner) { const hv = o.votes?.[partner]?.vote; if (hv && hv !== 'none') v = hv; }
-                        if (v === 'yes') yes++; else if (v === 'maybe') maybe++; else if (v === 'no') no++;
-                      }
-                      return { yes, maybe, no };
-                    };
-                    return (
-                      <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
-                        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                          <thead>
-                            <tr>
-                              <th style={thName}>Person</th>
-                              {openOptions.map(o => {
-                                const t = tallyFor(o);
-                                const chosen = isChosenOption(o);
-                                return (
-                                  <th key={o.id} style={chosen ? { ...th, background: 'linear-gradient(135deg, var(--color-surface) 0%, var(--color-success-light) 100%)', borderBottom: '2px solid var(--color-success)', color: 'var(--color-success)' } : th}>
-                                    {chosen && <div style={{ fontSize: '0.58rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-success)', marginBottom: '0.1rem' }}>✓ Chosen</div>}
-                                    <div style={chosen ? { fontWeight: 800, color: 'var(--color-text)' } : undefined}>{fmtOpt(o)}</div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '0.3rem', fontSize: '0.62rem', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}>
-                                      <span style={{ color: '#16A34A' }}>Going {t.yes}</span>
-                                      <span style={{ color: '#D97706' }}>TBD {t.maybe}</span>
-                                      <span style={{ color: '#DC2626' }}>Not going {t.no}</span>
-                                    </div>
-                                  </th>
-                                );
-                              })}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {clusters.map((cluster, ci) => cluster.map(([uid, m], idx) => {
-                              const topBorder = ci > 0 && idx === 0 ? { borderTop: '2px solid var(--color-border)' } : {};
-                              const partner = partnerOf[uid];
-                              const target = partner ? memberByUid.get(partner) : null;
-                              const mutual = !!(target && m.plusOneOf === partner && target.plusOneOf === uid);
-                              return (
-                                <tr key={uid}>
-                                  <td
-                                    onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
-                                    title={canManageMembers ? 'Click to edit this person’s votes' : undefined}
-                                    style={{ ...tdName, ...topBorder, ...(canManageMembers ? { cursor: 'pointer' } : {}) }}
-                                  >
-                                    <span style={canManageMembers ? { textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : undefined}>{m.name || 'Guest'}</span>
-                                    {target && (
-                                      <span
-                                        title={mutual ? `Mutually linked with ${target.name || 'Guest'}` : `Assumed yes by way of ${target.name || 'Guest'}`}
-                                        style={{ marginLeft: '0.4rem', fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}
-                                      >
-                                        {mutual ? '⇄' : '↳'} {target.name || 'Guest'}
-                                      </span>
-                                    )}
-                                  </td>
-                                  {openOptions.map(o => {
-                                    // Own vote wins; otherwise inherit the linked person's vote (assumed by way of).
-                                    const own = o.votes?.[uid]?.vote;
-                                    const ownActive = own && own !== 'none';
-                                    let voteVal = ownActive ? own : null;
-                                    let inherited = false;
-                                    if (!ownActive && partner) {
-                                      const hv = o.votes?.[partner]?.vote;
-                                      if (hv && hv !== 'none') { voteVal = hv; inherited = true; }
-                                    }
-                                    const chosen = isChosenOption(o);
-                                    return <td key={o.id} style={{ ...td, ...topBorder, ...(chosen ? { background: 'var(--color-success-light)' } : {}) }}>{pill(voteVal, inherited)}</td>;
-                                  })}
-                                </tr>
-                              );
-                            }))}
-                          </tbody>
-                        </table>
-                      </div>
-                    );
-                  })()}
-                  <div className={styles.memberList} style={group.key === 'voted' && votedView === 'table' ? { display: 'none' } : undefined}>
+                  <div className={styles.memberList}>
                     {(() => {
                       // Group linked members together (handles mutual links, one-way links, and unlinked)
                       const processed = new Set();
