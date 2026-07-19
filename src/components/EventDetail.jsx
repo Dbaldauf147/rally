@@ -102,7 +102,6 @@ export function EventDetail() {
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
   const [showTextAll, setShowTextAll] = useState(false);
   const [textAllMissingOnly, setTextAllMissingOnly] = useState(false); // limit Text-All to poll non-responders
-  const [phantomFriendVotes, setPhantomFriendVotes] = useState(null); // null=unchecked, number=vote count
   const [cleaningPhantom, setCleaningPhantom] = useState(false);
   const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
@@ -339,30 +338,16 @@ export function EventDetail() {
     })();
   }, [friends.length, event, user]);
 
-  // Detect legacy phantom "friend" votes — anonymous votes cast under the
-  // generic ?name=Friend invite link before name confirmation was required.
+  // Legacy phantom "friend" votes — anonymous votes cast under the generic
+  // ?name=Friend invite link before name confirmation was required. Silently
+  // clean them up for the owner so the junk voter never surfaces in the UI.
   useEffect(() => {
     const hasFriendMember = !!event?.members?.friend;
     const isOwnerNow = event?.members?.[user?.uid]?.role === 'owner'
       || (!!user?.uid && event?.createdBy === user.uid);
-    if (!hasFriendMember || !isOwnerNow) {
-      setPhantomFriendVotes(null);
-      return;
+    if (hasFriendMember && isOwnerNow) {
+      cleanupPhantomFriend();
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const dSnap = await getDocs(collection(db, 'events', eventId, 'dateOptions'));
-        let count = 0;
-        for (const d of dSnap.docs) {
-          if (d.data().votes?.friend) count++;
-        }
-        if (!cancelled) setPhantomFriendVotes(count);
-      } catch {
-        if (!cancelled) setPhantomFriendVotes(0);
-      }
-    })();
-    return () => { cancelled = true; };
   }, [event?.members?.friend, user?.uid, eventId]);
 
   async function cleanupPhantomFriend() {
@@ -381,7 +366,6 @@ export function EventDetail() {
         'members.friend': deleteField(),
         memberUids: arrayRemove('friend'),
       }).catch(() => {});
-      setPhantomFriendVotes(null);
     } finally {
       setCleaningPhantom(false);
     }
@@ -1326,6 +1310,32 @@ export function EventDetail() {
               <span style={{ color: 'var(--color-text-muted)' }}> · 🚗 {tripSummary.travelLabel}</span>
             )}
           </p>
+          {event.planning && (event.planning.itinerary || event.planning.travel || event.planning.lodging) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>To plan:</span>
+              {[
+                { key: 'itinerary', label: 'Itinerary', icon: '🗓️', done: !!event.itineraryComplete },
+                { key: 'travel', label: 'Travel', icon: '✈️', done: !!event.travelBooked },
+                { key: 'lodging', label: 'Lodging', icon: '🏨', done: !!event.travelBooked },
+              ].filter(o => event.planning[o.key]).map(o => (
+                <span
+                  key={o.key}
+                  title={o.done ? `${o.label} — done` : `${o.label} — still to plan`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                    fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.55rem',
+                    borderRadius: 'var(--radius-full)',
+                    background: o.done ? 'var(--color-success-light)' : 'var(--color-surface-alt)',
+                    color: o.done ? 'var(--color-success)' : 'var(--color-text-secondary)',
+                    border: `1px solid ${o.done ? 'var(--color-success)' : 'var(--color-border)'}`,
+                    textDecoration: o.done ? 'line-through' : 'none',
+                  }}
+                >
+                  <span aria-hidden="true">{o.done ? '✓' : o.icon}</span> {o.label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2133,47 +2143,6 @@ export function EventDetail() {
             )}
           </div>
 
-          {isOwner && phantomFriendVotes !== null && (
-            <div style={{
-              padding: '0.75rem 0.9rem',
-              marginBottom: '0.75rem',
-              background: 'var(--color-warning-light)',
-              border: '1px solid #fcd34d',
-              borderRadius: 'var(--radius-md)',
-              fontSize: '0.82rem',
-              color: '#92400e',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '0.75rem',
-              flexWrap: 'wrap',
-            }}>
-              <span>
-                ⚠ Anonymous "Friend" voter detected
-                {phantomFriendVotes > 0 && ` (${phantomFriendVotes} vote${phantomFriendVotes !== 1 ? 's' : ''})`}.
-                These came from an old link before name confirmation was required.
-              </span>
-              <button
-                onClick={cleanupPhantomFriend}
-                disabled={cleaningPhantom}
-                style={{
-                  padding: '0.4rem 0.85rem',
-                  border: '1px solid #92400e',
-                  borderRadius: 'var(--radius-md)',
-                  background: '#fff',
-                  color: '#92400e',
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
-                  cursor: cleaningPhantom ? 'default' : 'pointer',
-                  fontFamily: 'inherit',
-                  whiteSpace: 'nowrap',
-                  opacity: cleaningPhantom ? 0.6 : 1,
-                }}
-              >
-                {cleaningPhantom ? 'Removing…' : 'Remove'}
-              </button>
-            </div>
-          )}
           <DatePoll
             entityType="events"
             entityId={eventId}
