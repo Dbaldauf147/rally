@@ -21,6 +21,14 @@ export function EventForm({ event, onSave, onCancel }) {
     }
     return '';
   });
+  // Which planning areas this event needs handled. Captured at creation so the
+  // event knows up front whether an itinerary, travel, and/or lodging are in scope.
+  const [planning, setPlanning] = useState({
+    itinerary: event?.planning?.itinerary || false,
+    travel: event?.planning?.travel || false,
+    lodging: event?.planning?.lodging || false,
+  });
+  const togglePlanning = (key) => setPlanning(p => ({ ...p, [key]: !p[key] }));
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -31,6 +39,7 @@ export function EventForm({ event, onSave, onCancel }) {
       description: description.trim(),
       location: location.trim(),
       dateTBD,
+      planning,
     };
     if (dateTBD) {
       data.date = event?.date || Timestamp.fromDate(new Date());
@@ -84,6 +93,23 @@ export function EventForm({ event, onSave, onCancel }) {
         Description
         <textarea className={styles.textarea} value={description} onChange={e => setDescription(e.target.value)} placeholder="What should people know?" rows={3} />
       </label>
+
+      <div>
+        <div className={styles.label} style={{ marginBottom: '0.4rem' }}>What needs planning?</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+          {[
+            { key: 'itinerary', label: 'Itinerary', icon: '🗓️' },
+            { key: 'travel', label: 'Travel', icon: '✈️' },
+            { key: 'lodging', label: 'Lodging', icon: '🏨' },
+          ].map(opt => (
+            <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 500, color: planning[opt.key] ? '#4f46e5' : '#6b7280' }}>
+              <input type="checkbox" checked={planning[opt.key]} onChange={() => togglePlanning(opt.key)} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
+              <span aria-hidden="true">{opt.icon}</span>
+              {opt.label}
+            </label>
+          ))}
+        </div>
+      </div>
 
       <div className={styles.actions}>
         <button className={styles.saveBtn} type="submit">{event ? 'Save Changes' : 'Create Event'}</button>
