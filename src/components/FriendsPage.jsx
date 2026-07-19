@@ -271,9 +271,9 @@ function TagPicker({ value, onChange, options = [] }) {
 // single column. Renders inside the Friends & Contacts page on the "Event
 // Roster" sub-tab.
 //
-// The roster opens filtered to "just us" — contacts whose name contains one of
-// these first names — with a "Show all" toggle to reveal everyone. Edit this
-// list to change who the default view pins to.
+// The roster opens filtered to "just us" — guests of these people (their
+// "Guest of" is one of these names), plus these people themselves — with a
+// "Show all" toggle to reveal everyone. Edit this list to change the default.
 const ROSTER_PINNED_NAMES = ['dan', 'joanne'];
 function RosterTable({
   friends, events, rosterEventId, setRosterEventId,
@@ -314,11 +314,22 @@ function RosterTable({
   }
   const isFriendMember = (f) => memberKeyFor(f) !== null;
 
-  // A contact is "pinned" (part of the default household view) if any word in
-  // their name matches one of the pinned first names.
+  // Resolve a contact's "Guest of" the same way renderRow does: their own
+  // guest field, falling back to the member entry's plus-one name.
+  const guestOfFriend = (f) => {
+    const key = memberKeyFor(f);
+    const member = key ? members[key] : null;
+    return (f.guest || (member && member.plusOneName) || '').toLowerCase();
+  };
+
+  // A contact is "pinned" (part of the default household view) if they are a
+  // guest of one of the pinned people (their "Guest of" is Dan or Joanne), or
+  // are one of the pinned people themselves.
   const isPinned = (f) => {
-    const words = (f.name || '').toLowerCase().split(/\s+/);
-    return ROSTER_PINNED_NAMES.some(n => words.includes(n));
+    const guestWords = guestOfFriend(f).split(/\s+/);
+    if (ROSTER_PINNED_NAMES.some(n => guestWords.includes(n))) return true;
+    const nameWords = (f.name || '').toLowerCase().split(/\s+/);
+    return ROSTER_PINNED_NAMES.some(n => nameWords.includes(n));
   };
 
   const sortedFriends = [...friends].sort((a, b) =>
