@@ -279,6 +279,9 @@ function RosterTable({
     ? rosterEvent.members
     : {};
 
+  // 'all' shows both groups; 'in' only friends on the event; 'out' only those not on it.
+  const [view, setView] = useState('all');
+
   const sortedFriends = [...friends].sort((a, b) =>
     (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
   );
@@ -289,6 +292,10 @@ function RosterTable({
         (f.email || '').toLowerCase().includes(q)
       )
     : sortedFriends;
+
+  const isFriendMember = (f) => Object.prototype.hasOwnProperty.call(members, sanitizeKey(f.email || f.id));
+  const includedFriends = visibleFriends.filter(isFriendMember);
+  const notIncludedFriends = visibleFriends.filter(f => !isFriendMember(f));
 
   const rsvpOptions = [
     { key: 'yes', label: 'Going', bg: 'var(--color-success-light)', color: 'var(--color-success)' },
@@ -301,6 +308,87 @@ function RosterTable({
     if (!m || typeof m !== 'object') continue;
     const r = ['yes', 'maybe', 'no'].includes(m.rsvp) ? m.rsvp : 'pending';
     totals[r] = (totals[r] || 0) + 1;
+  }
+  const includedCount = Object.keys(members).length;
+  const notIncludedCount = friends.length - friends.filter(isFriendMember).length;
+
+  const gridCols = 'minmax(160px, 1.4fr) minmax(180px, 1.8fr) minmax(260px, auto)';
+
+  function renderRow(f) {
+    const key = sanitizeKey(f.email || f.id);
+    const member = members[key];
+    const isMember = !!member;
+    const currentRsvp = isMember && ['yes', 'maybe', 'no'].includes(member.rsvp) ? member.rsvp : (isMember ? 'pending' : null);
+    return (
+      <div
+        key={f.id}
+        style={{ display: 'grid', gridTemplateColumns: gridCols, alignItems: 'center', padding: '0.55rem 0.85rem', borderBottom: '1px solid var(--color-border)', fontSize: '0.85rem', background: isMember ? 'var(--color-accent-light)' : 'transparent' }}
+      >
+        <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>
+          {f.name || '(unnamed)'}
+          {isMember && currentRsvp === 'pending' && (
+            <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>· no reply</span>
+          )}
+        </div>
+        <div style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.email || ''}>
+          {f.email || <span style={{ fontStyle: 'italic' }}>no email</span>}
+        </div>
+        <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {rsvpOptions.map(opt => {
+            const active = currentRsvp === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setRosterRsvp(f, opt.key)}
+                style={{
+                  padding: '0.25rem 0.65rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                  borderRadius: 'var(--radius-full)',
+                  cursor: 'pointer',
+                  background: active ? opt.bg : 'var(--color-surface)',
+                  color: active ? opt.color : 'var(--color-text-secondary)',
+                  border: active ? `1px solid ${opt.color}` : '1px solid var(--color-border)',
+                }}
+                title={isMember ? `Set RSVP to ${opt.label}` : `Add ${f.name || 'contact'} as ${opt.label}`}
+              >{opt.label}</button>
+            );
+          })}
+          {isMember && (
+            <button
+              type="button"
+              onClick={() => removeFromRoster(f)}
+              title="Remove from event"
+              aria-label="Remove from event"
+              style={{
+                marginLeft: '0.15rem',
+                padding: '0.2rem 0.45rem',
+                fontSize: '0.85rem',
+                lineHeight: 1,
+                fontFamily: 'inherit',
+                borderRadius: 'var(--radius-md)',
+                background: 'transparent',
+                color: 'var(--color-text-muted)',
+                border: '1px solid var(--color-border)',
+                cursor: 'pointer',
+              }}
+            >×</button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function sectionHeader(label, count, accent) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.85rem', background: 'var(--color-surface-alt)', borderBottom: '1px solid var(--color-border)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)' }}>
+        <span style={{ width: '0.55rem', height: '0.55rem', borderRadius: '50%', background: accent, flexShrink: 0 }} />
+        {label}
+        <span style={{ color: 'var(--color-text)', fontWeight: 700 }}>{count}</span>
+      </div>
+    );
   }
 
   return (
@@ -352,16 +440,42 @@ function RosterTable({
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.6rem', fontSize: '0.78rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.6rem', fontSize: '0.78rem' }}>
             <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', background: 'var(--color-success-light)', color: 'var(--color-success)', fontWeight: 600 }}>Going {totals.yes}</span>
             <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', background: 'var(--color-warning-light)', color: 'var(--color-warning)', fontWeight: 600 }}>Maybe {totals.maybe}</span>
             <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', background: 'var(--color-danger-light)', color: 'var(--color-danger)', fontWeight: 600 }}>No {totals.no}</span>
             {totals.pending > 0 && (
               <span style={{ padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', background: 'var(--color-surface-alt)', color: 'var(--color-text-muted)', fontWeight: 600 }}>Pending {totals.pending}</span>
             )}
+            <div style={{ display: 'inline-flex', marginLeft: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
+              {[
+                { key: 'all', label: 'All' },
+                { key: 'in', label: `Included ${includedCount}` },
+                { key: 'out', label: `Not included ${notIncludedCount}` },
+              ].map(opt => {
+                const active = view === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setView(opt.key)}
+                    style={{
+                      padding: '0.3rem 0.75rem',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      fontFamily: 'inherit',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: active ? 'var(--color-accent)' : 'var(--color-surface)',
+                      color: active ? '#fff' : 'var(--color-text-secondary)',
+                    }}
+                  >{opt.label}</button>
+                );
+              })}
+            </div>
           </div>
           <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: 'var(--color-surface)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(180px, 1.8fr) minmax(260px, auto)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', background: 'var(--color-surface-alt)', padding: '0.55rem 0.85rem', borderBottom: '1px solid var(--color-border)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: gridCols, fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', background: 'var(--color-surface-alt)', padding: '0.55rem 0.85rem', borderBottom: '1px solid var(--color-border)' }}>
               <div>Contact</div>
               <div>Email</div>
               <div>Status</div>
@@ -371,72 +485,28 @@ function RosterTable({
                 {friends.length === 0 ? 'No contacts yet — add some on the Contacts tab.' : 'No matches.'}
               </div>
             ) : (
-              visibleFriends.map(f => {
-                const key = sanitizeKey(f.email || f.id);
-                const member = members[key];
-                const isMember = !!member;
-                const currentRsvp = isMember && ['yes', 'maybe', 'no'].includes(member.rsvp) ? member.rsvp : (isMember ? 'pending' : null);
-                return (
-                  <div
-                    key={f.id}
-                    style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(180px, 1.8fr) minmax(260px, auto)', alignItems: 'center', padding: '0.55rem 0.85rem', borderBottom: '1px solid var(--color-border)', fontSize: '0.85rem', background: isMember ? 'var(--color-accent-light)' : 'transparent' }}
-                  >
-                    <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>
-                      {f.name || '(unnamed)'}
-                      {isMember && currentRsvp === 'pending' && (
-                        <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>· no reply</span>
-                      )}
-                    </div>
-                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.email || ''}>
-                      {f.email || <span style={{ fontStyle: 'italic' }}>no email</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {rsvpOptions.map(opt => {
-                        const active = currentRsvp === opt.key;
-                        return (
-                          <button
-                            key={opt.key}
-                            type="button"
-                            onClick={() => setRosterRsvp(f, opt.key)}
-                            style={{
-                              padding: '0.25rem 0.65rem',
-                              fontSize: '0.75rem',
-                              fontWeight: 600,
-                              fontFamily: 'inherit',
-                              borderRadius: 'var(--radius-full)',
-                              cursor: 'pointer',
-                              background: active ? opt.bg : 'var(--color-surface)',
-                              color: active ? opt.color : 'var(--color-text-secondary)',
-                              border: active ? `1px solid ${opt.color}` : '1px solid var(--color-border)',
-                            }}
-                            title={isMember ? `Set RSVP to ${opt.label}` : `Add ${f.name || 'contact'} as ${opt.label}`}
-                          >{opt.label}</button>
-                        );
-                      })}
-                      {isMember && (
-                        <button
-                          type="button"
-                          onClick={() => removeFromRoster(f)}
-                          title="Remove from event"
-                          aria-label="Remove from event"
-                          style={{
-                            marginLeft: '0.15rem',
-                            padding: '0.2rem 0.45rem',
-                            fontSize: '0.85rem',
-                            lineHeight: 1,
-                            fontFamily: 'inherit',
-                            borderRadius: 'var(--radius-md)',
-                            background: 'transparent',
-                            color: 'var(--color-text-muted)',
-                            border: '1px solid var(--color-border)',
-                            cursor: 'pointer',
-                          }}
-                        >×</button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
+              <>
+                {view !== 'out' && (
+                  <>
+                    {sectionHeader('Included', includedFriends.length, 'var(--color-accent)')}
+                    {includedFriends.length === 0 ? (
+                      <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                        No one on this event yet{q ? ' matches your search' : ''}. Add contacts from below.
+                      </div>
+                    ) : includedFriends.map(renderRow)}
+                  </>
+                )}
+                {view !== 'in' && (
+                  <>
+                    {sectionHeader('Not included', notIncludedFriends.length, 'var(--color-text-muted)')}
+                    {notIncludedFriends.length === 0 ? (
+                      <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                        Everyone{q ? ' matching your search' : ''} is on this event.
+                      </div>
+                    ) : notIncludedFriends.map(renderRow)}
+                  </>
+                )}
+              </>
             )}
           </div>
         </>
