@@ -97,6 +97,13 @@ export function Plans() {
   const [eventsByDay, setEventsByDay] = useState({}); // { 'YYYY-MM-DD': [{ title, time, calColor }] }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Dismissal state for the "plan a date with Joanne" reminder. Once marked
+  // Planned or Skipped, the banner stays hidden (persisted in localStorage).
+  const [dateReminder, setDateReminder] = useState(() => localStorage.getItem('rally.joanneDate.status') || '');
+  const dismissDateReminder = (status) => {
+    setDateReminder(status);
+    try { localStorage.setItem('rally.joanneDate.status', status); } catch {}
+  };
 
   // Compute the three weeks (Monday-anchored)
   const today = new Date();
@@ -357,10 +364,16 @@ export function Plans() {
       </div>
       {view === 'today' ? <TodayPage /> : (
     <div className={styles.page}>
+      {!dateReminder && (
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '1rem', background: '#fdf2f8', border: '1px solid #f9a8d4', borderRadius: 'var(--radius-md)', color: '#9d174d', fontSize: '0.9rem', fontWeight: 600 }}>
         <span style={{ fontSize: '1.15rem' }} aria-hidden="true">💜</span>
         <span>Reminder: plan a date with Joanne.</span>
+        <div style={{ display: 'flex', gap: '0.4rem', marginLeft: 'auto' }}>
+          <button type="button" onClick={() => dismissDateReminder('planned')} style={{ padding: '0.3rem 0.7rem', background: '#9d174d', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Planned</button>
+          <button type="button" onClick={() => dismissDateReminder('skipped')} style={{ padding: '0.3rem 0.7rem', background: 'transparent', color: '#9d174d', border: '1px solid #f9a8d4', borderRadius: 'var(--radius-md)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Skip</button>
+        </div>
       </div>
+      )}
       <div className={styles.header}>
         <div className={styles.titleBlock}>
           <h1 className={styles.title}>Plans</h1>
