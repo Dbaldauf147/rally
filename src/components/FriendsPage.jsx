@@ -353,6 +353,23 @@ function RosterTable({
     { key: 'no', label: 'No', bg: 'var(--color-danger-light)', color: 'var(--color-danger)' },
   ];
 
+  // The guest's status for the selected event, shown as an at-a-glance pill
+  // alongside the RSVP buttons. Non-members read as "Not on event".
+  const statusMeta = {
+    yes: { label: 'Going', color: 'var(--color-success)', bg: 'var(--color-success-light)' },
+    maybe: { label: 'Maybe', color: 'var(--color-warning)', bg: 'var(--color-warning-light)' },
+    no: { label: 'No', color: 'var(--color-danger)', bg: 'var(--color-danger-light)' },
+    pending: { label: 'No reply', color: 'var(--color-text-muted)', bg: 'var(--color-surface-alt)' },
+  };
+
+  // Which pinned person a not-included contact is a guest of, used to split the
+  // "Not included" section into per-host buckets. Returns a name or null.
+  const bucketOf = (f) => {
+    const words = guestOfFriend(f).split(/\s+/);
+    return ROSTER_PINNED_NAMES.find(n => words.includes(n)) || null;
+  };
+  const capitalize = (n) => n.charAt(0).toUpperCase() + n.slice(1);
+
   const totals = { yes: 0, maybe: 0, no: 0, pending: 0 };
   for (const m of Object.values(members)) {
     if (!m || typeof m !== 'object') continue;
@@ -365,7 +382,7 @@ function RosterTable({
   const notIncludedCount = scopedFriends.length - includedCount;
 
   const pinnedLabel = ROSTER_PINNED_NAMES.map(n => n.charAt(0).toUpperCase() + n.slice(1)).join(' & ');
-  const gridCols = 'minmax(140px, 1.2fr) minmax(150px, 1.4fr) minmax(100px, 0.8fr) minmax(100px, 0.8fr) minmax(240px, auto)';
+  const gridCols = 'minmax(140px, 1.2fr) minmax(150px, 1.4fr) minmax(100px, 0.8fr) minmax(100px, 0.8fr) minmax(320px, auto)';
 
   function renderRow(f) {
     const key = memberKeyFor(f) || sanitizeKey(f.email || f.id);
@@ -400,6 +417,18 @@ function RosterTable({
               ))}
         </div>
         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {(() => {
+            const meta = isMember ? statusMeta[currentRsvp] : null;
+            const label = meta ? meta.label : 'Not on event';
+            const color = meta ? meta.color : 'var(--color-text-muted)';
+            const bg = meta ? meta.bg : 'transparent';
+            return (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-full)', background: bg, color, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }} title={`Status: ${label}`}>
+                <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '50%', background: isMember ? color : 'transparent', border: isMember ? 'none' : `1.5px solid ${color}`, flexShrink: 0 }} />
+                {label}
+              </span>
+            );
+          })()}
           {rsvpOptions.map(opt => {
             const active = currentRsvp === opt.key;
             return (
@@ -455,6 +484,25 @@ function RosterTable({
         <span style={{ color: 'var(--color-text)', fontWeight: 700 }}>{count}</span>
       </div>
     );
+  }
+
+  // Lighter sub-header used to divide a section into per-host buckets.
+  function bucketHeader(label, count) {
+    return (
+      <div key={`bucket-${label}`} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.85rem 0.35rem 1.5rem', background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)' }}>
+        {label}
+        <span style={{ color: 'var(--color-text-secondary)', fontWeight: 700 }}>{count}</span>
+      </div>
+    );
+  }
+
+  // Split a list of not-included contacts into per-host buckets (guests of each
+  // pinned person) plus an "Other" bucket for everyone else, preserving order.
+  function bucketedRows(list) {
+    const groups = ROSTER_PINNED_NAMES.map(n => ({ label: `Guests of ${capitalize(n)}`, rows: list.filter(f => bucketOf(f) === n) }));
+    const other = list.filter(f => bucketOf(f) === null);
+    if (other.length) groups.push({ label: 'Other', rows: other });
+    return groups.filter(g => g.rows.length > 0);
   }
 
   return (
@@ -587,7 +635,12 @@ function RosterTable({
                       <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
                         Everyone{q ? ' matching your search' : ''} is on this event.
                       </div>
-                    ) : notIncludedFriends.map(renderRow)}
+                    ) : bucketedRows(notIncludedFriends).map(g => (
+                      <React.Fragment key={g.label}>
+                        {bucketHeader(g.label, g.rows.length)}
+                        {g.rows.map(renderRow)}
+                      </React.Fragment>
+                    ))}
                   </>
                 )}
               </>
