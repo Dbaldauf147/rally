@@ -293,7 +293,30 @@ function RosterTable({
       )
     : sortedFriends;
 
-  const isFriendMember = (f) => Object.prototype.hasOwnProperty.call(members, sanitizeKey(f.email || f.id));
+  // Members can be keyed by a real auth UID (people who actually use the app),
+  // not just sanitizeKey(email). So resolve a friend to their member entry the
+  // same way the rest of the app does — email → phone → name — falling back to
+  // the sanitized-key match. This keeps a contact that voted under their UID
+  // showing as Included (with their real RSVP) rather than slipping to the
+  // "not included" side. Only truthy member objects count (stale null/tombstone
+  // entries are ignored).
+  const digitsOf = (s) => (s || '').replace(/[^\d]/g, '');
+  const membersByEmail = {}, membersByPhone = {}, membersByName = {};
+  for (const [k, m] of Object.entries(members)) {
+    if (!m || typeof m !== 'object') continue;
+    if (m.email) membersByEmail[m.email.toLowerCase()] = k;
+    if (m.phone) { const d = digitsOf(m.phone); if (d.length >= 7) membersByPhone[d] = k; }
+    if (m.name) membersByName[m.name.toLowerCase()] = k;
+  }
+  function memberKeyFor(f) {
+    const direct = sanitizeKey(f.email || f.id);
+    if (members[direct] && typeof members[direct] === 'object') return direct;
+    if (f.email && membersByEmail[f.email.toLowerCase()]) return membersByEmail[f.email.toLowerCase()];
+    if (f.phone) { const d = digitsOf(f.phone); if (d.length >= 7 && membersByPhone[d]) return membersByPhone[d]; }
+    if (f.name && membersByName[f.name.toLowerCase()]) return membersByName[f.name.toLowerCase()];
+    return null;
+  }
+  const isFriendMember = (f) => memberKeyFor(f) !== null;
   const includedFriends = visibleFriends.filter(isFriendMember);
   const notIncludedFriends = visibleFriends.filter(f => !isFriendMember(f));
 
@@ -309,16 +332,20 @@ function RosterTable({
     const r = ['yes', 'maybe', 'no'].includes(m.rsvp) ? m.rsvp : 'pending';
     totals[r] = (totals[r] || 0) + 1;
   }
-  const includedCount = Object.keys(members).length;
-  const notIncludedCount = friends.length - friends.filter(isFriendMember).length;
+  // Counts are over the whole contact list (not the search-filtered view) and
+  // count distinct friends, so they line up with the two sections below.
+  const includedCount = friends.filter(isFriendMember).length;
+  const notIncludedCount = friends.length - includedCount;
 
-  const gridCols = 'minmax(160px, 1.4fr) minmax(180px, 1.8fr) minmax(260px, auto)';
+  const gridCols = 'minmax(150px, 1.3fr) minmax(160px, 1.5fr) minmax(110px, 0.9fr) minmax(240px, auto)';
 
   function renderRow(f) {
-    const key = sanitizeKey(f.email || f.id);
+    const key = memberKeyFor(f) || sanitizeKey(f.email || f.id);
     const member = members[key];
-    const isMember = !!member;
+    const isMember = !!member && typeof member === 'object';
     const currentRsvp = isMember && ['yes', 'maybe', 'no'].includes(member.rsvp) ? member.rsvp : (isMember ? 'pending' : null);
+    // Prefer the contact's own "guest of", fall back to the member entry's plus-one name.
+    const guestOf = f.guest || (isMember && member.plusOneName) || '';
     return (
       <div
         key={f.id}
@@ -333,6 +360,9 @@ function RosterTable({
         <div style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.email || ''}>
           {f.email || <span style={{ fontStyle: 'italic' }}>no email</span>}
         </div>
+        <div style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={guestOf}>
+          {guestOf || <span style={{ opacity: 0.5 }}>—</span>}
+        </div>
         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
           {rsvpOptions.map(opt => {
             const active = currentRsvp === opt.key;
@@ -340,7 +370,7 @@ function RosterTable({
               <button
                 key={opt.key}
                 type="button"
-                onClick={() => setRosterRsvp(f, opt.key)}
+                onClick={() => setRosterRsvp(f, opt.key, key)}
                 style={{
                   padding: '0.25rem 0.65rem',
                   fontSize: '0.75rem',
@@ -359,7 +389,7 @@ function RosterTable({
           {isMember && (
             <button
               type="button"
-              onClick={() => removeFromRoster(f)}
+              onClick={() => removeFromRoster(f, key)}
               title="Remove from event"
               aria-label="Remove from event"
               style={{
@@ -478,6 +508,7 @@ function RosterTable({
             <div style={{ display: 'grid', gridTemplateColumns: gridCols, fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', background: 'var(--color-surface-alt)', padding: '0.55rem 0.85rem', borderBottom: '1px solid var(--color-border)' }}>
               <div>Contact</div>
               <div>Email</div>
+              <div>Guest of</div>
               <div>Status</div>
             </div>
             {visibleFriends.length === 0 ? (
@@ -926,10 +957,13 @@ export function FriendsPage() {
   // Add a friend to the roster event with an explicit RSVP, or update the
   // RSVP if they're already a member. Same write shape addContactsToEvent
   // uses so the member shows up identically on the event detail page.
-  async function setRosterRsvp(friend, rsvp) {
+  async function setRosterRsvp(friend, rsvp, memberKey) {
     if (!user || !rosterEventId || !friend) return;
-    const key = sanitizeKey(friend.email || friend.id);
-    const isMember = rosterEvent?.members && Object.prototype.hasOwnProperty.call(rosterEvent.members, key);
+    // Prefer the caller-resolved key (may be a real auth UID for app users);
+    // fall back to the sanitized email/id key when adding a brand-new member.
+    const key = memberKey || sanitizeKey(friend.email || friend.id);
+    const existing = rosterEvent?.members?.[key];
+    const isMember = !!existing && typeof existing === 'object';
     if (isMember) {
       await updateDoc(doc(db, 'events', rosterEventId), {
         [`members.${key}.rsvp`]: rsvp,
@@ -950,9 +984,9 @@ export function FriendsPage() {
 
   // Remove a friend from the roster event. Deletes the member entry and
   // pulls the uid from memberUids so EventDetail's count stays correct.
-  async function removeFromRoster(friend) {
+  async function removeFromRoster(friend, memberKey) {
     if (!user || !rosterEventId || !friend) return;
-    const key = sanitizeKey(friend.email || friend.id);
+    const key = memberKey || sanitizeKey(friend.email || friend.id);
     await updateDoc(doc(db, 'events', rosterEventId), {
       [`members.${key}`]: deleteField(),
       memberUids: arrayRemove(key),
