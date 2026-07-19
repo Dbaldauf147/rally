@@ -1411,6 +1411,7 @@ export function FriendsPage() {
   const [newEventTitle, setNewEventTitle] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
   const [newEventLocation, setNewEventLocation] = useState('');
+  const [newEventPlanning, setNewEventPlanning] = useState({ itinerary: false, travel: false, lodging: false });
   const [creatingEvent, setCreatingEvent] = useState(false);
 
   // Create an event from the roster tab and immediately pick it as the
@@ -1434,6 +1435,7 @@ export function FriendsPage() {
         },
         visibility: 'private',
         shareToken: crypto.randomUUID().replace(/-/g, '').slice(0, 12),
+        planning: { ...newEventPlanning },
       };
       if (newEventDate) {
         payload.date = Timestamp.fromDate(new Date(newEventDate));
@@ -1451,6 +1453,7 @@ export function FriendsPage() {
       setNewEventTitle('');
       setNewEventDate('');
       setNewEventLocation('');
+      setNewEventPlanning({ itinerary: false, travel: false, lodging: false });
       setResult({ type: 'success', message: `${payload.title} created` });
       setTimeout(() => setResult(null), 3000);
     } catch (err) {
@@ -1926,6 +1929,27 @@ export function FriendsPage() {
                   placeholder="Address or venue (optional)"
                 />
               </label>
+              <div>
+                <div className={styles.label} style={{ marginBottom: '0.35rem' }}>What needs planning?</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 1rem' }}>
+                  {[
+                    { key: 'itinerary', label: 'Itinerary', icon: '🗓️' },
+                    { key: 'travel', label: 'Travel', icon: '✈️' },
+                    { key: 'lodging', label: 'Lodging', icon: '🏨' },
+                  ].map(opt => (
+                    <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 500, color: newEventPlanning[opt.key] ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}>
+                      <input
+                        type="checkbox"
+                        checked={newEventPlanning[opt.key]}
+                        onChange={() => setNewEventPlanning(p => ({ ...p, [opt.key]: !p[opt.key] }))}
+                        style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
+                      />
+                      <span aria-hidden="true">{opt.icon}</span>
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div className={styles.formActions}>
                 <button className={styles.saveBtn} type="submit" disabled={!newEventTitle.trim() || creatingEvent}>
                   {creatingEvent ? 'Creating…' : 'Create & open roster'}
