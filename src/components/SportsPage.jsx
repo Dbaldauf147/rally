@@ -63,6 +63,31 @@ function seasonStatus(season) {
   return { label: `In season · ${days(end - now)} day${days(end - now) === 1 ? '' : 's'} left`, tone: 'active' };
 }
 
+// Split tracked leagues into in-season vs offseason. A league is offseason if
+// its currently-active ESPN phase is the "Off Season" phase, or (when no phase
+// is active right now) if it isn't inside its season window — i.e. the season
+// has ended or hasn't started yet. Kept at module scope so the Date.now() read
+// isn't a direct impure call inside a component/hook body.
+function splitLeaguesBySeason(leagues, seasons) {
+  const now = Date.now();
+  const inSeasonLeagues = [];
+  const offseasonLeagues = [];
+  for (const l of leagues) {
+    const s = seasons[l.sportPath];
+    let phase = null;
+    if (s?.phases?.length) {
+      phase = s.phases.find(
+        (p) => now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime(),
+      ) || null;
+    }
+    const offseason = phase
+      ? /off\s*-?\s*season/i.test(phase.name)
+      : seasonStatus(s).tone !== 'active';
+    (offseason ? offseasonLeagues : inSeasonLeagues).push(l);
+  }
+  return { inSeasonLeagues, offseasonLeagues };
+}
+
 // Content sections the digest can include, toggled per user.
 const TOPICS = [
   { key: 'scores', label: 'Recent scores' },
@@ -88,6 +113,7 @@ export function SportsPage() {
   const [testStatus, setTestStatus] = useState(null); // 'sending' | 'sent' | 'error:msg'
   const [seasons, setSeasons] = useState({}); // sportPath -> season
   const [seasonsLoading, setSeasonsLoading] = useState(false);
+  const [subtab, setSubtab] = useState('inseason'); // 'inseason' | 'offseason'
 
   const league = useMemo(() => LEAGUES.find((l) => l.key === leagueKey) || LEAGUES[0], [leagueKey]);
 
@@ -120,6 +146,10 @@ export function SportsPage() {
       return ga !== gb ? ga - gb : ta - tb;
     });
   }, [trackedLeagues, seasons]);
+
+  // Split the tracked leagues into "in season" vs "offseason" (see
+  // splitLeaguesBySeason below for the rule).
+  const { inSeasonLeagues, offseasonLeagues } = splitLeaguesBySeason(sortedLeagues, seasons);
 
   // Load saved config.
   useEffect(() => {
@@ -234,6 +264,39 @@ export function SportsPage() {
     (t) => !config.teams.some((x) => x.leagueKey === league.key && x.teamId === t.teamId),
   );
 
+  function renderSeasonItem(l) {
+    const s = seasons[l.sportPath];
+    const status = seasonStatus(s);
+    return (
+      <li key={l.sportPath} className={styles.seasonItem}>
+        <div className={styles.seasonTop}>
+          <span className={styles.seasonLeague}>{l.label}</span>
+          {s?.displayName && <span className={styles.seasonYear}>{s.displayName}</span>}
+        </div>
+        <div className={styles.seasonDates}>
+          {s?.startDate && s?.endDate
+            ? <>{fmtSeasonDate(s.startDate)} <span className={styles.seasonArrow}>→</span> {fmtSeasonDate(s.endDate)}</>
+            : 'Dates unavailable'}
+        </div>
+        <span className={`${styles.seasonStatus} ${styles[`status_${status.tone}`]}`}>{status.label}</span>
+        {s?.phases?.length > 0 && (
+          <ul className={styles.phaseList}>
+            {s.phases.map((p, i) => {
+              const now = Date.now();
+              const active = now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime();
+              return (
+                <li key={i} className={`${styles.phaseItem} ${active ? styles.phaseActive : ''}`}>
+                  <span className={styles.phaseName}>{p.name}{active ? ' • now' : ''}</span>
+                  <span className={styles.phaseDates}>{fmtSeasonDate(p.startDate)} – {fmtSeasonDate(p.endDate)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </li>
+    );
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -246,6 +309,44 @@ export function SportsPage() {
       {loading ? (
         <div className={styles.empty}>Loading…</div>
       ) : (
+       <>
+        <div className={styles.subtabs} role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={subtab === 'inseason'}
+            className={`${styles.subtab} ${subtab === 'inseason' ? styles.subtabActive : ''}`}
+            onClick={() => setSubtab('inseason')}
+          >
+            In season <span className={styles.subtabCount}>{inSeasonLeagues.length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={subtab === 'offseason'}
+            className={`${styles.subtab} ${subtab === 'offseason' ? styles.subtabActive : ''}`}
+            onClick={() => setSubtab('offseason')}
+          >
+            Offseason <span className={styles.subtabCount}>{offseasonLeagues.length}</span>
+          </button>
+        </div>
+
+        {subtab === 'offseason' ? (
+          <section className={styles.card}>
+            <h2 className={styles.cardTitle}>Offseason</h2>
+            {trackedLeagues.length === 0 ? (
+              <div className={styles.empty}>Add teams to see when their seasons start and end.</div>
+            ) : seasonsLoading ? (
+              <div className={styles.empty}>Loading seasons…</div>
+            ) : offseasonLeagues.length === 0 ? (
+              <div className={styles.empty}>All your leagues are in season right now. 🎉</div>
+            ) : (
+              <ul className={styles.seasonList}>
+                {offseasonLeagues.map(renderSeasonItem)}
+              </ul>
+            )}
+          </section>
+        ) : (
         <div className={styles.grid}>
           {/* Followed teams — top-right sidebar */}
           <section className={`${styles.card} ${styles.colTeams}`}>
@@ -282,47 +383,20 @@ export function SportsPage() {
             )}
           </section>
 
-          {/* Season calendars — wide left column */}
+          {/* In-season calendars — wide left column */}
           <section className={`${styles.card} ${styles.colSeasons}`}>
             <h2 className={styles.cardTitle}>Season calendars</h2>
             {trackedLeagues.length === 0 ? (
               <div className={styles.empty}>Add teams to see when their seasons start and end.</div>
             ) : seasonsLoading ? (
               <div className={styles.empty}>Loading seasons…</div>
+            ) : inSeasonLeagues.length === 0 ? (
+              <div className={styles.empty}>
+                None of your leagues are in season right now — see the Offseason tab.
+              </div>
             ) : (
               <ul className={styles.seasonList}>
-                {sortedLeagues.map((l) => {
-                  const s = seasons[l.sportPath];
-                  const status = seasonStatus(s);
-                  return (
-                    <li key={l.sportPath} className={styles.seasonItem}>
-                      <div className={styles.seasonTop}>
-                        <span className={styles.seasonLeague}>{l.label}</span>
-                        {s?.displayName && <span className={styles.seasonYear}>{s.displayName}</span>}
-                      </div>
-                      <div className={styles.seasonDates}>
-                        {s?.startDate && s?.endDate
-                          ? <>{fmtSeasonDate(s.startDate)} <span className={styles.seasonArrow}>→</span> {fmtSeasonDate(s.endDate)}</>
-                          : 'Dates unavailable'}
-                      </div>
-                      <span className={`${styles.seasonStatus} ${styles[`status_${status.tone}`]}`}>{status.label}</span>
-                      {s?.phases?.length > 0 && (
-                        <ul className={styles.phaseList}>
-                          {s.phases.map((p, i) => {
-                            const now = Date.now();
-                            const active = now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime();
-                            return (
-                              <li key={i} className={`${styles.phaseItem} ${active ? styles.phaseActive : ''}`}>
-                                <span className={styles.phaseName}>{p.name}{active ? ' • now' : ''}</span>
-                                <span className={styles.phaseDates}>{fmtSeasonDate(p.startDate)} – {fmtSeasonDate(p.endDate)}</span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </li>
-                  );
-                })}
+                {inSeasonLeagues.map(renderSeasonItem)}
               </ul>
             )}
           </section>
@@ -398,6 +472,8 @@ export function SportsPage() {
             )}
           </aside>
         </div>
+        )}
+       </>
       )}
     </div>
   );
