@@ -270,6 +270,11 @@ function TagPicker({ value, onChange, options = [] }) {
 // Table view: pick one of your events, then RSVP each contact for it in a
 // single column. Renders inside the Friends & Contacts page on the "Event
 // Roster" sub-tab.
+//
+// The roster opens filtered to "just us" — contacts whose name contains one of
+// these first names — with a "Show all" toggle to reveal everyone. Edit this
+// list to change who the default view pins to.
+const ROSTER_PINNED_NAMES = ['dan', 'joanne'];
 function RosterTable({
   friends, events, rosterEventId, setRosterEventId,
   rosterEvent, rosterSearch, setRosterSearch,
@@ -281,17 +286,8 @@ function RosterTable({
 
   // 'all' shows both groups; 'in' only friends on the event; 'out' only those not on it.
   const [view, setView] = useState('all');
-
-  const sortedFriends = [...friends].sort((a, b) =>
-    (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
-  );
-  const q = rosterSearch.trim().toLowerCase();
-  const visibleFriends = q
-    ? sortedFriends.filter(f =>
-        (f.name || '').toLowerCase().includes(q) ||
-        (f.email || '').toLowerCase().includes(q)
-      )
-    : sortedFriends;
+  // Opens filtered to just the pinned household; toggle off to see everyone.
+  const [householdOnly, setHouseholdOnly] = useState(true);
 
   // Members can be keyed by a real auth UID (people who actually use the app),
   // not just sanitizeKey(email). So resolve a friend to their member entry the
@@ -317,6 +313,26 @@ function RosterTable({
     return null;
   }
   const isFriendMember = (f) => memberKeyFor(f) !== null;
+
+  // A contact is "pinned" (part of the default household view) if any word in
+  // their name matches one of the pinned first names.
+  const isPinned = (f) => {
+    const words = (f.name || '').toLowerCase().split(/\s+/);
+    return ROSTER_PINNED_NAMES.some(n => words.includes(n));
+  };
+
+  const sortedFriends = [...friends].sort((a, b) =>
+    (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+  );
+  // Apply the household filter first, then the search box.
+  const scopedFriends = householdOnly ? sortedFriends.filter(isPinned) : sortedFriends;
+  const q = rosterSearch.trim().toLowerCase();
+  const visibleFriends = q
+    ? scopedFriends.filter(f =>
+        (f.name || '').toLowerCase().includes(q) ||
+        (f.email || '').toLowerCase().includes(q)
+      )
+    : scopedFriends;
   const includedFriends = visibleFriends.filter(isFriendMember);
   const notIncludedFriends = visibleFriends.filter(f => !isFriendMember(f));
 
@@ -332,12 +348,13 @@ function RosterTable({
     const r = ['yes', 'maybe', 'no'].includes(m.rsvp) ? m.rsvp : 'pending';
     totals[r] = (totals[r] || 0) + 1;
   }
-  // Counts are over the whole contact list (not the search-filtered view) and
-  // count distinct friends, so they line up with the two sections below.
-  const includedCount = friends.filter(isFriendMember).length;
-  const notIncludedCount = friends.length - includedCount;
+  // Counts follow the current scope (household vs everyone) so the segmented
+  // toggle lines up with the two sections below. Ignore the search box here.
+  const includedCount = scopedFriends.filter(isFriendMember).length;
+  const notIncludedCount = scopedFriends.length - includedCount;
 
-  const gridCols = 'minmax(150px, 1.3fr) minmax(160px, 1.5fr) minmax(110px, 0.9fr) minmax(240px, auto)';
+  const pinnedLabel = ROSTER_PINNED_NAMES.map(n => n.charAt(0).toUpperCase() + n.slice(1)).join(' & ');
+  const gridCols = 'minmax(140px, 1.2fr) minmax(150px, 1.4fr) minmax(100px, 0.8fr) minmax(100px, 0.8fr) minmax(240px, auto)';
 
   function renderRow(f) {
     const key = memberKeyFor(f) || sanitizeKey(f.email || f.id);
@@ -346,6 +363,7 @@ function RosterTable({
     const currentRsvp = isMember && ['yes', 'maybe', 'no'].includes(member.rsvp) ? member.rsvp : (isMember ? 'pending' : null);
     // Prefer the contact's own "guest of", fall back to the member entry's plus-one name.
     const guestOf = f.guest || (isMember && member.plusOneName) || '';
+    const tags = (f.tag || '').split(';').map(t => t.trim()).filter(Boolean);
     return (
       <div
         key={f.id}
@@ -362,6 +380,13 @@ function RosterTable({
         </div>
         <div style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={guestOf}>
           {guestOf || <span style={{ opacity: 0.5 }}>—</span>}
+        </div>
+        <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', alignItems: 'center' }} title={tags.join(', ')}>
+          {tags.length === 0
+            ? <span style={{ opacity: 0.5, color: 'var(--color-text-muted)' }}>—</span>
+            : tags.map(t => (
+                <span key={t} style={{ padding: '0.1rem 0.45rem', borderRadius: 'var(--radius-full)', background: 'var(--color-surface-alt)', color: 'var(--color-text-secondary)', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{t}</span>
+              ))}
         </div>
         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
           {rsvpOptions.map(opt => {
@@ -504,16 +529,33 @@ function RosterTable({
               })}
             </div>
           </div>
-          <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: 'var(--color-surface)' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+            <span>
+              {householdOnly
+                ? <>Showing just <strong style={{ color: 'var(--color-text)' }}>{pinnedLabel}</strong> ({scopedFriends.length})</>
+                : <>Showing <strong style={{ color: 'var(--color-text)' }}>all contacts</strong> ({scopedFriends.length})</>}
+            </span>
+            <button
+              type="button"
+              onClick={() => setHouseholdOnly(v => !v)}
+              style={{ padding: '0.3rem 0.75rem', fontSize: '0.75rem', fontWeight: 600, fontFamily: 'inherit', borderRadius: 'var(--radius-full)', cursor: 'pointer', background: householdOnly ? 'var(--color-surface)' : 'var(--color-accent)', color: householdOnly ? 'var(--color-text-secondary)' : '#fff', border: householdOnly ? '1px solid var(--color-border)' : 'none' }}
+            >{householdOnly ? 'Show all contacts' : `Show just ${pinnedLabel}`}</button>
+          </div>
+          <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflowX: 'auto', background: 'var(--color-surface)' }}>
             <div style={{ display: 'grid', gridTemplateColumns: gridCols, fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', background: 'var(--color-surface-alt)', padding: '0.55rem 0.85rem', borderBottom: '1px solid var(--color-border)' }}>
               <div>Contact</div>
               <div>Email</div>
               <div>Guest of</div>
+              <div>Tag</div>
               <div>Status</div>
             </div>
             {visibleFriends.length === 0 ? (
               <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
-                {friends.length === 0 ? 'No contacts yet — add some on the Contacts tab.' : 'No matches.'}
+                {friends.length === 0
+                  ? 'No contacts yet — add some on the Contacts tab.'
+                  : householdOnly && !q
+                    ? <>No contacts match <strong>{pinnedLabel}</strong>. <button type="button" onClick={() => setHouseholdOnly(false)} style={{ padding: 0, border: 'none', background: 'none', color: 'var(--color-accent)', fontWeight: 600, fontFamily: 'inherit', fontSize: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}>Show all contacts</button></>
+                    : 'No matches.'}
               </div>
             ) : (
               <>
