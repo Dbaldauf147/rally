@@ -107,6 +107,19 @@ export function EventDetail() {
   // option id → pixel width. Persisted per event in localStorage.
   const [voteColWidths, setVoteColWidths] = useState({});
   const voteColWidthsLoaded = useRef(false);
+  // Load/persist column widths. Kept here with the other top-level hooks —
+  // above the loading/!event early returns below — so the hook count stays
+  // constant across renders (a useEffect after an early return runs a variable
+  // number of times and trips React's "rendered more hooks" invariant).
+  useEffect(() => {
+    try {
+      setVoteColWidths(JSON.parse(localStorage.getItem(`rally.voteCols.${eventId}`) || '{}'));
+    } catch { setVoteColWidths({}); }
+  }, [eventId]);
+  useEffect(() => {
+    if (!voteColWidthsLoaded.current) { voteColWidthsLoaded.current = true; return; }
+    try { localStorage.setItem(`rally.voteCols.${eventId}`, JSON.stringify(voteColWidths)); } catch {}
+  }, [voteColWidths, eventId]);
   const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
@@ -578,16 +591,6 @@ export function EventDetail() {
 
   // Load saved column widths when the event changes; skip the first save so the
   // empty default doesn't clobber what's stored before the load lands.
-  useEffect(() => {
-    try {
-      setVoteColWidths(JSON.parse(localStorage.getItem(`rally.voteCols.${eventId}`) || '{}'));
-    } catch { setVoteColWidths({}); }
-  }, [eventId]);
-  useEffect(() => {
-    if (!voteColWidthsLoaded.current) { voteColWidthsLoaded.current = true; return; }
-    try { localStorage.setItem(`rally.voteCols.${eventId}`, JSON.stringify(voteColWidths)); } catch {}
-  }, [voteColWidths, eventId]);
-
   // Begin a drag on a column's right-edge handle. Live-updates that column's
   // width (min 40px) as the pointer moves; commits on release.
   const startColResize = (key, startWidth) => (e) => {
