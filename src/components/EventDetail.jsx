@@ -1673,7 +1673,16 @@ export function EventDetail() {
                 if (missingFilter === 'both' && (hasEmail || hasPhone)) return false;
                 return true;
               };
-              const rows = members.filter(([uid, m]) => passesMissing(uid, m));
+              // Stable, vote-independent order: sort by name (then uid) so rows
+              // stay put when someone votes or their RSVP changes. Firestore map
+              // key order isn't guaranteed stable across snapshots, so without an
+              // explicit sort the table reshuffles itself as votes come in.
+              const rows = members
+                .filter(([uid, m]) => passesMissing(uid, m))
+                .sort(([ua, ma], [ub, mb]) =>
+                  (ma.name || '').localeCompare(mb.name || '', undefined, { sensitivity: 'base' })
+                  || ua.localeCompare(ub),
+                );
               return (
                 <div style={{ marginBottom: '0.75rem' }}>
                   <button
