@@ -103,6 +103,10 @@ export function EventDetail() {
   const [showTextAll, setShowTextAll] = useState(false);
   const [textAllMissingOnly, setTextAllMissingOnly] = useState(false); // limit Text-All to poll non-responders
   const [cleaningPhantom, setCleaningPhantom] = useState(false);
+  // User-resizable column widths for the vote matrix, keyed by 'name' or a date
+  // option id → pixel width. Persisted per event in localStorage.
+  const [voteColWidths, setVoteColWidths] = useState({});
+  const voteColWidthsLoaded = useRef(false);
   const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
@@ -572,6 +576,40 @@ export function EventDetail() {
     return o.startDate >= finStart && optEnd <= finEnd;
   };
 
+  // Load saved column widths when the event changes; skip the first save so the
+  // empty default doesn't clobber what's stored before the load lands.
+  useEffect(() => {
+    try {
+      setVoteColWidths(JSON.parse(localStorage.getItem(`rally.voteCols.${eventId}`) || '{}'));
+    } catch { setVoteColWidths({}); }
+  }, [eventId]);
+  useEffect(() => {
+    if (!voteColWidthsLoaded.current) { voteColWidthsLoaded.current = true; return; }
+    try { localStorage.setItem(`rally.voteCols.${eventId}`, JSON.stringify(voteColWidths)); } catch {}
+  }, [voteColWidths, eventId]);
+
+  // Begin a drag on a column's right-edge handle. Live-updates that column's
+  // width (min 40px) as the pointer moves; commits on release.
+  const startColResize = (key, startWidth) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const onMove = (ev) => {
+      const w = Math.max(40, startWidth + (ev.clientX - startX));
+      setVoteColWidths(prev => ({ ...prev, [key]: w }));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   // The vote matrix: one row per guest (couples clustered), one column per open
   // date option, each cell showing the person's vote (own or assumed-yes via a
   // linked partner). Rendered for whatever member rows are passed, so it works
@@ -579,6 +617,20 @@ export function EventDetail() {
   const renderVoteTable = (rowMembers) => {
     const openOptions = allDateOptions.filter(o => !o.closed);
     if (openOptions.length === 0) return null;
+    // Resolved column widths (saved override → responsive default) and the total
+    // table width. Fixed layout below makes the widths exact and draggable.
+    const nameColW = voteColWidths.name || (isNarrow ? 120 : 200);
+    const optColW = (id) => voteColWidths[id] || (isNarrow ? 76 : 100);
+    const totalColW = nameColW + openOptions.reduce((s, o) => s + optColW(o.id), 0);
+    const resizeHandle = (key, width) => (
+      <div
+        onMouseDown={startColResize(key, width)}
+        title="Drag to resize column"
+        style={{ position: 'absolute', top: 0, right: 0, height: '100%', width: '9px', cursor: 'col-resize', zIndex: 2, touchAction: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+      >
+        <span style={{ width: '2px', height: '55%', background: 'var(--color-border)', borderRadius: '1px' }} />
+      </div>
+    );
     // Symmetric partner map so a linked guest inherits their partner's vote.
     const partnerOf = {};
     for (const [uid, m] of members) if (m.plusOneOf) partnerOf[uid] = m.plusOneOf;
@@ -603,8 +655,8 @@ export function EventDetail() {
       }
       return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
     };
-    const th = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)' };
-    const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' };
+    const th = { position: 'relative', textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)', overflow: 'hidden' };
+    const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, zIndex: 1, background: 'var(--color-surface)' };
     const td = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
     const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: isNarrow ? '0.76rem' : '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)', maxWidth: isNarrow ? '7.5rem' : 'none', overflow: 'hidden', textOverflow: 'ellipsis' };
     // Keep linked (+1) members adjacent so connected people stay together.
@@ -642,10 +694,17 @@ export function EventDetail() {
     };
     return (
       <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: `${totalColW}px`, minWidth: '100%' }}>
+          <colgroup>
+            <col style={{ width: `${nameColW}px` }} />
+            {openOptions.map(o => <col key={o.id} style={{ width: `${optColW(o.id)}px` }} />)}
+            {/* Spacer absorbs any width beyond the sized columns so their
+                widths stay exact and draggable instead of stretching. */}
+            <col />
+          </colgroup>
           <thead>
             <tr>
-              <th style={thName}>Person</th>
+              <th style={thName}>Person{resizeHandle('name', nameColW)}</th>
               {openOptions.map(o => {
                 const t = tallyFor(o);
                 const chosen = isChosenOption(o);
@@ -658,9 +717,11 @@ export function EventDetail() {
                       <span style={{ color: '#D97706' }}>TBD {t.maybe}</span>
                       <span style={{ color: '#DC2626' }}>Not going {t.no}</span>
                     </div>
+                    {resizeHandle(o.id, optColW(o.id))}
                   </th>
                 );
               })}
+              <th style={th} aria-hidden="true" />
             </tr>
           </thead>
           <tbody>
@@ -698,6 +759,7 @@ export function EventDetail() {
                     const chosen = isChosenOption(o);
                     return <td key={o.id} style={{ ...td, ...topBorder, ...(chosen ? { background: 'var(--color-success-light)' } : {}) }}>{pill(voteVal, inherited)}</td>;
                   })}
+                  <td style={{ ...td, ...topBorder }} aria-hidden="true" />
                 </tr>
               );
             }))}
