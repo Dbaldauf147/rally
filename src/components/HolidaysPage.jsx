@@ -51,6 +51,7 @@ const HOLIDAY_DEFS = [
   { id: 'h-2026-july4', name: 'Independence Day', timeOff: true, rule: 'Always July 4', date: fixed(Y, 7, 4) },
   { id: 'h-2026-labor', name: 'Labor Day', timeOff: true, rule: 'First Monday in September', date: nthWeekdayOfMonth(Y, 8, 1, 1) },
   { id: COW_HARBOR_ID, name: 'Cow Harbor Day', timeOff: false, rule: 'Third Saturday in September', date: nthWeekdayOfMonth(Y, 8, 6, 3) },
+  { id: 'h-cowharbor-parade', name: 'Cow Harbor Day Parade', timeOff: false, rule: 'Third Sunday in September', date: nthWeekdayOfMonth(Y, 8, 0, 3) },
   { id: 'h-2026-columbus', name: 'Columbus Day', timeOff: true, rule: 'Second Monday in October', date: nthWeekdayOfMonth(Y, 9, 1, 2) },
   { id: 'h-halloween', name: 'Halloween', timeOff: false, rule: 'Always October 31', date: fixed(Y, 10, 31) },
   { id: 'h-2026-veterans', name: 'Veterans Day', timeOff: true, rule: 'Always November 11', date: fixed(Y, 11, 11) },
@@ -107,11 +108,11 @@ function loadStored() {
     // One-time backfill of newly-added holidays (Cow Harbor Day, the eve/weekend
     // days, Mother's/Father's Day, etc.) for users who already had a saved list.
     // Matched by id so nothing duplicates; the flag means later deletions stick.
-    if (!localStorage.getItem('rally.holidays.seed.v2')) {
+    if (!localStorage.getItem('rally.holidays.seed.v3')) {
       const have = new Set(parsed.map((h) => h.id));
       const missing = DEFAULT_HOLIDAYS.filter((h) => !have.has(h.id));
       if (missing.length) parsed = [...parsed, ...missing];
-      localStorage.setItem('rally.holidays.seed.v2', '1');
+      localStorage.setItem('rally.holidays.seed.v3', '1');
     }
     return parsed;
   } catch {
@@ -161,11 +162,6 @@ export function HolidaysPage() {
     if (!draft.name.trim() || !draft.date) return;
     setHolidays((list) => [...list, { ...draft, name: draft.name.trim(), id: makeId() }]);
     setDraft({ name: '', date: '', note: '', timeOff: true });
-  };
-
-  const resetDefaults = () => {
-    if (!confirm('Reset holidays back to the US federal defaults for 2026? This clears any edits.')) return;
-    setHolidays(DEFAULT_HOLIDAYS);
   };
 
   return (
@@ -283,10 +279,6 @@ export function HolidaysPage() {
           </label>
           <button className={styles.addBtn} onClick={addDraft} disabled={!draft.name.trim() || !draft.date}>Add</button>
         </div>
-      </div>
-
-      <div className={styles.toolbar}>
-        <button className={`${styles.btn} ${styles.btnDanger}`} onClick={resetDefaults}>Reset to 2026 federal holidays</button>
       </div>
     </div>
   );
