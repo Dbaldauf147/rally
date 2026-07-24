@@ -126,6 +126,7 @@ export function EventDetail() {
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
   const [votedView, setVotedView] = useState('table'); // Voted group display: 'table' | 'cards'
   const [showYesMaybeOnly, setShowYesMaybeOnly] = useState(false); // People & Poll: show only likely attendees (Yes/Maybe)
+  const [dayVoteFilter, setDayVoteFilter] = useState({}); // People & Poll: per-day Yes/Maybe column filters { optionId: true }
   const [dismissedContactWarn, setDismissedContactWarn] = useState(() => new Set()); // member uids whose missing-contact warning was dismissed
   const [calSyncing, setCalSyncing] = useState(false);
   const [calSyncMsg, setCalSyncMsg] = useState(null); // { type: 'success' | 'error', message: string }
@@ -657,6 +658,23 @@ export function EventDetail() {
       const inbound = members.find(([, m2]) => m2.plusOneOf === uid);
       if (inbound) partnerOf[uid] = inbound[0];
     }
+    // A person's effective vote on a day: their own, else one inherited from a
+    // linked +1 partner.
+    const dayVoteOf = (uid, o) => {
+      const own = o.votes?.[uid]?.vote;
+      if (own && own !== 'none') return own;
+      const p = partnerOf[uid];
+      if (p) { const pv = o.votes?.[p]?.vote; if (pv && pv !== 'none') return pv; }
+      return null;
+    };
+    // Per-day Yes/Maybe filters (toggled in each date column header): keep only
+    // people who are yes or maybe on every selected day. AND across days.
+    const activeDayFilters = openOptions.filter(o => dayVoteFilter[o.id]);
+    if (activeDayFilters.length > 0) {
+      rowMembers = rowMembers.filter(([uid]) =>
+        activeDayFilters.every(o => { const v = dayVoteOf(uid, o); return v === 'yes' || v === 'maybe'; }),
+      );
+    }
     const fmtOpt = (o) => {
       try {
         const s = format(new Date(o.startDate + 'T00:00:00'), 'MMM d');
@@ -735,6 +753,13 @@ export function EventDetail() {
                       <span style={{ color: '#D97706' }}>TBD {t.maybe}</span>
                       <span style={{ color: '#DC2626' }}>Not going {t.no}</span>
                     </div>
+                    <button
+                      onClick={() => setDayVoteFilter(f => ({ ...f, [o.id]: !f[o.id] }))}
+                      title="Show only people who are Yes or Maybe on this day"
+                      style={{ marginTop: '0.3rem', fontSize: '0.58rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: dayVoteFilter[o.id] ? 'var(--color-accent)' : 'var(--color-surface)', color: dayVoteFilter[o.id] ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', textTransform: 'none', letterSpacing: 0 }}
+                    >
+                      {dayVoteFilter[o.id] ? '✓ ' : ''}Y/M
+                    </button>
                     {resizeHandle(o.id, optColW(o.id))}
                   </th>
                 );
