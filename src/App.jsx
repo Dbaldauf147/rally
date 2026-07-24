@@ -26,6 +26,7 @@ import { InstallPrompt } from './components/InstallPrompt';
 import { UpdateBanner } from './components/UpdateBanner';
 import { GoogleCalendarAutoSyncRunner } from './hooks/useGoogleCalendarAutoSync';
 import { ReachOutBadgeRunner } from './hooks/useReachOutBadge';
+import { PushRegistrationRunner } from './hooks/usePushRegistration';
 import { useShareDeepLink } from './hooks/useShareDeepLink';
 
 function ProtectedRoute({ children }) {
@@ -57,6 +58,7 @@ export default function App() {
       {user && <BottomTabBar />}
       {user && <GoogleCalendarAutoSyncRunner />}
       {user && <ReachOutBadgeRunner />}
+      {user && <PushRegistrationRunner />}
       {user && <InstallPrompt />}
       <UpdateBanner />
       <Routes>
