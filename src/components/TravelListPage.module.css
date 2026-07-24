@@ -1,7 +1,10 @@
-.page { max-width: 1300px; margin: 0 auto; padding: 2rem 1rem 4rem; }
-/* Side-by-side section columns that reflow to one column on narrow screens. */
-.sectionsGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; align-items: start; }
-.sectionsGrid .section { margin-bottom: 0; }
+.page { max-width: 1600px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+/* Masonry-style columns: lists pack tightly and rise to fill the gaps left by
+   shorter lists, instead of a row grid that pushes tall lists (e.g. Backpack)
+   down below the tallest list in the row above. Reflows to one column on narrow
+   screens (a 300px min column simply stops fitting two-up). */
+.sectionsGrid { columns: 300px; column-gap: 1rem; }
+.sectionsGrid .section { break-inside: avoid; -webkit-column-break-inside: avoid; margin-bottom: 1rem; }
 .toggleLabel { font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); margin-right: 0.1rem; }
 .header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; }
 .title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
