@@ -127,6 +127,7 @@ export function EventDetail() {
   const [votedView, setVotedView] = useState('table'); // Voted group display: 'table' | 'cards'
   const [showYesMaybeOnly, setShowYesMaybeOnly] = useState(false); // People & Poll: show only likely attendees (Yes/Maybe)
   const [dayVoteFilter, setDayVoteFilter] = useState({}); // People & Poll: per-day Yes/Maybe column filters { optionId: true }
+  const [hiddenDays, setHiddenDays] = useState({}); // People & Poll: date columns hidden from the table view { optionId: true }
   const [dismissedContactWarn, setDismissedContactWarn] = useState(() => new Set()); // member uids whose missing-contact warning was dismissed
   const [calSyncing, setCalSyncing] = useState(false);
   const [calSyncMsg, setCalSyncMsg] = useState(null); // { type: 'success' | 'error', message: string }
@@ -636,11 +637,14 @@ export function EventDetail() {
   const renderVoteTable = (rowMembers) => {
     const openOptions = allDateOptions.filter(o => !o.closed);
     if (openOptions.length === 0) return null;
+    // Date columns the user has hidden from this table view (still counted in
+    // the poll — just not shown here). Everything below renders visibleOptions.
+    const visibleOptions = openOptions.filter(o => !hiddenDays[o.id]);
     // Resolved column widths (saved override → responsive default) and the total
     // table width. Fixed layout below makes the widths exact and draggable.
     const nameColW = voteColWidths.name || (isNarrow ? 120 : 200);
     const optColW = (id) => voteColWidths[id] || (isNarrow ? 76 : 100);
-    const totalColW = nameColW + openOptions.reduce((s, o) => s + optColW(o.id), 0);
+    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0);
     const resizeHandle = (key, width) => (
       <div
         onMouseDown={startColResize(key, width)}
@@ -669,7 +673,7 @@ export function EventDetail() {
     };
     // Per-day Yes/Maybe filters (toggled in each date column header): keep only
     // people who are yes or maybe on every selected day. AND across days.
-    const activeDayFilters = openOptions.filter(o => dayVoteFilter[o.id]);
+    const activeDayFilters = visibleOptions.filter(o => dayVoteFilter[o.id]);
     if (activeDayFilters.length > 0) {
       rowMembers = rowMembers.filter(([uid]) =>
         activeDayFilters.every(o => { const v = dayVoteOf(uid, o); return v === 'yes' || v === 'maybe'; }),
@@ -728,12 +732,29 @@ export function EventDetail() {
       }
       return { yes, maybe, no };
     };
+    const hiddenOpts = openOptions.filter(o => hiddenDays[o.id]);
     return (
-      <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+      <>
+        {hiddenOpts.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center', marginBottom: '0.4rem' }}>
+            <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>Hidden dates:</span>
+            {hiddenOpts.map(o => (
+              <button
+                key={o.id}
+                onClick={() => setHiddenDays(h => { const n = { ...h }; delete n[o.id]; return n; })}
+                title="Show this date again"
+                style={{ fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-full)', border: '1px dashed var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                + {fmtOpt(o)}
+              </button>
+            ))}
+          </div>
+        )}
+        <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: `${totalColW}px`, minWidth: '100%' }}>
           <colgroup>
             <col style={{ width: `${nameColW}px` }} />
-            {openOptions.map(o => <col key={o.id} style={{ width: `${optColW(o.id)}px` }} />)}
+            {visibleOptions.map(o => <col key={o.id} style={{ width: `${optColW(o.id)}px` }} />)}
             {/* Spacer absorbs any width beyond the sized columns so their
                 widths stay exact and draggable instead of stretching. */}
             <col />
@@ -741,7 +762,7 @@ export function EventDetail() {
           <thead>
             <tr>
               <th style={thName}>Person{resizeHandle('name', nameColW)}</th>
-              {openOptions.map(o => {
+              {visibleOptions.map(o => {
                 const t = tallyFor(o);
                 const chosen = isChosenOption(o);
                 return (
@@ -753,13 +774,22 @@ export function EventDetail() {
                       <span style={{ color: '#D97706' }}>TBD {t.maybe}</span>
                       <span style={{ color: '#DC2626' }}>Not going {t.no}</span>
                     </div>
-                    <button
-                      onClick={() => setDayVoteFilter(f => ({ ...f, [o.id]: !f[o.id] }))}
-                      title="Show only people who are Yes or Maybe on this day"
-                      style={{ marginTop: '0.3rem', fontSize: '0.58rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: dayVoteFilter[o.id] ? 'var(--color-accent)' : 'var(--color-surface)', color: dayVoteFilter[o.id] ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', textTransform: 'none', letterSpacing: 0 }}
-                    >
-                      {dayVoteFilter[o.id] ? '✓ ' : ''}Y/M
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'center', alignItems: 'center', marginTop: '0.3rem' }}>
+                      <button
+                        onClick={() => setDayVoteFilter(f => ({ ...f, [o.id]: !f[o.id] }))}
+                        title="Show only people who are Yes or Maybe on this day"
+                        style={{ fontSize: '0.58rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: dayVoteFilter[o.id] ? 'var(--color-accent)' : 'var(--color-surface)', color: dayVoteFilter[o.id] ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', textTransform: 'none', letterSpacing: 0 }}
+                      >
+                        {dayVoteFilter[o.id] ? '✓ ' : ''}Y/M
+                      </button>
+                      <button
+                        onClick={() => setHiddenDays(h => ({ ...h, [o.id]: true }))}
+                        title="Hide this date from the table"
+                        style={{ fontSize: '0.62rem', fontWeight: 700, lineHeight: 1, padding: '0.1rem 0.35rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-muted)', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        ✕
+                      </button>
+                    </div>
                     {resizeHandle(o.id, optColW(o.id))}
                   </th>
                 );
@@ -790,7 +820,7 @@ export function EventDetail() {
                       </span>
                     )}
                   </td>
-                  {openOptions.map(o => {
+                  {visibleOptions.map(o => {
                     const own = o.votes?.[uid]?.vote;
                     const ownActive = own && own !== 'none';
                     let voteVal = ownActive ? own : null;
@@ -808,7 +838,8 @@ export function EventDetail() {
             }))}
           </tbody>
         </table>
-      </div>
+        </div>
+      </>
     );
   };
 
