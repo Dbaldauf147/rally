@@ -20,12 +20,14 @@ function unmetCount(reachOuts) {
   return (family ? 0 : 1) + (friend ? 0 : 1);
 }
 
-// Keeps the iOS app-icon badge in sync with the outstanding daily reach-outs.
-// Native only — recomputes whenever the reach-out list changes and whenever the
-// app returns to the foreground (the date may have rolled over while away).
+// Keeps the iOS app-icon badge in sync with the outstanding daily reach-outs
+// while the app is running. Native only — recomputes whenever the reach-out list
+// changes and whenever the app returns to the foreground (the date may have
+// rolled over while away).
 //
-// Limitation: with no push backend, the badge only refreshes while the app is
-// open or on resume; a fully-closed app keeps its last value until next launch.
+// Closed-app updates are handled separately: the daily /api/reachout-badge cron
+// pushes the count via APNs (see usePushRegistration.js), so the badge refreshes
+// each morning whether or not the app is opened.
 export function useReachOutBadge() {
   const { user } = useAuth();
   const latest = useRef(null); // last-seen reachOuts array
