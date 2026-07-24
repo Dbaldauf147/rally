@@ -294,15 +294,26 @@ function seedSection(s) {
   };
 }
 
+// Move the short "Boat only" list up to just after "All travel" so it isn't
+// buried at the bottom beneath the long lists. Mutates and returns `sections`.
+function moveBoatAfterAllTravel(sections) {
+  const bIdx = sections.findIndex((s) => /boat/i.test(s.name || ''));
+  if (bIdx === -1) return sections;
+  const [boat] = sections.splice(bIdx, 1);
+  const allIdx = sections.findIndex((s) => /all travel/i.test(s.name || ''));
+  sections.splice(allIdx > -1 ? allIdx + 1 : Math.min(1, sections.length), 0, boat);
+  return sections;
+}
+
 // Build an editable, id-stamped list from the hardcoded defaults.
 function seedTravelList() {
-  // Day Before sits first (top-left of the grid).
-  const ordered = [DAY_BEFORE_SECTION, ...DEFAULT_SECTIONS.filter((s) => !isDayBefore(s))];
+  // Day Before sits first (top-left of the grid); Boat sits high, not last.
+  const ordered = moveBoatAfterAllTravel([DAY_BEFORE_SECTION, ...DEFAULT_SECTIONS.filter((s) => !isDayBefore(s))]);
   const sections = ordered.map(seedSection);
   tagItemsBySection(sections);
   return {
     sections,
-    meta: { leaveDate: '', returnDate: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true },
+    meta: { leaveDate: '', returnDate: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true },
   };
 }
 
@@ -343,6 +354,14 @@ function normalizeList(raw) {
     sections.unshift(s);
     dayBeforeFronted = true;
   }
+  // One-time: lift the short "Boat only" list up near the top (just after "All
+  // travel") so it isn't stuck at the bottom under the long lists. The flag means
+  // we don't fight a later manual reorder.
+  let boatMovedUp = !!raw.meta?.boatMovedUp;
+  if (!boatMovedUp) {
+    moveBoatAfterAllTravel(sections);
+    boatMovedUp = true;
+  }
   // Categories: ensure the default set exists, and one-time tag existing items
   // from their section so the new top filters work on day one.
   const categories = Array.isArray(raw.meta?.categories) && raw.meta.categories.length
@@ -361,6 +380,7 @@ function normalizeList(raw) {
       days: raw.meta?.days || '',
       dayBeforeAdded,
       dayBeforeFronted,
+      boatMovedUp,
       categories,
       categoriesMigrated,
     },
@@ -1174,7 +1194,10 @@ export function TravelListPage() {
       })}
       </div>
 
-      <JetLagChecklist />
+      {/* Jet lag only matters when flying — show it only while the Flying
+          category is present and not toggled off (same signal that shows/hides
+          the "Flying only" list). */}
+      {(list.meta.categories || []).includes('Flying') && !hiddenCats['Flying'] && <JetLagChecklist />}
 
       {editItem && (
         <div className={styles.overlay} onMouseDown={cancelItemEditor}>
