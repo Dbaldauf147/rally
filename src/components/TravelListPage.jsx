@@ -498,6 +498,27 @@ export function TravelListPage() {
   const writeTimer = useRef(null);
   const userRef = user?.uid ? doc(db, 'users', user.uid) : null;
 
+  // Masonry columns: measure the grid and fit as many ~320px columns as the
+  // width allows. The lists are then distributed into these columns (below) so
+  // they pack tightly and fill the full width instead of a row grid that leaves
+  // gaps under short lists and dead space on the right.
+  const gridRef = useRef(null);
+  const [colCount, setColCount] = useState(1);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const MIN_COL = 320;
+    const GAP = 16;
+    const measure = () => {
+      const w = el.clientWidth;
+      setColCount(Math.max(1, Math.floor((w + GAP) / (MIN_COL + GAP))));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Load the user's saved list from Firestore once on mount. Seeds + persists
   // a fresh default list if the user has none yet.
   useEffect(() => {
@@ -849,6 +870,24 @@ export function TravelListPage() {
     });
   }
 
+  // Sections that will actually render (a section whose every item is hidden by
+  // a category toggle renders nothing). Only these get column slots, so we never
+  // leave an empty column on the right.
+  const renderableSections = list.sections.filter(
+    (s) => !(s.items.length > 0 && s.items.every((it) => it.category && hiddenCats[it.category])),
+  );
+  // Distribute lists into columns, greedily placing each into the currently
+  // shortest column (estimated by leaf count) so column bottoms stay roughly
+  // even and the full width is used.
+  const nCols = Math.max(1, Math.min(colCount, renderableSections.length || 1));
+  const sectionColumns = Array.from({ length: nCols }, () => ({ sections: [], weight: 0 }));
+  const estimateHeight = (s) => s.items.reduce((n, it) => n + 1 + (it.children ? it.children.length : 0), 0);
+  for (const s of renderableSections) {
+    const target = sectionColumns.reduce((a, b) => (b.weight < a.weight ? b : a));
+    target.sections.push(s);
+    target.weight += estimateHeight(s);
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -922,8 +961,11 @@ export function TravelListPage() {
         >+ Category</button>
       </div>
 
-      <div className={styles.sectionsGrid}>
-      {list.sections.map((section, sIdx) => {
+      <div className={styles.sectionsGrid} ref={gridRef}>
+      {sectionColumns.map((column, colIdx) => (
+        <div className={styles.sectionsCol} key={colIdx}>
+        {column.sections.map((section) => {
+        const sIdx = list.sections.indexOf(section);
         // Hide items whose category is toggled off; hide the whole list if every
         // item gets filtered out that way.
         const visibleItems = section.items.filter((it) => !(it.category && hiddenCats[it.category]));
@@ -1190,7 +1232,9 @@ export function TravelListPage() {
             )}
           </div>
         );
-      })}
+        })}
+        </div>
+      ))}
       </div>
 
       {/* Jet lag only matters when flying — show it only while the Flying
