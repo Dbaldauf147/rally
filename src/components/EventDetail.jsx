@@ -125,6 +125,7 @@ export function EventDetail() {
   const [textAllSending, setTextAllSending] = useState(false);
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
   const [votedView, setVotedView] = useState('table'); // Voted group display: 'table' | 'cards'
+  const [showYesMaybeOnly, setShowYesMaybeOnly] = useState(false); // People & Poll: show only likely attendees (Yes/Maybe)
   const [dismissedContactWarn, setDismissedContactWarn] = useState(() => new Set()); // member uids whose missing-contact warning was dismissed
   const [calSyncing, setCalSyncing] = useState(false);
   const [calSyncMsg, setCalSyncMsg] = useState(null); // { type: 'success' | 'error', message: string }
@@ -516,6 +517,20 @@ export function EventDetail() {
     { key: 'tbd', label: 'TBD', color: '#6b7280', bg: '#f3f4f6' },
     { key: 'notgoing', label: 'Not going', color: '#dc2626', bg: '#fee2e2' },
   ];
+  // "Yes / Maybe only" filter: a person is a likely attendee when they voted yes
+  // or maybe on any open date (their own vote, or one inherited from a linked +1
+  // partner), or are manually marked Going. A manual "Not going" always hides
+  // them, even if they left a stray positive vote.
+  function isYesMaybeAttendee(uid, m) {
+    const att = getAttendance(uid, m);
+    if (att.overridden && att.status === 'going') return true;
+    if (att.overridden && att.status === 'notgoing') return false;
+    const vs = voteStats[uid];
+    if (vs && (vs.yes > 0 || vs.maybe > 0)) return true;
+    const partnerUid = m?.plusOneOf || members.find(([, mm]) => mm?.plusOneOf === uid)?.[0];
+    const pv = partnerUid ? voteStats[partnerUid] : null;
+    return !!pv && (pv.yes > 0 || pv.maybe > 0);
+  }
 
   async function linkMemberToFriend(uid, friend) {
     if (!friend) return;
@@ -1744,10 +1759,12 @@ export function EventDetail() {
               // explicit sort the table reshuffles itself as votes come in.
               const rows = members
                 .filter(([uid, m]) => passesMissing(uid, m))
+                .filter(([uid, m]) => !showYesMaybeOnly || isYesMaybeAttendee(uid, m))
                 .sort(([ua, ma], [ub, mb]) =>
                   (ma.name || '').localeCompare(mb.name || '', undefined, { sensitivity: 'base' })
                   || ua.localeCompare(ub),
                 );
+              const yesMaybeCount = members.filter(([uid, m]) => passesMissing(uid, m) && isYesMaybeAttendee(uid, m)).length;
               return (
                 <div style={{ marginBottom: '0.75rem' }}>
                   <button
@@ -1757,6 +1774,15 @@ export function EventDetail() {
                   >
                     {votedView === 'table' ? '▤ Card view' : '▦ Table view'}
                   </button>
+                  {votedView === 'table' && (
+                    <button
+                      onClick={() => setShowYesMaybeOnly(v => !v)}
+                      style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: showYesMaybeOnly ? 'var(--color-accent)' : 'var(--color-surface)', color: showYesMaybeOnly ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', marginLeft: '0.4rem', marginBottom: '0.6rem' }}
+                      title="Show only people who voted Yes or Maybe (likely attendees). Hides Can't-go and no-shows."
+                    >
+                      {showYesMaybeOnly ? '✓ ' : ''}Yes / Maybe only ({yesMaybeCount})
+                    </button>
+                  )}
                   {votedView === 'table' && renderVoteTable(rows)}
                 </div>
               );
