@@ -404,10 +404,6 @@ function countLeaves(sections) {
   return { total, done };
 }
 
-function sectionCounts(section) {
-  return countLeaves([section]);
-}
-
 const CACHE_KEY = 'rally.travelList.doc.v2';
 const OPEN_KEY = 'rally.travelList.open.v2';
 const CATS_KEY = 'rally.travelList.hiddenCats.v1';
@@ -928,13 +924,16 @@ export function TravelListPage() {
 
       <div className={styles.sectionsGrid}>
       {list.sections.map((section, sIdx) => {
-        const { total: leafTotal, done: leafDone } = sectionCounts(section);
-        const sectionOpen = isOpen(section.id);
-        const complete = leafTotal > 0 && leafDone === leafTotal; // every item checked → "Ready to Go!"
         // Hide items whose category is toggled off; hide the whole list if every
         // item gets filtered out that way.
         const visibleItems = section.items.filter((it) => !(it.category && hiddenCats[it.category]));
         if (section.items.length > 0 && visibleItems.length === 0) return null;
+        // Count (and go green) over only the visible items, so a list turns green
+        // once everything currently shown is checked — items hidden by a category
+        // toggle don't hold it back.
+        const { total: leafTotal, done: leafDone } = countLeaves([{ ...section, items: visibleItems }]);
+        const sectionOpen = isOpen(section.id);
+        const complete = leafTotal > 0 && leafDone === leafTotal; // every visible item checked → "Ready to Go!"
         // Group headers bucket the items beneath them: track which items a
         // collapsed header hides, and each header's leaf count for its badge.
         const hiddenItemIds = new Set();
