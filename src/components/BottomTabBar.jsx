@@ -39,11 +39,13 @@ export function BottomTabBar() {
     return () => document.body.classList.remove('has-tabbar');
   }, []);
 
+  // Reach Out leads the bar — it's the one tab with a daily deadline, so it gets
+  // the easiest thumb reach. Owner-only, so everyone else still starts at Home.
   const primary = [
+    ...(isOwner ? [{ to: '/reachout', label: 'Reach Out', icon: icons.reachout }] : []),
     { to: '/', label: 'Home', icon: icons.home, end: true },
     { to: '/calendar', label: 'Rally Cal', icon: icons.calendar },
     { to: '/plans', label: 'Plans', icon: icons.plans },
-    ...(isOwner ? [{ to: '/reachout', label: 'Reach Out', icon: icons.reachout }] : []),
   ];
   const moreItems = [
     { to: '/friends', label: 'Friends', icon: icons.friends },
