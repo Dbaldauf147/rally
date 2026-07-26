@@ -155,17 +155,19 @@ async function fetchTeamStanding(team) {
   return { record, standing: t.standingSummary || '' };
 }
 
-// League standings at division level. One fetch per league per send — the
-// payload covers every division, so it's cached by sportPath in `cache`.
-function fetchLeagueStandings(sportPath, cache) {
-  if (!cache.has(sportPath)) {
-    cache.set(sportPath, (async () => {
-      const res = await fetch(`https://site.api.espn.com/apis/v2/sports/${sportPath}/standings?level=3`);
+// Standings at a given grouping level: 1 = the whole league, 3 = divisions.
+// One fetch per league per level per send — each payload covers every club at
+// that level, so it's cached and shared by all teams in the league.
+function fetchLeagueStandings(sportPath, cache, level) {
+  const key = `${sportPath}:${level}`;
+  if (!cache.has(key)) {
+    cache.set(key, (async () => {
+      const res = await fetch(`https://site.api.espn.com/apis/v2/sports/${sportPath}/standings?level=${level}`);
       if (!res.ok) throw new Error(`ESPN HTTP ${res.status}`);
       return res.json();
     })());
   }
-  return cache.get(sportPath);
+  return cache.get(key);
 }
 
 // The standings tree nests league → conference → division; only the leaves
@@ -209,15 +211,25 @@ function standingsRows(entries) {
     .sort((a, b) => a.behind - b.behind || (b.pct || 0) - (a.pct || 0) || a.name.localeCompare(b.name));
 }
 
-// The table for the division/conference group the team actually plays in.
-async function fetchTeamStandingsTable(team, cache) {
-  const data = await fetchLeagueStandings(team.sportPath, cache);
+// The table, at one grouping level, for whichever group the team sits in.
+async function standingsGroupFor(team, cache, level) {
+  const data = await fetchLeagueStandings(team.sportPath, cache, level);
   const wanted = String(team.teamId);
   const group = collectStandingsGroups(data).find((g) =>
     g.entries.some((e) => String(e.team?.id) === wanted));
   if (!group) return null;
   const rows = standingsRows(group.entries);
   return rows.length ? { group: group.name, rows } : null;
+}
+
+// Both views of where the team sits: its division, and the league as a whole.
+// Either can come back null and the other still renders on its own.
+async function fetchTeamStandingsTable(team, cache) {
+  const [division, national] = await Promise.all([
+    standingsGroupFor(team, cache, 3).catch(() => null),
+    standingsGroupFor(team, cache, 1).catch(() => null),
+  ]);
+  return division || national ? { division, national } : null;
 }
 
 function seasonStatusText(season) {
@@ -331,8 +343,8 @@ function upcomingTable(games, tz) {
   return `${TABLE_OPEN}${rows}</table>`;
 }
 
-// The team's whole division, so its record reads against the clubs it's
-// actually chasing. The followed team's row is bolded and tinted.
+// One standings table. The followed team's row is bolded and tinted so it's
+// findable at a glance in a 30-row league table.
 function standingsTable(table, teamId) {
   const rows = table.rows.map((r, i) => {
     const me = r.id === teamId;
@@ -355,8 +367,35 @@ function standingsTable(table, teamId) {
         <th align="right" style="${TH}padding-left:10px;">GB</th>
       </tr>
       ${rows}
+    </table>`;
+}
+
+// Division on the left, the whole league on the right, so the team's place in
+// its own race sits next to its place in the league. The two-column row is a
+// table (the only side-by-side email clients agree on); the `stack` class lets
+// clients that honour media queries drop it to one column on narrow screens.
+function standingsBlock(tables, teamId) {
+  const panels = [
+    tables.division && { caption: tables.division.group, table: tables.division },
+    tables.national && { caption: tables.national.group, table: tables.national },
+  ].filter(Boolean);
+  const caption = (text) =>
+    `<div style="font-size:0.72rem;font-weight:700;color:#374151;margin:0 0 4px;">${text}</div>`;
+  const legend = `<div style="color:#9ca3af;font-size:0.7rem;margin-top:6px;">GB = games behind the leader of that table.</div>`;
+
+  if (panels.length === 1) {
+    return `${caption(panels[0].caption)}${standingsTable(panels[0].table, teamId)}${legend}`;
+  }
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+      <tr>
+        ${panels.map((p, i) => `
+        <td class="stack" width="50%" valign="top" style="${i === 0 ? 'padding-right:10px;' : 'padding-left:10px;'}">
+          ${caption(p.caption)}${standingsTable(p.table, teamId)}
+        </td>`).join('')}
+      </tr>
     </table>
-    <div style="color:#9ca3af;font-size:0.7rem;margin-top:4px;">GB = games behind the division leader.</div>`;
+    ${legend}`;
 }
 
 const sectionLabel = (text, first) =>
@@ -430,7 +469,7 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason) {
     .map((t) => {
       const blocks = [];
       if (topics.standings && t.table) {
-        blocks.push(`${sectionLabel(t.table.group, blocks.length === 0)}${standingsTable(t.table, t.teamId)}`);
+        blocks.push(`${sectionLabel('Standings', blocks.length === 0)}${standingsBlock(t.table, t.teamId)}`);
       } else if (topics.standings && (t.record || t.standing)) {
         const parts = [t.record, t.standing].filter(Boolean).join(' · ');
         blocks.push(`${sectionLabel('Record &amp; standing', blocks.length === 0)}<div style="margin:2px 0;color:#1f2937;font-weight:600;">${parts}</div>`);
@@ -455,8 +494,16 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason) {
     })
     .join('');
 
+  // Wider than the usual 560px so the two standings tables sit side by side
+  // without squeezing team names; the media query stacks them on phones in the
+  // clients that support it (the rest just scale the whole email down).
   return `
-    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:2rem;">
+    <style>
+      @media only screen and (max-width:600px) {
+        td.stack { display:block !important; width:100% !important; padding:0 0 12px !important; }
+      }
+    </style>
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:680px;margin:0 auto;padding:2rem;">
       <h1 style="font-size:1.5rem;color:#4f46e5;margin:0 0 0.25rem;">Rally Sports</h1>
       <p style="color:#525252;margin:0 0 1.25rem;">Your daily rundown 🏟️</p>
       ${seasonBlock}
