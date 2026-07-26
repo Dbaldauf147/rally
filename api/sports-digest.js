@@ -140,7 +140,11 @@ async function fetchTeamSchedule(team) {
   }
   results.sort((a, b) => a.when - b.when);
   upcoming.sort((a, b) => a.when - b.when);
-  return { results, upcoming: upcoming.slice(0, 3) };
+  // The week ahead, so a daily sport shows the whole slate rather than the next
+  // few days. Sports that play once a week would be down to a single fixture on
+  // that rule, so fall back to the next three whenever the week is thinner.
+  const thisWeek = upcoming.filter((g) => g.when <= now + 7 * DAY);
+  return { results, upcoming: thisWeek.length >= 3 ? thisWeek : upcoming.slice(0, 3) };
 }
 
 // Overall W-L record + division standing from the team info endpoint. Used as
