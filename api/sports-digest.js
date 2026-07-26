@@ -138,6 +138,30 @@ function seasonStatusText(season) {
   return `In season · ${days(end - now)} days left`;
 }
 
+// Whether "now" falls inside the league's season window. Unknown dates count as
+// in season so a gap in ESPN's data never silently drops a team's games.
+function isSeasonActive(season) {
+  if (!season?.startDate || !season?.endDate) return true;
+  const now = Date.now();
+  return now >= new Date(season.startDate).getTime() && now <= new Date(season.endDate).getTime();
+}
+
+// When an out-of-season league next opens. Before the window that's its own
+// start date; after it closes ESPN still reports the finished season, so fall
+// back to the end of the Off Season phase — that's where the next one picks up.
+function nextSeasonStart(season) {
+  if (!season?.startDate) return null;
+  const now = Date.now();
+  if (now < new Date(season.startDate).getTime()) return season.startDate;
+  const off = (season.phases || []).find((p) => /off\s*season/i.test(p.name));
+  if (off?.endDate && new Date(off.endDate).getTime() > now) return off.endDate;
+  return null;
+}
+
+function daysUntil(iso) {
+  return Math.max(1, Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000));
+}
+
 function fmtSeasonDate(iso, tz) {
   try {
     return new Intl.DateTimeFormat('en-US', { timeZone: tz || 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso));
@@ -210,7 +234,31 @@ function buildSeasonBlock(seasons, tz) {
     </div>`;
 }
 
-function buildEmailHtml(teamDigests, tz, topics, seasons) {
+// Leagues that aren't playing right now: a compact footer listing the teams
+// being skipped and when their season opens back up.
+function buildOffSeasonBlock(offSeason, tz) {
+  if (!offSeason || offSeason.length === 0) return '';
+  const rows = offSeason.map(({ label, season, teams }) => {
+    const start = nextSeasonStart(season);
+    const when = start
+      ? `Starts ${fmtSeasonDate(start, tz)} <span style="color:#9ca3af;">· in ${daysUntil(start)} days</span>`
+      : 'Next season dates not announced yet';
+    return `
+      <div style="margin:6px 0;">
+        <span style="font-weight:700;color:#111827;">${label}</span>
+        <span style="color:#6b7280;font-size:0.8rem;">${teams.length ? ' · ' + teams.join(', ') : ''}</span>
+        <div style="color:#6b7280;font-size:0.85rem;">${when}</div>
+      </div>`;
+  }).join('');
+  return `
+    <div style="background:#f3f4f6;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
+      <h2 style="font-size:1.05rem;margin:0 0 0.15rem;color:#111827;">Out of season</h2>
+      <div style="color:#9ca3af;font-size:0.8rem;margin:0 0 0.5rem;">Held until these leagues are back.</div>
+      ${rows}
+    </div>`;
+}
+
+function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason) {
   const seasonBlock = topics.seasons ? buildSeasonBlock(seasons, tz) : '';
   const sections = teamDigests
     .map((t) => {
@@ -244,7 +292,8 @@ function buildEmailHtml(teamDigests, tz, topics, seasons) {
       <h1 style="font-size:1.5rem;color:#4f46e5;margin:0 0 0.25rem;">Rally Sports</h1>
       <p style="color:#525252;margin:0 0 1.25rem;">Your daily rundown 🏟️</p>
       ${seasonBlock}
-      ${sections}
+      ${sections || (offSeason?.length ? '<p style="color:#6b7280;margin:0 0 1rem;">None of your leagues are in season right now.</p>' : '')}
+      ${buildOffSeasonBlock(offSeason, tz)}
       <p style="color:#9ca3af;font-size:0.75rem;margin-top:1.5rem;">Scores &amp; schedules via ESPN. You're getting this because you set up a Sports digest in Rally.</p>
     </div>`;
 }
@@ -262,8 +311,27 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
   }
 
   const tz = cfg.timezone || 'America/New_York';
+
+  // Seasons are league-level: one per distinct league among the teams. Fetched
+  // even when the calendars topic is off, because they decide which teams are
+  // in season and get a full write-up.
+  const byPath = new Map();
+  for (const t of teams) {
+    if (!byPath.has(t.sportPath)) byPath.set(t.sportPath, t.leagueLabel || t.leagueKey || t.sportPath);
+  }
+  const leagues = await Promise.all(
+    [...byPath.entries()].map(async ([sportPath, label]) => {
+      try { return { sportPath, label, season: await fetchSeasonWithPhases(sportPath) }; }
+      catch { return { sportPath, label, season: null }; }
+    }),
+  );
+  const active = new Map(leagues.map((l) => [l.sportPath, isSeasonActive(l.season)]));
+
+  // Only in-season teams get scores/upcoming/standings; the rest are summarized
+  // in the out-of-season footer, sorted by whichever league returns first.
+  const inSeasonTeams = teams.filter((t) => active.get(t.sportPath) !== false);
   const digests = [];
-  for (const team of teams) {
+  for (const team of inSeasonTeams) {
     try {
       digests.push(await fetchTeamDigest(team, topics));
     } catch (err) {
@@ -271,29 +339,28 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
     }
   }
 
-  // Season calendars are league-level: one per distinct league among the teams.
-  let seasons = [];
-  if (topics.seasons) {
-    const byPath = new Map();
-    for (const t of teams) {
-      if (!byPath.has(t.sportPath)) byPath.set(t.sportPath, t.leagueLabel || t.leagueKey || t.sportPath);
-    }
-    seasons = await Promise.all(
-      [...byPath.entries()].map(async ([sportPath, label]) => {
-        try { return { label, season: await fetchSeasonWithPhases(sportPath) }; }
-        catch { return { label, season: null }; }
-      }),
-    );
-  }
+  const seasons = leagues.filter((l) => active.get(l.sportPath));
+  const offSeason = leagues
+    .filter((l) => !active.get(l.sportPath))
+    .map((l) => ({ ...l, teams: teams.filter((t) => t.sportPath === l.sportPath).map((t) => t.name) }))
+    .sort((a, b) => {
+      const sa = nextSeasonStart(a.season);
+      const sb = nextSeasonStart(b.season);
+      if (!sa) return 1;
+      if (!sb) return -1;
+      return new Date(sa) - new Date(sb);
+    });
 
-  const html = buildEmailHtml(digests, tz, topics, seasons);
+  const html = buildEmailHtml(digests, tz, topics, seasons, offSeason);
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'Rally Sports <noreply@resend.dev>',
       to: [email],
-      subject: `🏟️ Your Sports digest — ${teams.length} team${teams.length === 1 ? '' : 's'}`,
+      subject: inSeasonTeams.length
+        ? `🏟️ Your Sports digest — ${inSeasonTeams.length} team${inSeasonTeams.length === 1 ? '' : 's'} in season`
+        : '🏟️ Your Sports digest — all your leagues are out of season',
       html,
     }),
   });
