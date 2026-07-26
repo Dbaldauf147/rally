@@ -191,8 +191,10 @@ export function CalendarView() {
   const trimmed = lastRow.every(d => d.getMonth() !== currentDate.getMonth()) ? calDays.slice(0, -7) : calDays;
   const holidayMap = getHolidayMap([...new Set(trimmed.map(d => d.getFullYear()))]);
 
+  // Cancelled events are dropped from the grid — nothing is happening that day.
   function getRallyEventsForDay(day) {
     return events.filter(e => {
+      if (e.cancelled) return false;
       const d = e.date?.toDate ? e.date.toDate() : new Date(e.date);
       return isSameDay(d, day);
     });

@@ -116,12 +116,13 @@ export function Plans() {
   const week3Days = eachDayOfInterval({ start: week3Start, end: week3End });
 
   // Finalized Rally events (dates locked in) mapped onto the days they cover
-  // within the visible window. These render alongside the Google events.
+  // within the visible window. These render alongside the Google events;
+  // cancelled ones are left off entirely.
   const rallyByDay = {};
   const winStart = new Date(week1Start.getFullYear(), week1Start.getMonth(), week1Start.getDate());
   const winEnd = new Date(week3End.getFullYear(), week3End.getMonth(), week3End.getDate());
   for (const ev of events) {
-    if (ev.stage !== 'finalized' || ev.dateTBD) continue;
+    if (ev.stage !== 'finalized' || ev.dateTBD || ev.cancelled) continue;
     const start = ev.date?.toDate ? ev.date.toDate() : (ev.date ? new Date(ev.date) : null);
     if (!start || isNaN(start)) continue;
     let end = ev.endDate?.toDate ? ev.endDate.toDate() : (ev.endDate ? new Date(ev.endDate) : start);

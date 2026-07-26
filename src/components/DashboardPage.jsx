@@ -29,6 +29,7 @@ export function DashboardPage() {
   const [createType, setCreateType] = useState('event');
   const isMobile = useIsMobile();
   const [showPast, setShowPast] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
 
   const [dateOptionCounts, setDateOptionCounts] = useState({});
   const [dateOptionMonths, setDateOptionMonths] = useState({}); // eventId -> Set of "YYYY-MM"
@@ -238,8 +239,11 @@ export function DashboardPage() {
     const vb = db && !isNaN(db.getTime()) ? db.getTime() : Infinity;
     return va - vb;
   };
-  const mUpcoming = allEvents.filter(e => !mIsPast(e)).sort(byStart);
-  const mPast = allEvents.filter(mIsPast).sort((a, b) => (mEnd(b)?.getTime() || 0) - (mEnd(a)?.getTime() || 0));
+  // Cancelled events are noise among live plans, so they're pulled out of both
+  // lists into their own collapsed group at the bottom — hidden until asked for.
+  const mCancelled = allEvents.filter(e => e.cancelled).sort(byStart);
+  const mUpcoming = allEvents.filter(e => !e.cancelled && !mIsPast(e)).sort(byStart);
+  const mPast = allEvents.filter(e => !e.cancelled && mIsPast(e)).sort((a, b) => (mEnd(b)?.getTime() || 0) - (mEnd(a)?.getTime() || 0));
 
   return (
     <div className={styles.page}>
@@ -292,6 +296,18 @@ export function DashboardPage() {
               );
             })}
           </div>
+          {mCancelled.length > 0 && (
+            <div className={styles.cancelledWrap}>
+              <button className={styles.pastToggle} onClick={() => setShowCancelled(v => !v)} aria-expanded={showCancelled}>
+                {showCancelled ? '▾' : '▸'} Cancelled ({mCancelled.length})
+              </button>
+              {showCancelled && (
+                <div className={styles.mobileList} style={{ marginTop: '0.6rem' }}>
+                  {mCancelled.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
+                </div>
+              )}
+            </div>
+          )}
         </>
       ) : (
         <>
