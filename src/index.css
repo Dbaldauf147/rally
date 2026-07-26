@@ -30,7 +30,11 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+/* text-size-adjust pins text at the size we asked for. Without it iOS
+   "autosizes" (boosts) text inside the Capacitor WKWebView and in Safari
+   landscape, which is why the app rendered noticeably larger than the same
+   page in mobile Safari. */
+html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { font-family: var(--font-sans); background: var(--color-bg); color: var(--color-text); line-height: 1.5; min-height: 100vh; min-height: 100dvh; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; }
 input, textarea, select, button { font-family: inherit; }
 input[type="number"]::-webkit-inner-spin-button,
