@@ -24,6 +24,7 @@
 .pastWrap { margin-bottom: 1.25rem; }
 .pastToggle { width: 100%; text-align: left; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; }
 .pastToggle:hover { background: var(--color-surface-alt); }
+.cancelledWrap { margin-top: 1.25rem; }
 
 /* Two-column dashboard layout */
 .dashColumns { display: grid; grid-template-columns: 1fr 320px; gap: 2rem; align-items: start; }
