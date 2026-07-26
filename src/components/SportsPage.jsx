@@ -111,6 +111,8 @@ export function SportsPage() {
   const [teamsError, setTeamsError] = useState('');
   const [pickTeamId, setPickTeamId] = useState('');
   const [testStatus, setTestStatus] = useState(null); // 'sending' | 'sent' | 'error:msg'
+  const [previewStatus, setPreviewStatus] = useState(null); // 'loading' | 'ready' | 'error:msg'
+  const [previewHtml, setPreviewHtml] = useState(null);
   const [seasons, setSeasons] = useState({}); // sportPath -> season
   const [seasonsLoading, setSeasonsLoading] = useState(false);
   const [subtab, setSubtab] = useState('inseason'); // 'inseason' | 'offseason'
@@ -238,6 +240,30 @@ export function SportsPage() {
 
   function removeTeam(leagueK, teamId) {
     persist({ ...config, teams: config.teams.filter((x) => !(x.leagueKey === leagueK && x.teamId === teamId)) });
+  }
+
+  // Builds the digest server-side and shows the real email HTML, so what you
+  // see is what would land in the inbox — same config, same data, no send.
+  async function loadPreview() {
+    if (!user) return;
+    setPreviewStatus('loading');
+    setPreviewHtml(null);
+    try {
+      const res = await fetch('/api/sports-digest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid, preview: true }),
+      });
+      const data = await res.json();
+      if (res.ok && data.html) {
+        setPreviewHtml(data.html);
+        setPreviewStatus('ready');
+      } else {
+        setPreviewStatus(`error:${data.skipped || data.error || 'Could not build preview'}`);
+      }
+    } catch (err) {
+      setPreviewStatus(`error:${err.message}`);
+    }
   }
 
   async function sendTest() {
@@ -463,17 +489,46 @@ export function SportsPage() {
               Sends to <strong>{user.email}</strong>. Your chosen frequency and day apply; on the current plan it goes out at a fixed time of day, and the exact hour takes effect once hourly scheduling is enabled.
             </p>
 
-            <button className={styles.btn} onClick={sendTest} disabled={testStatus === 'sending' || config.teams.length === 0 || !Object.values(config.topics).some(Boolean)}>
-              {testStatus === 'sending' ? 'Sending…' : 'Send test email now'}
-            </button>
+            <div className={styles.actionRow}>
+              <button className={styles.btn} onClick={loadPreview} disabled={previewStatus === 'loading' || config.teams.length === 0 || !Object.values(config.topics).some(Boolean)}>
+                {previewStatus === 'loading' ? 'Building…' : 'Preview email'}
+              </button>
+              <button className={styles.btn} onClick={sendTest} disabled={testStatus === 'sending' || config.teams.length === 0 || !Object.values(config.topics).some(Boolean)}>
+                {testStatus === 'sending' ? 'Sending…' : 'Send test email now'}
+              </button>
+            </div>
             {testStatus === 'sent' && <div className={styles.okText}>✓ Sent — check your inbox.</div>}
             {typeof testStatus === 'string' && testStatus.startsWith('error:') && (
               <div className={styles.errorText}>{testStatus.slice(6)}</div>
+            )}
+            {typeof previewStatus === 'string' && previewStatus.startsWith('error:') && (
+              <div className={styles.errorText}>{previewStatus.slice(6)}</div>
             )}
           </aside>
         </div>
         )}
        </>
+      )}
+
+      {/* The digest rendered in an iframe rather than inlined — the email is a
+          full document with its own styles, and an iframe keeps them from
+          leaking into the page (and the page's out of it). Sandboxed because
+          the markup embeds remote ESPN logos. */}
+      {previewHtml && (
+        <div className={styles.previewScrim} onClick={() => setPreviewHtml(null)}>
+          <div className={styles.previewPanel} role="dialog" aria-label="Email preview" onClick={(e) => e.stopPropagation()}>
+            <div className={styles.previewBar}>
+              <span className={styles.previewTitle}>Preview — this is what would arrive</span>
+              <button className={styles.btn} onClick={() => setPreviewHtml(null)}>Close</button>
+            </div>
+            <iframe
+              className={styles.previewFrame}
+              title="Sports digest preview"
+              sandbox=""
+              srcDoc={previewHtml}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

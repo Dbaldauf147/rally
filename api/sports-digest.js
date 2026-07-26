@@ -518,16 +518,19 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason) {
     </div>`;
 }
 
-async function sendDigestForUser(db, resendKey, uid, userData) {
+// Assembles a user's digest and returns the finished email. Split out from the
+// send so the Sports page can preview exactly what would arrive without one
+// being sent — same config, same fetches, same HTML.
+async function buildDigestForUser(userData) {
   const cfg = userData.sportsConfig || {};
   const email = cfg.email || userData.email;
   const teams = Array.isArray(cfg.teams) ? cfg.teams : [];
-  if (!email) return { uid, skipped: 'no email' };
-  if (teams.length === 0) return { uid, skipped: 'no teams' };
+  if (!email) return { skipped: 'no email' };
+  if (teams.length === 0) return { skipped: 'no teams' };
 
   const topics = normalizeTopics(cfg);
   if (!topics.scores && !topics.upcoming && !topics.standings && !topics.seasons) {
-    return { uid, skipped: 'no topics selected' };
+    return { skipped: 'no topics selected' };
   }
 
   const tz = cfg.timezone || 'America/New_York';
@@ -573,23 +576,31 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
     });
 
   const html = buildEmailHtml(digests, tz, topics, seasons, offSeason);
+  const subject = inSeasonTeams.length
+    ? `🏟️ Your Sports digest — ${inSeasonTeams.length} team${inSeasonTeams.length === 1 ? '' : 's'} in season`
+    : '🏟️ Your Sports digest — all your leagues are out of season';
+  return { html, subject, email, teams: teams.length };
+}
+
+async function sendDigestForUser(db, resendKey, uid, userData) {
+  const built = await buildDigestForUser(userData);
+  if (built.skipped) return { uid, skipped: built.skipped };
+
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'Rally Sports <noreply@resend.dev>',
-      to: [email],
-      subject: inSeasonTeams.length
-        ? `🏟️ Your Sports digest — ${inSeasonTeams.length} team${inSeasonTeams.length === 1 ? '' : 's'} in season`
-        : '🏟️ Your Sports digest — all your leagues are out of season',
-      html,
+      to: [built.email],
+      subject: built.subject,
+      html: built.html,
     }),
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     return { uid, success: false, error: err.message || `HTTP ${response.status}` };
   }
-  return { uid, success: true, teams: teams.length };
+  return { uid, success: true, teams: built.teams };
 }
 
 export default async function handler(req, res) {
@@ -598,15 +609,33 @@ export default async function handler(req, res) {
   }
 
   const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    return res.status(200).json({ skipped: true, reason: 'No RESEND_API_KEY configured' });
-  }
 
   let db;
   try {
     db = getFirestore();
   } catch {
     return res.status(200).json({ skipped: true, reason: 'Firebase Admin not configured.' });
+  }
+
+  // Preview — build the digest and hand back the HTML without sending anything.
+  // Ahead of the RESEND_API_KEY check on purpose: previewing doesn't email, so
+  // it shouldn't require the mail provider to be configured.
+  if (req.method === 'POST' && req.body?.preview) {
+    const uid = req.body?.uid;
+    if (!uid) return res.status(400).json({ error: 'uid required' });
+    try {
+      const snap = await db.collection('users').doc(uid).get();
+      if (!snap.exists) return res.status(404).json({ error: 'user not found' });
+      const built = await buildDigestForUser(snap.data());
+      if (built.skipped) return res.status(200).json({ skipped: built.skipped });
+      return res.status(200).json({ html: built.html, subject: built.subject });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  if (!resendKey) {
+    return res.status(200).json({ skipped: true, reason: 'No RESEND_API_KEY configured' });
   }
 
   // Manual "send test now" — sends one user's digest immediately to their own
