@@ -4,6 +4,8 @@ import { doc, collection, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { REACH_OUT_SEED } from '../reachOutSeed';
+import { PUSH_STATUS_TEXT } from '../hooks/usePushRegistration';
+import { isNativeApp } from '../native';
 import styles from './ReachOutPage.module.css';
 
 const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -233,6 +235,7 @@ export function ReachOutPage() {
   const isMobile = useIsMobile();
   const [contacts, setContacts] = useState(null); // null = loading
   const [friendsList, setFriendsList] = useState([]);
+  const [pushStatus, setPushStatus] = useState(null); // push registration outcome (native only)
   const [friendDraft, setFriendDraft] = useState({}); // per-row in-progress typeahead text
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [dueOnly, setDueOnly] = useState(false);
@@ -268,8 +271,9 @@ export function ReachOutPage() {
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
-      const v = snap.exists() ? snap.data().reachOuts : undefined;
-      setContacts(Array.isArray(v) ? v : []);
+      const data = snap.exists() ? snap.data() : {};
+      setContacts(Array.isArray(data.reachOuts) ? data.reachOuts : []);
+      setPushStatus(data.pushStatus || null);
     }, () => setContacts([]));
     return unsub;
   }, [user]);
@@ -461,6 +465,18 @@ export function ReachOutPage() {
           <button className={styles.btnPrimary} onClick={startAdd}>+ Add person</button>
         </div>
       </div>
+
+      {/* The daily 9am nudge only reaches a device that registered for push, and
+          every way that fails is silent on the phone — so say so here. */}
+      {isNativeApp() && pushStatus && pushStatus.state !== 'registered' && (
+        <div className={styles.warning} role="status">
+          <span className={styles.alertIcon}>⚠️</span>
+          <span>
+            Daily reminders are off — {PUSH_STATUS_TEXT[pushStatus.state] || 'push notifications are not set up'}.
+            {pushStatus.message ? ` (${pushStatus.message})` : ''}
+          </span>
+        </div>
+      )}
 
       {contacts.length > 0 && dailyNeeds.length > 0 && (
         <div className={styles.alert} role="status">

@@ -5,8 +5,9 @@
 // Flow:
 //   1. Submit the provided CSR -> get an "Apple Distribution" certificate.
 //   2. For the app bundle id (and, if EXT_BUNDLE_ID is set, the Share Extension
-//      bundle id): ensure it's registered, then recreate a named App Store
-//      provisioning profile linked to the cert.
+//      bundle id): ensure it's registered, enable the capabilities the app needs
+//      (push), then recreate a named App Store provisioning profile linked to
+//      the cert.
 //
 // Outputs (for the surrounding shell step):
 //   - <OUT_DIR>/dist.cer                  (DER certificate)
@@ -70,6 +71,37 @@ async function ensureBundleId(identifier, displayName) {
   return created.data.id;
 }
 
+// Turn a capability on for a bundle id, if it isn't already. This is the portal's
+// "Capabilities" checkbox list on an App ID. It has to happen *before* the profile
+// is created, because a profile is a snapshot of the App ID's capabilities at
+// creation time — enabling it afterwards leaves the profile without the matching
+// entitlement, and signing then fails with a provisioning-profile mismatch.
+async function ensureCapability(bundleInternalId, capabilityType) {
+  const current = await api(`/v1/bundleIds/${bundleInternalId}/bundleIdCapabilities?limit=200`);
+  const already = (current.data || []).some(c => c.attributes?.capabilityType === capabilityType);
+  if (already) {
+    console.log(`Capability ${capabilityType} already enabled.`);
+    return;
+  }
+  try {
+    await api('/v1/bundleIdCapabilities', {
+      method: 'POST',
+      body: JSON.stringify({
+        data: {
+          type: 'bundleIdCapabilities',
+          attributes: { capabilityType },
+          relationships: { bundleId: { data: { type: 'bundleIds', id: bundleInternalId } } },
+        },
+      }),
+    });
+    console.log(`Enabled capability ${capabilityType}.`);
+  } catch (err) {
+    // 409 = someone/something enabled it between the GET and the POST.
+    if (!String(err.message).includes('-> 409')) throw err;
+    console.log(`Capability ${capabilityType} already enabled (409).`);
+  }
+}
+
 // (Re)create a uniquely-named App Store profile for one bundle id.
 async function makeProfile({ name, bundleInternalId, certId, outFile, envPrefix }) {
   const existing = await api(`/v1/profiles?filter[name]=${encodeURIComponent(name)}&limit=200`);
@@ -118,8 +150,10 @@ async function main() {
     console.log(`Created distribution certificate ${certId}`);
   }
 
-  // 2. App profile.
+  // 2. App profile. Push has to be enabled on the App ID first so the profile
+  //    below carries aps-environment — see ci/ios/add-push-entitlement.rb.
   const appBundleId = await ensureBundleId(BUNDLE_ID, 'Rally');
+  await ensureCapability(appBundleId, 'PUSH_NOTIFICATIONS');
   await makeProfile({
     name: APP_PROFILE_NAME, bundleInternalId: appBundleId, certId,
     outFile: 'profile.mobileprovision', envPrefix: 'PROFILE',

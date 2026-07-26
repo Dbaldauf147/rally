@@ -32,6 +32,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
 
+    // Required by @capacitor/push-notifications: iOS hands the APNs device token
+    // to the app delegate, and Capacitor only sees it if we forward it. Without
+    // these two, PushNotifications.register() succeeds, no error is raised, and
+    // the JS "registration" listener simply never fires — so no device token is
+    // ever saved and the daily Reach Out push has nobody to send to.
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
     // NOTE: The Capacitor 8.3.4 template also scaffolds an
     // application(_:continue:restorationHandler:) handler for Universal Links /
     // Handoff. The Capacitor framework resolved via Swift Package Manager

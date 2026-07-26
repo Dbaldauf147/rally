@@ -21,6 +21,14 @@
   color: #166534; font-size: 0.9rem; font-weight: 600;
 }
 
+/* Push registration failed — the daily reminder can't arrive until it's fixed. */
+.warning {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.7rem 0.9rem; margin-bottom: 1rem;
+  background: #FEE2E2; border: 1px solid #FCA5A5; border-radius: var(--radius-md);
+  color: #991B1B; font-size: 0.85rem; font-weight: 600;
+}
+
 /* Legend explaining the table's colours. */
 .legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; margin-bottom: 0.75rem; padding: 0.5rem 0.7rem; background: var(--color-surface-alt); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.8rem; color: var(--color-text-secondary); }
 .legendItem { display: inline-flex; align-items: center; gap: 0.35rem; }

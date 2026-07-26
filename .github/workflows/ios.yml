@@ -87,6 +87,15 @@ jobs:
           sudo gem install xcodeproj --no-document || gem install xcodeproj --no-document || true
           ruby ci/ios/add-share-extension.rb
 
+      - name: Enable Push Notifications entitlement
+        # Xcode's "+ Capability -> Push Notifications", done headlessly on the
+        # regenerated project: copies in ci/ios/App.entitlements and points the
+        # App target's CODE_SIGN_ENTITLEMENTS at it. The other half — enabling
+        # push on the App ID so the provisioning profile authorises the
+        # entitlement — happens in ci/create-signing-assets.mjs below.
+        # Reuses the xcodeproj gem installed in the previous step.
+        run: ruby ci/ios/add-push-entitlement.rb
+
       - name: Install App Store Connect API key
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
