@@ -55,17 +55,43 @@ function isDueToday(cfg, now) {
   return true; // daily
 }
 
-function fmtGameTime(iso, tz) {
+// Day and clock are formatted separately so game rows can stack them in a
+// narrow left-hand column instead of running one long date string.
+function fmtGameDay(iso, tz) {
   try {
     return new Intl.DateTimeFormat('en-US', {
       timeZone: tz || 'America/New_York',
       weekday: 'short', month: 'short', day: 'numeric',
+    }).format(new Date(iso));
+  } catch {
+    return new Date(iso).toLocaleDateString();
+  }
+}
+
+function fmtGameClock(iso, tz) {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: tz || 'America/New_York',
       hour: 'numeric', minute: '2-digit',
     }).format(new Date(iso));
   } catch {
-    return new Date(iso).toLocaleString();
+    return '';
   }
 }
+
+// ESPN ships several logo variants per team; the plain "default" one is the
+// full-colour badge that reads best on the email's light background.
+function pickLogo(team) {
+  const logos = team?.logos || [];
+  const preferred = logos.find((l) => (l.rel || []).includes('default')) || logos[0];
+  return preferred?.href || team?.logo || '';
+}
+
+// 18px badge, alt-texted with the abbreviation so it still reads in clients
+// that block remote images.
+const logoImg = (src, alt) => (src
+  ? `<img src="${src}" alt="${alt}" width="18" height="18" style="width:18px;height:18px;border:0;vertical-align:middle;" />`
+  : '');
 
 // The content sections a digest can include. Any key not explicitly set to
 // false is treated as on, so newly added topics default on for existing
@@ -101,12 +127,13 @@ async function fetchTeamSchedule(team) {
     const competitors = (comp.competitors || []).map((c) => ({
       abbrev: c.team?.abbreviation || c.team?.shortDisplayName || '?',
       name: c.team?.displayName || c.team?.shortDisplayName || c.team?.abbreviation || '',
+      logo: pickLogo(c.team),
       home: c.homeAway === 'home',
       score: c.score?.displayValue ?? (c.score != null ? String(c.score) : ''),
       winner: !!c.winner,
     }));
     if (completed && when >= now - 3 * DAY) {
-      results.push({ when, competitors });
+      results.push({ when, iso: ev.date, competitors });
     } else if (!completed && when >= now - 6 * 3600000) {
       upcoming.push({ when, iso: ev.date, competitors });
     }
@@ -169,6 +196,8 @@ function standingsRows(entries) {
       return {
         id: String(e.team?.id ?? ''),
         name: e.team?.displayName || e.team?.shortDisplayName || '',
+        abbrev: e.team?.abbreviation || '',
+        logo: pickLogo(e.team),
         // NHL packs the OT column and points into `overall`; the NBA has no
         // `overall` stat at all, so fall back to plain W-L.
         record: statValue(e, 'overall') || (wins != null && losses != null ? `${wins}-${losses}` : ''),
@@ -257,35 +286,81 @@ async function fetchTeamDigest(team, topics, standingsCache) {
   return out;
 }
 
-function resultLine(g) {
-  // Show "Away Team 3 — Home Team 5" with the winner bolded.
-  const away = g.competitors.find((c) => !c.home) || g.competitors[0];
-  const home = g.competitors.find((c) => c.home) || g.competitors[1];
-  const side = (c) =>
-    c ? `<span style="font-weight:${c.winner ? 700 : 400};">${c.name || c.abbrev} ${c.score}</span>` : '';
-  return `${side(away)} <span style="color:#9ca3af;">—</span> ${side(home)}`;
+// Every section is laid out as a real table — nested tables with inline styles
+// are the only layout email clients render consistently.
+const TABLE_OPEN = '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:0.85rem;">';
+const TH = 'font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;color:#9ca3af;font-weight:600;padding:0 0 4px;border-bottom:1px solid #e5e7eb;';
+const CELL = 'padding:5px 0;border-bottom:1px solid #f1f0ed;';
+
+// Recent results as a scoreboard: two rows per game, winner bolded, with the
+// day carried in a narrow left column that spans both.
+function resultsTable(games, tz) {
+  const rows = games.map((g) => {
+    const away = g.competitors.find((c) => !c.home) || g.competitors[0];
+    const home = g.competitors.find((c) => c.home) || g.competitors[1];
+    const side = (c, last) => {
+      const weight = c?.winner ? 700 : 400;
+      const border = last ? CELL : 'padding:5px 0 0;';
+      return `<td style="${border}color:#1f2937;font-weight:${weight};">${logoImg(c?.logo, c?.abbrev || '')} ${c?.name || c?.abbrev || '?'}</td>
+        <td align="right" style="${border}color:#111827;font-weight:${weight};white-space:nowrap;">${c?.score ?? ''}</td>`;
+    };
+    return `
+      <tr>
+        <td rowspan="2" width="86" valign="middle" style="${CELL}color:#9ca3af;font-size:0.72rem;white-space:nowrap;">${fmtGameDay(g.iso, tz)}</td>
+        ${side(away, false)}
+      </tr>
+      <tr>${side(home, true)}</tr>`;
+  }).join('');
+  return `${TABLE_OPEN}${rows}</table>`;
 }
 
-function upcomingLine(g, tz) {
-  const away = g.competitors.find((c) => !c.home) || g.competitors[0];
-  const home = g.competitors.find((c) => c.home) || g.competitors[1];
-  const matchup = `${away?.name || away?.abbrev || '?'} @ ${home?.name || home?.abbrev || '?'}`;
-  return `<span style="font-weight:600;">${matchup}</span><br /><span style="color:#6b7280;">${fmtGameTime(g.iso, tz)}</span>`;
+// Upcoming games: when on the left, matchup on the right.
+function upcomingTable(games, tz) {
+  const rows = games.map((g) => {
+    const away = g.competitors.find((c) => !c.home) || g.competitors[0];
+    const home = g.competitors.find((c) => c.home) || g.competitors[1];
+    const team = (c) => `${logoImg(c?.logo, c?.abbrev || '')} ${c?.name || c?.abbrev || '?'}`;
+    return `
+      <tr>
+        <td width="86" valign="top" style="${CELL}color:#9ca3af;font-size:0.72rem;white-space:nowrap;">
+          ${fmtGameDay(g.iso, tz)}<br /><span style="color:#6b7280;">${fmtGameClock(g.iso, tz)}</span>
+        </td>
+        <td valign="top" style="${CELL}color:#1f2937;">${team(away)} <span style="color:#9ca3af;">@</span> ${team(home)}</td>
+      </tr>`;
+  }).join('');
+  return `${TABLE_OPEN}${rows}</table>`;
 }
 
 // The team's whole division, so its record reads against the clubs it's
-// actually chasing. The followed team is the bolded row.
+// actually chasing. The followed team's row is bolded and tinted.
 function standingsTable(table, teamId) {
-  return table.rows.map((r, i) => {
+  const rows = table.rows.map((r, i) => {
     const me = r.id === teamId;
-    return `<div style="margin:2px 0;color:${me ? '#111827' : '#4b5563'};font-weight:${me ? 700 : 400};">
-      <span style="color:#9ca3af;">${i + 1}.</span> ${r.name}
-      <span style="color:${me ? '#4b5563' : '#6b7280'};">· ${r.record}${r.gb ? ` · ${r.gb}` : ''}</span></div>`;
+    const base = `${CELL}${me ? 'background:#eef2ff;' : ''}font-weight:${me ? 700 : 400};`;
+    const cell = `${base}color:${me ? '#111827' : '#4b5563'};`;
+    return `
+      <tr>
+        <td width="18" align="right" style="${base}color:#9ca3af;">${i + 1}</td>
+        <td style="${cell}padding-left:8px;">${logoImg(r.logo, r.abbrev)} ${r.name}</td>
+        <td align="right" style="${cell}white-space:nowrap;">${r.record}</td>
+        <td align="right" style="${cell}padding-left:10px;white-space:nowrap;">${r.gb || '—'}</td>
+      </tr>`;
   }).join('');
+  return `
+    ${TABLE_OPEN}
+      <tr>
+        <th align="right" width="18" style="${TH}">#</th>
+        <th align="left" style="${TH}padding-left:8px;">Team</th>
+        <th align="right" style="${TH}">Record</th>
+        <th align="right" style="${TH}padding-left:10px;">GB</th>
+      </tr>
+      ${rows}
+    </table>
+    <div style="color:#9ca3af;font-size:0.7rem;margin-top:4px;">GB = games behind the division leader.</div>`;
 }
 
 const sectionLabel = (text, first) =>
-  `<div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:${first ? '0' : '0.6rem'} 0 0.15rem;">${text}</div>`;
+  `<div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:${first ? '0' : '0.9rem'} 0 0.3rem;">${text}</div>`;
 
 function buildSeasonBlock(seasons, tz) {
   if (!seasons || seasons.length === 0) return '';
@@ -294,17 +369,21 @@ function buildSeasonBlock(seasons, tz) {
     const dates = season?.startDate && season?.endDate
       ? `${fmtSeasonDate(season.startDate, tz)} → ${fmtSeasonDate(season.endDate, tz)}`
       : 'Dates unavailable';
-    const phases = (season?.phases || []).map((p) => {
+    const phaseRows = (season?.phases || []).map((p) => {
       const active = now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime();
-      return `<div style="margin:1px 0;font-size:0.82rem;color:${active ? '#4f46e5' : '#6b7280'};font-weight:${active ? 600 : 400};">
-        ${p.name}: ${fmtSeasonDate(p.startDate, tz)} → ${fmtSeasonDate(p.endDate, tz)}${active ? ' — now' : ''}</div>`;
+      const cell = `padding:3px 0;font-size:0.8rem;color:${active ? '#4f46e5' : '#6b7280'};font-weight:${active ? 600 : 400};`;
+      return `
+        <tr>
+          <td style="${cell}">${p.name}${active ? ' <span style="color:#4f46e5;">— now</span>' : ''}</td>
+          <td align="right" style="${cell}white-space:nowrap;">${fmtSeasonDate(p.startDate, tz)} → ${fmtSeasonDate(p.endDate, tz)}</td>
+        </tr>`;
     }).join('');
     return `
-      <div style="margin:6px 0;">
+      <div style="margin:0 0 0.9rem;">
         <span style="font-weight:700;color:#111827;">${label}</span>
         <span style="color:#6b7280;font-size:0.8rem;">${season?.displayName ? ' · ' + season.displayName : ''}</span>
-        <div style="color:#1f2937;">${dates} <span style="color:#6b7280;">· ${seasonStatusText(season)}</span></div>
-        ${phases ? `<div style="margin-top:2px;padding-left:0.5rem;border-left:2px solid #e5e7eb;">${phases}</div>` : ''}
+        <div style="color:#1f2937;font-size:0.85rem;">${dates} <span style="color:#6b7280;">· ${seasonStatusText(season)}</span></div>
+        ${phaseRows ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin-top:4px;">${phaseRows}</table>` : ''}
       </div>`;
   }).join('');
   return `
@@ -320,21 +399,28 @@ function buildOffSeasonBlock(offSeason, tz) {
   if (!offSeason || offSeason.length === 0) return '';
   const rows = offSeason.map(({ label, season, teams }) => {
     const start = nextSeasonStart(season);
-    const when = start
-      ? `Starts ${fmtSeasonDate(start, tz)} <span style="color:#9ca3af;">· in ${daysUntil(start)} days</span>`
-      : 'Next season dates not announced yet';
     return `
-      <div style="margin:6px 0;">
-        <span style="font-weight:700;color:#111827;">${label}</span>
-        <span style="color:#6b7280;font-size:0.8rem;">${teams.length ? ' · ' + teams.join(', ') : ''}</span>
-        <div style="color:#6b7280;font-size:0.85rem;">${when}</div>
-      </div>`;
+      <tr>
+        <td style="${CELL}color:#111827;font-weight:700;">${label}
+          <div style="color:#6b7280;font-size:0.75rem;font-weight:400;">${teams.join(', ')}</div>
+        </td>
+        <td align="right" style="${CELL}color:#4b5563;white-space:nowrap;">
+          ${start ? fmtSeasonDate(start, tz) : 'Not announced'}
+          ${start ? `<div style="color:#9ca3af;font-size:0.75rem;">in ${daysUntil(start)} days</div>` : ''}
+        </td>
+      </tr>`;
   }).join('');
   return `
     <div style="background:#f3f4f6;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
       <h2 style="font-size:1.05rem;margin:0 0 0.15rem;color:#111827;">Out of season</h2>
       <div style="color:#9ca3af;font-size:0.8rem;margin:0 0 0.5rem;">Held until these leagues are back.</div>
-      ${rows}
+      ${TABLE_OPEN}
+        <tr>
+          <th align="left" style="${TH}">League</th>
+          <th align="right" style="${TH}">Season starts</th>
+        </tr>
+        ${rows}
+      </table>
     </div>`;
 }
 
@@ -351,13 +437,13 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason) {
       }
       if (topics.scores) {
         const html = t.results.length
-          ? t.results.map((g) => `<div style="margin:2px 0;color:#1f2937;">${resultLine(g)}</div>`).join('')
+          ? resultsTable(t.results, tz)
           : '<div style="color:#9ca3af;">No games in the last few days.</div>';
         blocks.push(`${sectionLabel('Recent scores', blocks.length === 0)}${html}`);
       }
       if (topics.upcoming) {
         const html = t.upcoming.length
-          ? t.upcoming.map((g) => `<div style="margin:2px 0;color:#1f2937;">${upcomingLine(g, tz)}</div>`).join('')
+          ? upcomingTable(t.upcoming, tz)
           : '<div style="color:#9ca3af;">No upcoming games scheduled.</div>';
         blocks.push(`${sectionLabel('Upcoming', blocks.length === 0)}${html}`);
       }
