@@ -77,7 +77,9 @@ async function ensureBundleId(identifier, displayName) {
 // creation time — enabling it afterwards leaves the profile without the matching
 // entitlement, and signing then fails with a provisioning-profile mismatch.
 async function ensureCapability(bundleInternalId, capabilityType) {
-  const current = await api(`/v1/bundleIds/${bundleInternalId}/bundleIdCapabilities?limit=200`);
+  // No ?limit here — unlike the collection endpoints above, this relationship
+  // rejects the parameter outright ("PARAMETER_ERROR.ILLEGAL").
+  const current = await api(`/v1/bundleIds/${bundleInternalId}/bundleIdCapabilities`);
   const already = (current.data || []).some(c => c.attributes?.capabilityType === capabilityType);
   if (already) {
     console.log(`Capability ${capabilityType} already enabled.`);
