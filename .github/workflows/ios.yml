@@ -187,14 +187,28 @@ jobs:
           cd ios/App
           agvtool new-version -all ${{ github.run_number }} || true
 
+      - name: Point targets at the signing identity and profiles
+        # Must run after the profiles exist — it reads PROFILE_NAME /
+        # EXT_PROFILE_NAME from the provisioning step. Per-target because the app
+        # and the Share Extension use different profiles, which xcodebuild
+        # command-line settings can't express (they apply to every target).
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: ruby ci/ios/set-manual-signing.rb
+
       - name: Archive
-        # Archive unsigned; signing happens at export with our manual identity.
+        # Signed here, not at export. Archiving unsigned (CODE_SIGNING_ALLOWED=NO)
+        # also skips the packaging phase that writes CODE_SIGN_ENTITLEMENTS into
+        # the app, so aps-environment never reached the binary and the device
+        # refused to register for push — export can only preserve entitlements
+        # the archive already has, and it synthesises a default set when there
+        # are none. See ci/ios/set-manual-signing.rb.
         run: |
           cd ios/App
           xcodebuild -project App.xcodeproj -scheme App \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO \
+            OTHER_CODE_SIGN_FLAGS="--keychain=$KEYCHAIN" \
             clean archive
 
       - name: Export IPA
