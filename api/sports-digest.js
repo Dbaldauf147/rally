@@ -405,34 +405,35 @@ function standingsBlock(tables, teamId) {
 const sectionLabel = (text, first) =>
   `<div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:${first ? '0' : '0.9rem'} 0 0.3rem;">${text}</div>`;
 
+// The phase covering right now, if ESPN has one for this moment.
+function currentPhase(season) {
+  const now = Date.now();
+  return (season?.phases || []).find((p) =>
+    now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime()) || null;
+}
+
+// Where each in-season league stands today — one row per league. The full
+// phase-by-phase calendar stays on the Sports page; the email only answers
+// "what part of the season is this, and how much of it is left".
 function buildSeasonBlock(seasons, tz) {
   if (!seasons || seasons.length === 0) return '';
-  const now = Date.now();
   const rows = seasons.map(({ label, season }) => {
-    const dates = season?.startDate && season?.endDate
-      ? `${fmtSeasonDate(season.startDate, tz)} → ${fmtSeasonDate(season.endDate, tz)}`
-      : 'Dates unavailable';
-    const phaseRows = (season?.phases || []).map((p) => {
-      const active = now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime();
-      const cell = `padding:3px 0;font-size:0.8rem;color:${active ? '#4f46e5' : '#6b7280'};font-weight:${active ? 600 : 400};`;
-      return `
-        <tr>
-          <td style="${cell}">${p.name}${active ? ' <span style="color:#4f46e5;">— now</span>' : ''}</td>
-          <td align="right" style="${cell}white-space:nowrap;">${fmtSeasonDate(p.startDate, tz)} → ${fmtSeasonDate(p.endDate, tz)}</td>
-        </tr>`;
-    }).join('');
+    const phase = currentPhase(season);
+    const detail = phase
+      ? `${phase.name} <span style="color:#6b7280;font-weight:400;">through ${fmtSeasonDate(phase.endDate, tz)}</span>`
+      : (season?.endDate ? `<span style="color:#6b7280;font-weight:400;">Season ends ${fmtSeasonDate(season.endDate, tz)}</span>` : '');
     return `
-      <div style="margin:0 0 0.9rem;">
-        <span style="font-weight:700;color:#111827;">${label}</span>
-        <span style="color:#6b7280;font-size:0.8rem;">${season?.displayName ? ' · ' + season.displayName : ''}</span>
-        <div style="color:#1f2937;font-size:0.85rem;">${dates} <span style="color:#6b7280;">· ${seasonStatusText(season)}</span></div>
-        ${phaseRows ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin-top:4px;">${phaseRows}</table>` : ''}
-      </div>`;
+      <tr>
+        <td style="${CELL}color:#111827;font-weight:700;white-space:nowrap;">${label}<span style="color:#6b7280;font-size:0.78rem;font-weight:400;">${season?.displayName ? ' · ' + season.displayName : ''}</span></td>
+        <td align="right" style="${CELL}color:#4f46e5;font-weight:600;">${detail}
+          <div style="color:#6b7280;font-size:0.78rem;font-weight:400;">${seasonStatusText(season)}</div>
+        </td>
+      </tr>`;
   }).join('');
   return `
     <div style="background:#eef2ff;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
-      <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">Season calendars</h2>
-      ${rows}
+      <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">Season status</h2>
+      ${TABLE_OPEN}${rows}</table>
     </div>`;
 }
 
