@@ -100,7 +100,7 @@ async function fetchTeamSchedule(team) {
     const completed = !!comp.status?.type?.completed;
     const competitors = (comp.competitors || []).map((c) => ({
       abbrev: c.team?.abbreviation || c.team?.shortDisplayName || '?',
-      name: c.team?.shortDisplayName || c.team?.displayName || '',
+      name: c.team?.displayName || c.team?.shortDisplayName || c.team?.abbreviation || '',
       home: c.homeAway === 'home',
       score: c.score?.displayValue ?? (c.score != null ? String(c.score) : ''),
       winner: !!c.winner,
@@ -116,7 +116,8 @@ async function fetchTeamSchedule(team) {
   return { results, upcoming: upcoming.slice(0, 3) };
 }
 
-// Overall W-L record + division standing from the team info endpoint.
+// Overall W-L record + division standing from the team info endpoint. Used as
+// the fallback line when the full standings table can't be built.
 async function fetchTeamStanding(team) {
   const url = `https://site.api.espn.com/apis/site/v2/sports/${team.sportPath}/teams/${team.teamId}`;
   const res = await fetch(url);
@@ -125,6 +126,69 @@ async function fetchTeamStanding(team) {
   const t = data.team || {};
   const record = (t.record?.items || []).find((i) => i.type === 'total')?.summary || '';
   return { record, standing: t.standingSummary || '' };
+}
+
+// League standings at division level. One fetch per league per send — the
+// payload covers every division, so it's cached by sportPath in `cache`.
+function fetchLeagueStandings(sportPath, cache) {
+  if (!cache.has(sportPath)) {
+    cache.set(sportPath, (async () => {
+      const res = await fetch(`https://site.api.espn.com/apis/v2/sports/${sportPath}/standings?level=3`);
+      if (!res.ok) throw new Error(`ESPN HTTP ${res.status}`);
+      return res.json();
+    })());
+  }
+  return cache.get(sportPath);
+}
+
+// The standings tree nests league → conference → division; only the leaves
+// carry entries, so walk it and keep every node that has a table.
+function collectStandingsGroups(node, path = []) {
+  const trail = node?.name ? [...path, node.name] : path;
+  const out = [];
+  if (node?.standings?.entries?.length) {
+    out.push({ name: node.name || trail[trail.length - 1] || 'Standings', entries: node.standings.entries });
+  }
+  for (const child of node?.children || []) out.push(...collectStandingsGroups(child, trail));
+  return out;
+}
+
+const statValue = (entry, name) => (entry.stats || []).find((s) => s.name === name)?.displayValue;
+
+// One row per club in the group, ordered the way a standings page would show
+// it. ESPN returns the entries in no dependable order (the NBA comes back
+// scrambled), so sort by games behind, then win pct, then name.
+function standingsRows(entries) {
+  return entries
+    .map((e) => {
+      const gbText = statValue(e, 'gamesBehind');
+      const behind = gbText && gbText !== '-' ? parseFloat(gbText) : 0;
+      const wins = statValue(e, 'wins');
+      const losses = statValue(e, 'losses');
+      const pct = parseFloat(statValue(e, 'winPercent'));
+      return {
+        id: String(e.team?.id ?? ''),
+        name: e.team?.displayName || e.team?.shortDisplayName || '',
+        // NHL packs the OT column and points into `overall`; the NBA has no
+        // `overall` stat at all, so fall back to plain W-L.
+        record: statValue(e, 'overall') || (wins != null && losses != null ? `${wins}-${losses}` : ''),
+        behind: Number.isFinite(behind) ? behind : 0,
+        pct: Number.isFinite(pct) ? pct : 0,
+        gb: gbText && gbText !== '-' ? `${gbText} GB` : '',
+      };
+    })
+    .sort((a, b) => a.behind - b.behind || (b.pct || 0) - (a.pct || 0) || a.name.localeCompare(b.name));
+}
+
+// The table for the division/conference group the team actually plays in.
+async function fetchTeamStandingsTable(team, cache) {
+  const data = await fetchLeagueStandings(team.sportPath, cache);
+  const wanted = String(team.teamId);
+  const group = collectStandingsGroups(data).find((g) =>
+    g.entries.some((e) => String(e.team?.id) === wanted));
+  if (!group) return null;
+  const rows = standingsRows(group.entries);
+  return rows.length ? { group: group.name, rows } : null;
 }
 
 function seasonStatusText(season) {
@@ -171,8 +235,8 @@ function fmtSeasonDate(iso, tz) {
 }
 
 // Gather all requested content for one team, only fetching what's toggled on.
-async function fetchTeamDigest(team, topics) {
-  const out = { name: team.name, results: [], upcoming: [], record: '', standing: '' };
+async function fetchTeamDigest(team, topics, standingsCache) {
+  const out = { name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null };
   if (topics.scores || topics.upcoming) {
     const sched = await fetchTeamSchedule(team);
     out.results = sched.results;
@@ -180,28 +244,44 @@ async function fetchTeamDigest(team, topics) {
   }
   if (topics.standings) {
     try {
-      const st = await fetchTeamStanding(team);
-      out.record = st.record;
-      out.standing = st.standing;
-    } catch { /* standings are best-effort */ }
+      out.table = await fetchTeamStandingsTable(team, standingsCache);
+    } catch { /* fall back to the one-line summary below */ }
+    if (!out.table) {
+      try {
+        const st = await fetchTeamStanding(team);
+        out.record = st.record;
+        out.standing = st.standing;
+      } catch { /* standings are best-effort */ }
+    }
   }
   return out;
 }
 
 function resultLine(g) {
-  // Show "AWAY 3 — HOME 5" with the winner bolded.
+  // Show "Away Team 3 — Home Team 5" with the winner bolded.
   const away = g.competitors.find((c) => !c.home) || g.competitors[0];
   const home = g.competitors.find((c) => c.home) || g.competitors[1];
   const side = (c) =>
-    c ? `<span style="font-weight:${c.winner ? 700 : 400};">${c.abbrev} ${c.score}</span>` : '';
+    c ? `<span style="font-weight:${c.winner ? 700 : 400};">${c.name || c.abbrev} ${c.score}</span>` : '';
   return `${side(away)} <span style="color:#9ca3af;">—</span> ${side(home)}`;
 }
 
 function upcomingLine(g, tz) {
   const away = g.competitors.find((c) => !c.home) || g.competitors[0];
   const home = g.competitors.find((c) => c.home) || g.competitors[1];
-  const matchup = `${away?.abbrev || '?'} @ ${home?.abbrev || '?'}`;
-  return `<span style="font-weight:600;">${matchup}</span> <span style="color:#6b7280;">· ${fmtGameTime(g.iso, tz)}</span>`;
+  const matchup = `${away?.name || away?.abbrev || '?'} @ ${home?.name || home?.abbrev || '?'}`;
+  return `<span style="font-weight:600;">${matchup}</span><br /><span style="color:#6b7280;">${fmtGameTime(g.iso, tz)}</span>`;
+}
+
+// The team's whole division, so its record reads against the clubs it's
+// actually chasing. The followed team is the bolded row.
+function standingsTable(table, teamId) {
+  return table.rows.map((r, i) => {
+    const me = r.id === teamId;
+    return `<div style="margin:2px 0;color:${me ? '#111827' : '#4b5563'};font-weight:${me ? 700 : 400};">
+      <span style="color:#9ca3af;">${i + 1}.</span> ${r.name}
+      <span style="color:${me ? '#4b5563' : '#6b7280'};">· ${r.record}${r.gb ? ` · ${r.gb}` : ''}</span></div>`;
+  }).join('');
 }
 
 const sectionLabel = (text, first) =>
@@ -263,7 +343,9 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason) {
   const sections = teamDigests
     .map((t) => {
       const blocks = [];
-      if (topics.standings && (t.record || t.standing)) {
+      if (topics.standings && t.table) {
+        blocks.push(`${sectionLabel(t.table.group, blocks.length === 0)}${standingsTable(t.table, t.teamId)}`);
+      } else if (topics.standings && (t.record || t.standing)) {
         const parts = [t.record, t.standing].filter(Boolean).join(' · ');
         blocks.push(`${sectionLabel('Record &amp; standing', blocks.length === 0)}<div style="margin:2px 0;color:#1f2937;font-weight:600;">${parts}</div>`);
       }
@@ -330,12 +412,13 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
   // Only in-season teams get scores/upcoming/standings; the rest are summarized
   // in the out-of-season footer, sorted by whichever league returns first.
   const inSeasonTeams = teams.filter((t) => active.get(t.sportPath) !== false);
+  const standingsCache = new Map(); // one standings fetch per league, per send
   const digests = [];
   for (const team of inSeasonTeams) {
     try {
-      digests.push(await fetchTeamDigest(team, topics));
+      digests.push(await fetchTeamDigest(team, topics, standingsCache));
     } catch (err) {
-      digests.push({ name: team.name, results: [], upcoming: [], record: '', standing: '', error: err.message });
+      digests.push({ name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, error: err.message });
     }
   }
 
