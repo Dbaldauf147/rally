@@ -106,13 +106,25 @@ export default async function handler(req, res) {
     return res.status(200).json({ skipped: true, reason: 'Firebase Admin not configured. Set FIREBASE_SERVICE_ACCOUNT.' });
   }
 
-  // App Store / TestFlight builds use the production APNs host. Set
-  // APNS_PRODUCTION=false only when testing a debug build from Xcode.
-  const host = process.env.APNS_PRODUCTION === 'false' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com';
+  // A device token belongs to exactly one APNs environment, and which one you get
+  // depends on how the app was installed — a TestFlight or App Store build is
+  // production, a build run from Xcode is sandbox. Guessing wrong earns a 403
+  // (BadEnvironmentKeyInToken / BadDeviceToken) rather than a delivery, so try
+  // the expected environment first and fall back to the other. APNS_PRODUCTION
+  // only picks which one is tried first.
+  const HOSTS = { production: 'api.push.apple.com', sandbox: 'api.sandbox.push.apple.com' };
+  const primaryEnv = process.env.APNS_PRODUCTION === 'false' ? 'sandbox' : 'production';
+  const otherEnv = primaryEnv === 'production' ? 'sandbox' : 'production';
+  const clients = {};
+  const clientFor = (env) => (clients[env] ||= http2.connect(`https://${HOSTS[env]}`));
+
+  // Worth retrying on the other host: both mean "this token isn't from here".
+  const WRONG_ENV = new Set(['BadDeviceToken', 'BadEnvironmentKeyInToken']);
+  const closeAll = () => { for (const c of Object.values(clients)) c.close(); };
+
   const todayK = dateKeyInTz('America/New_York');
   const jwt = apnsJwt({ keyId, teamId, privateKey });
 
-  const client = http2.connect(`https://${host}`);
   const results = [];
   const staleByUser = {}; // uid -> [tokens APNs rejected as unregistered]
 
@@ -146,11 +158,24 @@ export default async function handler(req, res) {
 
       for (const token of tokens) {
         try {
-          const { status, reason } = await sendApns(client, { token, jwt, bundleId, payload, pushType, priority });
+          const send = (env) => sendApns(clientFor(env), { token, jwt, bundleId, payload, pushType, priority });
+
+          let env = primaryEnv;
+          let { status, reason } = await send(env);
+          // Wrong environment for this token — try the other one before writing
+          // it off, so TestFlight and Xcode installs both work without config.
+          if (status !== 200 && WRONG_ENV.has(reason)) {
+            const retry = await send(otherEnv);
+            if (retry.status === 200 || !WRONG_ENV.has(retry.reason)) {
+              ({ status, reason } = retry);
+              env = otherEnv;
+            }
+          }
+
           const ok = status === 200;
-          results.push({ uid: userDoc.id, token: token.slice(0, 8), count, status, ok, ...(reason ? { reason } : {}) });
-          // BadDeviceToken / Unregistered → the token is dead; prune it.
-          if (status === 410 || reason === 'BadDeviceToken' || reason === 'Unregistered') {
+          results.push({ uid: userDoc.id, token: token.slice(0, 8), count, status, ok, env, ...(reason ? { reason } : {}) });
+          // Dead token — gone from the device, or rejected by both environments.
+          if (status === 410 || reason === 'Unregistered' || reason === 'BadDeviceToken') {
             (staleByUser[userDoc.id] ||= []).push(token);
           }
         } catch (err) {
@@ -159,11 +184,11 @@ export default async function handler(req, res) {
       }
     }
   } catch (err) {
-    client.close();
+    closeAll();
     return res.status(500).json({ error: err.message });
   }
 
-  client.close();
+  closeAll();
 
   // Drop tokens APNs rejected so we stop pushing to dead devices.
   for (const [uid, toks] of Object.entries(staleByUser)) {
