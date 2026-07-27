@@ -84,25 +84,19 @@
 .okText { color: var(--color-success, #16a34a); font-size: 0.8rem; margin-top: 0.5rem; }
 .errorText { color: var(--color-danger, #dc2626); font-size: 0.8rem; margin-top: 0.5rem; }
 
-/* Email preview overlay. The digest is a full HTML document, so it renders in a
-   sandboxed iframe on a white surface — email clients don't do dark mode here,
-   and neither should the preview, or it would misrepresent what arrives. */
+/* Email preview. Always on screen below the settings, rebuilt as they change.
+   White surface regardless of theme — mail clients render the digest on white,
+   so a dark-mode frame here would misrepresent what actually arrives. */
 .actionRow { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.previewScrim {
-  position: fixed; inset: 0; z-index: 60;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex; align-items: center; justify-content: center;
-  padding: 1rem;
+.previewCard { margin-top: 1.5rem; }
+.previewBar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.6rem; }
+.previewNote { font-weight: 400; color: var(--color-text-secondary); font-size: 0.8rem; }
+.previewFrame {
+  width: 100%; height: 620px; border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm); background: #fff; display: block;
 }
-.previewPanel {
-  background: var(--color-surface); border-radius: var(--radius-md);
-  width: min(820px, 100%); height: min(90vh, 900px);
-  display: flex; flex-direction: column; overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+.previewEmpty {
+  padding: 2rem 1rem; text-align: center; color: var(--color-text-secondary);
+  font-size: 0.85rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm);
 }
-.previewBar {
-  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
-  padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--color-border); flex-shrink: 0;
-}
-.previewTitle { font-size: 0.8rem; font-weight: 600; color: var(--color-text-secondary); }
-.previewFrame { flex: 1; width: 100%; border: 0; background: #fff; }
+@media (max-width: 760px) { .previewFrame { height: 460px; } }
