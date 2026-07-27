@@ -25,7 +25,8 @@ Opening the app never *sends* a notification; it only re-counts the badge.
   isn't `registered`, so a broken setup is visible on the phone.
 - `api/reachout-badge.js` — Vercel cron; computes each user's outstanding count
   (in ET) and pushes the badge via APNs.
-- `vercel.json` — cron `/api/reachout-badge` at `0 14 * * *` (~9am ET).
+- `vercel.json` — cron `/api/reachout-badge` at `0 8 * * *` (4am ET in summer,
+  3am in winter — Vercel crons are UTC and do not follow DST).
 
 ## What the CI build does for you
 
@@ -83,7 +84,8 @@ newlines.
 Repo → **Actions → "iOS → TestFlight" → Run workflow**, then install the build
 from TestFlight. On first launch the app asks for notification permission and
 registers its token. From the next morning, the badge (and a "You have N people
-to reach out to today" nudge) arrives at ~9am ET whether or not the app is open.
+badge is set before dawn each day whether or not the app is open. It is a
+badge-only push — no banner, no sound — because it lands while you are asleep.
 
 ## Checking it worked, from the phone
 

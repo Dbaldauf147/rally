@@ -1,8 +1,8 @@
-// Vercel Cron: runs every morning and pushes each user's outstanding daily
-// reach-out count to their device as an APNs notification. iOS sets the app-icon
-// badge from the push payload even when the app is closed, so the red dot is
-// reliable each day whether or not the app is opened. Mirrors the in-app
-// unmetCount() logic in src/hooks/useReachOutBadge.js.
+// Vercel Cron: runs before dawn (0 8 * * * UTC — 4am ET in summer) and pushes
+// each user's outstanding daily reach-out count to their device. iOS sets the
+// app-icon badge from the push payload even when the app is closed, so the red
+// dot is already waiting each morning whether or not the app is opened. Mirrors
+// the in-app unmetCount() logic in src/hooks/useReachOutBadge.js.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import http2 from 'node:http2';
@@ -139,19 +139,13 @@ export default async function handler(req, res) {
 
       const count = unmetCount(data.reachOuts, todayK);
 
-      // A visible nudge when something is outstanding (reliable delivery, and it
-      // doubles as the daily reminder); a silent badge-clear otherwise.
+      // Badge only — no alert body, no sound. This runs before dawn so the dots
+      // are already waiting when the phone is first picked up, and a banner that
+      // woke someone at 4am would be worse than no reminder at all. A badge-only
+      // push is still push-type "alert" (it changes what the user sees); only the
+      // zero case is a true background push.
       const payload = count > 0
-        ? {
-            aps: {
-              alert: {
-                title: 'Reach Out',
-                body: `You have ${count} ${count === 1 ? 'person' : 'people'} to reach out to today.`,
-              },
-              badge: count,
-              sound: 'default',
-            },
-          }
+        ? { aps: { badge: count } }
         : { aps: { badge: 0, 'content-available': 1 } };
       const pushType = count > 0 ? 'alert' : 'background';
       const priority = count > 0 ? '10' : '5';
