@@ -164,16 +164,21 @@ export default async function handler(req, res) {
           let { status, reason } = await send(env);
           // Wrong environment for this token — try the other one before writing
           // it off, so TestFlight and Xcode installs both work without config.
+          let alt = null;
           if (status !== 200 && WRONG_ENV.has(reason)) {
             const retry = await send(otherEnv);
+            // Reported either way: when both environments refuse a token the
+            // reason from each is the only thing that says why.
+            alt = { env: otherEnv, status: retry.status, reason: retry.reason || '' };
             if (retry.status === 200 || !WRONG_ENV.has(retry.reason)) {
               ({ status, reason } = retry);
               env = otherEnv;
+              alt = null;
             }
           }
 
           const ok = status === 200;
-          results.push({ uid: userDoc.id, token: token.slice(0, 8), count, status, ok, env, ...(reason ? { reason } : {}) });
+          results.push({ uid: userDoc.id, token: token.slice(0, 8), count, status, ok, env, ...(reason ? { reason } : {}), ...(alt ? { alt } : {}) });
           // Dead token — gone from the device, or rejected by both environments.
           if (status === 410 || reason === 'Unregistered' || reason === 'BadDeviceToken') {
             (staleByUser[userDoc.id] ||= []).push(token);
