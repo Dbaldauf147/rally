@@ -2500,7 +2500,7 @@ export function EventDetail() {
                     <div style={{ fontSize: '0.75rem', color: enabled ? '#0369A1' : 'var(--color-text-muted)', marginTop: '0.15rem' }}>
                       {enabled
                         ? `${aboard} aboard across the fleet · manage on the Boat tab`
-                        : `Add a boat-day roster (${BOAT_NAME} + Kyle's & Nick's boats) anyone can add to`}
+                        : `Add a boat-day roster (${BOAT_NAME}, The Islander + Kyle's & Nick's boats) anyone can add to`}
                     </div>
                   </div>
                   <button

@@ -10,19 +10,26 @@ export const BOAT_CAPACITY = 24;
 // The fleet. Each boat has its own hull and seat count.
 export const BOATS = [
   { key: 'kismet', name: 'The Kismet', capacity: 24 },
+  { key: 'islander', name: 'The Islander', capacity: 15 },
   { key: 'kyle', name: "Kyle's Boat", capacity: 10 },
   { key: 'nick', name: "Nick's Boat", capacity: 10 },
 ];
 
 // Columns are the buckets people sit in. The Kismet has three host columns that
-// share its 24 seats; Kyle's and Nick's boats are a single column each.
+// share its 24 seats; every other boat is a single column.
 const COLUMNS = [
   { key: 'dan', name: 'Dan', color: '#4f46e5', boat: 'kismet' },
   { key: 'mike', name: 'Mike', color: '#059669', boat: 'kismet' },
   { key: 'johnny', name: 'Johnny', color: '#ea580c', boat: 'kismet' },
+  { key: 'islander', name: 'The Islander', color: '#e11d48', boat: 'islander' },
   { key: 'kyle', name: "Kyle's Boat", color: '#0ea5e9', boat: 'kyle' },
   { key: 'nick', name: "Nick's Boat", color: '#d946ef', boat: 'nick' },
 ];
+
+// People who ride a given column by default — they're aboard without anyone
+// adding them, and they hold a seat. Marking them Maybe or No still sticks
+// (their stored response wins over this list); clearing them puts them back.
+const AUTO_CREW = { islander: ['Mom', 'Dad'] };
 
 // Only the three Kismet host columns match Friends "guest of" values.
 export const HOSTS = COLUMNS.filter(c => c.boat === 'kismet');
@@ -157,12 +164,24 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
     return () => document.removeEventListener('mousedown', h);
   }, [menuFor]);
 
+  // AUTO_CREW members who haven't been touched yet, seated as if they'd been
+  // added. Anyone with a stored roster row or response is left alone.
+  const autoCrew = useMemo(() => {
+    const known = new Set([...roster, ...responses].map(p => (p.name || '').toLowerCase()));
+    return Object.entries(AUTO_CREW).flatMap(([colKey, names]) => names
+      .filter(name => !known.has(name.toLowerCase()))
+      .map(name => ({ id: `auto_${colKey}_${name.toLowerCase()}`, name, host: colKey, auto: true })));
+  }, [roster, responses]);
+
+  // Everyone holding a seat: what's stored, plus the automatic riders.
+  const seated = useMemo(() => [...roster, ...autoCrew], [roster, autoCrew]);
+
   // How many going on each boat, for per-boat capacity.
   const goingByBoat = useMemo(() => {
     const out = {};
-    roster.forEach(r => { const b = colBoat(r.host); out[b] = (out[b] || 0) + 1; });
+    seated.forEach(r => { const b = colBoat(r.host); out[b] = (out[b] || 0) + 1; });
     return out;
-  }, [roster]);
+  }, [seated]);
   const boatFull = key => (goingByBoat[key] || 0) >= boatCap(key);
 
   // The single write path. 'going' seats them on their column's boat (capacity
@@ -215,7 +234,7 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
   ];
 
   function renderColumn(col) {
-    const crew = roster.filter(r => r.host === col.key);            // going
+    const crew = seated.filter(r => r.host === col.key);            // going
     const resp = responses.filter(r => r.host === col.key);         // maybe / no
     const statusByName = new Map();
     crew.forEach(r => statusByName.set((r.name || '').toLowerCase(), 'going'));
@@ -249,7 +268,7 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
             {crew.length}{maybeN ? ` · ${maybeN}?` : ''}{noN ? ` · ${noN}✕` : ''}
           </span>
         </div>
-        {col.boat !== 'kyle' && col.boat !== 'nick' && (
+        {columnsForBoat(col.boat).length > 1 && (
           <div className={styles.colBoat}>on {boatByKey[col.boat]?.name}</div>
         )}
 
@@ -333,16 +352,16 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
       {/* The fleet — one hull per boat, left to right. */}
       <div className={styles.fleet}>
         {BOATS.map(b => {
-          const seated = columnsForBoat(b.key).flatMap(c => roster.filter(r => r.host === c.key));
+          const aboard = columnsForBoat(b.key).flatMap(c => seated.filter(r => r.host === c.key));
           return (
             <div key={b.key} className={styles.fleetBoat}>
               <div className={styles.countRow}>
                 <span className={styles.boatTitle}>⛵ {b.name}</span>
                 <span className={styles.count}>
-                  {seated.length}/{b.capacity}{seated.length >= b.capacity ? ' · full' : ''}
+                  {aboard.length}/{b.capacity}{aboard.length >= b.capacity ? ' · full' : ''}
                 </span>
               </div>
-              <BoatArt boat={b} seated={seated} />
+              <BoatArt boat={b} seated={aboard} />
             </div>
           );
         })}
