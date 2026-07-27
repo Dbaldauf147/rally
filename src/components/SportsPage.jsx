@@ -266,6 +266,31 @@ export function SportsPage() {
     }
   }
 
+  // What the preview actually depends on. Keyed as a string so the effect below
+  // re-runs on a real content change rather than on every new config object.
+  const previewKey = useMemo(() => JSON.stringify({
+    teams: (config.teams || []).map((t) => `${t.leagueKey}:${t.teamId}`),
+    topics: config.topics,
+    tz: config.timezone,
+  }), [config.teams, config.topics, config.timezone]);
+
+  // Keep the preview on screen without anyone asking for it, and rebuild it when
+  // the settings change. Debounced because toggling topics saves on every click
+  // and each build costs a round of ESPN fetches.
+  useEffect(() => {
+    if (!user) return;
+    const hasTeams = (config.teams || []).length > 0;
+    const hasTopics = Object.values(config.topics || {}).some(Boolean);
+    if (!hasTeams || !hasTopics) {
+      setPreviewHtml(null);
+      setPreviewStatus(null);
+      return;
+    }
+    const id = setTimeout(loadPreview, 600);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey, user?.uid]);
+
   async function sendTest() {
     if (!user) return;
     setTestStatus('sending');
@@ -373,6 +398,7 @@ export function SportsPage() {
             )}
           </section>
         ) : (
+        <>
         <div className={styles.grid}>
           {/* Followed teams — top-right sidebar */}
           <section className={`${styles.card} ${styles.colTeams}`}>
@@ -489,46 +515,51 @@ export function SportsPage() {
               Sends to <strong>{user.email}</strong>. Your chosen frequency and day apply; on the current plan it goes out at a fixed time of day, and the exact hour takes effect once hourly scheduling is enabled.
             </p>
 
-            <div className={styles.actionRow}>
-              <button className={styles.btn} onClick={loadPreview} disabled={previewStatus === 'loading' || config.teams.length === 0 || !Object.values(config.topics).some(Boolean)}>
-                {previewStatus === 'loading' ? 'Building…' : 'Preview email'}
-              </button>
-              <button className={styles.btn} onClick={sendTest} disabled={testStatus === 'sending' || config.teams.length === 0 || !Object.values(config.topics).some(Boolean)}>
-                {testStatus === 'sending' ? 'Sending…' : 'Send test email now'}
-              </button>
-            </div>
+            <button className={styles.btn} onClick={sendTest} disabled={testStatus === 'sending' || config.teams.length === 0 || !Object.values(config.topics).some(Boolean)}>
+              {testStatus === 'sending' ? 'Sending…' : 'Send test email now'}
+            </button>
             {testStatus === 'sent' && <div className={styles.okText}>✓ Sent — check your inbox.</div>}
             {typeof testStatus === 'string' && testStatus.startsWith('error:') && (
               <div className={styles.errorText}>{testStatus.slice(6)}</div>
             )}
-            {typeof previewStatus === 'string' && previewStatus.startsWith('error:') && (
-              <div className={styles.errorText}>{previewStatus.slice(6)}</div>
-            )}
           </aside>
         </div>
-        )}
-       </>
-      )}
 
-      {/* The digest rendered in an iframe rather than inlined — the email is a
-          full document with its own styles, and an iframe keeps them from
-          leaking into the page (and the page's out of it). Sandboxed because
-          the markup embeds remote ESPN logos. */}
-      {previewHtml && (
-        <div className={styles.previewScrim} onClick={() => setPreviewHtml(null)}>
-          <div className={styles.previewPanel} role="dialog" aria-label="Email preview" onClick={(e) => e.stopPropagation()}>
-            <div className={styles.previewBar}>
-              <span className={styles.previewTitle}>Preview — this is what would arrive</span>
-              <button className={styles.btn} onClick={() => setPreviewHtml(null)}>Close</button>
-            </div>
+        {/* The digest, always on screen and rebuilt as the settings change. It
+            lives in an iframe rather than inlined because the email is a full
+            HTML document with its own styles — this keeps those out of the app,
+            and the app's out of the preview, which would otherwise misrepresent
+            what actually arrives. Sandboxed: the markup embeds remote logos. */}
+        <section className={`${styles.card} ${styles.previewCard}`}>
+          <div className={styles.previewBar}>
+            <h2 className={styles.cardTitle}>
+              Email preview
+              {previewStatus === 'loading' && <span className={styles.previewNote}> · building…</span>}
+            </h2>
+            <button className={styles.btn} onClick={loadPreview} disabled={previewStatus === 'loading'}>
+              Refresh
+            </button>
+          </div>
+          {previewHtml ? (
             <iframe
               className={styles.previewFrame}
               title="Sports digest preview"
               sandbox=""
               srcDoc={previewHtml}
             />
-          </div>
-        </div>
+          ) : (
+            <div className={styles.previewEmpty}>
+              {typeof previewStatus === 'string' && previewStatus.startsWith('error:')
+                ? previewStatus.slice(6)
+                : previewStatus === 'loading'
+                  ? 'Building your digest…'
+                  : 'Add a team and pick at least one topic to see the digest here.'}
+            </div>
+          )}
+        </section>
+        </>
+        )}
+       </>
       )}
     </div>
   );
