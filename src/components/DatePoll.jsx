@@ -162,6 +162,7 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
         const finalizedMap = new Map();
         await Promise.all(otherDocs.map(async d => {
           const data = d.data();
+          if (data.cancelled) return; // a cancelled event isn't a conflict
           const title = data.title || 'Event';
           const stage = data.stage || 'voting';
           if (stage === 'finalized' && !data.dateTBD) {
