@@ -69,6 +69,41 @@ function addDays(d, n) {
 
 const fmtMDY = (d) => d ? `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}` : '';
 
+// True when a yyyy-mm-dd key falls on today's month/day (any year).
+function isMonthDayToday(key, today) {
+  const d = parseKey(key);
+  return !!d && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+}
+
+// Extra fields edited straight from the mobile long-press details popup: two
+// free-labelled dates of birth (a spouse, a kid, a parent — you name the slot)
+// and three running note fields.
+const DETAIL_DOBS = [
+  { labelKey: 'dob1Label', dateKey: 'dob1', placeholder: 'Whose? e.g. Wife' },
+  { labelKey: 'dob2Label', dateKey: 'dob2', placeholder: 'Whose? e.g. Son' },
+];
+const DETAIL_NOTES = [
+  { key: 'workNote', label: 'Work', placeholder: 'New role, projects, job hunt…' },
+  { key: 'healthNote', label: 'Health', placeholder: 'Surgery, recovery, how they’re doing…' },
+  { key: 'otherNote', label: 'Other', placeholder: 'Anything else worth remembering…' },
+];
+const DETAIL_FIELDS = [
+  ...DETAIL_DOBS.flatMap(d => [d.labelKey, d.dateKey]),
+  ...DETAIL_NOTES.map(n => n.key),
+];
+const detailDraftFrom = (c) => Object.fromEntries(DETAIL_FIELDS.map(k => [k, c?.[k] || '']));
+const detailPayloadFrom = (o) => Object.fromEntries(DETAIL_FIELDS.map(k => [k, (o[k] || '').trim()]));
+
+// "Wife 6/2/1987 · Son 4/11/2016" for the desktop column.
+function dobSummary(c) {
+  return DETAIL_DOBS.map(f => {
+    const d = parseKey(c[f.dateKey]);
+    if (!d) return null;
+    const label = (c[f.labelKey] || '').trim();
+    return label ? `${label} ${fmtMDY(d)}` : fmtMDY(d);
+  }).filter(Boolean).join(' · ');
+}
+
 // Derive the schedule fields for a contact relative to today.
 function decorate(c, today) {
   const last = parseKey(c.lastReachOut);
@@ -113,6 +148,16 @@ function sortValue(c, key) {
     case 'days': return c._hasCadence ? c.cadenceDays : null;
     case 'birthday': return c._bday ? c._bday.getMonth() * 100 + c._bday.getDate() : null;
     case 'status': return c._status || 'active';
+    // Sort by the first extra DOB's month/day, matching how Birthday sorts.
+    case 'dobs': {
+      for (const f of DETAIL_DOBS) {
+        const d = parseKey(c[f.dateKey]);
+        if (d) return d.getMonth() * 100 + d.getDate();
+      }
+      return null;
+    }
+    case 'workNote': case 'healthNote': case 'otherNote':
+      return (c[key] || '').toLowerCase() || null;
     default: return null;
   }
 }
@@ -129,9 +174,11 @@ function compareRows(a, b, key, dir) {
   return dir === 'asc' ? cmp : -cmp;
 }
 
-const BLANK_FORM = { name: '', category: 'Family', method: 'Text', cadenceDays: '', lastReachOut: todayKey(), note: '', birthday: '' };
+const BLANK_FORM = { name: '', category: 'Family', method: 'Text', cadenceDays: '', lastReachOut: todayKey(), note: '', birthday: '', ...detailDraftFrom(null) };
 
 // Columns the user can show/hide (Person and the actions column are always on).
+// `off` columns start hidden so the table doesn't suddenly widen for people who
+// never asked for them — tick them on in the Columns menu.
 const COLS_KEY = 'rally.reachout.cols';
 const COLUMNS = [
   { key: 'lastReachOut', label: 'Last Reach Out' },
@@ -141,11 +188,15 @@ const COLUMNS = [
   { key: 'overdue', label: 'Overdue' },
   { key: 'days', label: 'Days' },
   { key: 'birthday', label: 'Birthday' },
+  { key: 'dobs', label: 'Other DOBs', off: true },
+  { key: 'workNote', label: 'Work', off: true },
+  { key: 'healthNote', label: 'Health', off: true },
+  { key: 'otherNote', label: 'Other', off: true },
   { key: 'status', label: 'Status' },
   { key: 'friend', label: 'Friend' },
 ];
 function loadColVis() {
-  const base = Object.fromEntries(COLUMNS.map(c => [c.key, true]));
+  const base = Object.fromEntries(COLUMNS.map(c => [c.key, !c.off]));
   try {
     const saved = JSON.parse(localStorage.getItem(COLS_KEY) || '{}');
     return { ...base, ...(saved && typeof saved === 'object' ? saved : {}) };
@@ -244,6 +295,9 @@ export function ReachOutPage() {
   const [form, setForm] = useState(BLANK_FORM);
   const [confirmReach, setConfirmReach] = useState(null); // contact pending the tap "Reached out?" popup
   const [detailsContact, setDetailsContact] = useState(null); // contact whose details popup (long-press) is open
+  const [detailsDraft, setDetailsDraft] = useState(null); // in-progress edits inside that popup
+  const detailsSavedRef = useRef(null); // last values written for the open contact, so re-saves are no-ops
+  const contactsRef = useRef(null); // always-current list, so blur/close saves never write a stale snapshot
   const [colVis, setColVis] = useState(loadColVis);
   // Default sort: Overdue largest→smallest (matches the source sheet).
   const [sortKey, setSortKey] = useState('overdue');
@@ -255,7 +309,7 @@ export function ReachOutPage() {
     } else {
       setSortKey(key);
       // Numeric/date columns feel natural starting high→low; text starts A→Z.
-      setSortDir(['overdue', 'days', 'lastReachOut', 'birthday', 'check'].includes(key) ? 'desc' : 'asc');
+      setSortDir(['overdue', 'days', 'lastReachOut', 'birthday', 'dobs', 'check'].includes(key) ? 'desc' : 'asc');
     }
   }
   const sortArrow = (key) => (sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
@@ -272,9 +326,11 @@ export function ReachOutPage() {
     if (!user) return;
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
       const data = snap.exists() ? snap.data() : {};
-      setContacts(Array.isArray(data.reachOuts) ? data.reachOuts : []);
+      const list = Array.isArray(data.reachOuts) ? data.reachOuts : [];
+      contactsRef.current = list;
+      setContacts(list);
       setPushStatus(data.pushStatus || null);
-    }, () => setContacts([]));
+    }, () => { contactsRef.current = []; setContacts([]); });
     return unsub;
   }, [user]);
 
@@ -290,6 +346,7 @@ export function ReachOutPage() {
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
 
   async function persist(next) {
+    contactsRef.current = next;
     setContacts(next); // optimistic
     if (user) {
       try { await setDoc(doc(db, 'users', user.uid), { reachOuts: next }, { merge: true }); }
@@ -309,10 +366,14 @@ export function ReachOutPage() {
   }
 
   function startEdit(c) {
+    // Read the live row, not the caller's snapshot — the details popup hands us a
+    // decorated copy taken before its own inline edits were written.
+    const cur = (contactsRef.current || []).find(x => x.id === c.id) || c;
     setForm({
-      name: c.name || '', category: c.category || 'Family', method: c.method || 'Text',
-      cadenceDays: c.cadenceDays == null ? '' : String(c.cadenceDays),
-      lastReachOut: c.lastReachOut || '', note: c.note || '', birthday: c.birthday || '',
+      name: cur.name || '', category: cur.category || 'Family', method: cur.method || 'Text',
+      cadenceDays: cur.cadenceDays == null ? '' : String(cur.cadenceDays),
+      lastReachOut: cur.lastReachOut || '', note: cur.note || '', birthday: cur.birthday || '',
+      ...detailDraftFrom(cur),
     });
     setEditingId(c.id);
     setAdding(false);
@@ -330,6 +391,7 @@ export function ReachOutPage() {
       lastReachOut: form.lastReachOut || '',
       note: form.note.trim(),
       birthday: form.birthday || '',
+      ...detailPayloadFrom(form),
     };
     const list = contacts || [];
     let next;
@@ -359,6 +421,33 @@ export function ReachOutPage() {
   async function markReachedOut(id) {
     const next = (contacts || []).map(c => c.id === id ? { ...c, done: true, lastReachOut: todayKey() } : c);
     await persist(next);
+  }
+
+  // The long-press details popup edits the DOB/notes fields in place. Edits live
+  // in a local draft and are written on blur and again on close, so a half-typed
+  // note doesn't hit Firestore on every keystroke.
+  function openDetails(c) {
+    const draft = detailDraftFrom(c);
+    detailsSavedRef.current = draft;
+    setDetailsDraft(draft);
+    setDetailsContact(c);
+  }
+
+  async function saveDetailsDraft(draft) {
+    const id = detailsContact?.id;
+    if (!id || !draft) return;
+    const clean = Object.fromEntries(DETAIL_FIELDS.map(k => [k, (draft[k] || '').trim()]));
+    const saved = detailsSavedRef.current || {};
+    if (DETAIL_FIELDS.every(k => clean[k] === (saved[k] || '').trim())) return;
+    detailsSavedRef.current = clean;
+    await persist((contactsRef.current || []).map(c => c.id === id ? { ...c, ...clean } : c));
+  }
+
+  function closeDetails() {
+    saveDetailsDraft(detailsDraft);
+    setDetailsContact(null);
+    setDetailsDraft(null);
+    detailsSavedRef.current = null;
   }
 
   async function remove(id) {
@@ -540,6 +629,39 @@ export function ReachOutPage() {
             <span>What's going on</span>
             <input className={styles.input} value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} placeholder="Optional note" />
           </label>
+          <div className={styles.field}>
+            <span>Other dates of birth</span>
+            {DETAIL_DOBS.map(f => (
+              <div key={f.dateKey} className={styles.dobRow}>
+                <input
+                  className={styles.input}
+                  value={form[f.labelKey]}
+                  onChange={e => setForm({ ...form, [f.labelKey]: e.target.value })}
+                  placeholder={f.placeholder}
+                  aria-label="Whose date of birth"
+                />
+                <input
+                  className={styles.input}
+                  type="date"
+                  value={form[f.dateKey]}
+                  onChange={e => setForm({ ...form, [f.dateKey]: e.target.value })}
+                  aria-label="Date of birth"
+                />
+              </div>
+            ))}
+          </div>
+          {DETAIL_NOTES.map(f => (
+            <label key={f.key} className={styles.field}>
+              <span>{f.label}</span>
+              <textarea
+                className={`${styles.input} ${styles.noteInput}`}
+                rows={2}
+                value={form[f.key]}
+                onChange={e => setForm({ ...form, [f.key]: e.target.value })}
+                placeholder={f.placeholder}
+              />
+            </label>
+          ))}
           <div className={styles.formActions}>
             <button className={styles.btn} onClick={cancelForm}>Cancel</button>
             <button className={styles.btnPrimary} onClick={saveForm} disabled={!form.name.trim()}>{adding ? 'Add' : 'Save'}</button>
@@ -598,6 +720,10 @@ export function ReachOutPage() {
               {!isMobile && colVis.overdue !== false && <th className={styles.thSort} onClick={() => onSort('overdue')}>Overdue{sortArrow('overdue')}</th>}
               {!isMobile && colVis.days !== false && <th className={styles.thSort} onClick={() => onSort('days')}>Days{sortArrow('days')}</th>}
               {!isMobile && colVis.birthday !== false && <th className={styles.thSort} onClick={() => onSort('birthday')}>Birthday{sortArrow('birthday')}</th>}
+              {!isMobile && colVis.dobs !== false && <th className={styles.thSort} onClick={() => onSort('dobs')}>Other DOBs{sortArrow('dobs')}</th>}
+              {!isMobile && DETAIL_NOTES.map(f => colVis[f.key] !== false && (
+                <th key={f.key} className={styles.thSort} onClick={() => onSort(f.key)}>{f.label}{sortArrow(f.key)}</th>
+              ))}
               {!isMobile && colVis.status !== false && <th className={styles.thSort} onClick={() => onSort('status')}>Status{sortArrow('status')}</th>}
               {!isMobile && colVis.friend !== false && <th>Friend</th>}
               {!isMobile && <th className={styles.colActions} aria-label="Actions"></th>}
@@ -612,7 +738,7 @@ export function ReachOutPage() {
               const rowClass = c._bdayToday ? styles.trBday : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
                 <tr key={c.id} className={rowClass} onClick={isMobile ? undefined : () => startEdit(c)} title={isMobile ? undefined : 'Click to edit'}>
-                  {isMobile && <PersonCell name={c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => setDetailsContact(c)} />}
+                  {isMobile && <PersonCell name={c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => openDetails(c)} />}
                   {showLast && <td>{fmtMDY(c._last)}</td>}
                   {showCheck && (
                     <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
@@ -629,6 +755,10 @@ export function ReachOutPage() {
                       {c._bdayToday && c._bday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}
                     </td>
                   )}
+                  {!isMobile && colVis.dobs !== false && <td>{dobSummary(c)}</td>}
+                  {!isMobile && DETAIL_NOTES.map(f => colVis[f.key] !== false && (
+                    <td key={f.key} className={styles.tdNote} title={c[f.key] || ''}>{c[f.key] || ''}</td>
+                  ))}
                   {!isMobile && colVis.status !== false && (
                     <td onClick={e => e.stopPropagation()}>
                       <select className={styles.statusSelect} value={c._status} onChange={e => setStatus(c.id, e.target.value)} aria-label="Status">
@@ -692,15 +822,17 @@ export function ReachOutPage() {
         </div>
       )}
 
-      {detailsContact && (() => {
+      {detailsContact && detailsDraft && (() => {
         const c = detailsContact;
+        const draft = detailsDraft;
+        const setField = (key, value) => setDetailsDraft(d => ({ ...d, [key]: value }));
         const friendName = friendsList.find(f => f.id === c.friendId)?.name;
         const overdueText = c._overdue == null ? null
           : c._overdue > 0 ? `${c._overdue} day${c._overdue === 1 ? '' : 's'} overdue`
           : c._overdue === 0 ? 'due today'
           : `${-c._overdue} day${c._overdue === -1 ? '' : 's'} to go`;
         return (
-          <div className={styles.overlay} onClick={() => setDetailsContact(null)}>
+          <div className={styles.overlay} onClick={closeDetails}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
               <h2 className={styles.modalTitle}>{c.name}</h2>
               <dl className={styles.detailList}>
@@ -714,11 +846,54 @@ export function ReachOutPage() {
                 <dt>Status</dt><dd>{c._status === 'retired' ? 'Retired' : 'Active'}</dd>
                 {friendName && (<><dt>Friend</dt><dd>{friendName}</dd></>)}
               </dl>
+
+              <div className={styles.editSection}>
+                <div className={styles.editGroup}>
+                  <span className={styles.editLabel}>Other dates of birth</span>
+                  {DETAIL_DOBS.map(f => (
+                    <div key={f.dateKey} className={styles.dobRow}>
+                      <input
+                        className={styles.detailInput}
+                        value={draft[f.labelKey]}
+                        onChange={e => setField(f.labelKey, e.target.value)}
+                        onBlur={() => saveDetailsDraft(draft)}
+                        placeholder={f.placeholder}
+                        aria-label="Whose date of birth"
+                      />
+                      <input
+                        className={styles.detailInput}
+                        type="date"
+                        value={draft[f.dateKey]}
+                        onChange={e => setField(f.dateKey, e.target.value)}
+                        onBlur={() => saveDetailsDraft(draft)}
+                        aria-label="Date of birth"
+                      />
+                      {isMonthDayToday(draft[f.dateKey], today) && (
+                        <span className={styles.cake} title="Today">🎂</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {DETAIL_NOTES.map(f => (
+                  <label key={f.key} className={styles.editGroup}>
+                    <span className={styles.editLabel}>{f.label}</span>
+                    <textarea
+                      className={`${styles.detailInput} ${styles.noteInput}`}
+                      rows={2}
+                      value={draft[f.key]}
+                      onChange={e => setField(f.key, e.target.value)}
+                      onBlur={() => saveDetailsDraft(draft)}
+                      placeholder={f.placeholder}
+                    />
+                  </label>
+                ))}
+              </div>
+
               <div className={styles.modalActions}>
-                <button className={styles.btn} onClick={() => { const id = c.id; setDetailsContact(null); remove(id); }}>Delete</button>
+                <button className={styles.btn} onClick={() => { const id = c.id; closeDetails(); remove(id); }}>Delete</button>
                 <span style={{ flex: 1 }} />
-                <button className={styles.btn} onClick={() => setDetailsContact(null)}>Close</button>
-                <button className={styles.btnPrimary} onClick={() => { startEdit(c); setDetailsContact(null); }}>Edit</button>
+                <button className={styles.btn} onClick={closeDetails}>Close</button>
+                <button className={styles.btnPrimary} onClick={() => { closeDetails(); startEdit(c); }}>Edit</button>
               </div>
             </div>
           </div>
