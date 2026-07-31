@@ -6,6 +6,72 @@ import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import styles from './FriendsPage.module.css';
 
+// Two date fields per friend: `birthday` is month/day only (stored "MM-DD", so
+// it can be recorded for someone whose age you don't know) and `dob` is the full
+// date of birth (stored "YYYY-MM-DD"). Both render in short date format.
+const MONTH_ABBR = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// Pull {month, day, year} out of the loose date text a human or a spreadsheet
+// might supply. Year is null when the text carries none.
+function parseLooseDate(input) {
+  const s = String(input ?? '').trim();
+  if (!s) return null;
+  let m;
+  // 1985-07-30, and the vCard no-year form --07-30
+  if ((m = /^(\d{4})?-{1,2}(\d{1,2})-(\d{1,2})$/.exec(s))) {
+    return { year: m[1] ? Number(m[1]) : null, month: Number(m[2]), day: Number(m[3]) };
+  }
+  // 7/30, 7/30/1985, 7-30-85
+  if ((m = /^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2}|\d{4}))?$/.exec(s))) {
+    let year = m[3] ? Number(m[3]) : null;
+    if (year != null && m[3].length === 2) year += year > 30 ? 1900 : 2000;
+    return { year, month: Number(m[1]), day: Number(m[2]) };
+  }
+  // July 30, 1985 / Jul 30
+  if ((m = /^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$/i.exec(s))) {
+    const mi = MONTH_ABBR.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mi >= 0) return { year: m[3] ? Number(m[3]) : null, month: mi + 1, day: Number(m[2]) };
+  }
+  return null;
+}
+const validParts = (p) => !!p && p.month >= 1 && p.month <= 12 && p.day >= 1 && p.day <= 31;
+
+// Storage normalizers — anything unparseable becomes '' rather than corrupting
+// the record with half-read text.
+function normalizeBirthday(input) {
+  const p = parseLooseDate(input);
+  return validParts(p) ? `${pad2(p.month)}-${pad2(p.day)}` : '';
+}
+function normalizeDob(input) {
+  const p = parseLooseDate(input);
+  return validParts(p) && p.year ? `${p.year}-${pad2(p.month)}-${pad2(p.day)}` : '';
+}
+
+// Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
+function fmtBirthday(v) {
+  const p = parseLooseDate(v);
+  return validParts(p) ? `${p.month}/${p.day}` : '';
+}
+function fmtDob(v) {
+  const p = parseLooseDate(v);
+  return validParts(p) && p.year ? `${p.month}/${p.day}/${p.year}` : '';
+}
+
+// A friend with only a full date of birth still has a birthday — show it rather
+// than an em dash. Display only; nothing is written back.
+const effectiveBirthday = (f) => f.birthday || normalizeBirthday(f.dob);
+
+function ageFromDob(v) {
+  const p = parseLooseDate(v);
+  if (!validParts(p) || !p.year) return null;
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const hadBirthday = month > p.month || (month === p.month && now.getDate() >= p.day);
+  const age = now.getFullYear() - p.year - (hadBirthday ? 0 : 1);
+  return age >= 0 && age < 150 ? age : null;
+}
+
 // Field detectors mirroring handleFileSelect's logic, exposed here so the
 // paste-from-clipboard flow auto-maps the same way an uploaded file does.
 const PASTE_FIELD_DETECTORS = [
@@ -20,6 +86,8 @@ const PASTE_FIELD_DETECTORS = [
   { key: 'guest', match: k => k === 'guest' || k.includes('plus one') || k.includes('+1') || k.includes('partner') || k.includes('spouse') },
   { key: 'tag', match: k => k === 'tag' || k === 'tags' || k === 'label' || k === 'labels' },
   { key: 'instagram', match: k => k === 'instagram' || k === 'ig' || k.includes('insta') },
+  { key: 'birthday', match: k => k.includes('birthday') || k === 'bday' },
+  { key: 'dob', match: k => k === 'dob' || k.includes('date of birth') || k.includes('birth date') || k.includes('birthdate') },
 ];
 
 function autoDetectMapping(headers) {
@@ -854,6 +922,8 @@ export function FriendsPage() {
   const [newAddresses, setNewAddresses] = useState([{ label: '', value: '' }]);
   const [newWorkEmail, setNewWorkEmail] = useState('');
   const [newInstagram, setNewInstagram] = useState('');
+  const [newBirthday, setNewBirthday] = useState('');
+  const [newDob, setNewDob] = useState('');
   const [editFriend, setEditFriend] = useState(null); // null=closed, object=editing
   const [editFields, setEditFields] = useState({});
   const [giftDraft, setGiftDraft] = useState('');
@@ -903,6 +973,8 @@ export function FriendsPage() {
       addresses: cleanedAddresses,
       workEmail: (data.workEmail || '').trim().toLowerCase(),
       instagram: (data.instagram || '').trim(),
+      birthday: normalizeBirthday(data.birthday),
+      dob: normalizeDob(data.dob),
       createdAt: new Date().toISOString(),
     });
   }
@@ -932,6 +1004,9 @@ export function FriendsPage() {
       guest: friend.guest || '',
       tag: friend.tag || '',
       instagram: friend.instagram || '',
+      // Shown in the friendly short form; normalized back on save.
+      birthday: fmtBirthday(friend.birthday),
+      dob: normalizeDob(friend.dob),
       notes: friend.notes || '',
       linkedTo: friend.linkedTo || '',
       giftIdeas: Array.isArray(friend.giftIdeas) ? friend.giftIdeas : [],
@@ -953,6 +1028,8 @@ export function FriendsPage() {
       ...editFields,
       email: (editFields.email || '').trim().toLowerCase(),
       workEmail: (editFields.workEmail || '').trim().toLowerCase(),
+      birthday: normalizeBirthday(editFields.birthday),
+      dob: normalizeDob(editFields.dob),
       addresses: cleanedAddresses,
       address: cleanedAddresses[0]?.value || '',
       notes: (editFields.notes || '').trim(),
@@ -1143,8 +1220,8 @@ export function FriendsPage() {
 
   async function handleAddSingle(e) {
     e.preventDefault();
-    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram });
-    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram('');
+    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob });
+    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob('');
     setShowAdd(false);
     setResult({ type: 'success', message: 'Contact added!' });
     setTimeout(() => setResult(null), 3000);
@@ -1176,6 +1253,8 @@ export function FriendsPage() {
           { key: 'guest', label: 'Guest', match: k => k === 'guest' || k.includes('plus one') || k.includes('+1') || k.includes('partner') || k.includes('spouse') },
           { key: 'tag', label: 'Tag', match: k => k === 'tag' || k === 'tags' || k === 'label' || k === 'labels' },
           { key: 'instagram', label: 'Instagram', match: k => k === 'instagram' || k === 'ig' || k.includes('insta') },
+          { key: 'birthday', label: 'Birthday', match: k => k.includes('birthday') || k === 'bday' },
+          { key: 'dob', label: 'Date of Birth', match: k => k === 'dob' || k.includes('date of birth') || k.includes('birth date') || k.includes('birthdate') },
         ];
         const mapping = {};
         for (const header of headers) {
@@ -1258,10 +1337,10 @@ export function FriendsPage() {
 
   function downloadTemplate() {
     const ws = XLSX.utils.aoa_to_sheet([
-      ['Name', 'Email', 'Work Email', 'Phone', 'Address', 'Group', 'Guest', 'Tag', 'Instagram'],
-      ['John Smith', 'john@email.com', 'john.smith@acme.com', '555-1234', '123 Main St, Denver CO 80202', 'College Friends', 'Sarah Smith', 'VIP', '@johnsmith'],
-      ['Jane Doe', 'jane@email.com', '', '555-5678', '456 Oak Ave, Austin TX 78701', 'Family', '', 'Close Friend', '@janedoe'],
-      ['Mike Johnson', 'mike@email.com', 'mike@bigcorp.com', '', '', 'Work', 'Lisa Johnson', 'Outdoors; Foodie', ''],
+      ['Name', 'Email', 'Work Email', 'Phone', 'Address', 'Group', 'Guest', 'Tag', 'Instagram', 'Birthday', 'Date of Birth'],
+      ['John Smith', 'john@email.com', 'john.smith@acme.com', '555-1234', '123 Main St, Denver CO 80202', 'College Friends', 'Sarah Smith', 'VIP', '@johnsmith', '7/30', '7/30/1985'],
+      ['Jane Doe', 'jane@email.com', '', '555-5678', '456 Oak Ave, Austin TX 78701', 'Family', '', 'Close Friend', '@janedoe', '3/14', ''],
+      ['Mike Johnson', 'mike@email.com', 'mike@bigcorp.com', '', '', 'Work', 'Lisa Johnson', 'Outdoors; Foodie', '', '', '11/2/1990'],
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Contacts');
@@ -1281,8 +1360,11 @@ export function FriendsPage() {
     const nameById = {};
     for (const f of friends) nameById[f.id] = f.name || '(unnamed)';
 
+    // Birthday/Date of Birth go after Instagram: the hyperlink loop below
+    // addresses columns 1, 2 and 4 by index, so nothing may shift before them.
     const headers = [
       'Name', 'Email', 'Work Email', 'Phone', 'Instagram',
+      'Birthday', 'Date of Birth', 'Age',
       'Group', 'Guest', 'Tags', 'Linked To', 'Addresses', 'Created',
     ];
     const rows = data.map(f => {
@@ -1300,6 +1382,9 @@ export function FriendsPage() {
         f.workEmail || '',
         f.phone || '',
         f.instagram || '',
+        fmtBirthday(effectiveBirthday(f)),
+        fmtDob(f.dob),
+        ageFromDob(f.dob) ?? '',
         f.group || '',
         f.guest || '',
         tags,
@@ -1318,6 +1403,9 @@ export function FriendsPage() {
       { wch: 28 }, // Work Email
       { wch: 14 }, // Phone
       { wch: 16 }, // Instagram
+      { wch: 10 }, // Birthday
+      { wch: 14 }, // Date of Birth
+      { wch: 6 },  // Age
       { wch: 18 }, // Group
       { wch: 18 }, // Guest
       { wch: 22 }, // Tags
@@ -1370,6 +1458,8 @@ export function FriendsPage() {
     const withPhone = data.filter(f => f.phone).length;
     const withIG = data.filter(f => f.instagram).length;
     const withAddress = data.filter(f => getFriendAddresses(f).length > 0).length;
+    const withBirthday = data.filter(f => effectiveBirthday(f)).length;
+    const withDob = data.filter(f => normalizeDob(f.dob)).length;
 
     const summaryAoa = [
       ['Rally — Contacts Export'],
@@ -1379,6 +1469,8 @@ export function FriendsPage() {
       [`With phone: ${withPhone}`],
       [`With Instagram: ${withIG}`],
       [`With address: ${withAddress}`],
+      [`With birthday: ${withBirthday}`],
+      [`With date of birth: ${withDob}`],
       [],
       ['Group', 'Count'],
       ...Object.entries(groupCounts).sort(sortByCountDesc),
@@ -1509,6 +1601,13 @@ export function FriendsPage() {
       case 'group': return groupTokens(f.group).join(', ').toLowerCase();
       case 'guest': return (f.guest || '').toLowerCase();
       case 'tags': return (f.tag || '').toLowerCase();
+      // Birthdays sort by month/day so the list reads as a calendar; dates of
+      // birth sort chronologically, oldest first.
+      case 'birthday': {
+        const p = parseLooseDate(effectiveBirthday(f));
+        return validParts(p) ? pad2(p.month) + pad2(p.day) : '';
+      }
+      case 'dob': return normalizeDob(f.dob);
       default: return (f.name || '').toLowerCase();
     }
   };
@@ -1818,6 +1917,8 @@ export function FriendsPage() {
                 <th className={styles.th} onClick={() => onSort('group')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by group">Group{sortArrow('group')}</th>
                 <th className={styles.th} onClick={() => onSort('guest')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by guest">Guest{sortArrow('guest')}</th>
                 <th className={styles.th} onClick={() => onSort('tags')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by tags">Tags{sortArrow('tags')}</th>
+                <th className={styles.th} onClick={() => onSort('birthday')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by birthday">Birthday{sortArrow('birthday')}</th>
+                <th className={styles.th} onClick={() => onSort('dob')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by date of birth">Date of Birth{sortArrow('dob')}</th>
                 <th className={styles.th}>Linked</th>
                 <th className={styles.thAction} />
               </tr>
@@ -1829,6 +1930,7 @@ export function FriendsPage() {
                 const linked = partner || reversePartner;
                 const tags = (f.tag || '').split(';').map(t => t.trim()).filter(Boolean);
                 const selected = selectedIds.has(f.id);
+                const age = ageFromDob(f.dob);
                 return (
                   <tr
                     key={f.id}
@@ -1854,6 +1956,12 @@ export function FriendsPage() {
                       {tags.length === 0
                         ? <span className={styles.tdMuted}>—</span>
                         : tags.map((t, i) => <span key={i} className={styles.tagChip}>{t}</span>)}
+                    </td>
+                    <td className={styles.td}>{fmtBirthday(effectiveBirthday(f)) || <span className={styles.tdMuted}>—</span>}</td>
+                    <td className={styles.td}>
+                      {fmtDob(f.dob)
+                        ? <>{fmtDob(f.dob)}{age != null && <span className={styles.tdMuted}> · {age}</span>}</>
+                        : <span className={styles.tdMuted}>—</span>}
                     </td>
                     <td className={styles.td}>
                       {linked ? <span className={styles.linkedChip}>↔ {linked.name}</span> : <span className={styles.tdMuted}>—</span>}
@@ -2005,6 +2113,20 @@ export function FriendsPage() {
                 <input className={styles.input} value={newInstagram} onChange={e => setNewInstagram(e.target.value)} placeholder="@username or URL" />
               </label>
               <label className={styles.label}>
+                Birthday
+                <input
+                  className={styles.input}
+                  value={newBirthday}
+                  onChange={e => setNewBirthday(e.target.value)}
+                  onBlur={e => setNewBirthday(fmtBirthday(e.target.value) || e.target.value)}
+                  placeholder="M/D — e.g. 7/30"
+                />
+              </label>
+              <label className={styles.label}>
+                Date of Birth
+                <input className={styles.input} type="date" value={newDob} onChange={e => setNewDob(e.target.value)} />
+              </label>
+              <label className={styles.label}>
                 Tags
                 <TagPicker value={newTag} onChange={setNewTag} options={allTags} />
               </label>
@@ -2034,6 +2156,8 @@ export function FriendsPage() {
               </label>
               <label className={styles.label}>Guest<input className={styles.input} value={editFields.guest} onChange={e => editSet('guest', e.target.value)} /></label>
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
+              <label className={styles.label}>Birthday<input className={styles.input} value={editFields.birthday || ''} onChange={e => editSet('birthday', e.target.value)} onBlur={e => editSet('birthday', fmtBirthday(e.target.value) || e.target.value)} placeholder="M/D — e.g. 7/30" /></label>
+              <label className={styles.label}>Date of Birth<input className={styles.input} type="date" value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
               <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
               <label className={styles.label}>
                 📝 Notes
@@ -2172,6 +2296,8 @@ export function FriendsPage() {
           { key: 'guest', label: 'Guest' },
           { key: 'tag', label: 'Tag' },
           { key: 'instagram', label: 'Instagram' },
+          { key: 'birthday', label: 'Birthday' },
+          { key: 'dob', label: 'Date of Birth' },
         ];
         const preview = applyMapping();
         const unmapped = bulkHeaders.filter(h => !bulkMapping[h]);
