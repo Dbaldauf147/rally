@@ -150,7 +150,7 @@
 
 /* Mobile popups: tap → "Reached out?" confirm, long-press → details. */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 300; }
-.modal { width: 100%; max-width: 360px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 12px 32px rgba(0,0,0,0.2); padding: 1.25rem; }
+.modal { width: 100%; max-width: 360px; max-height: calc(100vh - 2rem); overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 12px 32px rgba(0,0,0,0.2); padding: 1.25rem; }
 .modalTitle { margin: 0 0 0.85rem; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .modalText { margin: 0 0 1rem; font-size: 1rem; color: var(--color-text); text-align: center; }
 .modalActions { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.25rem; }
@@ -159,3 +159,19 @@
 .detailList { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.85rem; margin: 0 0 1.1rem; font-size: 0.9rem; }
 .detailList dt { color: var(--color-text-muted); font-weight: 600; white-space: nowrap; }
 .detailList dd { margin: 0; color: var(--color-text); min-width: 0; }
+
+/* Editable part of the details popup: two named dates of birth, then the
+   Work / Health / Other note fields. Saves on blur and on close. */
+.editSection { display: flex; flex-direction: column; gap: 0.85rem; margin: 0 0 1.1rem; padding-top: 0.9rem; border-top: 1px solid var(--color-border); }
+.editGroup { display: flex; flex-direction: column; gap: 0.35rem; }
+.editLabel { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
+.dobRow { display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 0.4rem; }
+.cake { font-size: 0.95rem; line-height: 1; }
+.detailInput {
+  font-family: inherit; font-size: 0.88rem; font-weight: 400;
+  padding: 0.45rem 0.55rem; width: 100%; min-width: 0;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text);
+}
+.detailInput:focus { outline: none; border-color: var(--color-accent); }
+.noteInput { resize: vertical; line-height: 1.35; }
