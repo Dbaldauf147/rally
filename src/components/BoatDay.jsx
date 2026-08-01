@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { doc, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase';
+import { boatDays, normalizeDay, dateKeyOf, fmtDayLabel, defaultDay, orderKeyOf } from '../boatDays';
 import styles from './BoatDay.module.css';
 
 // The Kismet is the flagship; its capacity is exported for the owner card.
@@ -145,17 +146,37 @@ function BoatArt({ boat, seated }) {
  * The fleet view + rosters. Rendered both inside EventDetail (for the owner) and
  * on the public /boat/:eventId page, so it takes the viewer's identity as props.
  */
-export function BoatDay({ event, eventId, viewerId, viewerName }) {
-  const boat = event.boatDay || {};
-  const roster = useMemo(() => (Array.isArray(boat.roster) ? boat.roster : []), [boat.roster]);
-  const responses = useMemo(() => (Array.isArray(boat.responses) ? boat.responses : []), [boat.responses]);
+export function BoatDay({ event, eventId, viewerId, viewerName, isOwner }) {
+  // Memoized so the days below don't recompute on every render — `event.boatDay
+  // || {}` would be a fresh object each time.
+  const boat = useMemo(() => event.boatDay || {}, [event.boatDay]);
   const guestLists = boat.suggestions && typeof boat.suggestions === 'object' ? boat.suggestions : {};
+
+  const evDateKey = dateKeyOf(event.date);
+  const days = useMemo(() => boatDays(boat, evDateKey), [boat, evDateKey]);
+  // Which day is on screen. Falls back whenever the stored selection disappears
+  // (another device removed that day, say).
+  const [selectedDate, setSelectedDate] = useState('');
+  const activeDate = days.some(d => d.date === selectedDate) ? selectedDate : defaultDay(days);
+  const day = useMemo(
+    () => days.find(d => d.date === activeDate) || normalizeDay({ date: activeDate }),
+    [days, activeDate],
+  );
+  const roster = day.roster;
+  const responses = day.responses;
+  const orders = day.orders;
 
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
   const [drafts, setDrafts] = useState({});
   const [menuFor, setMenuFor] = useState(null); // `${colKey}:${name}` of the open move menu
   const menuRef = useRef(null);
+  const [addingDay, setAddingDay] = useState(false);
+  const [newDay, setNewDay] = useState('');
+  // Order text being typed, keyed by person. Live edits stay local and are
+  // written on blur/Enter so a half-typed sandwich isn't a write per keystroke.
+  const [orderDrafts, setOrderDrafts] = useState({});
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!menuFor) return;
@@ -184,26 +205,47 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
   }, [seated]);
   const boatFull = key => (goingByBoat[key] || 0) >= boatCap(key);
 
-  // The single write path. 'going' seats them on their column's boat (capacity
-  // checked inside the transaction), 'maybe'/'no' park them without a seat, and
-  // 'clear' removes them. A person is only ever in one place.
+  // Every write rewrites the whole boatDay.days array. Writing the array wholesale
+  // (rather than a `boatDay.days.<date>` path) keeps the date out of the field
+  // path, where 'YYYY-MM-DD' isn't a valid identifier — and the transaction
+  // re-derives the migration from its own snapshot, so a legacy roster is never
+  // clobbered by a stale copy from props.
+  async function mutateDays(fn) {
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, 'events', eventId);
+      const snap = await tx.get(ref);
+      if (!snap.exists()) throw new Error('Event not found.');
+      const data = snap.data();
+      const current = boatDays(data.boatDay || {}, dateKeyOf(data.date));
+      tx.update(ref, { 'boatDay.days': fn(current) });
+    });
+  }
+
+  // Apply a change to one day, leaving the others untouched.
+  function mutateDay(dayDate, fn) {
+    return mutateDays((current) => {
+      const idx = current.findIndex(d => d.date === dayDate);
+      if (idx === -1) throw new Error('That day is no longer on the schedule.');
+      return current.map((d, i) => (i === idx ? fn(d) : d));
+    });
+  }
+
+  // The single roster write path. 'going' seats them on their column's boat
+  // (capacity checked inside the transaction), 'maybe'/'no' park them without a
+  // seat, and 'clear' removes them. A person is only ever in one place per day.
   async function setStatus(person, status, newCol) {
     const name = (person.name || '').trim();
-    if (!name) return;
+    if (!name || !activeDate) return;
     const host = newCol || person.host || null;
     const id = person.id || slugId(name);
     const nlow = name.toLowerCase();
     setError('');
     setBusyId(id);
     try {
-      await runTransaction(db, async (tx) => {
-        const ref = doc(db, 'events', eventId);
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Event not found.');
-        const bd = snap.data().boatDay || {};
-        const notThis = arr => (Array.isArray(arr) ? arr : []).filter(x => (x.name || '').toLowerCase() !== nlow);
-        let nextRoster = notThis(bd.roster);
-        let nextResp = notThis(bd.responses);
+      await mutateDay(activeDate, (d) => {
+        const notThis = arr => arr.filter(x => (x.name || '').toLowerCase() !== nlow);
+        let nextRoster = notThis(d.roster);
+        let nextResp = notThis(d.responses);
         const stamp = { id, name, host, addedBy: viewerId || '', addedByName: viewerName || '', at: new Date().toISOString() };
         if (status === 'going') {
           const bkey = colBoat(host);
@@ -213,13 +255,69 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
         } else if (status === 'maybe' || status === 'no') {
           nextResp = [...nextResp, { ...stamp, status }];
         }
-        tx.update(ref, { 'boatDay.roster': nextRoster, 'boatDay.responses': nextResp });
+        return { ...d, roster: nextRoster, responses: nextResp };
       });
       if (person.host) setDrafts(d => ({ ...d, [person.host]: '' }));
     } catch (e) {
       setError(e.message || 'Could not update that person.');
     } finally {
       setBusyId(null);
+    }
+  }
+
+  // Deli order for one person on the active day. Empty text clears it.
+  async function saveOrder(name, text) {
+    const key = orderKeyOf(name);
+    if (!key || !activeDate) return;
+    const clean = (text || '').trim();
+    if (clean === (orders[key]?.text || '')) return; // nothing changed — skip the write
+    setError('');
+    try {
+      await mutateDay(activeDate, (d) => {
+        const next = { ...d.orders };
+        if (clean) next[key] = { text: clean, by: viewerId || '', byName: viewerName || '', at: new Date().toISOString() };
+        else delete next[key];
+        return { ...d, orders: next };
+      });
+    } catch (e) {
+      setError(e.message || 'Could not save that order.');
+    }
+  }
+
+  async function addDay(dateStr) {
+    if (!dateStr) return;
+    setError('');
+    try {
+      await mutateDays((current) => {
+        if (current.some(d => d.date === dateStr)) throw new Error('That day is already on the schedule.');
+        return [...current, normalizeDay({ date: dateStr })].sort((a, b) => a.date.localeCompare(b.date));
+      });
+      setSelectedDate(dateStr);
+      setAddingDay(false);
+      setNewDay('');
+    } catch (e) {
+      setError(e.message || 'Could not add that day.');
+    }
+  }
+
+  async function removeDay(dateStr) {
+    const target = days.find(d => d.date === dateStr);
+    const n = target ? target.roster.length : 0;
+    const warn = n
+      ? `Remove ${fmtDayLabel(dateStr)}? ${n} ${n === 1 ? 'person' : 'people'} aboard — their seats and deli orders for that day go with it.`
+      : `Remove ${fmtDayLabel(dateStr)} from the schedule?`;
+    if (!window.confirm(warn)) return;
+    setError('');
+    try {
+      await mutateDays((current) => {
+        // Keeping one day is deliberate: an empty days array would fall back to
+        // the legacy migration and resurrect the old flat roster.
+        if (current.length <= 1) throw new Error('Keep at least one boat day.');
+        return current.filter(d => d.date !== dateStr);
+      });
+      setSelectedDate('');
+    } catch (e) {
+      setError(e.message || 'Could not remove that day.');
     }
   }
 
@@ -347,8 +445,73 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
     );
   }
 
+  // Deli orders for the people actually aboard this day, in seating order so the
+  // list reads the same as the boats above.
+  const orderRows = seated.map(p => ({
+    name: p.name,
+    key: orderKeyOf(p.name),
+    host: p.host,
+    saved: orders[orderKeyOf(p.name)]?.text || '',
+  }));
+  const orderedCount = orderRows.filter(r => r.saved).length;
+  // What to actually hand the deli: identical orders collapsed with a count.
+  const orderSummary = (() => {
+    const byText = new Map();
+    for (const r of orderRows) {
+      if (!r.saved) continue;
+      const k = r.saved.toLowerCase();
+      const cur = byText.get(k);
+      if (cur) { cur.n += 1; cur.who.push(r.name); }
+      else byText.set(k, { text: r.saved, n: 1, who: [r.name] });
+    }
+    return [...byText.values()].sort((a, b) => b.n - a.n || a.text.localeCompare(b.text));
+  })();
+  const orderText = orderSummary.map(o => `${o.n}× ${o.text}`).join('\n');
+
   return (
     <div className={styles.wrap}>
+      {/* Which day. Each boat day carries its own roster and deli order. */}
+      <div className={styles.dayBar}>
+        {days.map(d => {
+          const active = d.date === activeDate;
+          const aboard = d.roster.length;
+          return (
+            <button
+              key={d.date}
+              className={`${styles.dayPill} ${active ? styles.dayPillOn : ''}`}
+              onClick={() => setSelectedDate(d.date)}
+              title={`${fmtDayLabel(d.date)} — ${aboard} aboard`}
+            >
+              {fmtDayLabel(d.date)}
+              <span className={styles.dayCount}>{aboard}</span>
+            </button>
+          );
+        })}
+        {isOwner && (addingDay ? (
+          <span className={styles.dayAddWrap}>
+            <input
+              type="date"
+              className={styles.dayInput}
+              value={newDay}
+              autoFocus
+              onChange={e => setNewDay(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addDay(newDay); if (e.key === 'Escape') { setAddingDay(false); setNewDay(''); } }}
+            />
+            <button className={styles.addBtn} onClick={() => addDay(newDay)} disabled={!newDay}>Add</button>
+            <button className={styles.dayGhostBtn} onClick={() => { setAddingDay(false); setNewDay(''); }}>Cancel</button>
+          </span>
+        ) : (
+          <button className={styles.dayAddBtn} onClick={() => { setAddingDay(true); setNewDay(evDateKey || ''); }}>
+            + Add day
+          </button>
+        ))}
+        {isOwner && days.length > 1 && activeDate && (
+          <button className={styles.dayGhostBtn} onClick={() => removeDay(activeDate)} title={`Remove ${fmtDayLabel(activeDate)}`}>
+            Remove {fmtDayLabel(activeDate)}
+          </button>
+        )}
+      </div>
+
       {/* The fleet — one hull per boat, left to right. */}
       <div className={styles.fleet}>
         {BOATS.map(b => {
@@ -372,6 +535,70 @@ export function BoatDay({ event, eventId, viewerId, viewerName }) {
       {/* One column per bucket. Click a name to move that person to another boat. */}
       <div className={styles.columns}>
         {COLUMNS.map(renderColumn)}
+      </div>
+
+      {/* Deli run for this day — one order per person aboard, plus the tally to
+          hand the counter. Anyone on the boat link can fill in their own. */}
+      <div className={styles.deli}>
+        <div className={styles.deliHead}>
+          <span className={styles.deliTitle}>🥪 Deli orders</span>
+          <span className={styles.deliCount}>
+            {activeDate ? `${fmtDayLabel(activeDate)} · ` : ''}{orderedCount}/{orderRows.length} ordered
+          </span>
+        </div>
+
+        {orderRows.length === 0 ? (
+          <p className={styles.deliEmpty}>Nobody's aboard for this day yet — add people above and their orders show up here.</p>
+        ) : (
+          <>
+            <ul className={styles.deliList}>
+              {orderRows.map(r => {
+                const draft = orderDrafts[r.key];
+                return (
+                  <li key={r.key} className={styles.deliRow}>
+                    <i className={styles.hostDot} style={{ background: colColor(r.host) }} />
+                    <span className={styles.deliName}>{r.name}</span>
+                    <input
+                      type="text"
+                      className={styles.input}
+                      value={draft !== undefined ? draft : r.saved}
+                      placeholder="Italian sub, no onion…"
+                      onChange={e => setOrderDrafts(d => ({ ...d, [r.key]: e.target.value }))}
+                      onBlur={e => { saveOrder(r.name, e.target.value); setOrderDrafts(d => { const n = { ...d }; delete n[r.key]; return n; }); }}
+                      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+
+            {orderSummary.length > 0 && (
+              <div className={styles.deliSummary}>
+                <div className={styles.deliSummaryHead}>
+                  <span>Order for the counter</span>
+                  <button
+                    className={styles.dayGhostBtn}
+                    onClick={() => {
+                      navigator.clipboard?.writeText(orderText).then(
+                        () => { setCopied(true); setTimeout(() => setCopied(false), 1800); },
+                        () => setError("Couldn't copy — select the list and copy it manually."),
+                      );
+                    }}
+                  >
+                    {copied ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+                <ul className={styles.deliTally}>
+                  {orderSummary.map(o => (
+                    <li key={o.text} title={o.who.join(', ')}>
+                      <strong>{o.n}×</strong> {o.text}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
