@@ -320,3 +320,167 @@
 }
 
 .addBtn:disabled { background: #e5e5e5; cursor: default; }
+
+/* --- Day selector: one boat day per pill, each with its own roster + orders --- */
+.dayBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.dayPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: var(--radius-full, 999px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text-secondary, #525252);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.dayPillOn {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.dayCount {
+  min-width: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: var(--radius-full, 999px);
+  background: rgba(0, 0, 0, 0.12);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.dayAddBtn,
+.dayGhostBtn {
+  padding: 0.35rem 0.7rem;
+  border: 1px dashed var(--color-border, #e5e5e5);
+  border-radius: var(--radius-full, 999px);
+  background: none;
+  color: var(--color-text-muted, #737373);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.dayGhostBtn { border-style: solid; }
+
+.dayAddWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dayInput {
+  padding: 0.32rem 0.5rem;
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: var(--radius-md, 8px);
+  font-size: 0.8rem;
+  font-family: inherit;
+}
+
+/* --- Deli orders --- */
+.deli {
+  margin-top: 1rem;
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: var(--radius-lg, 12px);
+  padding: 0.85rem;
+  background: var(--color-surface, #fff);
+}
+
+.deliHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.deliTitle {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--color-text, #1a1a1a);
+}
+
+.deliCount {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #737373);
+}
+
+.deliEmpty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #737373);
+}
+
+.deliList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.deliRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+
+.deliName {
+  flex: 0 0 8.5rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--color-text, #1a1a1a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deliRow .input { flex: 1; min-width: 0; }
+
+.deliSummary {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--color-border, #e5e5e5);
+}
+
+.deliSummaryHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted, #737373);
+}
+
+.deliTally {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.84rem;
+  color: var(--color-text, #1a1a1a);
+}
+
+@media (max-width: 600px) {
+  .deliRow { flex-wrap: wrap; }
+  .deliName { flex-basis: 100%; }
+}

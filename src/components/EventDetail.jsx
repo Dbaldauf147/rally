@@ -14,6 +14,7 @@ import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
 import { BoatDay, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
+import { boatRosterUnion, dateKeyOf } from '../boatDays';
 import {
   syncEventToGoogleCalendar,
   removeEventFromGoogleCalendar,
@@ -2686,7 +2687,10 @@ export function EventDetail() {
           {isOwner && (() => {
             const bd = event.boatDay || {};
             const enabled = !!bd.enabled;
-            const aboard = Array.isArray(bd.roster) ? bd.roster.length : 0;
+            // Boat Day is multi-day, so "aboard" means everyone sailing on any of
+            // its days, counted once.
+            const boatCrew = boatRosterUnion(bd, dateKeyOf(event.date));
+            const aboard = boatCrew.length;
             const boatUrl = `${WEB_ORIGIN}/boat/${eventId}?name=Friend`;
             // Guest lists come from this owner's private Friends, tied to a host by
             // the contact's "guest of" value. Published onto the event so whoever
@@ -2697,7 +2701,7 @@ export function EventDetail() {
             // People currently aboard (the boat roster) who aren't yet on the poll.
             // Matched to a Friend by name so we reuse the same member key/contact
             // info the "+ Add Friends" flow uses, keeping dedup consistent.
-            const roster = Array.isArray(bd.roster) ? bd.roster : [];
+            const roster = boatCrew;
             const existingNames = new Set(members.map(([, m]) => (m.name || '').trim().toLowerCase()).filter(Boolean));
             const importableGuests = roster.filter(r => (r.name || '').trim() && !existingNames.has(r.name.trim().toLowerCase()));
             async function importBoatGuests() {
