@@ -46,7 +46,8 @@ const calMenuItemStyle = {
 export function EventDetail() {
   const { eventId } = useParams();
   const { user } = useAuth();
-  const { updateEvent, deleteEvent, cancelEvent, restoreEvent, rsvp } = useEvents();
+  // `events` backs the "+ Add from Event" picker — the user's own events, live.
+  const { events, updateEvent, deleteEvent, cancelEvent, restoreEvent, rsvp } = useEvents();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -97,6 +98,13 @@ export function EventDetail() {
   const [friendSearch, setFriendSearch] = useState('');
   const [friendGroupFilter, setFriendGroupFilter] = useState([]);
   const [friendTagFilter, setFriendTagFilter] = useState([]);
+  // "+ Add from Event": copy the guest list off another event. Two steps —
+  // pick the source event, then tick who comes across (all pre-ticked).
+  const [showAddFromEvent, setShowAddFromEvent] = useState(false);
+  const [sourceEventId, setSourceEventId] = useState('');
+  const [sourceEventSearch, setSourceEventSearch] = useState('');
+  const [pickedSourceKeys, setPickedSourceKeys] = useState([]);
+  const [copyingFromEvent, setCopyingFromEvent] = useState(false);
   const [showFinalize, setShowFinalize] = useState(false);
   const [finalizeDate, setFinalizeDate] = useState('');
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
@@ -2292,8 +2300,233 @@ export function EventDetail() {
                 </div>
                 );
               })() : (
-                <button onClick={() => setShowAddFriend(true)} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <button onClick={() => { setShowAddFriend(true); setShowAddFromEvent(false); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                   + Add Friends
+                </button>
+              )
+            )}
+
+            {/* Copy a guest list off another event, so a crowd that travels
+                together doesn't get re-picked friend by friend every time. */}
+            {isOwner && (
+              showAddFromEvent ? (() => {
+                const toDate = (v) => {
+                  const d = v?.toDate?.() || (v ? new Date(v) : null);
+                  return d && !isNaN(d) ? d : null;
+                };
+                // Flatten one event's member map into a people list, tolerating
+                // the legacy string-valued members that `members` also handles.
+                const peopleOf = (e) => Object.entries(e.members || {})
+                  .filter(([, m]) => m != null)
+                  .map(([key, m]) => (typeof m === 'object'
+                    ? { key, name: m.name || '', email: m.email || '', phone: m.phone || '', plusOneOf: m.plusOneOf || '' }
+                    : { key, name: String(m), email: '', phone: '', plusOneOf: '' }))
+                  .filter(p => p.name || p.email)
+                  // Firestore map key order isn't stable across snapshots, so sort
+                  // explicitly — otherwise the checkbox list reshuffles under the
+                  // user mid-selection. Key breaks ties for a total order.
+                  .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email) || a.key.localeCompare(b.key));
+
+                // Same dedup rule "+ Add Friends" uses — key, email, or name —
+                // so someone already invited here never doubles up.
+                const memberKeys = new Set(members.map(([uid]) => uid));
+                const memberEmails = new Set(members.map(([, m]) => (m.email || '').toLowerCase()).filter(Boolean));
+                const memberNames = new Set(members.map(([, m]) => (m.name || '').trim().toLowerCase()).filter(Boolean));
+                const alreadyHere = (p) => memberKeys.has(p.key)
+                  || (p.email && memberEmails.has(p.email.toLowerCase()))
+                  || (p.name && memberNames.has(p.name.trim().toLowerCase()));
+
+                const term = sourceEventSearch.trim().toLowerCase();
+                const candidates = (events || [])
+                  .filter(e => e.id !== eventId)
+                  .map(e => ({ ...e, _date: toDate(e.date), _people: peopleOf(e) }))
+                  .filter(e => e._people.length > 0)
+                  .filter(e => !term || (e.title || '').toLowerCase().includes(term))
+                  // Most recent first: copying the last trip's list is the common
+                  // case. Title breaks ties so same-day events hold their order.
+                  .sort((a, b) => (b._date?.getTime() || 0) - (a._date?.getTime() || 0)
+                    || (a.title || '').localeCompare(b.title || ''));
+
+                const source = (events || []).find(e => e.id === sourceEventId) || null;
+                const sourcePeople = source ? peopleOf(source) : [];
+                const copyable = sourcePeople.filter(p => !alreadyHere(p));
+                const alreadyCount = sourcePeople.length - copyable.length;
+                const picked = copyable.filter(p => pickedSourceKeys.includes(p.key));
+
+                function closePanel() {
+                  setShowAddFromEvent(false);
+                  setSourceEventId('');
+                  setSourceEventSearch('');
+                  setPickedSourceKeys([]);
+                }
+
+                async function copyPeople() {
+                  if (picked.length === 0 || !source) return;
+                  setCopyingFromEvent(true);
+                  try {
+                    const updates = {};
+                    const keys = [];
+                    const usedKeys = new Set(memberKeys);
+                    // Source keys carry identity — a real uid, or the email key
+                    // useEvents auto-links on — so reuse them rather than minting
+                    // fresh ones; only invent a key if it's somehow taken here.
+                    const keyMap = {};
+                    for (const p of picked) {
+                      let key = p.key;
+                      if (usedKeys.has(key)) key = `${key}_${Math.random().toString(36).slice(2, 6)}`;
+                      usedKeys.add(key);
+                      keyMap[p.key] = key;
+                      // A fresh invite: contact details come across, but role,
+                      // RSVP, votes and sent-message stamps all start clean.
+                      updates[`members.${key}`] = { role: 'viewer', rsvp: 'pending', name: p.name, email: p.email, phone: p.phone };
+                      keys.push(key);
+                    }
+                    // Keep couples paired, but only where both halves came over.
+                    for (const p of picked) {
+                      const partnerKey = p.plusOneOf && keyMap[p.plusOneOf];
+                      if (partnerKey) updates[`members.${keyMap[p.key]}`].plusOneOf = partnerKey;
+                    }
+                    updates.memberUids = arrayUnion(...keys);
+                    await updateDoc(doc(db, 'events', eventId), updates);
+                    const names = picked.map(p => p.name || p.email).filter(Boolean);
+                    setResult({ type: 'success', message: `${picked.length} added from ${source.title || 'event'}: ${names.slice(0, 4).join(', ')}${names.length > 4 ? '…' : ''}` });
+                    closePanel();
+                  } catch (err) {
+                    setResult({ type: 'error', message: `Couldn't copy guests: ${err.message || err}` });
+                  }
+                  setCopyingFromEvent(false);
+                  setTimeout(() => setResult(null), 3500);
+                }
+
+                const rowBtn = { display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', padding: '0.5rem 0.6rem', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', borderRadius: 'var(--radius-sm)', textAlign: 'left' };
+                return (
+                  <div style={{ marginTop: '0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '0.75rem', background: 'var(--color-surface)' }}>
+                    {!source ? (
+                      <>
+                        <div style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>
+                          Copy guests from which event?
+                        </div>
+                        {(candidates.length > 5 || term) && (
+                          <input
+                            type="text"
+                            value={sourceEventSearch}
+                            onChange={e => setSourceEventSearch(e.target.value)}
+                            placeholder="Search events..."
+                            autoFocus
+                            style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', marginBottom: '0.5rem', boxSizing: 'border-box' }}
+                          />
+                        )}
+                        <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                          {candidates.length === 0 ? (
+                            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', textAlign: 'center', margin: '0.5rem 0' }}>
+                              {term ? 'No matching events' : 'No other events with guests yet'}
+                            </p>
+                          ) : candidates.map(e => (
+                            <button
+                              key={e.id}
+                              onClick={() => {
+                                setSourceEventId(e.id);
+                                // Pre-tick everyone not already invited — copying
+                                // the whole list is the usual intent.
+                                setPickedSourceKeys(e._people.filter(p => !alreadyHere(p)).map(p => p.key));
+                              }}
+                              style={rowBtn}
+                              onMouseEnter={ev => ev.currentTarget.style.background = 'var(--color-bg)'}
+                              onMouseLeave={ev => ev.currentTarget.style.background = 'none'}
+                            >
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--color-text)' }}>
+                                  {e.title || 'Untitled event'}{e.cancelled ? ' (cancelled)' : ''}
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                                  {e._date ? format(e._date, 'MMM d, yyyy') : 'Date TBD'} · {e._people.length} {e._people.length === 1 ? 'person' : 'people'}
+                                </div>
+                              </div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--color-accent)', fontWeight: 600, flexShrink: 0 }}>Choose</span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>From</div>
+                            <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.title || 'Untitled event'}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setSourceEventId(''); setPickedSourceKeys([]); }}
+                            style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-full)', padding: '0.2rem 0.6rem', fontSize: '0.72rem', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}
+                          >
+                            Change
+                          </button>
+                        </div>
+                        {alreadyCount > 0 && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>
+                            {alreadyCount} already invited here — not shown
+                          </div>
+                        )}
+                        {copyable.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setPickedSourceKeys(picked.length === copyable.length ? [] : copyable.map(p => p.key))}
+                            style={{ background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '0 0 0.4rem' }}
+                          >
+                            {picked.length === copyable.length ? 'Clear all' : `Select all ${copyable.length}`}
+                          </button>
+                        )}
+                        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                          {copyable.length === 0 ? (
+                            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', textAlign: 'center', margin: '0.5rem 0' }}>
+                              Everyone from that event is already invited
+                            </p>
+                          ) : copyable.map(p => {
+                            const on = pickedSourceKeys.includes(p.key);
+                            return (
+                              <label
+                                key={p.key}
+                                style={rowBtn}
+                                onMouseEnter={ev => ev.currentTarget.style.background = 'var(--color-bg)'}
+                                onMouseLeave={ev => ev.currentTarget.style.background = 'none'}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={() => setPickedSourceKeys(prev => (on ? prev.filter(k => k !== p.key) : [...prev, p.key]))}
+                                  style={{ width: '1rem', height: '1rem', accentColor: 'var(--color-accent)', flexShrink: 0, cursor: 'pointer' }}
+                                />
+                                <div style={{ width: '2rem', height: '2rem', borderRadius: '50%', background: 'var(--color-accent-light)', color: 'var(--color-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.82rem', flexShrink: 0 }}>
+                                  {(p.name || p.email || '?')[0].toUpperCase()}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--color-text)' }}>{p.name || 'Unknown'}</div>
+                                  {p.email && <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.email}</div>}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {copyable.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={copyPeople}
+                            disabled={picked.length === 0 || copyingFromEvent}
+                            style={{ width: '100%', padding: '0.45rem', marginTop: '0.5rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', background: picked.length === 0 ? 'var(--color-surface)' : 'var(--color-accent)', color: picked.length === 0 ? 'var(--color-text-muted)' : '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: picked.length === 0 || copyingFromEvent ? 'default' : 'pointer', fontFamily: 'inherit', opacity: copyingFromEvent ? 0.7 : 1 }}
+                          >
+                            {copyingFromEvent ? 'Adding…' : `+ Add ${picked.length} ${picked.length === 1 ? 'person' : 'people'}`}
+                          </button>
+                        )}
+                      </>
+                    )}
+                    <button onClick={closePanel} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      {source ? 'Cancel' : 'Done'}
+                    </button>
+                  </div>
+                );
+              })() : (
+                <button onClick={() => { setShowAddFromEvent(true); setShowAddFriend(false); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  + Add from Another Event
                 </button>
               )
             )}
