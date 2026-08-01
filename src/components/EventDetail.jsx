@@ -693,6 +693,23 @@ export function EventDetail() {
         return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'MMM d')}` : s;
       } catch { return o.note || '—'; }
     };
+    // Click-to-cycle vote editing, right in the cell. Organizers mostly hear
+    // answers by text and fill them in themselves, so cycling beats opening a
+    // modal per person per date. Cycles off the person's OWN vote, so clicking
+    // an inherited (dashed) cell records a real vote for them.
+    const VOTE_CYCLE = { none: 'yes', yes: 'maybe', maybe: 'no', no: 'none' };
+    const VOTE_LABEL = { yes: 'Works', maybe: 'Maybe', no: "Can't", none: 'no vote' };
+    const setCellVote = async (uid, o, next, name) => {
+      const ref = doc(db, 'events', eventId, 'dateOptions', o.id);
+      try {
+        if (next === 'none') await updateDoc(ref, { [`votes.${uid}`]: deleteField() });
+        else await updateDoc(ref, { [`votes.${uid}`]: { vote: next, name: name || '' } });
+      } catch (err) {
+        console.error('Failed to update vote:', err);
+        setResult({ type: 'error', message: `Couldn't save that vote: ${err.message || err}` });
+        setTimeout(() => setResult(null), 3500);
+      }
+    };
     const pill = (vote, inherited) => {
       const map = { yes: ['✓', '#DCFCE7', '#16A34A', 'Works'], maybe: ['?', '#FEF3C7', '#D97706', 'Maybe'], no: ['✗', '#FEE2E2', '#DC2626', "Can't"] };
       const p = map[vote];
@@ -756,6 +773,11 @@ export function EventDetail() {
                 + {fmtOpt(o)}
               </button>
             ))}
+          </div>
+        )}
+        {canManageMembers && (
+          <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
+            Tap a cell to set a vote: – → ✓ Works → ? Maybe → ✗ Can’t
           </div>
         )}
         <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
@@ -838,7 +860,25 @@ export function EventDetail() {
                       if (hv && hv !== 'none') { voteVal = hv; inherited = true; }
                     }
                     const chosen = isChosenOption(o);
-                    return <td key={o.id} style={{ ...td, ...topBorder, ...(chosen ? { background: 'var(--color-success-light)' } : {}) }}>{pill(voteVal, inherited)}</td>;
+                    const cellStyle = { ...td, ...topBorder, ...(chosen ? { background: 'var(--color-success-light)' } : {}) };
+                    if (!canManageMembers) {
+                      return <td key={o.id} style={cellStyle}>{pill(voteVal, inherited)}</td>;
+                    }
+                    const next = VOTE_CYCLE[ownActive ? own : 'none'];
+                    return (
+                      <td key={o.id} style={{ ...cellStyle, padding: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => setCellVote(uid, o, next, m.name)}
+                          title={`${m.name || 'Guest'} — ${fmtOpt(o)}${inherited ? ' (assumed via linked person)' : ''}\nClick to set: ${VOTE_LABEL[next]}`}
+                          style={{ display: 'block', width: '100%', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: isNarrow ? '0.3rem' : '0.35rem 0.6rem' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                        >
+                          {pill(voteVal, inherited)}
+                        </button>
+                      </td>
+                    );
                   })}
                   <td style={{ ...td, ...topBorder }} aria-hidden="true" />
                 </tr>
