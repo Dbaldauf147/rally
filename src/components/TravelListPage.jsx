@@ -434,6 +434,16 @@ export function TravelListPage() {
       return next;
     });
   }
+  // Flip every category at once, so Check/Uncheck all clears the category pills
+  // along with the items. Showing all stores {} rather than a map of falses, which
+  // also drops keys for categories that have since been renamed or deleted.
+  function setAllCats(hidden) {
+    const next = hidden
+      ? Object.fromEntries((list.meta?.categories || []).map((c) => [c, true]))
+      : {};
+    setHiddenCats(next);
+    try { localStorage.setItem(CATS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  }
   // Double-click an item to open an editor popup for its label and note.
   const [editItem, setEditItem] = useState(null); // { sectionId, itemId, label, note, category, children, isNew }
   const [manageCats, setManageCats] = useState(false); // category manager open in the popup
@@ -938,8 +948,8 @@ export function TravelListPage() {
       )}
 
       <div className={styles.toolbar}>
-        <button className={styles.btn} onClick={() => setAllChecked(true)}>Check all</button>
-        <button className={styles.btn} onClick={() => setAllChecked(false)}>Uncheck all</button>
+        <button className={styles.btn} onClick={() => { setAllChecked(true); setAllCats(false); }}>Check all</button>
+        <button className={styles.btn} onClick={() => { setAllChecked(false); setAllCats(true); }}>Uncheck all</button>
         <button className={styles.btn} onClick={addSection}>+ Add list</button>
       </div>
 
