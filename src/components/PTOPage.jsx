@@ -1,5 +1,7 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { isGoogleCalendarConnected, connectGoogleCalendar, fetchGoogleCalendarEvents } from '../googleCalendar';
 import styles from './PTOPage.module.css';
@@ -96,27 +98,33 @@ function computeYear(y, entries, hrsPerDay, today) {
   return { total, taken, planned, unplanned, hrs, eoyBackup, buffer, pctYear, shouldHaveTaken, daysUntil, status };
 }
 
+// Shared by the local cache and the Firestore copy, so both go through the same
+// shape checks and the same old-format migration.
+function normalizeStored(parsed) {
+  if (!parsed || typeof parsed !== 'object') return DEFAULT_STATE;
+  if (Array.isArray(parsed.years)) {
+    return {
+      hrsPerDay: Number(parsed.hrsPerDay) || 8,
+      years: parsed.years,
+      entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+      ignored: Array.isArray(parsed.ignored) ? parsed.ignored : [],
+    };
+  }
+  // Migrate the old single-year shape { allotment, year, entries }.
+  const yr = Number(parsed.year) || new Date().getFullYear();
+  return {
+    hrsPerDay: 8,
+    years: [{ year: yr, total: Number(parsed.allotment) || 0, eoyBackup: 5, start: `${yr}-01-01`, end: `${yr}-12-31` }],
+    entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+    ignored: [],
+  };
+}
+
 function loadStored() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_STATE;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed.years)) {
-      return {
-        hrsPerDay: Number(parsed.hrsPerDay) || 8,
-        years: parsed.years,
-        entries: Array.isArray(parsed.entries) ? parsed.entries : [],
-        ignored: Array.isArray(parsed.ignored) ? parsed.ignored : [],
-      };
-    }
-    // Migrate the old single-year shape { allotment, year, entries }.
-    const yr = Number(parsed.year) || new Date().getFullYear();
-    return {
-      hrsPerDay: 8,
-      years: [{ year: yr, total: Number(parsed.allotment) || 0, eoyBackup: 5, start: `${yr}-01-01`, end: `${yr}-12-31` }],
-      entries: Array.isArray(parsed.entries) ? parsed.entries : [],
-      ignored: [],
-    };
+    return normalizeStored(JSON.parse(raw));
   } catch {
     return DEFAULT_STATE;
   }
@@ -182,9 +190,48 @@ export function PTOPage() {
   });
   const [showColMenu, setShowColMenu] = useState(false);
 
+  // PTO used to live only in localStorage, so a cleared cache or a second device
+  // lost every imported entry. It now syncs to users/<uid>.pto, with localStorage
+  // kept as the offline cache — same arrangement the travel list uses.
+  const [ptoLoaded, setPtoLoaded] = useState(false);
+  const writeTimer = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.uid) return;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (cancelled) return;
+        const remote = snap.exists() ? snap.data()?.pto : null;
+        if (remote && Array.isArray(remote.years)) {
+          const normalized = normalizeStored(remote);
+          setState(normalized);
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)); } catch { /* ignore */ }
+        } else {
+          // Nothing saved yet — seed the cloud copy from whatever is cached here,
+          // so an existing local log isn't left behind.
+          setDoc(doc(db, 'users', user.uid), { pto: state }, { merge: true }).catch(() => {});
+        }
+      } catch { /* offline — keep the cached copy */ }
+      finally { if (!cancelled) setPtoLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    // Hold the cloud write until the initial read lands, or the default/cached
+    // state would overwrite the saved copy before we've seen it.
+    if (!ptoLoaded || !user?.uid) return;
+    if (writeTimer.current) clearTimeout(writeTimer.current);
+    writeTimer.current = setTimeout(() => {
+      setDoc(doc(db, 'users', user.uid), { pto: state }, { merge: true }).catch(() => {});
+    }, 500);
+  }, [state, ptoLoaded, user?.uid]);
+
+  useEffect(() => () => { if (writeTimer.current) clearTimeout(writeTimer.current); }, []);
 
   useEffect(() => {
     localStorage.setItem(COLS_KEY, JSON.stringify(colVis));
@@ -235,6 +282,9 @@ export function PTOPage() {
 
   const suggestedDays = useMemo(() => weekdaysBetween(draft.start, draft.end), [draft.start, draft.end]);
 
+  // How many entries the latest pull brought in and you haven't acknowledged.
+  const newCount = useMemo(() => entries.filter((e) => e.isNew).length, [entries]);
+
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
   const updateYear = (year, patch) =>
@@ -284,6 +334,9 @@ export function PTOPage() {
     });
   };
 
+  const clearNewFlags = () =>
+    setState((s) => ({ ...s, entries: s.entries.map((e) => (e.isNew ? { ...e, isNew: false } : e)) }));
+
   const restoreIgnored = (gcalId) => {
     setState((s) => ({ ...s, ignored: (s.ignored || []).filter((x) => x.gcalId !== gcalId) }));
   };
@@ -327,6 +380,7 @@ export function PTOPage() {
       });
       const ignoredIds = new Set(ignored.map((x) => x.gcalId).filter(Boolean));
       let skipped = 0;
+      let dupes = 0; // calendar days this pull passed over because they're already logged
       const found = [];
       for (const y of sortedYears) {
         const startD = parseLocal(y.start);
@@ -343,7 +397,7 @@ export function PTOPage() {
           // One row per weekday so each day can be named individually.
           weekdayDatesInRange(range.startIso, range.endIso).forEach((dayIso) => {
             const dayKey = `${ev.id || 'evt'}:${dayIso}`;
-            if (existingDayKeys.has(dayKey)) return;
+            if (existingDayKeys.has(dayKey)) { dupes += 1; return; }
             if (ignoredIds.has(dayKey) || (ev.id && ignoredIds.has(ev.id))) { skipped += 1; return; }
             found.push({
               id: makeId(),
@@ -353,6 +407,8 @@ export function PTOPage() {
               end: dayIso,
               days: 1,
               note: 'Imported from Google Calendar',
+              isNew: true,
+              importedAt: new Date().toISOString(),
             });
             existingDayKeys.add(dayKey);
           });
@@ -361,10 +417,15 @@ export function PTOPage() {
 
       const skipNote = skipped ? ` (${skipped} excluded skipped)` : '';
       if (found.length === 0) {
-        setImportMsg(`No new PTO events found in your year windows.${skipNote}`);
+        setImportMsg(`No new PTO events found in your year windows — ${dupes} already logged.${skipNote}`);
       } else {
-        setState((s) => ({ ...s, entries: [...s.entries, ...found] }));
-        setImportMsg(`Added ${found.length} PTO ${found.length === 1 ? 'entry' : 'entries'} from Google Calendar.${skipNote}`);
+        // "New" always means the most recent pull, so clear the previous batch's
+        // flags as this one lands.
+        setState((s) => ({
+          ...s,
+          entries: [...s.entries.map((e) => (e.isNew ? { ...e, isNew: false } : e)), ...found],
+        }));
+        setImportMsg(`Added ${found.length} new PTO ${found.length === 1 ? 'entry' : 'entries'}, skipped ${dupes} already logged.${skipNote}`);
       }
     } catch (err) {
       if (err.code === 'NOT_CONNECTED') setImportMsg('Connect Google Calendar to import.');
@@ -382,7 +443,14 @@ export function PTOPage() {
   const renderCell = (key, e) => {
     switch (key) {
       case 'name':
-        return <td key="name"><input className={styles.tdName} value={e.label} onChange={(ev) => updateEntry(e.id, { label: ev.target.value })} placeholder="Add a name…" /></td>;
+        return (
+          <td key="name">
+            <div className={styles.nameCell}>
+              {e.isNew && <span className={styles.newBadge} title="Added by the most recent Google Calendar pull">NEW</span>}
+              <input className={styles.tdName} value={e.label} onChange={(ev) => updateEntry(e.id, { label: ev.target.value })} placeholder="Add a name…" />
+            </div>
+          </td>
+        );
       case 'rallyName':
         return <td key="rallyName"><input className={styles.tdName} value={e.rallyName || ''} onChange={(ev) => updateEntry(e.id, { rallyName: ev.target.value })} placeholder="Rally name…" /></td>;
       case 'start':
@@ -547,10 +615,15 @@ export function PTOPage() {
           <button className={styles.importBtn} onClick={importFromGoogle} disabled={importing}>
             {importing ? 'Importing…' : 'Pull PTO from Google Calendar'}
           </button>
+          {newCount > 0 && (
+            <button className={styles.clearNewBtn} onClick={clearNewFlags} title="Clear the NEW badges">
+              {newCount} new · mark seen
+            </button>
+          )}
           {importMsg && <span className={styles.importMsg}>{importMsg}</span>}
         </div>
       </div>
-      <p className={styles.importHint}>Imports events titled “PTO” from your primary Google Calendar within each year window. Re-pulling is safe — already-imported events are skipped.</p>
+      <p className={styles.importHint}>Imports events titled “PTO” from your primary Google Calendar within each year window. Re-pulling is safe — days already logged are skipped, and whatever the latest pull added is badged NEW until you mark it seen. Entries are saved to your account, so they survive a cleared cache and follow you to other devices.</p>
       <div className={styles.filterBar}>
         <input
           className={styles.filterSearch}

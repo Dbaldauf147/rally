@@ -135,3 +135,27 @@
   .addGrid { grid-template-columns: 1fr 1fr; }
   .stats { gap: 1.25rem; }
 }
+
+/* Entries added by the most recent Google Calendar pull */
+.nameCell { display: flex; align-items: center; gap: 0.4rem; }
+.newBadge {
+  flex: none;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: var(--color-success-light, #dcfce7);
+  color: var(--color-success, #16a34a);
+}
+.clearNewBtn {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--color-success, #16a34a);
+  border-radius: var(--radius-sm);
+  background: var(--color-success-light, #dcfce7);
+  color: var(--color-success, #16a34a);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
