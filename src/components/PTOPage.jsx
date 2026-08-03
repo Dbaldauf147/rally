@@ -15,8 +15,8 @@ const PTO_KEYWORD = 'pto';
 const COLUMNS = [
   { key: 'name', label: 'Name' },
   { key: 'rallyName', label: 'Rally Name' },
-  { key: 'start', label: 'Start' },
-  { key: 'end', label: 'End' },
+  { key: 'start', label: 'Start', thClass: 'colDate' },
+  { key: 'end', label: 'End', thClass: 'colDate' },
   { key: 'days', label: 'Days', thClass: 'colDays' },
   { key: 'note', label: 'Note' },
   { key: 'source', label: 'Source', thClass: 'colSrc' },
@@ -454,9 +454,9 @@ export function PTOPage() {
       case 'rallyName':
         return <td key="rallyName"><input className={styles.tdName} value={e.rallyName || ''} onChange={(ev) => updateEntry(e.id, { rallyName: ev.target.value })} placeholder="Rally name…" /></td>;
       case 'start':
-        return <td key="start"><input className={styles.tdDate} type="date" value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} /></td>;
+        return <td key="start" className={styles.colDate}><input className={styles.tdDate} type="date" value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} /></td>;
       case 'end':
-        return <td key="end"><input className={styles.tdDate} type="date" value={e.end} onChange={(ev) => updateEntry(e.id, { end: ev.target.value })} /></td>;
+        return <td key="end" className={styles.colDate}><input className={styles.tdDate} type="date" value={e.end} onChange={(ev) => updateEntry(e.id, { end: ev.target.value })} /></td>;
       case 'days':
         return (
           <td key="days" className={styles.colDays}>
