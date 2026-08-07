@@ -924,32 +924,21 @@ export function EventDetail() {
       cells.push(...cluster);
     }
     const memberByUid = new Map(members);
-    // Chips repeat on every row, so drop the month and show just the day
-    // number — the strip above carries the full dates in the same order. Only
-    // safe while the day numbers are distinct; otherwise fall back to full
-    // labels rather than render two chips that read alike.
-    const optDay = (o) => {
-      try {
-        const s = format(new Date(o.startDate + 'T00:00:00'), 'd');
-        return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'd')}` : s;
-      } catch { return null; }
-    };
-    const shortLabels = (() => {
-      const days = visibleOptions.map(optDay);
-      if (days.some(d => !d) || new Set(days).size !== days.length) return null;
-      return new Map(visibleOptions.map((o, i) => [o.id, days[i]]));
-    })();
-    const chipLabel = (o) => shortLabels?.get(o.id) ?? fmtOpt(o);
-    // One chip per date: filled when the person has an own vote, dashed when
-    // it's inherited from a linked partner, outlined when there's no vote.
+    // One chip per date, carrying the vote mark only — no date on the chip. The
+    // dates repeat identically on every row, so printing them next to each
+    // person's vote reads as noise (and a bare day number next to a name reads
+    // as something other than a date). The strip above names the dates, the
+    // chips sit in that same order, and each chip's tooltip spells it out.
+    // Filled when the person has an own vote, dashed when it's inherited from a
+    // linked partner, outlined when there's no vote.
     const dayChip = (uid, m, o) => {
       const [voteVal, inherited] = dayVoteEntry(uid, o);
       const s = VOTE_STYLE[voteVal];
       const chosen = isChosenOption(o);
       const base = {
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.15rem',
-        minWidth: '1.85rem', padding: '0.1rem 0.3rem', borderRadius: 'var(--radius-full)',
-        fontSize: '0.66rem', fontWeight: 700, lineHeight: 1.35,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        minWidth: '1.45rem', padding: '0.1rem 0.25rem', borderRadius: 'var(--radius-full)',
+        fontSize: '0.68rem', fontWeight: 700, lineHeight: 1.35,
         fontFamily: 'inherit', whiteSpace: 'nowrap',
         ...(chosen ? { boxShadow: '0 0 0 1.5px var(--color-success)' } : {}),
       };
@@ -959,13 +948,10 @@ export function EventDetail() {
           ? { ...base, background: 'transparent', color: s[2], border: `1px dashed ${s[2]}` }
           : { ...base, background: s[1], color: s[2], border: '1px solid transparent' };
       const state = s ? s[3] : 'no vote';
+      const mark = s ? s[0] : '–';
       const tip = `${fmtOpt(o)} — ${state}${inherited ? ' (assumed via linked person)' : ''}`;
       if (!canManageMembers) {
-        return (
-          <span key={o.id} title={tip} style={look}>
-            {s && <span>{s[0]}</span>}{chipLabel(o)}
-          </span>
-        );
+        return <span key={o.id} title={tip} style={look}>{mark}</span>;
       }
       // Simple on/off: tap sets Works, tap a day that's already Works to clear
       // it. Maybe / Can't still show through from the table and poll.
@@ -979,7 +965,7 @@ export function EventDetail() {
           title={`${m.name || 'Guest'} · ${tip}\nTap to ${next === 'yes' ? 'mark ✓ Works' : 'clear'}`}
           style={{ ...look, cursor: 'pointer' }}
         >
-          {s && <span>{s[0]}</span>}{chipLabel(o)}
+          {mark}
         </button>
       );
     };
@@ -1060,22 +1046,25 @@ export function EventDetail() {
                 <div
                   key={uid}
                   style={{
-                    // Wraps rather than clips: at two columns on a phone the
-                    // chips don't fit beside the name, so they drop to a second
-                    // line instead of running past the column edge.
-                    minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.15rem 0.3rem',
+                    // Every row one line tall: the chips keep their width and a
+                    // long name ellipsizes into whatever's left, rather than
+                    // shoving the chips onto a second line and making that one
+                    // row taller than its neighbours.
+                    minWidth: 0, display: 'flex', alignItems: 'center', gap: '0.3rem',
                     padding: '0.28rem 0.45rem', ...edges,
                   }}
                 >
                   <span
                     onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
-                    title={canManageMembers ? `${m.name || 'Guest'}${target ? (mutual ? ` — mutually linked with ${target.name || 'Guest'}` : ` — assumed yes by way of ${target.name || 'Guest'}`) : ''}\nClick to edit this person’s votes` : undefined}
-                    style={{ flex: '1 1 auto', minWidth: '3rem', fontWeight: 600, fontSize: '0.76rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(canManageMembers ? { cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : {}) }}
+                    title={`${m.name || 'Guest'}${target ? (mutual ? ` — mutually linked with ${target.name || 'Guest'}` : ` — assumed yes by way of ${target.name || 'Guest'}`) : ''}${canManageMembers ? '\nClick to edit this person’s votes' : ''}`}
+                    style={{ flex: '1 1 0%', minWidth: '2.5rem', fontWeight: 600, fontSize: '0.76rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(canManageMembers ? { cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : {}) }}
                   >
                     {m.name || 'Guest'}
                     {target && <span style={{ color: 'var(--color-text-muted)', fontWeight: 500 }}> {mutual ? '⇄' : '↳'}</span>}
                   </span>
-                  <span style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', flexWrap: 'wrap', gap: '0.15rem' }}>
+                  {/* Shrinks and wraps internally only if the chips alone
+                      outgrow the column — many dates on a narrow phone. */}
+                  <span style={{ flex: '0 1 auto', minWidth: 0, display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '0.15rem' }}>
                     {visibleOptions.map(o => dayChip(uid, m, o))}
                   </span>
                 </div>
