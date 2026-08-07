@@ -914,9 +914,15 @@ export function EventDetail() {
   const renderVoteColumns = (rowMembers) => {
     if (openOptions.length === 0) return null;
     rowMembers = applyDayFilters(rowMembers);
-    // Clustering only affects order here (the grid flows left-to-right), which
-    // is enough to keep linked +1s side by side.
-    const rows = clusterMembers(rowMembers).flat();
+    // Adjacent in the flat order isn't enough here: the grid flows
+    // left-to-right, so a linked pair starting in the right column lands
+    // diagonally across two rows. Pad with a blank cell so any group of linked
+    // people opens a fresh row and reads side by side.
+    const cells = [];
+    for (const cluster of clusterMembers(rowMembers)) {
+      if (cluster.length > 1 && cells.length % 2 === 1) cells.push(null);
+      cells.push(...cluster);
+    }
     const memberByUid = new Map(members);
     // Chips repeat on every row, so drop the month and show just the day
     // number — the strip above carries the full dates in the same order. Only
@@ -1028,7 +1034,7 @@ export function EventDetail() {
             Tap a date to mark it ✓ Works — tap it again to clear.
           </div>
         )}
-        {rows.length === 0 ? (
+        {cells.length === 0 ? (
           <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', padding: '0.75rem 0' }}>
             No one matches the current filters.
           </div>
@@ -1036,14 +1042,20 @@ export function EventDetail() {
           // One shared box with hairline dividers rather than a card per
           // person, so the rows read at the same density as the table.
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', overflow: 'hidden', marginBottom: '0.5rem' }}>
-            {rows.map(([uid, m], i) => {
+            {cells.map((entry, i) => {
+              // Divider under every row except the last in each column, and a
+              // vertical rule between the two columns.
+              const lastRowStart = cells.length - (cells.length % 2 === 0 ? 2 : 1);
+              const edges = {
+                ...(i < lastRowStart ? { borderBottom: '1px solid var(--color-border-light)' } : {}),
+                ...(i % 2 === 0 ? { borderRight: '1px solid var(--color-border-light)' } : {}),
+              };
+              // Padding cell that bumped a linked group onto a fresh row.
+              if (!entry) return <div key={`gap${i}`} style={edges} aria-hidden="true" />;
+              const [uid, m] = entry;
               const partner = partnerOf[uid];
               const target = partner ? memberByUid.get(partner) : null;
               const mutual = !!(target && m.plusOneOf === partner && target.plusOneOf === uid);
-              const yesCount = visibleOptions.filter(o => dayVoteOf(uid, o) === 'yes').length;
-              // Divider under every row except the last in each column, and a
-              // vertical rule between the two columns.
-              const lastRowStart = rows.length - (rows.length % 2 === 0 ? 2 : 1);
               return (
                 <div
                   key={uid}
@@ -1052,9 +1064,7 @@ export function EventDetail() {
                     // chips don't fit beside the name, so they drop to a second
                     // line instead of running past the column edge.
                     minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.15rem 0.3rem',
-                    padding: '0.28rem 0.45rem',
-                    ...(i < lastRowStart ? { borderBottom: '1px solid var(--color-border-light)' } : {}),
-                    ...(i % 2 === 0 ? { borderRight: '1px solid var(--color-border-light)' } : {}),
+                    padding: '0.28rem 0.45rem', ...edges,
                   }}
                 >
                   <span
@@ -1065,10 +1075,7 @@ export function EventDetail() {
                     {m.name || 'Guest'}
                     {target && <span style={{ color: 'var(--color-text-muted)', fontWeight: 500 }}> {mutual ? '⇄' : '↳'}</span>}
                   </span>
-                  <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: yesCount ? '#16A34A' : 'var(--color-text-muted)' }}>
-                    {yesCount}/{visibleOptions.length}
-                  </span>
-                  <span style={{ flexShrink: 0, display: 'flex', flexWrap: 'wrap', gap: '0.15rem' }}>
+                  <span style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', flexWrap: 'wrap', gap: '0.15rem' }}>
                     {visibleOptions.map(o => dayChip(uid, m, o))}
                   </span>
                 </div>
