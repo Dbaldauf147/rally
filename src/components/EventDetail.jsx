@@ -133,7 +133,9 @@ export function EventDetail() {
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
   const [missingFilter, setMissingFilter] = useState('none'); // 'none' | 'phone' | 'email' | 'both'
-  const [votedView, setVotedView] = useState('table'); // Voted group display: 'table' | 'cards'
+  // Invited-list layout: 'table' (day-per-column matrix), 'columns' (compact
+  // two-column list of people with tappable day chips), 'cards' (grouped cards).
+  const [votedView, setVotedView] = useState('table');
   const [showYesMaybeOnly, setShowYesMaybeOnly] = useState(false); // People & Poll: show only likely attendees (Yes/Maybe)
   const [dayVoteFilter, setDayVoteFilter] = useState({}); // People & Poll: per-day Yes/Maybe column filters { optionId: true }
   const [hiddenDays, setHiddenDays] = useState({}); // People & Poll: date columns hidden from the table view { optionId: true }
@@ -639,94 +641,78 @@ export function EventDetail() {
     window.addEventListener('mouseup', onUp);
   };
 
-  // The vote matrix: one row per guest (couples clustered), one column per open
-  // date option, each cell showing the person's vote (own or assumed-yes via a
-  // linked partner). Rendered for whatever member rows are passed, so it works
-  // for the whole guest list before anyone has voted — not just the voted group.
-  const renderVoteTable = (rowMembers) => {
-    const openOptions = allDateOptions.filter(o => !o.closed);
-    if (openOptions.length === 0) return null;
-    // Date columns the user has hidden from this table view (still counted in
-    // the poll — just not shown here). Everything below renders visibleOptions.
-    const visibleOptions = openOptions.filter(o => !hiddenDays[o.id]);
-    // Resolved column widths (saved override → responsive default) and the total
-    // table width. Fixed layout below makes the widths exact and draggable.
-    const nameColW = voteColWidths.name || (isNarrow ? 120 : 200);
-    const optColW = (id) => voteColWidths[id] || (isNarrow ? 76 : 100);
-    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0);
-    const resizeHandle = (key, width) => (
-      <div
-        onMouseDown={startColResize(key, width)}
-        title="Drag to resize column"
-        style={{ position: 'absolute', top: 0, right: 0, height: '100%', width: '9px', cursor: 'col-resize', zIndex: 2, touchAction: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-      >
-        <span style={{ width: '2px', height: '55%', background: 'var(--color-border)', borderRadius: '1px' }} />
-      </div>
+  // ── Shared people-view pieces ─────────────────────────────────────────────
+  // Both views of the invited list — the wide vote table and the compact
+  // two-column list — read the same open date options, partner links and vote
+  // writer, so these sit at component scope rather than inside one renderer.
+  const openOptions = allDateOptions.filter(o => !o.closed);
+  // Dates the user has hidden from these views (still counted in the poll —
+  // just not shown here). Everything below renders visibleOptions.
+  const visibleOptions = openOptions.filter(o => !hiddenDays[o.id]);
+  const hiddenOpts = openOptions.filter(o => hiddenDays[o.id]);
+  // Symmetric partner map so a linked guest inherits their partner's vote.
+  const partnerOf = {};
+  for (const [uid, m] of members) if (m.plusOneOf) partnerOf[uid] = m.plusOneOf;
+  for (const [uid] of members) {
+    if (partnerOf[uid]) continue;
+    const inbound = members.find(([, m2]) => m2.plusOneOf === uid);
+    if (inbound) partnerOf[uid] = inbound[0];
+  }
+  // A person's effective vote on a day: their own, else one inherited from a
+  // linked +1 partner. Returns [vote, inherited].
+  const dayVoteEntry = (uid, o) => {
+    const own = o.votes?.[uid]?.vote;
+    if (own && own !== 'none') return [own, false];
+    const p = partnerOf[uid];
+    if (p) { const pv = o.votes?.[p]?.vote; if (pv && pv !== 'none') return [pv, true]; }
+    return [null, false];
+  };
+  const dayVoteOf = (uid, o) => dayVoteEntry(uid, o)[0];
+  // Per-day Yes/Maybe filters (toggled from each date header): keep only people
+  // who are yes or maybe on every selected day. AND across days.
+  const applyDayFilters = (rowMembers) => {
+    const active = visibleOptions.filter(o => dayVoteFilter[o.id]);
+    if (active.length === 0) return rowMembers;
+    return rowMembers.filter(([uid]) =>
+      active.every(o => { const v = dayVoteOf(uid, o); return v === 'yes' || v === 'maybe'; }),
     );
-    // Symmetric partner map so a linked guest inherits their partner's vote.
-    const partnerOf = {};
-    for (const [uid, m] of members) if (m.plusOneOf) partnerOf[uid] = m.plusOneOf;
-    for (const [uid] of members) {
-      if (partnerOf[uid]) continue;
-      const inbound = members.find(([, m2]) => m2.plusOneOf === uid);
-      if (inbound) partnerOf[uid] = inbound[0];
+  };
+  const fmtOpt = (o) => {
+    try {
+      const s = format(new Date(o.startDate + 'T00:00:00'), 'MMM d');
+      return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'MMM d')}` : s;
+    } catch { return o.note || '—'; }
+  };
+  // Click-to-cycle vote editing, right in the cell. Organizers mostly hear
+  // answers by text and fill them in themselves, so cycling beats opening a
+  // modal per person per date. Cycles off the person's OWN vote, so clicking
+  // an inherited (dashed) cell records a real vote for them.
+  const VOTE_CYCLE = { none: 'yes', yes: 'maybe', maybe: 'no', no: 'none' };
+  const VOTE_LABEL = { yes: 'Works', maybe: 'Maybe', no: "Can't", none: 'no vote' };
+  // glyph, fill, ink, label
+  const VOTE_STYLE = { yes: ['✓', '#DCFCE7', '#16A34A', 'Works'], maybe: ['?', '#FEF3C7', '#D97706', 'Maybe'], no: ['✗', '#FEE2E2', '#DC2626', "Can't"] };
+  const setCellVote = async (uid, o, next, name) => {
+    const ref = doc(db, 'events', eventId, 'dateOptions', o.id);
+    try {
+      if (next === 'none') await updateDoc(ref, { [`votes.${uid}`]: deleteField() });
+      else await updateDoc(ref, { [`votes.${uid}`]: { vote: next, name: name || '' } });
+    } catch (err) {
+      console.error('Failed to update vote:', err);
+      setResult({ type: 'error', message: `Couldn't save that vote: ${err.message || err}` });
+      setTimeout(() => setResult(null), 3500);
     }
-    // A person's effective vote on a day: their own, else one inherited from a
-    // linked +1 partner.
-    const dayVoteOf = (uid, o) => {
-      const own = o.votes?.[uid]?.vote;
-      if (own && own !== 'none') return own;
-      const p = partnerOf[uid];
-      if (p) { const pv = o.votes?.[p]?.vote; if (pv && pv !== 'none') return pv; }
-      return null;
-    };
-    // Per-day Yes/Maybe filters (toggled in each date column header): keep only
-    // people who are yes or maybe on every selected day. AND across days.
-    const activeDayFilters = visibleOptions.filter(o => dayVoteFilter[o.id]);
-    if (activeDayFilters.length > 0) {
-      rowMembers = rowMembers.filter(([uid]) =>
-        activeDayFilters.every(o => { const v = dayVoteOf(uid, o); return v === 'yes' || v === 'maybe'; }),
-      );
+  };
+  const pill = (vote, inherited) => {
+    const p = VOTE_STYLE[vote];
+    if (!p) return <span title="No vote on this date" style={{ color: 'var(--color-text-muted)' }}>–</span>;
+    const base = { display: 'inline-block', minWidth: '1.3rem', textAlign: 'center', padding: '0.1rem 0.35rem', borderRadius: '999px', fontSize: '0.72rem' };
+    if (inherited) {
+      return <span title={`${p[3]} — assumed via linked person`} style={{ ...base, background: 'transparent', color: p[2], border: `1px dashed ${p[2]}`, fontWeight: 600 }}>{p[0]}</span>;
     }
-    const fmtOpt = (o) => {
-      try {
-        const s = format(new Date(o.startDate + 'T00:00:00'), 'MMM d');
-        return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'MMM d')}` : s;
-      } catch { return o.note || '—'; }
-    };
-    // Click-to-cycle vote editing, right in the cell. Organizers mostly hear
-    // answers by text and fill them in themselves, so cycling beats opening a
-    // modal per person per date. Cycles off the person's OWN vote, so clicking
-    // an inherited (dashed) cell records a real vote for them.
-    const VOTE_CYCLE = { none: 'yes', yes: 'maybe', maybe: 'no', no: 'none' };
-    const VOTE_LABEL = { yes: 'Works', maybe: 'Maybe', no: "Can't", none: 'no vote' };
-    const setCellVote = async (uid, o, next, name) => {
-      const ref = doc(db, 'events', eventId, 'dateOptions', o.id);
-      try {
-        if (next === 'none') await updateDoc(ref, { [`votes.${uid}`]: deleteField() });
-        else await updateDoc(ref, { [`votes.${uid}`]: { vote: next, name: name || '' } });
-      } catch (err) {
-        console.error('Failed to update vote:', err);
-        setResult({ type: 'error', message: `Couldn't save that vote: ${err.message || err}` });
-        setTimeout(() => setResult(null), 3500);
-      }
-    };
-    const pill = (vote, inherited) => {
-      const map = { yes: ['✓', '#DCFCE7', '#16A34A', 'Works'], maybe: ['?', '#FEF3C7', '#D97706', 'Maybe'], no: ['✗', '#FEE2E2', '#DC2626', "Can't"] };
-      const p = map[vote];
-      if (!p) return <span title="No vote on this date" style={{ color: 'var(--color-text-muted)' }}>–</span>;
-      const base = { display: 'inline-block', minWidth: '1.3rem', textAlign: 'center', padding: '0.1rem 0.35rem', borderRadius: '999px', fontSize: '0.72rem' };
-      if (inherited) {
-        return <span title={`${p[3]} — assumed via linked person`} style={{ ...base, background: 'transparent', color: p[2], border: `1px dashed ${p[2]}`, fontWeight: 600 }}>{p[0]}</span>;
-      }
-      return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
-    };
-    const th = { position: 'relative', textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)', overflow: 'hidden' };
-    const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, zIndex: 1, background: 'var(--color-surface)' };
-    const td = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
-    const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: isNarrow ? '0.76rem' : '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)', maxWidth: isNarrow ? '7.5rem' : 'none', overflow: 'hidden', textOverflow: 'ellipsis' };
-    // Keep linked (+1) members adjacent so connected people stay together.
-    const memberByUid = new Map(members);
+    return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
+  };
+  // Keep linked (+1) members adjacent so connected people stay together.
+  const clusterMembers = (rowMembers) => {
     const processed = new Set();
     const clusters = [];
     const memberMap = new Map(rowMembers.map(e => [e[0], e]));
@@ -747,35 +733,63 @@ export function EventDetail() {
       }
       clusters.push(cluster);
     }
-    const tallyFor = (o) => {
-      let yes = 0, maybe = 0, no = 0;
-      for (const [uid] of rowMembers) {
-        const own = o.votes?.[uid]?.vote;
-        let v = own && own !== 'none' ? own : null;
-        const partner = partnerOf[uid];
-        if (!v && partner) { const hv = o.votes?.[partner]?.vote; if (hv && hv !== 'none') v = hv; }
-        if (v === 'yes') yes++; else if (v === 'maybe') maybe++; else if (v === 'no') no++;
-      }
-      return { yes, maybe, no };
-    };
-    const hiddenOpts = openOptions.filter(o => hiddenDays[o.id]);
+    return clusters;
+  };
+  const tallyFor = (o, rowMembers) => {
+    let yes = 0, maybe = 0, no = 0;
+    for (const [uid] of rowMembers) {
+      const v = dayVoteOf(uid, o);
+      if (v === 'yes') yes++; else if (v === 'maybe') maybe++; else if (v === 'no') no++;
+    }
+    return { yes, maybe, no };
+  };
+  // Restore chips for dates hidden out of either people view.
+  const renderHiddenDayChips = () => (hiddenOpts.length === 0 ? null : (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center', marginBottom: '0.4rem' }}>
+      <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>Hidden dates:</span>
+      {hiddenOpts.map(o => (
+        <button
+          key={o.id}
+          onClick={() => setHiddenDays(h => { const n = { ...h }; delete n[o.id]; return n; })}
+          title="Show this date again"
+          style={{ fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-full)', border: '1px dashed var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+        >
+          + {fmtOpt(o)}
+        </button>
+      ))}
+    </div>
+  ));
+
+  // The vote matrix: one row per guest (couples clustered), one column per open
+  // date option, each cell showing the person's vote (own or assumed-yes via a
+  // linked partner). Rendered for whatever member rows are passed, so it works
+  // for the whole guest list before anyone has voted — not just the voted group.
+  const renderVoteTable = (rowMembers) => {
+    if (openOptions.length === 0) return null;
+    // Resolved column widths (saved override → responsive default) and the total
+    // table width. Fixed layout below makes the widths exact and draggable.
+    const nameColW = voteColWidths.name || (isNarrow ? 120 : 200);
+    const optColW = (id) => voteColWidths[id] || (isNarrow ? 76 : 100);
+    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0);
+    const resizeHandle = (key, width) => (
+      <div
+        onMouseDown={startColResize(key, width)}
+        title="Drag to resize column"
+        style={{ position: 'absolute', top: 0, right: 0, height: '100%', width: '9px', cursor: 'col-resize', zIndex: 2, touchAction: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+      >
+        <span style={{ width: '2px', height: '55%', background: 'var(--color-border)', borderRadius: '1px' }} />
+      </div>
+    );
+    rowMembers = applyDayFilters(rowMembers);
+    const th = { position: 'relative', textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)', overflow: 'hidden' };
+    const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, zIndex: 1, background: 'var(--color-surface)' };
+    const td = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
+    const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: isNarrow ? '0.76rem' : '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)', maxWidth: isNarrow ? '7.5rem' : 'none', overflow: 'hidden', textOverflow: 'ellipsis' };
+    const memberByUid = new Map(members);
+    const clusters = clusterMembers(rowMembers);
     return (
       <>
-        {hiddenOpts.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center', marginBottom: '0.4rem' }}>
-            <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>Hidden dates:</span>
-            {hiddenOpts.map(o => (
-              <button
-                key={o.id}
-                onClick={() => setHiddenDays(h => { const n = { ...h }; delete n[o.id]; return n; })}
-                title="Show this date again"
-                style={{ fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-full)', border: '1px dashed var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                + {fmtOpt(o)}
-              </button>
-            ))}
-          </div>
-        )}
+        {renderHiddenDayChips()}
         {canManageMembers && (
           <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
             Tap a cell to set a vote: – → ✓ Works → ? Maybe → ✗ Can’t
@@ -794,7 +808,7 @@ export function EventDetail() {
             <tr>
               <th style={thName}>Person{resizeHandle('name', nameColW)}</th>
               {visibleOptions.map(o => {
-                const t = tallyFor(o);
+                const t = tallyFor(o, rowMembers);
                 const chosen = isChosenOption(o);
                 return (
                   <th key={o.id} style={chosen ? { ...th, background: 'linear-gradient(135deg, var(--color-surface) 0%, var(--color-success-light) 100%)', borderBottom: '2px solid var(--color-success)', color: 'var(--color-success)' } : th}>
@@ -888,6 +902,159 @@ export function EventDetail() {
           </tbody>
         </table>
         </div>
+      </>
+    );
+  };
+
+  // Same people and days as the table, laid out as a two-column list instead of
+  // a matrix. Each person is a card with one tappable chip per open date — tap
+  // marks the day ✓ Works, tap again clears it. Built for phones, where the
+  // matrix needs sideways scrolling to reach the later dates.
+  const renderVoteColumns = (rowMembers) => {
+    if (openOptions.length === 0) return null;
+    rowMembers = applyDayFilters(rowMembers);
+    // Clustering only affects order here (the grid flows left-to-right), which
+    // is enough to keep linked +1s side by side.
+    const rows = clusterMembers(rowMembers).flat();
+    const memberByUid = new Map(members);
+    // One chip per date: filled when the person has an own vote, dashed when
+    // it's inherited from a linked partner, outlined when there's no vote.
+    const dayChip = (uid, m, o) => {
+      const [voteVal, inherited] = dayVoteEntry(uid, o);
+      const s = VOTE_STYLE[voteVal];
+      const chosen = isChosenOption(o);
+      const label = fmtOpt(o);
+      const base = {
+        display: 'inline-flex', alignItems: 'center', gap: '0.22rem',
+        padding: '0.22rem 0.5rem', borderRadius: 'var(--radius-full)',
+        fontSize: '0.7rem', fontWeight: 700, lineHeight: 1.2,
+        fontFamily: 'inherit', whiteSpace: 'nowrap',
+        ...(chosen ? { boxShadow: '0 0 0 1.5px var(--color-success)' } : {}),
+      };
+      const look = !s
+        ? { ...base, background: 'var(--color-bg)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)', fontWeight: 600 }
+        : inherited
+          ? { ...base, background: 'transparent', color: s[2], border: `1px dashed ${s[2]}` }
+          : { ...base, background: s[1], color: s[2], border: '1px solid transparent' };
+      const state = s ? s[3] : 'no vote';
+      if (!canManageMembers) {
+        return (
+          <span key={o.id} title={`${label} — ${state}${inherited ? ' (assumed via linked person)' : ''}`} style={look}>
+            {s && <span>{s[0]}</span>}{label}
+          </span>
+        );
+      }
+      // Simple on/off: tap sets Works, tap a day that's already Works to clear
+      // it. Maybe / Can't still show through from the table and poll.
+      const own = o.votes?.[uid]?.vote;
+      const next = own === 'yes' ? 'none' : 'yes';
+      return (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => setCellVote(uid, o, next, m.name)}
+          title={`${m.name || 'Guest'} — ${label} · ${state}${inherited ? ' (assumed via linked person)' : ''}\nTap to ${next === 'yes' ? 'mark ✓ Works' : 'clear'}`}
+          style={{ ...look, cursor: 'pointer' }}
+        >
+          {s && <span>{s[0]}</span>}{label}
+        </button>
+      );
+    };
+    return (
+      <>
+        {renderHiddenDayChips()}
+        {/* Day strip — the two-column cards have no column headers, so the
+            per-day tallies and the Y/M + hide controls live up here. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.5rem' }}>
+          {visibleOptions.map(o => {
+            const t = tallyFor(o, rowMembers);
+            const chosen = isChosenOption(o);
+            const on = !!dayVoteFilter[o.id];
+            return (
+              <span
+                key={o.id}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  padding: '0.2rem 0.3rem 0.2rem 0.55rem', borderRadius: 'var(--radius-full)',
+                  border: `1px solid ${chosen ? 'var(--color-success)' : 'var(--color-border)'}`,
+                  background: chosen ? 'var(--color-success-light)' : 'var(--color-surface)',
+                  fontSize: '0.68rem',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setDayVoteFilter(f => ({ ...f, [o.id]: !f[o.id] }))}
+                  title="Show only people who are Yes or Maybe on this day"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit' }}
+                >
+                  <span style={{ fontWeight: 800, color: on ? 'var(--color-accent)' : 'var(--color-text)' }}>
+                    {on ? '✓ ' : ''}{chosen ? '★ ' : ''}{fmtOpt(o)}
+                  </span>
+                  <span style={{ fontWeight: 700, color: '#16A34A' }}>{t.yes}</span>
+                  <span style={{ fontWeight: 700, color: '#D97706' }}>{t.maybe}</span>
+                  <span style={{ fontWeight: 700, color: '#DC2626' }}>{t.no}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHiddenDays(h => ({ ...h, [o.id]: true }))}
+                  title="Hide this date from the list"
+                  style={{ fontSize: '0.62rem', fontWeight: 700, lineHeight: 1, padding: '0.1rem 0.3rem', borderRadius: 'var(--radius-full)', border: 'none', background: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  ✕
+                </button>
+              </span>
+            );
+          })}
+        </div>
+        {canManageMembers && (
+          <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>
+            Tap a date to mark it ✓ Works — tap it again to clear.
+          </div>
+        )}
+        {rows.length === 0 ? (
+          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', padding: '0.75rem 0' }}>
+            No one matches the current filters.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.4rem', marginBottom: '0.5rem' }}>
+            {rows.map(([uid, m]) => {
+              const partner = partnerOf[uid];
+              const target = partner ? memberByUid.get(partner) : null;
+              const mutual = !!(target && m.plusOneOf === partner && target.plusOneOf === uid);
+              const yesCount = visibleOptions.filter(o => dayVoteOf(uid, o) === 'yes').length;
+              return (
+                <div
+                  key={uid}
+                  style={{ minWidth: 0, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', padding: '0.45rem 0.55rem' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem', marginBottom: '0.35rem' }}>
+                    <span
+                      onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
+                      title={canManageMembers ? 'Click to edit this person’s votes' : undefined}
+                      style={{ fontWeight: 700, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(canManageMembers ? { cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : {}) }}
+                    >
+                      {m.name || 'Guest'}
+                    </span>
+                    {target && (
+                      <span
+                        title={mutual ? `Mutually linked with ${target.name || 'Guest'}` : `Assumed yes by way of ${target.name || 'Guest'}`}
+                        style={{ fontSize: '0.66rem', color: 'var(--color-text-muted)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        {mutual ? '⇄' : '↳'} {target.name || 'Guest'}
+                      </span>
+                    )}
+                    <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: '0.66rem', fontWeight: 700, color: yesCount ? '#16A34A' : 'var(--color-text-muted)' }}>
+                      {yesCount}/{visibleOptions.length}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                    {visibleOptions.map(o => dayChip(uid, m, o))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </>
     );
   };
@@ -1848,7 +2015,6 @@ export function EventDetail() {
                 table, this renders the whole invited list, so it's available
                 before anyone votes. */}
             {(() => {
-              const openOptions = allDateOptions.filter(o => !o.closed);
               if (openOptions.length === 0) return null;
               const passesMissing = (uid, m) => {
                 const hasEmail = !!m.email || uid.includes('@');
@@ -1872,31 +2038,44 @@ export function EventDetail() {
               const yesMaybeCount = members.filter(([uid, m]) => passesMissing(uid, m) && isYesMaybeAttendee(uid, m)).length;
               return (
                 <div style={{ marginBottom: '0.75rem' }}>
-                  <button
-                    onClick={() => setVotedView(v => (v === 'table' ? 'cards' : 'table'))}
-                    style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', marginBottom: votedView === 'table' ? '0.6rem' : 0 }}
-                    title="Toggle between table and card view for everyone"
-                  >
-                    {votedView === 'table' ? '▤ Card view' : '▦ Table view'}
-                  </button>
-                  {votedView === 'table' && (
-                    <button
-                      onClick={() => setShowYesMaybeOnly(v => !v)}
-                      style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: showYesMaybeOnly ? 'var(--color-accent)' : 'var(--color-surface)', color: showYesMaybeOnly ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', marginLeft: '0.4rem', marginBottom: '0.6rem' }}
-                      title="Show only people who voted Yes or Maybe (likely attendees). Hides Can't-go and no-shows."
-                    >
-                      {showYesMaybeOnly ? '✓ ' : ''}Yes / Maybe only ({yesMaybeCount})
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.6rem' }}>
+                    {[
+                      { key: 'table', label: '▦ Table', title: 'One column per date — the full vote matrix' },
+                      { key: 'columns', label: '▥ 2-column', title: 'Compact two-column list of people; tap a date to turn it on or off' },
+                      { key: 'cards', label: '▤ Cards', title: 'Grouped cards: voted, doesn’t need to vote, waiting' },
+                    ].map(v => {
+                      const active = votedView === v.key;
+                      return (
+                        <button
+                          key={v.key}
+                          onClick={() => setVotedView(v.key)}
+                          title={v.title}
+                          style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: active ? 'var(--color-accent)' : 'var(--color-surface)', color: active ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          {v.label}
+                        </button>
+                      );
+                    })}
+                    {votedView !== 'cards' && (
+                      <button
+                        onClick={() => setShowYesMaybeOnly(v => !v)}
+                        style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: showYesMaybeOnly ? 'var(--color-accent)' : 'var(--color-surface)', color: showYesMaybeOnly ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', marginLeft: '0.4rem' }}
+                        title="Show only people who voted Yes or Maybe (likely attendees). Hides Can't-go and no-shows."
+                      >
+                        {showYesMaybeOnly ? '✓ ' : ''}Yes / Maybe only ({yesMaybeCount})
+                      </button>
+                    )}
+                  </div>
                   {votedView === 'table' && renderVoteTable(rows)}
+                  {votedView === 'columns' && renderVoteColumns(rows)}
                 </div>
               );
             })()}
 
             {(() => {
-              // In table view the unified guest table above already shows
-              // everyone, so skip the grouped card lists entirely.
-              if (votedView === 'table' && allDateOptions.some(o => !o.closed)) return null;
+              // In the table and two-column views the unified guest list above
+              // already shows everyone, so skip the grouped card lists entirely.
+              if (votedView !== 'cards' && allDateOptions.some(o => !o.closed)) return null;
               // Build a map of which group each host belongs to
               const hostGroup = {};
               for (const [uid, m] of members) {
