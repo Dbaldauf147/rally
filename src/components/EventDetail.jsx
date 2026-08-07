@@ -907,9 +907,10 @@ export function EventDetail() {
   };
 
   // Same people and days as the table, laid out as a two-column list instead of
-  // a matrix. Each person is a card with one tappable chip per open date — tap
-  // marks the day ✓ Works, tap again clears it. Built for phones, where the
-  // matrix needs sideways scrolling to reach the later dates.
+  // a matrix. One tight row per person — name, then one tappable chip per open
+  // date; tap marks the day ✓ Works, tap again clears it. Kept at the table's
+  // row density so twice as many people fit on a phone screen, where the matrix
+  // needs sideways scrolling to reach the later dates.
   const renderVoteColumns = (rowMembers) => {
     if (openOptions.length === 0) return null;
     rowMembers = applyDayFilters(rowMembers);
@@ -917,17 +918,32 @@ export function EventDetail() {
     // is enough to keep linked +1s side by side.
     const rows = clusterMembers(rowMembers).flat();
     const memberByUid = new Map(members);
+    // Chips repeat on every row, so drop the month and show just the day
+    // number — the strip above carries the full dates in the same order. Only
+    // safe while the day numbers are distinct; otherwise fall back to full
+    // labels rather than render two chips that read alike.
+    const optDay = (o) => {
+      try {
+        const s = format(new Date(o.startDate + 'T00:00:00'), 'd');
+        return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'd')}` : s;
+      } catch { return null; }
+    };
+    const shortLabels = (() => {
+      const days = visibleOptions.map(optDay);
+      if (days.some(d => !d) || new Set(days).size !== days.length) return null;
+      return new Map(visibleOptions.map((o, i) => [o.id, days[i]]));
+    })();
+    const chipLabel = (o) => shortLabels?.get(o.id) ?? fmtOpt(o);
     // One chip per date: filled when the person has an own vote, dashed when
     // it's inherited from a linked partner, outlined when there's no vote.
     const dayChip = (uid, m, o) => {
       const [voteVal, inherited] = dayVoteEntry(uid, o);
       const s = VOTE_STYLE[voteVal];
       const chosen = isChosenOption(o);
-      const label = fmtOpt(o);
       const base = {
-        display: 'inline-flex', alignItems: 'center', gap: '0.22rem',
-        padding: '0.22rem 0.5rem', borderRadius: 'var(--radius-full)',
-        fontSize: '0.7rem', fontWeight: 700, lineHeight: 1.2,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.15rem',
+        minWidth: '1.85rem', padding: '0.1rem 0.3rem', borderRadius: 'var(--radius-full)',
+        fontSize: '0.66rem', fontWeight: 700, lineHeight: 1.35,
         fontFamily: 'inherit', whiteSpace: 'nowrap',
         ...(chosen ? { boxShadow: '0 0 0 1.5px var(--color-success)' } : {}),
       };
@@ -937,10 +953,11 @@ export function EventDetail() {
           ? { ...base, background: 'transparent', color: s[2], border: `1px dashed ${s[2]}` }
           : { ...base, background: s[1], color: s[2], border: '1px solid transparent' };
       const state = s ? s[3] : 'no vote';
+      const tip = `${fmtOpt(o)} — ${state}${inherited ? ' (assumed via linked person)' : ''}`;
       if (!canManageMembers) {
         return (
-          <span key={o.id} title={`${label} — ${state}${inherited ? ' (assumed via linked person)' : ''}`} style={look}>
-            {s && <span>{s[0]}</span>}{label}
+          <span key={o.id} title={tip} style={look}>
+            {s && <span>{s[0]}</span>}{chipLabel(o)}
           </span>
         );
       }
@@ -953,10 +970,10 @@ export function EventDetail() {
           key={o.id}
           type="button"
           onClick={() => setCellVote(uid, o, next, m.name)}
-          title={`${m.name || 'Guest'} — ${label} · ${state}${inherited ? ' (assumed via linked person)' : ''}\nTap to ${next === 'yes' ? 'mark ✓ Works' : 'clear'}`}
+          title={`${m.name || 'Guest'} · ${tip}\nTap to ${next === 'yes' ? 'mark ✓ Works' : 'clear'}`}
           style={{ ...look, cursor: 'pointer' }}
         >
-          {s && <span>{s[0]}</span>}{label}
+          {s && <span>{s[0]}</span>}{chipLabel(o)}
         </button>
       );
     };
@@ -1016,40 +1033,44 @@ export function EventDetail() {
             No one matches the current filters.
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.4rem', marginBottom: '0.5rem' }}>
-            {rows.map(([uid, m]) => {
+          // One shared box with hairline dividers rather than a card per
+          // person, so the rows read at the same density as the table.
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', overflow: 'hidden', marginBottom: '0.5rem' }}>
+            {rows.map(([uid, m], i) => {
               const partner = partnerOf[uid];
               const target = partner ? memberByUid.get(partner) : null;
               const mutual = !!(target && m.plusOneOf === partner && target.plusOneOf === uid);
               const yesCount = visibleOptions.filter(o => dayVoteOf(uid, o) === 'yes').length;
+              // Divider under every row except the last in each column, and a
+              // vertical rule between the two columns.
+              const lastRowStart = rows.length - (rows.length % 2 === 0 ? 2 : 1);
               return (
                 <div
                   key={uid}
-                  style={{ minWidth: 0, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', padding: '0.45rem 0.55rem' }}
+                  style={{
+                    // Wraps rather than clips: at two columns on a phone the
+                    // chips don't fit beside the name, so they drop to a second
+                    // line instead of running past the column edge.
+                    minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.15rem 0.3rem',
+                    padding: '0.28rem 0.45rem',
+                    ...(i < lastRowStart ? { borderBottom: '1px solid var(--color-border-light)' } : {}),
+                    ...(i % 2 === 0 ? { borderRight: '1px solid var(--color-border-light)' } : {}),
+                  }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem', marginBottom: '0.35rem' }}>
-                    <span
-                      onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
-                      title={canManageMembers ? 'Click to edit this person’s votes' : undefined}
-                      style={{ fontWeight: 700, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(canManageMembers ? { cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : {}) }}
-                    >
-                      {m.name || 'Guest'}
-                    </span>
-                    {target && (
-                      <span
-                        title={mutual ? `Mutually linked with ${target.name || 'Guest'}` : `Assumed yes by way of ${target.name || 'Guest'}`}
-                        style={{ fontSize: '0.66rem', color: 'var(--color-text-muted)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      >
-                        {mutual ? '⇄' : '↳'} {target.name || 'Guest'}
-                      </span>
-                    )}
-                    <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: '0.66rem', fontWeight: 700, color: yesCount ? '#16A34A' : 'var(--color-text-muted)' }}>
-                      {yesCount}/{visibleOptions.length}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                  <span
+                    onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
+                    title={canManageMembers ? `${m.name || 'Guest'}${target ? (mutual ? ` — mutually linked with ${target.name || 'Guest'}` : ` — assumed yes by way of ${target.name || 'Guest'}`) : ''}\nClick to edit this person’s votes` : undefined}
+                    style={{ flex: '1 1 auto', minWidth: '3rem', fontWeight: 600, fontSize: '0.76rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(canManageMembers ? { cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : {}) }}
+                  >
+                    {m.name || 'Guest'}
+                    {target && <span style={{ color: 'var(--color-text-muted)', fontWeight: 500 }}> {mutual ? '⇄' : '↳'}</span>}
+                  </span>
+                  <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: yesCount ? '#16A34A' : 'var(--color-text-muted)' }}>
+                    {yesCount}/{visibleOptions.length}
+                  </span>
+                  <span style={{ flexShrink: 0, display: 'flex', flexWrap: 'wrap', gap: '0.15rem' }}>
                     {visibleOptions.map(o => dayChip(uid, m, o))}
-                  </div>
+                  </span>
                 </div>
               );
             })}
