@@ -505,8 +505,17 @@ export function EventDetail() {
   // Attendance status (Going / Not going / TBD). Defaults to TBD, is derived from
   // how the person voted, and can be manually overridden per member. A stored
   // `m.attendance` wins; otherwise we infer from their date votes.
-  function deriveAttendance(uid) {
-    const vs = voteStats[uid];
+  function deriveAttendance(uid, m) {
+    // A linked +1 who never voted rides on their partner's answer — the same
+    // reading the date columns and the Yes/Maybe filter already use. Without
+    // this they sat in TBD forever while their half of the couple showed as
+    // going, so the Going pill came out well under the date tallies below it.
+    // Their own vote still wins wherever they left one; this only fills a blank.
+    let vs = voteStats[uid];
+    if (!vs || vs.total === 0) {
+      const partnerUid = m?.plusOneOf || members.find(([, mm]) => mm?.plusOneOf === uid)?.[0];
+      vs = partnerUid ? voteStats[partnerUid] : null;
+    }
     if (!vs || vs.total === 0) return 'tbd';
     if (vs.yes > 0) return 'going';           // works for at least one date → going
     if (vs.no > 0 && vs.maybe === 0) return 'notgoing'; // voted, all "no" → not going
@@ -515,7 +524,7 @@ export function EventDetail() {
   function getAttendance(uid, m) {
     const o = m?.attendance;
     if (o === 'going' || o === 'notgoing' || o === 'tbd') return { status: o, overridden: true };
-    return { status: deriveAttendance(uid), overridden: false };
+    return { status: deriveAttendance(uid, m), overridden: false };
   }
   function setAttendance(uid, val, currentlyOverridden, currentStatus) {
     // Clicking the already-active manual choice clears the override → back to auto.
