@@ -7,7 +7,7 @@
 //     digest immediately to their own account email, ignoring the daily dedupe.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { fetchSeasonWithPhases } from '../lib/espnSeason.js';
+import { fetchSeasonWithPhases, fetchDraftPicks } from '../lib/espnSeason.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -96,7 +96,7 @@ const logoImg = (src, alt) => (src
 // The content sections a digest can include. Any key not explicitly set to
 // false is treated as on, so newly added topics default on for existing
 // configs (and legacy configs with no topics field get everything).
-const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true, seasons: true };
+const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true, seasons: true, draft: true };
 function normalizeTopics(cfg) {
   const t = cfg?.topics;
   if (!t || typeof t !== 'object') return { ...DEFAULT_TOPICS };
@@ -105,21 +105,43 @@ function normalizeTopics(cfg) {
     upcoming: t.upcoming !== false,
     standings: t.standings !== false,
     seasons: t.seasons !== false,
+    draft: t.draft !== false,
   };
 }
 
-// Recent results + upcoming games from the team's schedule endpoint.
-async function fetchTeamSchedule(team) {
-  const url = `https://site.api.espn.com/apis/site/v2/sports/${team.sportPath}/teams/${team.teamId}/schedule`;
+// ESPN season type 1 is the exhibition phase — "Preseason" everywhere, "Spring
+// Training" in MLB. Those games don't count, so they stay out of the digest.
+const isPreseasonEvent = (ev) => Number(ev?.seasonType?.type) === 1;
+
+async function fetchScheduleEvents(team, seasonType) {
+  const q = seasonType ? `?seasontype=${seasonType}` : '';
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${team.sportPath}/teams/${team.teamId}/schedule${q}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`ESPN HTTP ${res.status}`);
   const data = await res.json();
+  return data.events || [];
+}
+
+// Recent results + upcoming games from the team's schedule endpoint, exhibition
+// games excluded. The endpoint defaults to whichever phase the league is in
+// right now, so through August an NFL team comes back with nothing BUT
+// preseason — ask for the regular season explicitly when that's what we got, or
+// dropping the exhibitions would just leave the section empty. If the regular
+// season isn't published yet (the NBA in August), there's genuinely nothing to
+// show and the team falls away, which is the right answer.
+async function fetchTeamSchedule(team) {
+  let events = await fetchScheduleEvents(team);
+  if (events.some(isPreseasonEvent)) {
+    const regular = await fetchScheduleEvents(team, 2).catch(() => []);
+    if (regular.length) events = regular;
+  }
+  events = events.filter((ev) => !isPreseasonEvent(ev));
   const now = Date.now();
   const DAY = 86400000;
 
   const results = [];
   const upcoming = [];
-  for (const ev of data.events || []) {
+  for (const ev of events) {
     const comp = ev.competitions?.[0];
     if (!comp) continue;
     const when = new Date(ev.date).getTime();
@@ -437,6 +459,34 @@ function buildSeasonBlock(seasons, tz) {
     </div>`;
 }
 
+// This year's draft haul, one group per followed team that made picks. Covers
+// out-of-season teams too — the draft is most of what there is to report in an
+// offseason, which is exactly when this block earns its place.
+function buildDraftBlock(draftTeams) {
+  if (!draftTeams || draftTeams.length === 0) return '';
+  const groups = draftTeams.map(({ name, year, picks }) => {
+    const rows = picks.map((p) => `
+      <tr>
+        <td style="${CELL}color:#6b7280;white-space:nowrap;width:1%;padding-right:12px;">Rd ${p.round ?? '—'}</td>
+        <td style="${CELL}color:#6b7280;white-space:nowrap;width:1%;padding-right:12px;">${p.overall ? '#' + p.overall : ''}</td>
+        <td style="${CELL}color:#111827;font-weight:600;">${p.player}</td>
+        <td align="right" style="${CELL}color:#4f46e5;font-weight:600;white-space:nowrap;">${p.position}</td>
+      </tr>`).join('');
+    return `
+      <div style="margin:0 0 0.75rem;">
+        <div style="color:#111827;font-weight:700;margin:0 0 0.15rem;">${name}
+          <span style="color:#6b7280;font-size:0.78rem;font-weight:400;">${year ? ' · ' + year + ' draft' : ''}</span>
+        </div>
+        ${TABLE_OPEN}${rows}</table>
+      </div>`;
+  }).join('');
+  return `
+    <div style="background:#f5f3ff;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
+      <h2 style="font-size:1.05rem;margin:0 0 0.6rem;color:#111827;">Draft picks</h2>
+      ${groups}
+    </div>`;
+}
+
 // Leagues that aren't playing right now: a compact footer listing the teams
 // being skipped and when their season opens back up.
 function buildOffSeasonBlock(offSeason, tz) {
@@ -468,8 +518,9 @@ function buildOffSeasonBlock(offSeason, tz) {
     </div>`;
 }
 
-function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason) {
+function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams) {
   const seasonBlock = topics.seasons ? buildSeasonBlock(seasons, tz) : '';
+  const draftBlock = topics.draft ? buildDraftBlock(draftTeams) : '';
   const sections = teamDigests
     .map((t) => {
       const blocks = [];
@@ -513,6 +564,7 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason) {
       <p style="color:#525252;margin:0 0 1.25rem;">Your daily rundown 🏟️</p>
       ${seasonBlock}
       ${sections || (offSeason?.length ? '<p style="color:#6b7280;margin:0 0 1rem;">None of your leagues are in season right now.</p>' : '')}
+      ${draftBlock}
       ${buildOffSeasonBlock(offSeason, tz)}
       <p style="color:#9ca3af;font-size:0.75rem;margin-top:1.5rem;">Scores &amp; schedules via ESPN. You're getting this because you set up a Sports digest in Rally.</p>
     </div>`;
@@ -529,7 +581,7 @@ async function buildDigestForUser(userData) {
   if (teams.length === 0) return { skipped: 'no teams' };
 
   const topics = normalizeTopics(cfg);
-  if (!topics.scores && !topics.upcoming && !topics.standings && !topics.seasons) {
+  if (!Object.values(topics).some(Boolean)) {
     return { skipped: 'no topics selected' };
   }
 
@@ -575,7 +627,34 @@ async function buildDigestForUser(userData) {
       return new Date(sa) - new Date(sb);
     });
 
-  const html = buildEmailHtml(digests, tz, topics, seasons, offSeason);
+  // Draft picks, one league fetch per league, covering every followed team —
+  // including out-of-season ones, since an offseason is exactly when a team's
+  // draft class is the news. Leagues ESPN has no draft for come back empty.
+  let draftTeams = [];
+  if (topics.draft) {
+    const perLeague = await Promise.all(leagues.map(async (l) => {
+      const leagueTeams = teams.filter((t) => t.sportPath === l.sportPath);
+      const ids = leagueTeams.map((t) => t.teamId);
+      const year = l.season?.year;
+      if (!year) return [];
+      // Leagues that span a new year name the season for the year it ends —
+      // the NBA's 2026-27 season is year 2027, but the class that filled those
+      // rosters is the 2026 draft. The NFL's season and draft share a year. Try
+      // the season year, then the one before it, and label with whichever hit.
+      let draftYear = year;
+      let byTeam = await fetchDraftPicks(l.sportPath, draftYear, ids).catch(() => ({}));
+      if (Object.keys(byTeam).length === 0) {
+        draftYear = year - 1;
+        byTeam = await fetchDraftPicks(l.sportPath, draftYear, ids).catch(() => ({}));
+      }
+      return leagueTeams
+        .map((t) => ({ name: t.name, year: draftYear, picks: byTeam[String(t.teamId)] || [] }))
+        .filter((t) => t.picks.length > 0);
+    }));
+    draftTeams = perLeague.flat();
+  }
+
+  const html = buildEmailHtml(digests, tz, topics, seasons, offSeason, draftTeams);
   const subject = inSeasonTeams.length
     ? `🏟️ Your Sports digest — ${inSeasonTeams.length} team${inSeasonTeams.length === 1 ? '' : 's'} in season`
     : '🏟️ Your Sports digest — all your leagues are out of season';
