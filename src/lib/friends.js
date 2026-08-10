@@ -124,6 +124,12 @@ export function matchFriend(index, person) {
   return null;
 }
 
+// Event `members` keys are field-path segments, so the characters Firestore
+// reads as structure — dots above all — have to go. Mirrors the key EventDetail
+// builds when it adds a friend to an event, so the same person lands on the
+// same key from either side.
+export const sanitizeMemberKey = (v) => String(v || '').replace(/[.@#$/[\]]/g, '_').toLowerCase();
+
 // One-off read of a user's friends, for callers that only need the list once
 // and don't want to hold a subscription open.
 export async function loadFriends(uid) {

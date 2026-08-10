@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, addDoc, deleteDoc, collection, query, orderBy, getDocs, serverTimestamp, arrayUnion, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { addFriend, buildFriendIndex, matchFriend } from '../lib/friends';
+import { addFriend, buildFriendIndex, matchFriend, sanitizeMemberKey } from '../lib/friends';
 import { WEB_ORIGIN } from '../native';
 import { format, eachDayOfInterval } from 'date-fns';
 import styles from './PollPage.module.css';
@@ -692,7 +692,7 @@ function PollPageInner() {
           </div>
         )}
 
-        <SaveToFriends user={user} members={event.members || {}} dateOptions={dateOptions} />
+        <SaveToFriends user={user} eventId={eventId} members={event.members || {}} dateOptions={dateOptions} />
 
         <InviteOthers eventTitle={event.title} eventId={eventId} eventDate={date} eventLocation={event.location} voterName={voterName} members={event.members || {}} />
 
@@ -735,10 +735,14 @@ function PollPageInner() {
 // is owner-only under firestore.rules, so a guest can't add to the organizer's
 // list from here, and shouldn't be able to: anyone holding the poll link would
 // otherwise be able to write into someone else's contacts.
-function SaveToFriends({ user, members, dateOptions }) {
+function SaveToFriends({ user, eventId, members, dateOptions }) {
   const [friends, setFriends] = useState(null); // null = still loading
   const [busy, setBusy] = useState({});         // uid → true while the write is in flight
   const [error, setError] = useState('');
+  const [showNew, setShowNew] = useState(false);
+  const [newFields, setNewFields] = useState({ name: '', phone: '', email: '' });
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState('');
 
   useEffect(() => {
     if (!user) { setFriends(null); return undefined; }
@@ -776,7 +780,9 @@ function SaveToFriends({ user, members, dateOptions }) {
 
   const index = useMemo(() => buildFriendIndex(friends || []), [friends]);
 
-  if (!user || friends === null || people.length === 0) return null;
+  // Renders even with nobody on the poll yet — the create form below is still
+  // useful on a fresh event.
+  if (!user || friends === null) return null;
 
   const missing = people.filter((p) => !matchFriend(index, p));
 
@@ -792,13 +798,51 @@ function SaveToFriends({ user, members, dateOptions }) {
     }
   }
 
+  // Someone who isn't in the poll at all: file them as a friend and put them on
+  // the event in one go. The member key comes from the friend's own id (their
+  // email where there is one), the same key EventDetail builds adding a friend
+  // to an event, so the two sides can't create the person twice.
+  async function createAndAdd() {
+    const name = newFields.name.trim();
+    if (!name) return;
+    const email = newFields.email.trim().toLowerCase();
+    const phone = newFields.phone.trim();
+    setCreating(true);
+    setError('');
+    setCreated('');
+    try {
+      const friendId = await addFriend(user.uid, { name, email, phone });
+      const key = sanitizeMemberKey(email || friendId);
+      await updateDoc(doc(db, 'events', eventId), {
+        [`members.${key}.name`]: name,
+        [`members.${key}.role`]: 'viewer',
+        [`members.${key}.rsvp`]: 'pending',
+        ...(email ? { [`members.${key}.email`]: email } : {}),
+        ...(phone ? { [`members.${key}.phone`]: phone } : {}),
+        memberUids: arrayUnion(key),
+      });
+      setNewFields({ name: '', phone: '', email: '' });
+      setShowNew(false);
+      setCreated(`${name} added to your friends and this event.`);
+      setTimeout(() => setCreated(''), 4000);
+    } catch (err) {
+      setError(`Couldn't add ${name}: ${err.message || err}`);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const inputStyle = { width: '100%', padding: '0.45rem 0.55rem', border: '1px solid #e5e5e5', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', boxSizing: 'border-box' };
+
   return (
     <div className={styles.section}>
       <h3 className={styles.sectionTitle}>Save to your friends</h3>
       <p className={styles.sectionDesc}>
-        {missing.length === 0
-          ? 'Everyone in this poll is already in your friends.'
-          : `${missing.length} ${missing.length === 1 ? 'person' : 'people'} here ${missing.length === 1 ? "isn't" : "aren't"} in your friends yet.`}
+        {people.length === 0
+          ? 'Nobody has joined this poll yet.'
+          : missing.length === 0
+            ? 'Everyone in this poll is already in your friends.'
+            : `${missing.length} ${missing.length === 1 ? 'person' : 'people'} here ${missing.length === 1 ? "isn't" : "aren't"} in your friends yet.`}
       </p>
       {error && <p style={{ color: '#dc2626', fontSize: '0.8rem', margin: '0 0 0.5rem' }}>{error}</p>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
@@ -832,6 +876,59 @@ function SaveToFriends({ user, members, dateOptions }) {
           );
         })}
       </div>
+
+      {/* Someone who isn't on the poll yet — one action, both records. */}
+      {created && <p style={{ color: '#16a34a', fontSize: '0.78rem', margin: '0.6rem 0 0', fontWeight: 600 }}>✓ {created}</p>}
+      {!showNew ? (
+        <button
+          onClick={() => { setShowNew(true); setCreated(''); }}
+          style={{ marginTop: '0.6rem', fontSize: '0.78rem', fontWeight: 600, padding: '0.4rem 0.8rem', borderRadius: '8px', border: '1px dashed #c7d2fe', background: '#fff', color: '#4f46e5', cursor: 'pointer', fontFamily: 'inherit', width: '100%' }}
+        >
+          + Create a friend &amp; add to this event
+        </button>
+      ) : (
+        <div style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <input
+            style={inputStyle}
+            placeholder="Name"
+            value={newFields.name}
+            autoFocus
+            onChange={(e) => setNewFields((f) => ({ ...f, name: e.target.value }))}
+            onKeyDown={(e) => { if (e.key === 'Enter') createAndAdd(); }}
+          />
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <input
+              style={inputStyle}
+              placeholder="Phone (optional)"
+              value={newFields.phone}
+              onChange={(e) => setNewFields((f) => ({ ...f, phone: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') createAndAdd(); }}
+            />
+            <input
+              style={inputStyle}
+              placeholder="Email (optional)"
+              value={newFields.email}
+              onChange={(e) => setNewFields((f) => ({ ...f, email: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') createAndAdd(); }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <button
+              onClick={createAndAdd}
+              disabled={!newFields.name.trim() || creating}
+              style={{ flex: 1, padding: '0.5rem', border: 'none', borderRadius: '8px', background: '#4f46e5', color: '#fff', fontSize: '0.85rem', fontWeight: 600, cursor: !newFields.name.trim() || creating ? 'default' : 'pointer', fontFamily: 'inherit', opacity: !newFields.name.trim() || creating ? 0.5 : 1 }}
+            >
+              {creating ? 'Adding…' : 'Create friend & add to event'}
+            </button>
+            <button
+              onClick={() => { setShowNew(false); setNewFields({ name: '', phone: '', email: '' }); setError(''); }}
+              style={{ padding: '0.5rem 0.9rem', border: '1px solid #e5e5e5', borderRadius: '8px', background: '#fff', color: '#6b7280', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
