@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, addDoc, deleteDoc, collection, query, orderBy, getDocs, serverTimestamp, arrayUnion, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { addFriend, buildFriendIndex, matchFriend } from '../lib/friends';
 import { WEB_ORIGIN } from '../native';
 import { format, eachDayOfInterval } from 'date-fns';
 import styles from './PollPage.module.css';
@@ -164,12 +165,27 @@ function PollPageInner() {
     return opt.startDate >= finRange.start && (opt.endDate || opt.startDate) <= finRange.end;
   };
 
+  // Record the voter on the event without flattening what's already there.
+  // Assigning the whole `members.{id}` object replaces the map, which wiped the
+  // email, phone and +1 link the organizer had entered every time a guest
+  // identified themselves, RSVP'd or voted. A path per field leaves those
+  // alone. `role` and the default `rsvp` are written only when the person is
+  // new, so voting can't demote an owner to viewer or reset a set RSVP.
+  function memberWrite(id, name, rsvpValue) {
+    const isNew = !event?.members?.[id];
+    const write = {
+      [`members.${id}.name`]: name,
+      memberUids: arrayUnion(id),
+    };
+    if (isNew) write[`members.${id}.role`] = 'viewer';
+    if (rsvpValue !== undefined) write[`members.${id}.rsvp`] = rsvpValue;
+    else if (isNew) write[`members.${id}.rsvp`] = 'pending';
+    return write;
+  }
+
   async function handleRsvp(response) {
     setRsvp(response);
-    await updateDoc(doc(db, 'events', eventId), {
-      [`members.${visitorId}`]: { role: 'viewer', rsvp: response, name: voterName },
-      memberUids: arrayUnion(visitorId),
-    }).catch(() => {});
+    await updateDoc(doc(db, 'events', eventId), memberWrite(visitorId, voterName, response)).catch(() => {});
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -247,10 +263,7 @@ function PollPageInner() {
           [`votes.${visitorId}`]: { vote, name: voterName, ...(isTopPick ? { topPick: true } : {}) },
         }).catch(() => {});
       }
-      await updateDoc(doc(db, 'events', eventId), {
-        [`members.${visitorId}`]: { role: 'viewer', rsvp: rsvp || 'pending', name: voterName },
-        memberUids: arrayUnion(visitorId),
-      }).catch(() => {});
+      await updateDoc(doc(db, 'events', eventId), memberWrite(visitorId, voterName, rsvp || undefined)).catch(() => {});
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } finally {
@@ -321,10 +334,7 @@ function PollPageInner() {
             setNameConfirmed(true);
             setShowNameSuggestions(false);
             const id = memberUid || finalName.replace(/\s+/g, '_').toLowerCase();
-            updateDoc(doc(db, 'events', eventId), {
-              [`members.${id}`]: { role: 'viewer', rsvp: 'pending', name: finalName },
-              memberUids: arrayUnion(id),
-            }).catch(() => {});
+            updateDoc(doc(db, 'events', eventId), memberWrite(id, finalName)).catch(() => {});
           }
 
           return (
@@ -682,6 +692,8 @@ function PollPageInner() {
           </div>
         )}
 
+        <SaveToFriends user={user} members={event.members || {}} dateOptions={dateOptions} />
+
         <InviteOthers eventTitle={event.title} eventId={eventId} eventDate={date} eventLocation={event.location} voterName={voterName} members={event.members || {}} />
 
         <p className={styles.footer}>Powered by Rally</p>
@@ -712,6 +724,114 @@ function PollPageInner() {
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
+    </div>
+  );
+}
+
+// Everyone taking part in this poll, checked against the signed-in viewer's own
+// friends list, with a one-tap way to file the ones who aren't in it yet.
+//
+// Signed-in only, and it writes to the *viewer's* friends — `users/{uid}/friends`
+// is owner-only under firestore.rules, so a guest can't add to the organizer's
+// list from here, and shouldn't be able to: anyone holding the poll link would
+// otherwise be able to write into someone else's contacts.
+function SaveToFriends({ user, members, dateOptions }) {
+  const [friends, setFriends] = useState(null); // null = still loading
+  const [busy, setBusy] = useState({});         // uid → true while the write is in flight
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!user) { setFriends(null); return undefined; }
+    return onSnapshot(
+      collection(db, 'users', user.uid, 'friends'),
+      (snap) => setFriends(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setFriends([]),
+    );
+  }, [user]);
+
+  // Poll participants: the event's members, plus anyone who voted without ever
+  // landing in the members map. Same union the "Who are you?" list builds.
+  const people = useMemo(() => {
+    const out = [];
+    const seen = new Set();
+    for (const [uid, m] of Object.entries(members || {})) {
+      if (!m || typeof m !== 'object' || !m.name) continue;
+      out.push({ uid, name: m.name, email: m.email || '', phone: m.phone || '' });
+      seen.add(uid);
+    }
+    for (const opt of dateOptions || []) {
+      for (const [voterId, v] of Object.entries(opt.votes || {})) {
+        if (!seen.has(voterId) && v?.name) {
+          out.push({ uid: voterId, name: v.name, email: '', phone: '' });
+          seen.add(voterId);
+        }
+      }
+    }
+    // Don't offer to friend yourself.
+    const myEmail = (user?.email || '').trim().toLowerCase();
+    return out
+      .filter((p) => p.uid !== user?.uid && (!myEmail || p.email.trim().toLowerCase() !== myEmail))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [members, dateOptions, user]);
+
+  const index = useMemo(() => buildFriendIndex(friends || []), [friends]);
+
+  if (!user || friends === null || people.length === 0) return null;
+
+  const missing = people.filter((p) => !matchFriend(index, p));
+
+  async function save(p) {
+    setBusy((b) => ({ ...b, [p.uid]: true }));
+    setError('');
+    try {
+      await addFriend(user.uid, { name: p.name, email: p.email, phone: p.phone });
+    } catch (err) {
+      setError(`Couldn't save ${p.name}: ${err.message || err}`);
+    } finally {
+      setBusy((b) => { const n = { ...b }; delete n[p.uid]; return n; });
+    }
+  }
+
+  return (
+    <div className={styles.section}>
+      <h3 className={styles.sectionTitle}>Save to your friends</h3>
+      <p className={styles.sectionDesc}>
+        {missing.length === 0
+          ? 'Everyone in this poll is already in your friends.'
+          : `${missing.length} ${missing.length === 1 ? 'person' : 'people'} here ${missing.length === 1 ? "isn't" : "aren't"} in your friends yet.`}
+      </p>
+      {error && <p style={{ color: '#dc2626', fontSize: '0.8rem', margin: '0 0 0.5rem' }}>{error}</p>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+        {people.map((p) => {
+          const known = matchFriend(index, p);
+          return (
+            <div
+              key={p.uid}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.1rem', borderBottom: '1px solid #f1f0ed' }}
+            >
+              <span style={{ flex: '1 1 auto', minWidth: 0, fontSize: '0.85rem', fontWeight: 500, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.name}
+              </span>
+              {known ? (
+                <span
+                  title={known.name !== p.name ? `Matched to your friend "${known.name}"` : 'Already in your friends'}
+                  style={{ flexShrink: 0, fontSize: '0.72rem', color: '#16a34a', fontWeight: 600 }}
+                >
+                  ✓ In your friends
+                </span>
+              ) : (
+                <button
+                  onClick={() => save(p)}
+                  disabled={!!busy[p.uid]}
+                  style={{ flexShrink: 0, fontSize: '0.72rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: '999px', border: '1px solid #4f46e5', background: '#fff', color: '#4f46e5', cursor: busy[p.uid] ? 'default' : 'pointer', fontFamily: 'inherit', opacity: busy[p.uid] ? 0.5 : 1 }}
+                >
+                  {busy[p.uid] ? 'Saving…' : '+ Add friend'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
