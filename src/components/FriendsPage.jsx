@@ -5,48 +5,12 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import styles from './FriendsPage.module.css';
-
-// Two date fields per friend: `birthday` is month/day only (stored "MM-DD", so
-// it can be recorded for someone whose age you don't know) and `dob` is the full
-// date of birth (stored "YYYY-MM-DD"). Both render in short date format.
-const MONTH_ABBR = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-const pad2 = (n) => String(n).padStart(2, '0');
-
-// Pull {month, day, year} out of the loose date text a human or a spreadsheet
-// might supply. Year is null when the text carries none.
-function parseLooseDate(input) {
-  const s = String(input ?? '').trim();
-  if (!s) return null;
-  let m;
-  // 1985-07-30, and the vCard no-year form --07-30
-  if ((m = /^(\d{4})?-{1,2}(\d{1,2})-(\d{1,2})$/.exec(s))) {
-    return { year: m[1] ? Number(m[1]) : null, month: Number(m[2]), day: Number(m[3]) };
-  }
-  // 7/30, 7/30/1985, 7-30-85
-  if ((m = /^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2}|\d{4}))?$/.exec(s))) {
-    let year = m[3] ? Number(m[3]) : null;
-    if (year != null && m[3].length === 2) year += year > 30 ? 1900 : 2000;
-    return { year, month: Number(m[1]), day: Number(m[2]) };
-  }
-  // July 30, 1985 / Jul 30
-  if ((m = /^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$/i.exec(s))) {
-    const mi = MONTH_ABBR.indexOf(m[1].slice(0, 3).toLowerCase());
-    if (mi >= 0) return { year: m[3] ? Number(m[3]) : null, month: mi + 1, day: Number(m[2]) };
-  }
-  return null;
-}
-const validParts = (p) => !!p && p.month >= 1 && p.month <= 12 && p.day >= 1 && p.day <= 31;
-
-// Storage normalizers — anything unparseable becomes '' rather than corrupting
-// the record with half-read text.
-function normalizeBirthday(input) {
-  const p = parseLooseDate(input);
-  return validParts(p) ? `${pad2(p.month)}-${pad2(p.day)}` : '';
-}
-function normalizeDob(input) {
-  const p = parseLooseDate(input);
-  return validParts(p) && p.year ? `${p.year}-${pad2(p.month)}-${pad2(p.day)}` : '';
-}
+// Friend writes and the loose-date parsing live in the shared lib so the poll
+// page can add a friend through exactly the same path this page uses.
+import {
+  pad2, parseLooseDate, validParts, normalizeBirthday, normalizeDob,
+  addFriend as writeFriend,
+} from '../lib/friends';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -957,26 +921,8 @@ export function FriendsPage() {
   }, [friends, searchParams]);
 
   async function addFriend(data) {
-    if (!user || !data.name?.trim()) return;
-    const id = data.email?.trim().toLowerCase() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const cleanedAddresses = (data.addresses || [])
-      .map(a => ({ label: (a.label || '').trim(), value: (a.value || '').trim() }))
-      .filter(a => a.value);
-    await setDoc(doc(db, 'users', user.uid, 'friends', id), {
-      name: data.name.trim(),
-      email: (data.email || '').trim().toLowerCase(),
-      phone: (data.phone || '').trim(),
-      group: (data.group || '').trim(),
-      guest: (data.guest || '').trim(),
-      tag: (data.tag || '').trim(),
-      address: cleanedAddresses[0]?.value || (data.address || '').trim(),
-      addresses: cleanedAddresses,
-      workEmail: (data.workEmail || '').trim().toLowerCase(),
-      instagram: (data.instagram || '').trim(),
-      birthday: normalizeBirthday(data.birthday),
-      dob: normalizeDob(data.dob),
-      createdAt: new Date().toISOString(),
-    });
+    if (!user) return;
+    await writeFriend(user.uid, data);
   }
 
   async function removeFriend(id) {
