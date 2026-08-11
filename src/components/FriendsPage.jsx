@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField, addDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField, addDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
+import { planMemberUpsert, planMemberUpserts, findMemberKey } from '../lib/members';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import styles from './FriendsPage.module.css';
@@ -1069,17 +1070,25 @@ export function FriendsPage() {
     if (!user || selectedIds.size === 0) return;
     setAddingToTrip(true);
     const selectedFriends = friends.filter(f => selectedIds.has(f.id));
-    for (const f of selectedFriends) {
-      const key = sanitizeKey(f.email || f.id);
-      await updateDoc(doc(db, 'events', eventId), {
-        [`members.${key}`]: { role: 'viewer', rsvp: 'pending', name: f.name || '', email: f.email || '', phone: f.phone || '' },
-        memberUids: arrayUnion(key),
-      }).catch(err => console.error('Add to event error:', err));
+    // This used to write members.<emailSlug> per friend with no dedupe and no
+    // read of the event, so adding someone already on the event under their auth
+    // uid produced a second row — the duplicate-with-split-votes case. Read the
+    // event first and let planMemberUpserts match them onto the row they occupy.
+    let existingMembers = {};
+    try {
+      const snap = await getDoc(doc(db, 'events', eventId));
+      existingMembers = snap.data()?.members || {};
+    } catch (err) {
+      console.error('Add to event read error:', err);
     }
+    const { updates, added, merged } = planMemberUpserts(existingMembers, selectedFriends);
+    await updateDoc(doc(db, 'events', eventId), updates)
+      .catch(err => console.error('Add to event error:', err));
     setAddingToTrip(false);
     setShowAddToTrip(false);
     setSelectedIds(new Set());
-    setResult({ type: 'success', message: `${selectedFriends.length} contact${selectedFriends.length !== 1 ? 's' : ''} added to event!` });
+    const mergedNote = merged.length ? `, ${merged.length} already on the event` : '';
+    setResult({ type: 'success', message: `${added.length} contact${added.length !== 1 ? 's' : ''} added to event${mergedNote}!` });
     setTimeout(() => setResult(null), 3000);
   }
 
@@ -1088,27 +1097,16 @@ export function FriendsPage() {
   // uses so the member shows up identically on the event detail page.
   async function setRosterRsvp(friend, rsvp, memberKey) {
     if (!user || !rosterEventId || !friend) return;
-    // Prefer the caller-resolved key (may be a real auth UID for app users);
-    // fall back to the sanitized email/id key when adding a brand-new member.
-    const key = memberKey || sanitizeKey(friend.email || friend.id);
-    const existing = rosterEvent?.members?.[key];
-    const isMember = !!existing && typeof existing === 'object';
-    if (isMember) {
-      await updateDoc(doc(db, 'events', rosterEventId), {
-        [`members.${key}.rsvp`]: rsvp,
-      }).catch(err => console.error('Set RSVP error:', err));
-    } else {
-      await updateDoc(doc(db, 'events', rosterEventId), {
-        [`members.${key}`]: {
-          role: 'viewer',
-          rsvp,
-          name: friend.name || '',
-          email: friend.email || '',
-          phone: friend.phone || '',
-        },
-        memberUids: arrayUnion(key),
-      }).catch(err => console.error('Add roster member error:', err));
-    }
+    // The caller-resolved key wins when it's given (it may be a real auth uid);
+    // otherwise match the friend onto whatever row they already occupy rather
+    // than assuming the email slug, which would add a second row for anyone
+    // already on the event under a different key.
+    const { key, fields } = planMemberUpsert(rosterEvent?.members || {}, friend, { key: memberKey, rsvp });
+    const updates = { ...fields };
+    if (!(rosterEvent?.memberUids || []).includes(key)) updates.memberUids = arrayUnion(key);
+    if (Object.keys(updates).length === 0) return;
+    await updateDoc(doc(db, 'events', rosterEventId), updates)
+      .catch(err => console.error('Set roster RSVP error:', err));
   }
 
   // Remove a friend from the roster event. Deletes the member entry and

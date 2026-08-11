@@ -4,6 +4,7 @@ import { doc, getDoc, updateDoc, addDoc, deleteDoc, collection, query, orderBy, 
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { addFriend, buildFriendIndex, matchFriend, sanitizeMemberKey } from '../lib/friends';
+import { findMemberKey, planMemberUpserts, normName } from '../lib/members';
 import { WEB_ORIGIN } from '../native';
 import { format, eachDayOfInterval } from 'date-fns';
 import styles from './PollPage.module.css';
@@ -342,13 +343,10 @@ function PollPageInner() {
           // existing person first — preferring a real member entry (which carries
           // the organizer's email/phone) over a vote-only row.
           function matchExisting(name) {
-            const target = name.trim().toLowerCase();
-            if (!target) return null;
-            const sameName = ([, m]) => (m?.name || '').trim().toLowerCase() === target;
-            const realMember = Object.entries(event?.members || {})
-              .filter(([, m]) => m && typeof m === 'object')
-              .find(sameName);
-            return realMember || allMembers.find(sameName) || null;
+            if (!name.trim()) return null;
+            const realKey = findMemberKey(event?.members || {}, { name });
+            if (realKey) return [realKey, event.members[realKey]];
+            return allMembers.find(([, m]) => normName(m?.name) === normName(name)) || null;
           }
 
           function confirmName(name, memberUid) {
@@ -1120,19 +1118,20 @@ function InviteOthers({ eventTitle, eventId, eventDate, eventLocation, voterName
       return; // all are duplicates, warnings are already visible
     }
     try {
-      for (const inv of newOnes) {
-        const name = inv.name.trim() || 'Guest';
-        const memberId = name.replace(/\s+/g, '_').toLowerCase() + '_' + Date.now().toString(36);
-        const memberData = { role: 'viewer', rsvp: 'pending', name };
-        if (inv.phone.trim()) memberData.phone = inv.phone.trim();
-        await updateDoc(doc(db, 'events', eventId), {
-          [`members.${memberId}`]: memberData,
-          memberUids: arrayUnion(memberId),
-        });
-      }
+      // The phone check above only catches people who were given a phone here.
+      // planMemberUpserts matches on name too, and keys new people off their
+      // name rather than name+timestamp, so inviting the same person twice
+      // stops producing two rows.
+      const people = newOnes.map(inv => ({
+        name: inv.name.trim() || 'Guest',
+        phone: inv.phone.trim() || '',
+      }));
+      const { updates, merged } = planMemberUpserts(members, people);
+      await updateDoc(doc(db, 'events', eventId), updates);
       const addedNames = newOnes.map(inv => inv.name.trim() || inv.phone.trim());
-      if (duplicates.length > 0) {
-        addedNames.push(`(${duplicates.length} already invited)`);
+      const alreadyThere = duplicates.length + merged.length;
+      if (alreadyThere > 0) {
+        addedNames.push(`(${alreadyThere} already invited)`);
       }
       setAdded(addedNames);
       setInvitees([{ name: '', phone: '' }]);
