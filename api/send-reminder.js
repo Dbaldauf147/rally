@@ -15,6 +15,10 @@ export default async function handler(req, res) {
   const results = [];
   for (const r of recipients) {
     if (!r.email) { results.push({ name: r.name, success: false, error: 'No email' }); continue; }
+    // Each reminder goes to one person, so prefer their pinned poll link (carries
+    // ?vid=, which keys their votes to the member row they're already on). Falls
+    // back to the shared link for older callers that don't send one.
+    const link = r.pollLink || pollLink;
     try {
       const isSecond = reminderNumber === 2;
       const subject = isSecond
@@ -41,7 +45,7 @@ export default async function handler(req, res) {
                 ${eventDate ? `<p style="color: #525252; margin: 0 0 0.25rem;">📅 ${eventDate}</p>` : ''}
                 ${eventLocation ? `<p style="color: #525252; margin: 0;">📍 ${eventLocation}</p>` : ''}
               </div>
-              <a href="${pollLink}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.75rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 0.5rem;">Vote Now</a>
+              <a href="${link}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.75rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 0.5rem;">Vote Now</a>
               <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">If you didn't expect this email, you can safely ignore it.</p>
             </div>
           `,

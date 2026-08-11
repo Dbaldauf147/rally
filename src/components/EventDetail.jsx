@@ -1197,6 +1197,22 @@ export function EventDetail() {
 
   const inviteLink = `${WEB_ORIGIN}/invite/${event.shareToken}`;
 
+  // Poll link addressed to one specific member. The `vid` pins the voter to their
+  // existing member key, so identifying themselves on the poll page can't spawn a
+  // duplicate person. Only ever use this on a link going to that one person —
+  // group messages must keep the generic ?name=Friend link.
+  const pinnedPollUrl = (uid, m) =>
+    `${WEB_ORIGIN}/poll/${eventId}?name=${encodeURIComponent(m?.name || 'Friend')}&vid=${encodeURIComponent(uid)}`;
+
+  // Swap whatever poll link is in a shared draft for this member's pinned one.
+  const personalizePollLink = (text, uid, m) => {
+    const base = `${WEB_ORIGIN}/poll/${eventId}`;
+    const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // The query string can't end on punctuation, so a hand-edited draft like
+    // "Vote here: <link>. Thanks!" keeps its period instead of eating it.
+    return text.replace(new RegExp(`${escaped}(\\?[^\\s]*[^\\s.,;:!?)\\]])?`, 'g'), pinnedPollUrl(uid, m));
+  };
+
   const itineraryText = (() => {
     const items = (Array.isArray(event.itinerary) ? event.itinerary : [])
       .filter(it => (it.type || 'activity') !== 'travel');
@@ -1851,11 +1867,14 @@ export function EventDetail() {
           setTextAllMessage('');
         };
         // SMS link to a single recipient with the current draft — lets the user
-        // text people individually instead of as one group message.
-        const smsHref = (phone) => {
+        // text people individually instead of as one group message. Because it
+        // goes to exactly one person, the poll link is swapped for their pinned
+        // one so voting can't create a duplicate of them. The group send above
+        // keeps the generic link — one message, many recipients.
+        const smsHref = (phone, uid, m) => {
           let c = String(phone).replace(/[^+\d]/g, '');
           if (!c.startsWith('+')) c = c.startsWith('1') ? `+${c}` : `+1${c}`;
-          const body = encodeURIComponent(textAllMessage);
+          const body = encodeURIComponent(personalizePollLink(textAllMessage, uid, m));
           const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
           return isIOS ? `sms:/open?addresses=${c}&body=${body}` : `sms:${c}?body=${body}`;
         };
@@ -1887,7 +1906,7 @@ export function EventDetail() {
               {recipients.map(([uid, m]) => (
                 <a
                   key={uid}
-                  href={smsHref(m.phone)}
+                  href={smsHref(m.phone, uid, m)}
                   onClick={() => { if (textAllMessage.trim()) updateEvent(eventId, { [`members.${uid}.texted`]: new Date().toISOString() }); }}
                   title={`Text ${m.name || 'this person'} individually`}
                   style={{
@@ -2334,7 +2353,11 @@ export function EventDetail() {
                         </div>
                         {m.phone && uid !== user?.uid && (() => {
                           const name = m.name ? m.name.split(' ')[0] : 'Friend';
-                          const pollUrl = `${WEB_ORIGIN}/poll/${eventId}?name=${encodeURIComponent(name)}`;
+                          // Pin the link to this member so their votes land on the
+                          // row they're already on instead of creating a duplicate.
+                          // Full name in the URL — the poll writes it back as the
+                          // member's name, so a first name would truncate it.
+                          const pollUrl = pinnedPollUrl(uid, m);
                           const recipientHasVoted = (voteStats[uid]?.total || 0) > 0;
                           const msg = stage === 'finalized'
                             ? `Hey ${name}! Just a reminder about ${event.title}${event.location ? ` at ${event.location}` : ''}.\n\nDetails & RSVP: ${pollUrl}`
@@ -2841,7 +2864,7 @@ export function EventDetail() {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                          recipients: nonResponders.map(([, m]) => ({ name: m.name, email: m.email })),
+                          recipients: nonResponders.map(([uid, m]) => ({ name: m.name, email: m.email, pollLink: pinnedPollUrl(uid, m) })),
                           fromName: user?.displayName || 'Someone',
                           eventTitle: event.title,
                           eventDate: dateStr,
