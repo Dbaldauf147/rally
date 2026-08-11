@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, updateDoc, arrayUnion, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
@@ -54,8 +54,17 @@ export function InvitePage() {
         if (key !== user.uid && m && (m.email || '').toLowerCase() === userEmail) {
           // Merge existing member data (rsvp, phone, etc.) into the UID-keyed entry
           updates[`members.${user.uid}`] = { ...m, name: user.displayName || m.name || '', email: user.email || m.email || '' };
-          // Remove the old email-keyed entry
-          updates[`members.${key}`] = null;
+          // Remove the old email-keyed entry. deleteField(), not null — null leaves
+          // an explicit null in the members map that every reader has to filter out
+          // and that still counts toward member totals. memberUids is rewritten in
+          // the same write (Firestore won't take arrayUnion and arrayRemove on one
+          // field) so the dead key can't keep matching array-contains and leave the
+          // event on that person's dashboard.
+          updates[`members.${key}`] = deleteField();
+          updates.memberUids = [...new Set([
+            ...(event.memberUids || []).filter(u => u !== key),
+            user.uid,
+          ])];
           break;
         }
       }

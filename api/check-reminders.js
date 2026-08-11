@@ -80,7 +80,9 @@ export default async function handler(req, res) {
         const reminderNum = sent + 1;
         const totalReminders = ar.intervals.length;
         const isLast = reminderNum === totalReminders;
-        const pollLink = `https://rally-seven-theta.vercel.app/poll/${eventId}?name=${encodeURIComponent(m.name || 'Friend')}`;
+        // Addressed to this member alone, so pin it with their member key — the
+        // poll page keys their votes to it instead of minting a duplicate person.
+        const pollLink = `https://rally-seven-theta.vercel.app/poll/${eventId}?name=${encodeURIComponent(m.name || 'Friend')}&vid=${encodeURIComponent(uid)}`;
         const fromName = (() => {
           const owner = Object.entries(members).find(([, m2]) => m2?.role === 'owner');
           return owner?.[1]?.name || 'Someone';

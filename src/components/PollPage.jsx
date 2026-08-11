@@ -50,8 +50,11 @@ function PollPageInner() {
   const [signedInMatch, setSignedInMatch] = useState(false); // auto-identified via login
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const voterName = nameConfirmed ? editedName : nameParam;
-  const visitorId = searchParams.get('vid')
-    || selectedMemberUid
+  // An explicit pick outranks the link's ?vid= — otherwise "not you?" can't take
+  // effect on a personalized link, and a phone that got handed around would keep
+  // voting as whoever the link was addressed to.
+  const visitorId = selectedMemberUid
+    || searchParams.get('vid')
     || voterName.replace(/\s+/g, '_').toLowerCase();
   const [event, setEvent] = useState(null);
   const [dateOptions, setDateOptions] = useState([]);
@@ -71,7 +74,7 @@ function PollPageInner() {
   const [topPick, setTopPick] = useState(null); // optionId of user's top choice
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
-  const votesInitedRef = useRef(false); // one-time init of localVotes/topPick from Firestore
+  const votesInitedRef = useRef(null); // visitorId whose votes have been loaded into localVotes/topPick
 
   const [loadError, setLoadError] = useState(null);
 
@@ -102,21 +105,6 @@ function PollPageInner() {
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(o => !o.closed && !o.noVote);
         setDateOptions(opts);
-        // One-time init of the voter's in-progress selections from any existing
-        // votes. After this, localVotes is the single source of truth (so
-        // un-voting sticks) and only "Save" writes back to Firestore.
-        if (!votesInitedRef.current) {
-          votesInitedRef.current = true;
-          const existing = {};
-          let existingTop = null;
-          for (const opt of opts) {
-            const myVote = opt.votes?.[visitorId]?.vote;
-            if (myVote && myVote !== 'none') existing[opt.id] = myVote;
-            if (opt.votes?.[visitorId]?.topPick) existingTop = opt.id;
-          }
-          setLocalVotes(existing);
-          setTopPick(existingTop);
-        }
       },
       () => {}
     );
@@ -145,6 +133,27 @@ function PollPageInner() {
     setSignedInMatch(true);
     setNameConfirmed(true);
   }, [user, event, hasVid, nameConfirmed]);
+
+  // Load this voter's existing votes into the local draft once their identity is
+  // actually known — from ?vid=, tapping their name, or a name match. This used
+  // to run on the first dateOptions snapshot, before anyone had identified, so a
+  // returning voter always started from a blank slate. Re-runs if the identity
+  // changes ("not you?"), and the ref guard keeps later snapshots from wiping
+  // selections that are still in progress.
+  useEffect(() => {
+    if (!visitorId || dateOptions.length === 0) return;
+    if (votesInitedRef.current === visitorId) return;
+    votesInitedRef.current = visitorId;
+    const existing = {};
+    let existingTop = null;
+    for (const opt of dateOptions) {
+      const myVote = opt.votes?.[visitorId]?.vote;
+      if (myVote && myVote !== 'none') existing[opt.id] = myVote;
+      if (opt.votes?.[visitorId]?.topPick) existingTop = opt.id;
+    }
+    setLocalVotes(existing);
+    setTopPick(existingTop);
+  }, [visitorId, dateOptions]);
 
   const stage = event?.stage || 'voting';
   const isFinalized = stage === 'finalized';
@@ -326,14 +335,40 @@ function PollPageInner() {
           }
           allMembers.sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
 
+          // Someone typing "Mike Baldauf" into the "Not on the list?" box used to
+          // get a brand-new member keyed on the name slug, so they showed up as a
+          // second row alongside the contact the organizer had already added and
+          // their votes landed on the duplicate. Match the typed name to an
+          // existing person first — preferring a real member entry (which carries
+          // the organizer's email/phone) over a vote-only row.
+          function matchExisting(name) {
+            const target = name.trim().toLowerCase();
+            if (!target) return null;
+            const sameName = ([, m]) => (m?.name || '').trim().toLowerCase() === target;
+            const realMember = Object.entries(event?.members || {})
+              .filter(([, m]) => m && typeof m === 'object')
+              .find(sameName);
+            return realMember || allMembers.find(sameName) || null;
+          }
+
           function confirmName(name, memberUid) {
-            const finalName = name.trim();
+            let finalName = name.trim();
             if (!finalName) return;
+            let id = memberUid;
+            if (!id) {
+              const match = matchExisting(finalName);
+              // Keep the name already on the roster so a lowercase "mike baldauf"
+              // doesn't rewrite the organizer's "Mike Baldauf".
+              if (match) { [id] = match; finalName = match[1].name || finalName; }
+              else id = finalName.replace(/\s+/g, '_').toLowerCase();
+            }
             setEditedName(finalName);
-            if (memberUid) setSelectedMemberUid(memberUid);
+            // Always pin the resolved id — visitorId falls back to the name slug
+            // when this is null, which would send the votes to a new person even
+            // though the member write below went to the matched one.
+            setSelectedMemberUid(id);
             setNameConfirmed(true);
             setShowNameSuggestions(false);
-            const id = memberUid || finalName.replace(/\s+/g, '_').toLowerCase();
             updateDoc(doc(db, 'events', eventId), memberWrite(id, finalName)).catch(() => {});
           }
 
