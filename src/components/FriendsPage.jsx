@@ -1791,7 +1791,7 @@ export function FriendsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '300px', overflowY: 'auto' }}>
                 {events.map(evt => {
                   const d = evt.date?.toDate ? evt.date.toDate() : evt.date ? new Date(evt.date) : null;
-                  const memberCount = evt.members ? Object.keys(evt.members).length : 0;
+                  const memberCount = evt.members ? Object.values(evt.members).filter(Boolean).length : 0;
                   return (
                     <button
                       key={evt.id}

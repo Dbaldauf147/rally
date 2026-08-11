@@ -1102,6 +1102,9 @@ export function EventDetail() {
       if (mData.plusOneOf === srcUid) updates[`members.${mUid}.plusOneOf`] = tgtUid;
     }
     updates[`members.${srcUid}`] = deleteField();
+    // Drop the merged-away key from memberUids too, or it keeps matching
+    // array-contains and the event stays on that identity's dashboard.
+    updates.memberUids = arrayRemove(srcUid);
     await updateDoc(doc(db, 'events', eventId), updates);
     try {
       const dSnap = await getDocs(collection(db, 'events', eventId, 'dateOptions'));
@@ -2383,8 +2386,13 @@ export function EventDetail() {
                             onClick={async (e) => {
                               e.stopPropagation();
                               if (!window.confirm(`Remove ${m.name || 'this person'} from the event?`)) return;
-                              // Remove from event members
-                              await updateDoc(doc(db, 'events', eventId), { [`members.${uid}`]: deleteField() });
+                              // Remove from event members. memberUids has to go too —
+                              // it's what `array-contains` matches, so leaving the key
+                              // there keeps the event on the removed person's dashboard.
+                              await updateDoc(doc(db, 'events', eventId), {
+                                [`members.${uid}`]: deleteField(),
+                                memberUids: arrayRemove(uid),
+                              });
                               // Also remove their votes from all date options so they don't reappear
                               try {
                                 const dSnap = await getDocs(collection(db, 'events', eventId, 'dateOptions'));
@@ -3667,8 +3675,11 @@ export function EventDetail() {
                                     updates[`members.${mUid}.plusOneOf`] = uid;
                                   }
                                 }
-                                // Remove the merged member
+                                // Remove the merged member, memberUids included — the
+                                // key is what array-contains matches, so leaving it
+                                // keeps the event on that identity's dashboard.
                                 updates[`members.${editMember.uid}`] = deleteField();
+                                updates.memberUids = arrayRemove(editMember.uid);
                                 await updateDoc(doc(db, 'events', eventId), updates);
                                 // Transfer votes from dateOptions
                                 try {

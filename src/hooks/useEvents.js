@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, arrayUnion, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -46,12 +46,22 @@ export function useEvents() {
       const memberUids = data.memberUids || [];
       if (memberUids.includes(user.uid)) return; // Already linked
       if (!members[emailKey]) return; // Email key not in members
-      // Merge the email-keyed member into UID-keyed member
+      // Merge the email-keyed member into UID-keyed member.
+      // deleteField(), not null: assigning null leaves an explicit null sitting in
+      // the members map, which every reader then has to filter out and which still
+      // counts toward member totals. arrayRemove keeps memberUids in step, or the
+      // dead key keeps matching array-contains and the event stays on the
+      // dashboard of whoever that key belonged to.
+      // memberUids is rewritten rather than arrayUnion'd because the same write
+      // has to drop emailKey, and Firestore won't take two transforms on one
+      // field. Doing it in a single write also means a failure can't leave the
+      // uid added but the dead key still there.
       const existing = members[emailKey];
+      const nextUids = [...new Set([...memberUids.filter(u => u !== emailKey), user.uid])];
       await updateDoc(doc(db, 'events', eventDoc.id), {
         [`members.${user.uid}`]: { ...existing, name: user.displayName || existing.name || '', email: user.email || existing.email || '' },
-        [`members.${emailKey}`]: null,
-        memberUids: arrayUnion(user.uid),
+        [`members.${emailKey}`]: deleteField(),
+        memberUids: nextUids,
       }).catch(() => {});
     }
 
