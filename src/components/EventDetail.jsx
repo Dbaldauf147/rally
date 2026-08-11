@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { doc, collection, onSnapshot, updateDoc, arrayUnion, arrayRemove, getDocs, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
+import { planMemberUpsert } from '../lib/members';
 import { WEB_ORIGIN } from '../native';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
@@ -2448,31 +2449,46 @@ export function EventDetail() {
                   const term = friendSearch.toLowerCase();
                   return (f.name || '').toLowerCase().includes(term) || (f.email || '').toLowerCase().includes(term);
                 });
+                // Every row goes through planMemberUpsert, so a friend who is
+                // already on the event under another key (their auth uid, say)
+                // merges into that row instead of gaining a second one — and the
+                // per-field writes leave any plusOneOf/texted/rsvp already there
+                // alone. `working` accumulates so a partner added in the same
+                // click is visible to the next lookup.
                 async function addFriendToEvent(f) {
-                  const key = (f.email || f.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
-                  const updates = {
-                    [`members.${key}`]: { role: 'viewer', rsvp: 'pending', name: f.name || '', email: f.email || '', phone: f.phone || '' },
-                    memberUids: arrayUnion(key),
+                  const working = { ...(event.members || {}) };
+                  const updates = {};
+                  const keys = [];
+                  const addedNames = [];
+                  const place = (person, extra) => {
+                    const { key, isNew, fields } = planMemberUpsert(working, person, { extra });
+                    Object.assign(updates, fields);
+                    working[key] = {
+                      ...(working[key] && typeof working[key] === 'object' ? working[key] : {}),
+                      name: person.name || working[key]?.name || '',
+                      email: person.email || working[key]?.email || '',
+                      phone: person.phone || working[key]?.phone || '',
+                    };
+                    keys.push(key);
+                    if (isNew && person.name) addedNames.push(person.name);
+                    return key;
                   };
-                  const addedNames = [f.name];
+
+                  const key = place(f);
                   if (f.linkedTo) {
                     const linked = friends.find(x => x.id === f.linkedTo);
                     if (linked && notAlreadyMember(linked)) {
-                      const linkedKey = (linked.email || linked.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
-                      updates[`members.${linkedKey}`] = { role: 'viewer', rsvp: 'pending', name: linked.name || '', email: linked.email || '', phone: linked.phone || '', plusOneOf: key };
+                      const linkedKey = place(linked, { plusOneOf: key });
                       // Mutual: the person we're adding also comes by way of their partner.
-                      updates[`members.${key}`].plusOneOf = linkedKey;
-                      updates.memberUids = arrayUnion(key, linkedKey);
-                      addedNames.push(linked.name);
+                      updates[`members.${key}.plusOneOf`] = linkedKey;
                     }
                   }
-                  const reverseLinked = friends.filter(x => x.linkedTo === f.id && notAlreadyMember(x));
-                  for (const rl of reverseLinked) {
-                    const rlKey = (rl.email || rl.id).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
-                    updates[`members.${rlKey}`] = { role: 'viewer', rsvp: 'pending', name: rl.name || '', email: rl.email || '', phone: rl.phone || '', plusOneOf: key };
-                    updates.memberUids = arrayUnion(key, rlKey);
-                    addedNames.push(rl.name);
+                  for (const rl of friends.filter(x => x.linkedTo === f.id && notAlreadyMember(x))) {
+                    place(rl, { plusOneOf: key });
                   }
+                  // One arrayUnion over every key. This used to be reassigned per
+                  // reverse-linked friend, so only the last pair reached memberUids.
+                  updates.memberUids = arrayUnion(...new Set(keys));
                   await updateDoc(doc(db, 'events', eventId), updates);
                   return addedNames.filter(Boolean);
                 }
@@ -2643,25 +2659,31 @@ export function EventDetail() {
                   try {
                     const updates = {};
                     const keys = [];
-                    const usedKeys = new Set(memberKeys);
                     // Source keys carry identity — a real uid, or the email key
-                    // useEvents auto-links on — so reuse them rather than minting
-                    // fresh ones; only invent a key if it's somehow taken here.
+                    // useEvents auto-links on — so prefer them. A key already in
+                    // use here used to be sidestepped by minting `<key>_a1b2`,
+                    // which added a second row for someone already present;
+                    // planMemberUpsert merges onto their row instead. Contact
+                    // details come across, but role, RSVP, votes and sent-message
+                    // stamps stay whatever this event already had.
                     const keyMap = {};
+                    const working = { ...(event.members || {}) };
                     for (const p of picked) {
-                      let key = p.key;
-                      if (usedKeys.has(key)) key = `${key}_${Math.random().toString(36).slice(2, 6)}`;
-                      usedKeys.add(key);
+                      const { key, fields } = planMemberUpsert(working, { ...p, id: p.key }, { key: working[p.key] ? undefined : p.key });
+                      Object.assign(updates, fields);
+                      working[key] = {
+                        ...(working[key] && typeof working[key] === 'object' ? working[key] : {}),
+                        name: p.name || working[key]?.name || '',
+                        email: p.email || working[key]?.email || '',
+                        phone: p.phone || working[key]?.phone || '',
+                      };
                       keyMap[p.key] = key;
-                      // A fresh invite: contact details come across, but role,
-                      // RSVP, votes and sent-message stamps all start clean.
-                      updates[`members.${key}`] = { role: 'viewer', rsvp: 'pending', name: p.name, email: p.email, phone: p.phone };
-                      keys.push(key);
+                      if (!keys.includes(key)) keys.push(key);
                     }
                     // Keep couples paired, but only where both halves came over.
                     for (const p of picked) {
                       const partnerKey = p.plusOneOf && keyMap[p.plusOneOf];
-                      if (partnerKey) updates[`members.${keyMap[p.key]}`].plusOneOf = partnerKey;
+                      if (partnerKey) updates[`members.${keyMap[p.key]}.plusOneOf`] = partnerKey;
                     }
                     updates.memberUids = arrayUnion(...keys);
                     await updateDoc(doc(db, 'events', eventId), updates);
@@ -2947,26 +2969,33 @@ export function EventDetail() {
               const updates = {};
               const keys = [];
               const added = [];
-              const usedKeys = new Set(members.map(([uid]) => uid));
               // Whether someone is already a real poll member (by email or name),
               // matching the "+ Add Friends" dedup so we don't re-add partners.
               const memberEmails = new Set(members.map(([, m]) => (m.email || '').toLowerCase()).filter(Boolean));
               const memberNames = new Set(members.map(([, m]) => (m.name || '').trim().toLowerCase()).filter(Boolean));
               const alreadyMember = (name, email) =>
                 (email && memberEmails.has(email.toLowerCase())) || (name && memberNames.has(name.trim().toLowerCase()));
-              const keyFor = (email, id, name) => (email || id || name).replace(/[.@#$/\[\]]/g, '_').toLowerCase();
-              // Create (or return the existing batched key for) a member. plusOneOf
-              // links this person to their partner. Returns the key used.
+              // Find this person's row or create one. This used to mint a
+              // suffixed key (`<key>_a1b2`) whenever the natural key was already
+              // taken, which manufactured exactly the duplicate rows it was
+              // trying to avoid; planMemberUpsert merges onto the existing row
+              // instead, filling gaps without touching what's already set.
+              const working = { ...(event.members || {}) };
               const ensureMember = (name, email, phone, id, plusOneOf) => {
-                let key = keyFor(email, id, name);
-                if (!updates[`members.${key}`]) {
-                  if (usedKeys.has(key)) key = `${key}_${Math.random().toString(36).slice(2, 6)}`;
-                  updates[`members.${key}`] = { role: 'viewer', rsvp: 'pending', name: name || '', email: email || '', phone: phone || '' };
-                  usedKeys.add(key);
-                  keys.push(key);
-                  added.push(name);
-                }
-                if (plusOneOf) updates[`members.${key}`].plusOneOf = plusOneOf;
+                const { key, isNew, fields } = planMemberUpsert(
+                  working,
+                  { name, email, phone, id },
+                  { extra: plusOneOf ? { plusOneOf } : undefined },
+                );
+                Object.assign(updates, fields);
+                working[key] = {
+                  ...(working[key] && typeof working[key] === 'object' ? working[key] : {}),
+                  name: name || working[key]?.name || '',
+                  email: email || working[key]?.email || '',
+                  phone: phone || working[key]?.phone || '',
+                };
+                if (!keys.includes(key)) keys.push(key);
+                if (isNew && name) added.push(name);
                 return key;
               };
               for (const r of importableGuests) {
@@ -2980,7 +3009,7 @@ export function EventDetail() {
                 const linked = friend.linkedTo ? friends.find(x => x.id === friend.linkedTo) : null;
                 if (linked && !alreadyMember(linked.name, linked.email)) {
                   const linkedKey = ensureMember(linked.name, linked.email, linked.phone, linked.id, key);
-                  updates[`members.${key}`].plusOneOf = linkedKey;
+                  updates[`members.${key}.plusOneOf`] = linkedKey;
                 }
                 for (const rl of friends.filter(x => x.linkedTo === friend.id && !alreadyMember(x.name, x.email))) {
                   ensureMember(rl.name, rl.email, rl.phone, rl.id, key);
@@ -2990,7 +3019,9 @@ export function EventDetail() {
               updates.memberUids = arrayUnion(...keys);
               try {
                 await updateDoc(doc(db, 'events', eventId), updates);
-                setResult({ type: 'success', message: `${added.length} boat guest${added.length !== 1 ? 's' : ''} added to poll: ${added.slice(0, 4).join(', ')}${added.length > 4 ? '…' : ''}` });
+                setResult(added.length === 0
+                  ? { type: 'success', message: 'Everyone aboard was already on the poll.' }
+                  : { type: 'success', message: `${added.length} boat guest${added.length !== 1 ? 's' : ''} added to poll: ${added.slice(0, 4).join(', ')}${added.length > 4 ? '…' : ''}` });
               } catch (e) {
                 setResult({ type: 'error', message: `Couldn't import boat guests: ${e.message || e}` });
               }

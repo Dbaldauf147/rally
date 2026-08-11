@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc, arrayUnion, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
+import { findMemberKey } from '../lib/members';
 import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
 import styles from './InvitePage.module.css';
@@ -47,26 +48,26 @@ export function InvitePage() {
       [`members.${user.uid}`]: { role: 'viewer', rsvp: 'pending', name: user.displayName || user.email || '', email: user.email || '' },
       memberUids: arrayUnion(user.uid),
     };
-    // Check if user's email already exists as a member under a different key — merge their data
-    const userEmail = (user.email || '').toLowerCase();
-    if (userEmail && event.members) {
-      for (const [key, m] of Object.entries(event.members)) {
-        if (key !== user.uid && m && (m.email || '').toLowerCase() === userEmail) {
-          // Merge existing member data (rsvp, phone, etc.) into the UID-keyed entry
-          updates[`members.${user.uid}`] = { ...m, name: user.displayName || m.name || '', email: user.email || m.email || '' };
-          // Remove the old email-keyed entry. deleteField(), not null — null leaves
-          // an explicit null in the members map that every reader has to filter out
-          // and that still counts toward member totals. memberUids is rewritten in
-          // the same write (Firestore won't take arrayUnion and arrayRemove on one
-          // field) so the dead key can't keep matching array-contains and leave the
-          // event on that person's dashboard.
-          updates[`members.${key}`] = deleteField();
-          updates.memberUids = [...new Set([
-            ...(event.memberUids || []).filter(u => u !== key),
-            user.uid,
-          ])];
-          break;
-        }
+    // Check whether they're already a member under a different key — by email,
+    // phone or name, not email alone, since someone invited by phone or added
+    // by name would otherwise join as a second row.
+    if (event.members) {
+      const key = findMemberKey(event.members, { email: user.email, name: user.displayName }, { skipKey: user.uid });
+      const m = key ? event.members[key] : null;
+      if (m) {
+        // Merge the existing row (rsvp, phone, plusOneOf, …) into the uid-keyed entry
+        updates[`members.${user.uid}`] = { ...m, name: user.displayName || m.name || '', email: user.email || m.email || '' };
+        // Retire the old key with deleteField(), not null — null leaves an explicit
+        // null in the members map that every reader has to filter out and that still
+        // counts toward member totals. memberUids is rewritten in the same write
+        // (Firestore won't take arrayUnion and arrayRemove on one field) so the dead
+        // key can't keep matching array-contains and leave the event on that
+        // person's dashboard.
+        updates[`members.${key}`] = deleteField();
+        updates.memberUids = [...new Set([
+          ...(event.memberUids || []).filter(u => u !== key),
+          user.uid,
+        ])];
       }
     }
     await updateDoc(doc(db, 'events', event.id), updates);
