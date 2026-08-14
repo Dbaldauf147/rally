@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useEvents } from '../hooks/useEvents';
 import { JetLagChecklist } from './JetLagChecklist';
 import styles from './TravelListPage.module.css';
 
@@ -313,7 +314,7 @@ function seedTravelList() {
   tagItemsBySection(sections);
   return {
     sections,
-    meta: { leaveDate: '', returnDate: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true },
+    meta: { leaveDate: '', returnDate: '', eventId: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true },
   };
 }
 
@@ -377,6 +378,10 @@ function normalizeList(raw) {
     meta: {
       leaveDate: raw.meta?.leaveDate || '',
       returnDate: raw.meta?.returnDate || '',
+      // Rally Calendar event the dates were filled from, if any. Cleared the
+      // moment either date is edited by hand, so it never claims a source the
+      // dates no longer match.
+      eventId: raw.meta?.eventId || '',
       days: raw.meta?.days || '',
       dayBeforeAdded,
       dayBeforeFronted,
@@ -404,12 +409,29 @@ function countLeaves(sections) {
   return { total, done };
 }
 
+// Calendar events store their dates as Firestore Timestamps; older/cached docs
+// can hold a plain string. Both land here as a Date (or null when unusable).
+function toDate(v) {
+  if (!v) return null;
+  const d = v.toDate ? v.toDate() : new Date(v);
+  return isNaN(d) ? null : d;
+}
+const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// "Mar 3", "Mar 3 – Mar 8", or "Mar 3 – Mar 8, 2027" for another year.
+function tripDateLabel(leave, ret) {
+  const fmt = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const span = toYMD(leave) === toYMD(ret) ? fmt(leave) : `${fmt(leave)} – ${fmt(ret)}`;
+  const year = ret.getFullYear();
+  return year === new Date().getFullYear() ? span : `${span}, ${year}`;
+}
+
 const CACHE_KEY = 'rally.travelList.doc.v2';
 const OPEN_KEY = 'rally.travelList.open.v2';
 const CATS_KEY = 'rally.travelList.hiddenCats.v1';
 
 export function TravelListPage() {
   const { user } = useAuth();
+  const { events } = useEvents();
 
   const [list, setList] = useState(() => {
     try {
@@ -578,6 +600,39 @@ export function TravelListPage() {
 
   const { total, done } = useMemo(() => countLeaves(list.sections), [list]);
 
+  // --- Rally Calendar ---
+  // Events that can fill in the travel dates: anything not cancelled that hasn't
+  // finished yet, soonest first. The currently-picked event stays in the list
+  // even once it's cancelled or past, so the select still names where the dates
+  // came from rather than silently falling back to "Pick an event…".
+  const calendarTrips = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const picked = list.meta.eventId;
+    const trips = [];
+    for (const ev of events) {
+      const leave = toDate(ev.date);
+      if (!leave) continue;
+      const isPicked = ev.id === picked;
+      if (ev.cancelled && !isPicked) continue;
+      const end = toDate(ev.endDate);
+      const ret = end && end >= leave ? end : leave;
+      if (ret < today && !isPicked) continue;
+      trips.push({ id: ev.id, title: ev.title || 'Untitled event', leave, ret });
+    }
+    trips.sort((a, b) => a.leave - b.leave);
+    return trips;
+  }, [events, list.meta.eventId]);
+
+  // The picked event was rescheduled on the calendar after it was pulled in.
+  // Manual date edits clear eventId, so a mismatch can only come from that side.
+  const calendarDrift = useMemo(() => {
+    const trip = calendarTrips.find((t) => t.id === list.meta.eventId);
+    if (!trip) return null;
+    if (toYMD(trip.leave) === list.meta.leaveDate && toYMD(trip.ret) === list.meta.returnDate) return null;
+    return trip;
+  }, [calendarTrips, list.meta.eventId, list.meta.leaveDate, list.meta.returnDate]);
+
   if (user && user.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
   if (!user) return null;
 
@@ -650,6 +705,15 @@ export function TravelListPage() {
       meta: { ...l.meta, categories: (l.meta.categories || []).filter((c) => c !== name) },
       sections: l.sections.map((s) => ({ ...s, items: s.items.map((it) => it.category === name ? { ...it, category: '' } : it) })),
     }));
+  }
+
+  function pickFromCalendar(eventId) {
+    if (!eventId) { setMeta({ eventId: '' }); return; } // keep the dates, drop the link
+    const trip = calendarTrips.find((t) => t.id === eventId);
+    if (!trip) return;
+    // days is cleared because the computed length takes over whenever both dates
+    // are set — leaving a stale manual number would resurface if they're cleared.
+    setMeta({ eventId, leaveDate: toYMD(trip.leave), returnDate: toYMD(trip.ret), days: '' });
   }
 
   // Trip length, inclusive of both the leave and return day, computed from the
@@ -907,13 +971,28 @@ export function TravelListPage() {
       <p className={styles.subtitle}>Your master packing & pre-trip checklist. Synced to your account.</p>
 
       <div className={styles.meta}>
+        {calendarTrips.length > 0 && (
+          <label className={styles.metaField}>
+            <span className={styles.metaLabel}>From Rally Calendar</span>
+            <select
+              className={styles.metaInput}
+              value={list.meta.eventId || ''}
+              onChange={(e) => pickFromCalendar(e.target.value)}
+            >
+              <option value="">Pick an event…</option>
+              {calendarTrips.map((t) => (
+                <option key={t.id} value={t.id}>{t.title} · {tripDateLabel(t.leave, t.ret)}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className={styles.metaField}>
           <span className={styles.metaLabel}>Leave date</span>
           <input
             className={styles.metaInput}
             type="date"
             value={list.meta.leaveDate}
-            onChange={(e) => setMeta({ leaveDate: e.target.value })}
+            onChange={(e) => setMeta({ leaveDate: e.target.value, eventId: '' })}
           />
         </label>
         <label className={styles.metaField}>
@@ -922,7 +1001,7 @@ export function TravelListPage() {
             className={styles.metaInput}
             type="date"
             value={list.meta.returnDate}
-            onChange={(e) => setMeta({ returnDate: e.target.value })}
+            onChange={(e) => setMeta({ returnDate: e.target.value, eventId: '' })}
           />
         </label>
         <label className={styles.metaField}>
@@ -938,6 +1017,13 @@ export function TravelListPage() {
           />
         </label>
       </div>
+
+      {calendarDrift && (
+        <div className={styles.calDrift}>
+          <span>📅 “{calendarDrift.title}” now runs {tripDateLabel(calendarDrift.leave, calendarDrift.ret)} on the Rally Calendar</span>
+          <button className={styles.btn} onClick={() => pickFromCalendar(calendarDrift.id)}>Update dates</button>
+        </div>
+      )}
 
       {rentDue != null && (
         <div className={rentDue ? styles.rentDue : styles.rentNot}>

@@ -57,6 +57,8 @@
 .rentDue, .rentNot { display: flex; align-items: center; gap: 0.4rem; padding: 0.6rem 0.85rem; margin-bottom: 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.85rem; }
 .rentDue { background: #FEE2E2; border: 1px solid #FCA5A5; color: #991B1B; }
 .rentNot { background: #DCFCE7; border: 1px solid #86EFAC; color: #166534; }
+/* The picked Rally Calendar event was rescheduled after its dates were pulled in. */
+.calDrift { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; padding: 0.6rem 0.85rem; margin-bottom: 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.85rem; background: #FEF3C7; border: 1px solid #FDE68A; color: #92400E; }
 
 /* Item editor popup. */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 200; }
