@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import { getVotingEventsForState, VOTING_TYPES } from '../electionDates';
 import { getHolidayMap } from '../holidays';
+import { isRecurring, occurrencesInRange } from '../lib/recurrence';
 import { API_BASE, isNativeApp } from '../native';
 import styles from './Plans.module.css';
 
@@ -123,18 +124,29 @@ export function Plans() {
   const winEnd = new Date(week3End.getFullYear(), week3End.getMonth(), week3End.getDate());
   for (const ev of events) {
     if (ev.stage !== 'finalized' || ev.dateTBD || ev.cancelled) continue;
-    const start = ev.date?.toDate ? ev.date.toDate() : (ev.date ? new Date(ev.date) : null);
-    if (!start || isNaN(start)) continue;
-    let end = ev.endDate?.toDate ? ev.endDate.toDate() : (ev.endDate ? new Date(ev.endDate) : start);
-    if (!end || isNaN(end)) end = start;
-    const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-    const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-    for (let i = 0; i < 400 && cur <= last; i++) {
-      if (cur >= winStart && cur <= winEnd) {
-        const ds = toDateStr(cur);
-        (rallyByDay[ds] = rallyByDay[ds] || []).push({ id: ev.id, title: ev.title || '(untitled)' });
+    // A yearly event is expanded across the window rather than read off its
+    // dates: the stored occurrence is the *next* one, which would miss a
+    // repeat that already happened earlier this week.
+    const spans = isRecurring(ev)
+      ? occurrencesInRange(ev, winStart, new Date(winEnd.getFullYear(), winEnd.getMonth(), winEnd.getDate(), 23, 59, 59))
+          .map(o => ({ start: o.start, end: o.end }))
+      : (() => {
+          const start = ev.date?.toDate ? ev.date.toDate() : (ev.date ? new Date(ev.date) : null);
+          if (!start || isNaN(start)) return [];
+          let end = ev.endDate?.toDate ? ev.endDate.toDate() : (ev.endDate ? new Date(ev.endDate) : start);
+          if (!end || isNaN(end)) end = start;
+          return [{ start, end }];
+        })();
+    for (const { start, end } of spans) {
+      const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      for (let i = 0; i < 400 && cur <= last; i++) {
+        if (cur >= winStart && cur <= winEnd) {
+          const ds = toDateStr(cur);
+          (rallyByDay[ds] = rallyByDay[ds] || []).push({ id: ev.id, title: ev.title || '(untitled)', repeating: isRecurring(ev) });
+        }
+        cur.setDate(cur.getDate() + 1);
       }
-      cur.setDate(cur.getDate() + 1);
     }
   }
   const hasRally = Object.keys(rallyByDay).length > 0;
@@ -333,13 +345,13 @@ export function Plans() {
           <span
             key={`r-${i}`}
             className={styles.rallyLine}
-            title={`${r.title} — finalized Rally event (click to open)`}
+            title={`${r.title} — ${r.repeating ? 'repeats every year' : 'finalized Rally event'} (click to open)`}
             onClick={() => navigate(`/event/${r.id}`)}
             role="button"
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/event/${r.id}`); }}
           >
-            🎉 {r.title}
+            {r.repeating ? '🔁' : '🎉'} {r.title}
           </span>
         ))}
         {items.map((evt, i) => (

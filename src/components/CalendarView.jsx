@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEvents } from '../hooks/useEvents';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday } from 'date-fns';
 import { getHolidayMap } from '../holidays';
+import { isRecurring, occurrencesInRange, describeRecurrence } from '../lib/recurrence';
 import styles from './CalendarView.module.css';
 
 export function CalendarView() {
@@ -191,13 +192,36 @@ export function CalendarView() {
   const trimmed = lastRow.every(d => d.getMonth() !== currentDate.getMonth()) ? calDays.slice(0, -7) : calDays;
   const holidayMap = getHolidayMap([...new Set(trimmed.map(d => d.getFullYear()))]);
 
+  // Yearly events are one doc each, so the grid expands their rule across the
+  // visible weeks — that's how a repeating event shows up in years other than
+  // the one it was created in.
+  const gridStartMs = trimmed[0]?.getTime() ?? 0;
+  const gridEndMs = trimmed[trimmed.length - 1]?.getTime() ?? 0;
+  const recurringByDay = useMemo(() => {
+    if (!gridStartMs || !gridEndMs) return {};
+    const gridStart = new Date(gridStartMs);
+    const gridEnd = new Date(gridEndMs);
+    const rangeStart = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate());
+    const rangeEnd = new Date(gridEnd.getFullYear(), gridEnd.getMonth(), gridEnd.getDate(), 23, 59, 59);
+    const map = {};
+    for (const e of events) {
+      if (e.cancelled || !isRecurring(e)) continue;
+      for (const occ of occurrencesInRange(e, rangeStart, rangeEnd)) {
+        const key = format(occ.start, 'yyyy-MM-dd');
+        (map[key] = map[key] || []).push({ ...e, _occurrence: occ });
+      }
+    }
+    return map;
+  }, [events, gridStartMs, gridEndMs]);
+
   // Cancelled events are dropped from the grid — nothing is happening that day.
   function getRallyEventsForDay(day) {
-    return events.filter(e => {
-      if (e.cancelled) return false;
+    const oneOffs = events.filter(e => {
+      if (e.cancelled || isRecurring(e)) return false;
       const d = e.date?.toDate ? e.date.toDate() : new Date(e.date);
       return isSameDay(d, day);
     });
+    return [...oneOffs, ...(recurringByDay[format(day, 'yyyy-MM-dd')] || [])];
   }
 
   // All-day Google events arrive as date-only strings (e.g. "2026-07-18"). Parsing
@@ -283,8 +307,13 @@ export function CalendarView() {
               ))}
               {allEvents.slice(0, 3).map((e, i) => (
                 e.source === 'rally' ? (
-                  <button key={e.id} className={styles.eventChip} onClick={() => navigate(`/event/${e.id}`)}>
-                    {e.title}
+                  <button
+                    key={e._occurrence ? `${e.id}-${e._occurrence.year}` : e.id}
+                    className={styles.eventChip}
+                    onClick={() => navigate(`/event/${e.id}`)}
+                    title={e._occurrence ? `${e.title} — ${describeRecurrence(e.recurrence)}` : e.title}
+                  >
+                    {e._occurrence ? '🔁 ' : ''}{e.title}
                   </button>
                 ) : (
                   <a key={e.id || i} className={styles.googleChip} href={e.htmlLink} target="_blank" rel="noopener noreferrer" title={e.title}>

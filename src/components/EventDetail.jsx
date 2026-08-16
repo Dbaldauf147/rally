@@ -9,6 +9,7 @@ import { useEvents } from '../hooks/useEvents';
 import { format } from 'date-fns';
 import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
+import { isRecurring, describeRecurrence } from '../lib/recurrence';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
@@ -1693,6 +1694,16 @@ export function EventDetail() {
               </>
             )}
           </div>
+          {isRecurring(event) && !event.dateTBD && (
+            <p style={{
+              margin: '0.15rem 0 0', display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+              fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-accent)',
+              background: 'var(--color-accent-light)', border: '1px solid var(--color-accent)',
+              borderRadius: 'var(--radius-full)', padding: '0.15rem 0.55rem',
+            }}>
+              🔁 {describeRecurrence(event.recurrence)} · showing {event.occurrenceYear ?? format(date, 'yyyy')}
+            </p>
+          )}
           <p className={styles.datetime}>
             {event.dateTBD
               ? 'Date to be determined — based on poll voting'

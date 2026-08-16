@@ -1,7 +1,31 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, arrayUnion, deleteField } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, arrayUnion, deleteField, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { activeOccurrence, isRecurring } from '../lib/recurrence';
+
+// A yearly event lives in a single doc whose date/endDate are one occurrence
+// (the anchor). Every consumer of this list — dashboard, cards, the Plans grid,
+// Google sync — just reads `date`, so the list hands them the occurrence that's
+// running now or coming next instead of the anchor, which would otherwise sink
+// into the past a year after it was created.
+//
+// The stored anchor stays reachable as seriesDate/seriesEndDate, and the
+// `recurrence` rule is left untouched, so anything that needs the whole series
+// (the calendar grid) can still expand it.
+function withCurrentOccurrence(event, now) {
+  if (!isRecurring(event) || event.dateTBD) return event;
+  const occ = activeOccurrence(event, now);
+  if (!occ) return event;
+  return {
+    ...event,
+    date: Timestamp.fromDate(occ.start),
+    endDate: occ.hasEnd ? Timestamp.fromDate(occ.end) : (event.endDate ?? null),
+    seriesDate: event.date,
+    seriesEndDate: event.endDate ?? null,
+    occurrenceYear: occ.year,
+  };
+}
 
 export function useEvents() {
   const { user } = useAuth();
@@ -26,7 +50,8 @@ export function useEvents() {
     const totalQueries = qEmailMember ? 3 : 2;
 
     function mergeAndUpdate() {
-      const items = [...eventsMap.values()];
+      const now = new Date();
+      const items = [...eventsMap.values()].map(e => withCurrentOccurrence(e, now));
       items.sort((a, b) => {
         const aDate = a.date?.toDate?.() || new Date(a.date);
         const bDate = b.date?.toDate?.() || new Date(b.date);
