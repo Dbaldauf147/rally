@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
@@ -527,8 +527,35 @@ export function TravelListPage() {
     return {};
   });
 
+  // --- account sync --------------------------------------------------------
+  // The list lives at users/<uid>.travelList and gets edited from both the web
+  // app and the phone, so the page holds a live listener rather than reading the
+  // document once: checking something off on one device shows up on the other
+  // without a reload.
+  const userId = user?.uid;
   const writeTimer = useRef(null);
-  const userRef = user?.uid ? doc(db, 'users', user.uid) : null;
+  const pendingWrite = useRef(null); // newest list still waiting to be written
+  const localEdits = useRef(0);      // bumped on every local edit…
+  const syncedEdits = useRef(0);     // …and caught up when that edit's write settles
+  const appliedJson = useRef(null);  // last list we put into state, from either side
+  const seeded = useRef(false);      // so a missing document is seeded only once
+  const listRef = useRef(list);      // current list, for the seed write below
+  useEffect(() => { listRef.current = list; }, [list]);
+  const hasLocalEdits = () => localEdits.current !== syncedEdits.current;
+
+  // Write the pending list now instead of waiting out the debounce. Used when the
+  // page unmounts or the app is backgrounded, where the timer would otherwise be
+  // dropped and take the last edit with it.
+  const flushWrite = useCallback(() => {
+    if (writeTimer.current) { clearTimeout(writeTimer.current); writeTimer.current = null; }
+    const next = pendingWrite.current;
+    if (!next || !userId) return;
+    pendingWrite.current = null;
+    const version = localEdits.current;
+    setDoc(doc(db, 'users', userId), { travelList: next }, { merge: true })
+      .catch(() => {}) // offline: the local cache still holds the edit
+      .then(() => { syncedEdits.current = Math.max(syncedEdits.current, version); });
+  }, [userId]);
 
   // Masonry columns: measure the grid and fit as many ~320px columns as the
   // width allows. The lists are then distributed into these columns (below) so
@@ -551,31 +578,39 @@ export function TravelListPage() {
     return () => ro.disconnect();
   }, []);
 
-  // Load the user's saved list from Firestore once on mount. Seeds + persists
-  // a fresh default list if the user has none yet.
+  // Stay subscribed to the user's saved list, so an edit made anywhere else —
+  // the phone, another tab — lands here as it happens. Seeds + persists a fresh
+  // default list if the user has none yet.
   useEffect(() => {
-    let cancelled = false;
-    if (!user?.uid) return;
-    (async () => {
-      try {
-        const snap = await getDoc(doc(db, 'users', user.uid));
-        if (cancelled) return;
-        const remote = snap.exists() ? snap.data()?.travelList : null;
-        if (remote && Array.isArray(remote.sections)) {
-          const normalized = normalizeList(remote);
-          setList(normalized);
-          try { localStorage.setItem(CACHE_KEY, JSON.stringify(normalized)); } catch { /* ignore */ }
-        } else {
-          // No saved list yet — persist the current (cached or seeded) one.
-          const initial = normalizeList(list);
-          setDoc(doc(db, 'users', user.uid), { travelList: initial }, { merge: true }).catch(() => {});
-        }
-      } catch { /* offline — keep cached/seeded copy */ }
-      finally { if (!cancelled) setLoaded(true); }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid]);
+    if (!userId) return;
+    seeded.current = false;
+    const ref = doc(db, 'users', userId);
+    const unsub = onSnapshot(ref, (snap) => {
+      setLoaded(true);
+      // Our own write echoing back through the local cache before the server has
+      // acknowledged it — state already holds it.
+      if (snap.metadata.hasPendingWrites) return;
+      const remote = snap.exists() ? snap.data()?.travelList : null;
+      if (!remote || !Array.isArray(remote.sections)) {
+        // No saved list yet — persist the current (cached or seeded) one.
+        if (seeded.current) return;
+        seeded.current = true;
+        setDoc(ref, { travelList: normalizeList(listRef.current) }, { merge: true }).catch(() => {});
+        return;
+      }
+      // An edit made here hasn't reached the server yet: keep it rather than
+      // snapping back to the older remote copy. The pending write lands moments
+      // later and is what the other device then sees.
+      if (hasLocalEdits()) return;
+      const normalized = normalizeList(remote);
+      const json = JSON.stringify(normalized);
+      if (json === appliedJson.current) return; // no actual change
+      appliedJson.current = json;
+      setList(normalized);
+      try { localStorage.setItem(CACHE_KEY, json); } catch { /* ignore */ }
+    }, () => { setLoaded(true); /* offline — keep cached/seeded copy */ });
+    return unsub;
+  }, [userId]);
 
   useEffect(() => {
     try { localStorage.setItem(OPEN_KEY, JSON.stringify(open)); } catch { /* ignore */ }
@@ -585,18 +620,32 @@ export function TravelListPage() {
   function updateList(updater) {
     setList((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      if (userRef) {
+      const json = JSON.stringify(next);
+      appliedJson.current = json;
+      try { localStorage.setItem(CACHE_KEY, json); } catch { /* ignore */ }
+      if (userId) {
+        pendingWrite.current = next;
+        localEdits.current += 1;
         if (writeTimer.current) clearTimeout(writeTimer.current);
-        writeTimer.current = setTimeout(() => {
-          setDoc(doc(db, 'users', user.uid), { travelList: next }, { merge: true }).catch(() => {});
-        }, 500);
+        writeTimer.current = setTimeout(flushWrite, 500);
       }
       return next;
     });
   }
 
-  useEffect(() => () => { if (writeTimer.current) clearTimeout(writeTimer.current); }, []);
+  // Leaving the page, or sending the app to the background, must not swallow a
+  // debounced edit — on the phone the timer may never run once the web view is
+  // suspended, and the change would be stranded in localStorage.
+  useEffect(() => {
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flushWrite(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flushWrite);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flushWrite);
+      flushWrite();
+    };
+  }, [flushWrite]);
 
   const { total, done } = useMemo(() => countLeaves(list.sections), [list]);
 
