@@ -51,6 +51,20 @@ export function normalizeDob(input) {
   return validParts(p) && p.year ? `${p.year}-${pad2(p.month)}-${pad2(p.day)}` : '';
 }
 
+// User-defined fields (see lib/customFields.js) live in a `custom` map keyed by
+// field id. Values arrive already coerced to the field's type; this only drops
+// the empty ones, so a blank answer doesn't take up space on the record and
+// "has a value" stays a simple truthiness test everywhere downstream.
+export function cleanCustomValues(custom) {
+  const out = {};
+  if (!custom || typeof custom !== 'object') return out;
+  for (const [key, value] of Object.entries(custom)) {
+    if (value === undefined || value === null || value === '' || value === false) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 // Write a friend under `uid`. The doc id is the lowercased email when there is
 // one, so re-adding the same address overwrites rather than duplicating;
 // without an email there's nothing stable to key on and a random id is used.
@@ -73,6 +87,7 @@ export async function addFriend(uid, data) {
     instagram: (data.instagram || '').trim(),
     birthday: normalizeBirthday(data.birthday),
     dob: normalizeDob(data.dob),
+    custom: cleanCustomValues(data.custom),
     createdAt: new Date().toISOString(),
   });
   return id;

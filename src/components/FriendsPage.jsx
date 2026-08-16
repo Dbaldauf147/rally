@@ -10,8 +10,15 @@ import styles from './FriendsPage.module.css';
 // page can add a friend through exactly the same path this page uses.
 import {
   pad2, parseLooseDate, validParts, normalizeBirthday, normalizeDob,
-  addFriend as writeFriend,
+  addFriend as writeFriend, cleanCustomValues,
 } from '../lib/friends';
+// User-defined fields: definitions on the user doc, values in each friend's
+// `custom` map.
+import {
+  normalizeFieldDefs, coerceCustomValue, coerceCustomMap, formatCustomValue,
+  customSortValue, customFieldValues,
+} from '../lib/customFields';
+import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -55,10 +62,15 @@ const PASTE_FIELD_DETECTORS = [
   { key: 'dob', match: k => k === 'dob' || k.includes('date of birth') || k.includes('birth date') || k.includes('birthdate') },
 ];
 
-function autoDetectMapping(headers) {
+// Custom fields join the auto-detect on an exact label match — they're named by
+// the user, so anything looser would misread a column ("Notes" landing on a
+// custom "Note to self") on a guess the built-in detectors don't have to make.
+function autoDetectMapping(headers, customFields = []) {
   const mapping = {};
   for (const header of headers) {
     const k = header.toLowerCase().trim();
+    const custom = customFields.find(f => f.label.toLowerCase().trim() === k);
+    if (custom) { mapping[header] = `custom:${custom.id}`; continue; }
     const matched = PASTE_FIELD_DETECTORS.find(f => f.match(k));
     mapping[header] = matched ? matched.key : '';
   }
@@ -889,6 +901,10 @@ export function FriendsPage() {
   const [newInstagram, setNewInstagram] = useState('');
   const [newBirthday, setNewBirthday] = useState('');
   const [newDob, setNewDob] = useState('');
+  const [newCustom, setNewCustom] = useState({});
+  // User-defined fields, ordered as the user arranged them.
+  const [customFields, setCustomFields] = useState([]);
+  const [showCustomFields, setShowCustomFields] = useState(false);
   const [editFriend, setEditFriend] = useState(null); // null=closed, object=editing
   const [editFields, setEditFields] = useState({});
   const [giftDraft, setGiftDraft] = useState('');
@@ -902,6 +918,31 @@ export function FriendsPage() {
     }, () => setLoading(false));
     return unsub;
   }, [user]);
+
+  // Custom field definitions ride on the user doc alongside the other per-user
+  // config (travelList, weddingColumnConfig…), so there's no extra collection
+  // to grant rules for.
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      setCustomFields(normalizeFieldDefs(snap.data()?.friendFields));
+    }, () => setCustomFields([]));
+    return unsub;
+  }, [user]);
+
+  async function saveCustomFields(next) {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), { friendFields: next }, { merge: true });
+      setShowCustomFields(false);
+      setResult({ type: 'success', message: 'Custom fields saved' });
+    } catch (err) {
+      setResult({ type: 'error', message: 'Could not save custom fields: ' + err.message });
+    }
+    setTimeout(() => setResult(null), 3000);
+  }
+
+  const tableCustomFields = customFields.filter(f => f.showInTable);
 
   // Deep link from elsewhere (e.g. Reach Out's Friend column): /friends?open=<id>
   // opens that contact's editor once, then clears the param.
@@ -957,6 +998,10 @@ export function FriendsPage() {
       notes: friend.notes || '',
       linkedTo: friend.linkedTo || '',
       giftIdeas: Array.isArray(friend.giftIdeas) ? friend.giftIdeas : [],
+      // Carried through the editor even for fields that were since hidden or
+      // removed — the save below replaces the whole doc, so anything left out
+      // here would be dropped.
+      custom: (friend.custom && typeof friend.custom === 'object') ? { ...friend.custom } : {},
     });
     setGiftDraft('');
     setEditFriend(friend);
@@ -981,6 +1026,7 @@ export function FriendsPage() {
       address: cleanedAddresses[0]?.value || '',
       notes: (editFields.notes || '').trim(),
       giftIdeas,
+      custom: cleanCustomValues(coerceCustomMap(customFields, editFields.custom)),
       createdAt: editFriend.createdAt || new Date().toISOString(),
     };
     await setDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), nextFields);
@@ -1029,6 +1075,9 @@ export function FriendsPage() {
   }
 
   function editSet(key, value) { setEditFields(prev => ({ ...prev, [key]: value })); }
+  function editSetCustom(fieldId, value) {
+    setEditFields(prev => ({ ...prev, custom: { ...(prev.custom || {}), [fieldId]: value } }));
+  }
   function addGiftIdea() {
     const t = giftDraft.trim();
     if (!t) return;
@@ -1164,8 +1213,8 @@ export function FriendsPage() {
 
   async function handleAddSingle(e) {
     e.preventDefault();
-    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob });
-    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob('');
+    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, custom: coerceCustomMap(customFields, newCustom) });
+    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob(''); setNewCustom({});
     setShowAdd(false);
     setResult({ type: 'success', message: 'Contact added!' });
     setTimeout(() => setResult(null), 3000);
@@ -1184,29 +1233,8 @@ export function FriendsPage() {
         const headers = Object.keys(rows[0]);
         setBulkRawRows(rows);
         setBulkHeaders(headers);
-        // Auto-detect column mappings
-        const FIELD_OPTIONS = [
-          { key: 'name', label: 'Name', match: k => (k.includes('name') && !k.includes('last') && !k.includes('group') && !k.includes('work') && !k.includes('business')) || k === 'full name' },
-          { key: 'firstName', label: 'First Name', match: k => k.includes('first') },
-          { key: 'lastName', label: 'Last Name', match: k => k.includes('last') && k.includes('name') },
-          { key: 'email', label: 'Email', match: k => (k.includes('email') || k.includes('e-mail')) && !k.includes('work') && !k.includes('business') && !k.includes('office') },
-          { key: 'workEmail', label: 'Work Email', match: k => k.includes('work') && (k.includes('email') || k.includes('e-mail')) || k.includes('business email') || k.includes('office email') },
-          { key: 'phone', label: 'Phone', match: k => k.includes('phone') || k.includes('mobile') || k.includes('cell') },
-          { key: 'address', label: 'Address', match: k => k === 'address' || k.includes('street') || k.includes('mailing') || k.includes('home address') },
-          { key: 'group', label: 'Group', match: k => k === 'group' || k === 'category' },
-          { key: 'guest', label: 'Guest', match: k => k === 'guest' || k.includes('plus one') || k.includes('+1') || k.includes('partner') || k.includes('spouse') },
-          { key: 'tag', label: 'Tag', match: k => k === 'tag' || k === 'tags' || k === 'label' || k === 'labels' },
-          { key: 'instagram', label: 'Instagram', match: k => k === 'instagram' || k === 'ig' || k.includes('insta') },
-          { key: 'birthday', label: 'Birthday', match: k => k.includes('birthday') || k === 'bday' },
-          { key: 'dob', label: 'Date of Birth', match: k => k === 'dob' || k.includes('date of birth') || k.includes('birth date') || k.includes('birthdate') },
-        ];
-        const mapping = {};
-        for (const header of headers) {
-          const k = header.toLowerCase().trim();
-          const matched = FIELD_OPTIONS.find(f => f.match(k));
-          mapping[header] = matched ? matched.key : '';
-        }
-        setBulkMapping(mapping);
+        // Same auto-detect the paste flow uses, custom fields included.
+        setBulkMapping(autoDetectMapping(headers, customFields));
         setShowBulk(true);
       } catch (err) {
         setResult({ type: 'error', message: 'Could not read file: ' + err.message });
@@ -1223,7 +1251,14 @@ export function FriendsPage() {
         if (!field || !row[header]) continue;
         const val = String(row[header]).trim();
         if (!val) continue;
-        if (field === 'firstName') r.firstName = val;
+        if (field.startsWith('custom:')) {
+          const cf = customFields.find(f => f.id === field.slice(7));
+          if (!cf) continue;
+          const coerced = coerceCustomValue(cf, val);
+          if (coerced === '' || coerced === false) continue;
+          r.custom = { ...(r.custom || {}), [cf.id]: coerced };
+        }
+        else if (field === 'firstName') r.firstName = val;
         else if (field === 'lastName') r.lastName = val;
         else r[field] = val;
       }
@@ -1273,15 +1308,18 @@ export function FriendsPage() {
     }
     setBulkRawRows(rows);
     setBulkHeaders(headers);
-    setBulkMapping(autoDetectMapping(headers));
+    setBulkMapping(autoDetectMapping(headers, customFields));
     setShowPaste(false);
     setPasteText('');
     setShowBulk(true);
   }
 
   function downloadTemplate() {
+    // Custom fields go on the end so the example rows below still line up with
+    // the built-in columns; their cells come back blank for the user to fill.
+    const customHeaders = customFields.map(f => f.label);
     const ws = XLSX.utils.aoa_to_sheet([
-      ['Name', 'Email', 'Work Email', 'Phone', 'Address', 'Group', 'Guest', 'Tag', 'Instagram', 'Birthday', 'Date of Birth'],
+      ['Name', 'Email', 'Work Email', 'Phone', 'Address', 'Group', 'Guest', 'Tag', 'Instagram', 'Birthday', 'Date of Birth', ...customHeaders],
       ['John Smith', 'john@email.com', 'john.smith@acme.com', '555-1234', '123 Main St, Denver CO 80202', 'College Friends', 'Sarah Smith', 'VIP', '@johnsmith', '7/30', '7/30/1985'],
       ['Jane Doe', 'jane@email.com', '', '555-5678', '456 Oak Ave, Austin TX 78701', 'Family', '', 'Close Friend', '@janedoe', '3/14', ''],
       ['Mike Johnson', 'mike@email.com', 'mike@bigcorp.com', '', '', 'Work', 'Lisa Johnson', 'Outdoors; Foodie', '', '', '11/2/1990'],
@@ -1306,10 +1344,14 @@ export function FriendsPage() {
 
     // Birthday/Date of Birth go after Instagram: the hyperlink loop below
     // addresses columns 1, 2 and 4 by index, so nothing may shift before them.
+    // Custom fields land after the built-ins, in the order the user arranged
+    // them — including ones hidden from the table, since an export is the whole
+    // record rather than the current view.
     const headers = [
       'Name', 'Email', 'Work Email', 'Phone', 'Instagram',
       'Birthday', 'Date of Birth', 'Age',
       'Group', 'Guest', 'Tags', 'Linked To', 'Addresses', 'Created',
+      ...customFields.map(f => f.label),
     ];
     const rows = data.map(f => {
       const addresses = getFriendAddresses(f)
@@ -1335,6 +1377,12 @@ export function FriendsPage() {
         linkedName,
         addresses,
         created,
+        // Number fields go across as numbers so Excel can sum and sort them;
+        // everything else exports as the text the table shows.
+        ...customFields.map(cf => {
+          const v = f.custom?.[cf.id];
+          return cf.type === 'number' && typeof v === 'number' ? v : formatCustomValue(cf, v);
+        }),
       ];
     });
 
@@ -1356,6 +1404,7 @@ export function FriendsPage() {
       { wch: 18 }, // Linked To
       { wch: 40 }, // Addresses
       { wch: 14 }, // Created
+      ...customFields.map(() => ({ wch: 18 })),
     ];
 
     // Header row + filter dropdowns + frozen first row.
@@ -1519,13 +1568,31 @@ export function FriendsPage() {
     return unsub;
   }, [user, rosterEventId]);
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({ group: [], tag: [], guest: [], hasEmail: '', hasPhone: '', hasInstagram: '' });
-  const activeFilterCount = filters.group.length + filters.tag.length + filters.guest.length + (filters.hasEmail ? 1 : 0) + (filters.hasPhone ? 1 : 0) + (filters.hasInstagram ? 1 : 0);
+  // `custom` holds one entry per filtered custom field: { [fieldId]: [displayValue, …] }.
+  const [filters, setFilters] = useState({ group: [], tag: [], guest: [], hasEmail: '', hasPhone: '', hasInstagram: '', custom: {} });
+  const customFilterCount = Object.values(filters.custom || {}).reduce((n, vals) => n + (vals?.length || 0), 0);
+  const activeFilterCount = filters.group.length + filters.tag.length + filters.guest.length + (filters.hasEmail ? 1 : 0) + (filters.hasPhone ? 1 : 0) + (filters.hasInstagram ? 1 : 0) + customFilterCount;
+  const clearedFilters = { group: [], tag: [], guest: [], hasEmail: '', hasPhone: '', hasInstagram: '', custom: {} };
 
   // Groups and tags
   function groupTokens(value) {
     return (value || '').split(',').map(g => g.trim()).filter(Boolean);
   }
+  // A custom field filters on its displayed value, with "no value" as its own
+  // bucket so you can find the contacts still missing an answer. A Yes/No field
+  // has no blank state — unchecked reads as No.
+  function customFilterValue(cf, friend) {
+    if (cf.type === 'checkbox') return friend.custom?.[cf.id] === true ? 'Yes' : 'No';
+    return formatCustomValue(cf, friend.custom?.[cf.id]) || '(blank)';
+  }
+  function customFilterOptions(cf) {
+    if (cf.type === 'checkbox') return ['Yes', 'No'];
+    const used = customFieldValues(friends, cf);
+    // Choice lists offer every configured choice, even ones nobody has yet.
+    const all = cf.type === 'select' ? [...new Set([...(cf.options || []), ...used])] : used;
+    return [...all, '(blank)'];
+  }
+
   const groups = [...new Set(friends.flatMap(f => groupTokens(f.group)))].sort();
   const allTags = [...new Set(friends.flatMap(f => (f.tag || '').split(';').map(t => t.trim()).filter(Boolean)))].sort();
   const allGuests = [...new Set(friends.map(f => f.guest).filter(Boolean))].sort();
@@ -1539,6 +1606,10 @@ export function FriendsPage() {
   };
   const sortArrow = (key) => (sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
   const sortVal = (f, key) => {
+    if (key.startsWith('custom:')) {
+      const cf = customFields.find(c => c.id === key.slice(7));
+      return cf ? customSortValue(cf, f.custom?.[cf.id]) : '';
+    }
     switch (key) {
       case 'email': return (f.email || '').toLowerCase();
       case 'phone': return (f.phone || '').replace(/[^\d]/g, '');
@@ -1572,13 +1643,22 @@ export function FriendsPage() {
   if (filters.hasPhone === 'no') filtered = filtered.filter(f => !f.phone);
   if (filters.hasInstagram === 'yes') filtered = filtered.filter(f => f.instagram);
   if (filters.hasInstagram === 'no') filtered = filtered.filter(f => !f.instagram);
+  for (const cf of customFields) {
+    const picked = filters.custom?.[cf.id];
+    if (!picked || picked.length === 0) continue;
+    filtered = filtered.filter(f => picked.includes(customFilterValue(cf, f)));
+  }
 
   filtered = [...filtered].sort((a, b) => {
     const va = sortVal(a, sortKey);
     const vb = sortVal(b, sortKey);
-    if (!va && !vb) return 0;
-    if (!va) return 1;   // empties last, regardless of direction
-    if (!vb) return -1;
+    // Emptiness is '' specifically — a custom number field sorts 0 as a value,
+    // not as a blank.
+    const ea = va === '';
+    const eb = vb === '';
+    if (ea && eb) return 0;
+    if (ea) return 1;   // empties last, regardless of direction
+    if (eb) return -1;
     const cmp = va < vb ? -1 : va > vb ? 1 : 0;
     return sortDir === 'asc' ? cmp : -cmp;
   });
@@ -1599,6 +1679,11 @@ export function FriendsPage() {
             onClick={() => { setPasteText(''); setShowPaste(true); }}
             title="Paste a range from Excel, Google Sheets, or any CSV/TSV — you'll map columns next"
           >📋 Paste Data</button>
+          <button
+            className={styles.templateBtn}
+            onClick={() => setShowCustomFields(true)}
+            title="Add your own fields — shirt size, how you met, anything you want to track"
+          >⚙ Custom Fields{customFields.length > 0 && ` (${customFields.length})`}</button>
           <button className={styles.templateBtn} onClick={downloadTemplate}>Download Template</button>
           <button className={styles.templateBtn} onClick={exportFriendsExcel} title="Download all visible contacts as a polished Excel file">⬇ Export Excel</button>
         </div>
@@ -1657,7 +1742,7 @@ export function FriendsPage() {
           Filters{activeFilterCount > 0 && ` (${activeFilterCount})`}
         </button>
         {activeFilterCount > 0 && (
-          <button onClick={() => setFilters({ group: [], tag: [], guest: [], hasEmail: '', hasPhone: '', hasInstagram: '' })} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit' }}>Clear all</button>
+          <button onClick={() => setFilters(clearedFilters)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit' }}>Clear all</button>
         )}
         {(activeFilterCount > 0 || search.trim()) && filtered.length > 0 && (
           <button
@@ -1722,6 +1807,19 @@ export function FriendsPage() {
                 <option value="">All</option><option value="yes">Yes</option><option value="no">No</option>
               </select>
             </div>
+            {customFields.map(cf => (
+              <MultiCheck
+                key={cf.id}
+                label={cf.label}
+                options={customFilterOptions(cf)}
+                selected={filters.custom?.[cf.id] || []}
+                onToggle={v => setFilters(prev => {
+                  const cur = prev.custom?.[cf.id] || [];
+                  const next = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v];
+                  return { ...prev, custom: { ...prev.custom, [cf.id]: next } };
+                })}
+              />
+            ))}
           </div>
         );
       })()}
@@ -1864,6 +1962,15 @@ export function FriendsPage() {
                 <th className={styles.th} onClick={() => onSort('birthday')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by birthday">Birthday{sortArrow('birthday')}</th>
                 <th className={styles.th} onClick={() => onSort('dob')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by date of birth">Date of Birth{sortArrow('dob')}</th>
                 <th className={styles.th}>Linked</th>
+                {tableCustomFields.map(cf => (
+                  <th
+                    key={cf.id}
+                    className={styles.th}
+                    onClick={() => onSort(`custom:${cf.id}`)}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    title={`Sort by ${cf.label}`}
+                  >{cf.label}{sortArrow(`custom:${cf.id}`)}</th>
+                ))}
                 <th className={styles.thAction} />
               </tr>
             </thead>
@@ -1910,6 +2017,18 @@ export function FriendsPage() {
                     <td className={styles.td}>
                       {linked ? <span className={styles.linkedChip}>↔ {linked.name}</span> : <span className={styles.tdMuted}>—</span>}
                     </td>
+                    {tableCustomFields.map(cf => {
+                      const shown = formatCustomValue(cf, f.custom?.[cf.id]);
+                      return (
+                        <td key={cf.id} className={styles.td}>
+                          {shown
+                            ? (cf.type === 'select'
+                                ? <span className={styles.tagChip}>{shown}</span>
+                                : shown)
+                            : <span className={styles.tdMuted}>—</span>}
+                        </td>
+                      );
+                    })}
                     <td className={styles.tdAction} onClick={e => e.stopPropagation()}>
                       <button
                         className={styles.rowDelete}
@@ -2013,6 +2132,15 @@ export function FriendsPage() {
         </div>
       )}
 
+      {showCustomFields && (
+        <CustomFieldsModal
+          fields={customFields}
+          friends={friends}
+          onSave={saveCustomFields}
+          onClose={() => setShowCustomFields(false)}
+        />
+      )}
+
       {/* Add single contact modal */}
       {showAdd && (
         <div className={styles.overlay} onClick={() => setShowAdd(false)}>
@@ -2074,6 +2202,11 @@ export function FriendsPage() {
                 Tags
                 <TagPicker value={newTag} onChange={setNewTag} options={allTags} />
               </label>
+              <CustomFieldInputs
+                fields={customFields}
+                values={newCustom}
+                onChange={(id, v) => setNewCustom(prev => ({ ...prev, [id]: v }))}
+              />
               <div className={styles.formActions}>
                 <button className={styles.saveBtn} type="submit">Add Contact</button>
                 <button className={styles.cancelBtn} type="button" onClick={() => setShowAdd(false)}>Cancel</button>
@@ -2143,6 +2276,11 @@ export function FriendsPage() {
                 editFriendId={editFriend?.id}
                 value={editFields.linkedTo || ''}
                 onChange={val => editSet('linkedTo', val)}
+              />
+              <CustomFieldInputs
+                fields={customFields}
+                values={editFields.custom}
+                onChange={editSetCustom}
               />
               <div className={styles.formActions}>
                 <button className={styles.saveBtn} type="submit">Save Changes</button>
@@ -2242,6 +2380,7 @@ export function FriendsPage() {
           { key: 'instagram', label: 'Instagram' },
           { key: 'birthday', label: 'Birthday' },
           { key: 'dob', label: 'Date of Birth' },
+          ...customFields.map(f => ({ key: `custom:${f.id}`, label: f.label })),
         ];
         const preview = applyMapping();
         const unmapped = bulkHeaders.filter(h => !bulkMapping[h]);
