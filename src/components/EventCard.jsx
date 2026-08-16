@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import { isRecurring, shortRecurrenceLabel, describeRecurrence } from '../lib/recurrence';
 import styles from './EventCard.module.css';
 
 export function EventCard({ event, onClick, votePct }) {
@@ -8,7 +9,12 @@ export function EventCard({ event, onClick, votePct }) {
   const now = new Date();
   const isPast = event.stage === 'finalized' && date < new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const stage = event.stage || 'voting';
-  const showDate = stage === 'finalized' || isPast;
+  // The date on a repeating event is already the occurrence that's next up
+  // (useEvents rolls it forward), so the chip just needs to say it repeats.
+  const repeats = isRecurring(event);
+  // A repeating event's date comes from its rule, so it's never "TBD" — show
+  // it even before the event reaches the finalized stage.
+  const showDate = stage === 'finalized' || isPast || (repeats && !event.dateTBD);
   const cancelled = !!event.cancelled;
 
   return (
@@ -35,6 +41,16 @@ export function EventCard({ event, onClick, votePct }) {
           {event.location && <span className={styles.location}>{showDate ? ' · ' : ''}{event.location}</span>}
         </p>
         <div className={styles.rsvpRow}>
+          {repeats && (
+            <span
+              title={describeRecurrence(event.recurrence)}
+              style={{
+                fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-accent)',
+                background: 'var(--color-accent-light)', border: '1px solid var(--color-accent)',
+                borderRadius: '999px', padding: '0.1rem 0.45rem',
+              }}
+            >🔁 Yearly · {shortRecurrenceLabel(event.recurrence)}</span>
+          )}
           {cancelled && (
             <span style={{
               fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
