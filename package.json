@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "gen:icons": "node scripts/gen-icons.mjs",
+    "test:recurrence": "node scripts/test-recurrence.mjs",
     "cap:sync": "vite build && cap sync ios"
   },
   "dependencies": {

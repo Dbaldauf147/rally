@@ -16,6 +16,8 @@ import { DayView } from './DayView';
 import { Notes } from './Notes';
 import { BoatDay, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
 import { boatRosterUnion, dateKeyOf } from '../boatDays';
+import { describeRecurrence } from '../recurrence';
+import { futureOccurrences } from '../hooks/useRecurringEvents';
 import {
   syncEventToGoogleCalendar,
   removeEventFromGoogleCalendar,
@@ -423,6 +425,18 @@ export function EventDetail() {
 
   const date = event.date?.toDate ? event.date.toDate() : new Date(event.date);
   const endDate = event.endDate?.toDate ? event.endDate.toDate() : event.endDate ? new Date(event.endDate) : null;
+
+  // Repeating events: this one is either the series holding the rule, or a
+  // single occurrence pointing back at it via seriesId.
+  const recurrenceText = describeRecurrence(event.recurrence);
+  const upcomingOccurrences = recurrenceText ? futureOccurrences(events, eventId) : [];
+  // Ending a series only drops the rule. The dates already on the calendar are
+  // real events by now — some with their own guests, notes and plans — so they
+  // stay put and get deleted one at a time if that's what the user wants.
+  async function stopRepeating() {
+    if (!confirm(`Stop repeating "${event.title}"?\n\nNo new dates will be created. The ${upcomingOccurrences.length} already scheduled stay on your calendar — delete any you don't want.`)) return;
+    await updateEvent(eventId, { recurrence: deleteField(), recurrenceGeneratedThrough: deleteField() });
+  }
   // Include ALL member entries + voters from date options
   const mergedMembers = { ...(event.members || {}) };
   for (const [voterId, voter] of Object.entries(dateOptionsVoters)) {
@@ -1708,6 +1722,59 @@ export function EventDetail() {
               <span style={{ color: 'var(--color-text-muted)' }}> · 🚗 {tripSummary.travelLabel}</span>
             )}
           </p>
+
+          {/* Repeating events. The series holds the rule and each occurrence is
+              its own event, so this is the one place either half needs to say
+              so — and the only place to end the series. */}
+          {(recurrenceText || event.seriesId) && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+              marginTop: '0.4rem', fontSize: '0.8rem', color: 'var(--color-text-secondary)',
+            }}>
+              {recurrenceText ? (
+                <>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600,
+                    color: 'var(--color-accent)', background: 'var(--color-accent-light)',
+                    border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-full)',
+                    padding: '0.15rem 0.6rem',
+                  }}>🔁 {recurrenceText}</span>
+                  {upcomingOccurrences.length > 0 && (
+                    <span style={{ color: 'var(--color-text-muted)' }}>
+                      {upcomingOccurrences.length} more {upcomingOccurrences.length === 1 ? 'date' : 'dates'} scheduled
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={stopRepeating}
+                    style={{
+                      border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+                      color: 'var(--color-text-secondary)', borderRadius: 'var(--radius-full)',
+                      padding: '0.15rem 0.6rem', fontSize: '0.75rem', fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >Stop repeating</button>
+                </>
+              ) : (
+                <>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600,
+                    color: 'var(--color-accent)',
+                  }}>🔁 One date of a repeating event</span>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/event/${event.seriesId}`)}
+                    style={{
+                      border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+                      color: 'var(--color-text-secondary)', borderRadius: 'var(--radius-full)',
+                      padding: '0.15rem 0.6rem', fontSize: '0.75rem', fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >Open the series</button>
+                </>
+              )}
+            </div>
+          )}
           {event.planning && (event.planning.itinerary || event.planning.travel || event.planning.lodging) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem', alignItems: 'center' }}>
               <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>To plan:</span>

@@ -29,7 +29,12 @@ export function EventCard({ event, onClick, votePct }) {
         </div>
       )}
       <div className={styles.info}>
-        <h3 className={styles.title} style={cancelled ? { textDecoration: 'line-through' } : undefined}>{event.title}</h3>
+        <h3 className={styles.title} style={cancelled ? { textDecoration: 'line-through' } : undefined}>
+          {(event.recurrence || event.seriesId) && (
+            <span title={event.recurrence ? 'Repeating event' : 'One date of a repeating event'} style={{ marginRight: '0.3rem' }}>🔁</span>
+          )}
+          {event.title}
+        </h3>
         <p className={styles.meta}>
           {showDate ? format(date, 'EEEE, MMM d · h:mm a') : ''}
           {event.location && <span className={styles.location}>{showDate ? ' · ' : ''}{event.location}</span>}
