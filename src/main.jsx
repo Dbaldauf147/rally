@@ -31,7 +31,16 @@ class GlobalErrorBoundary extends React.Component {
   }
 }
 
-if ('serviceWorker' in navigator) {
+// The Capacitor shell loads the deployed site over the network and keeps no
+// offline state of its own (Firestore runs on an in-memory cache there), so the
+// worker buys it nothing — while a worker that fails a navigation leaves the
+// app on a black screen no relaunch can clear. Drop any worker an earlier build
+// installed and never register one here.
+if ('serviceWorker' in navigator && isNativeApp()) {
+  navigator.serviceWorker.getRegistrations()
+    .then((regs) => regs.forEach((r) => r.unregister()))
+    .catch(() => {});
+} else if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
       window.__swReg = reg;
