@@ -314,7 +314,7 @@ function seedTravelList() {
   tagItemsBySection(sections);
   return {
     sections,
-    meta: { leaveDate: '', returnDate: '', eventId: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true },
+    meta: { leaveDate: '', returnDate: '', eventId: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true, hiddenCats: [] },
   };
 }
 
@@ -373,6 +373,19 @@ function normalizeList(raw) {
     tagItemsBySection(sections);
     categoriesMigrated = true;
   }
+  // Which category filters are switched off. Part of the account document so
+  // the pills match on the phone and the website; a document saved before this
+  // moved off the device has no key at all, which is when the last device-local
+  // setting is carried across. An empty list is a real value ("all showing"), so
+  // only a missing key falls back.
+  //
+  // A list rather than a { name: true } map on purpose: the document is written
+  // with merge, which deep-merges maps, so a key removed here would never be
+  // removed on the server and un-hiding a category would not stick. Arrays are
+  // replaced wholesale.
+  const hiddenCats = Array.isArray(raw.meta?.hiddenCats)
+    ? [...new Set(raw.meta.hiddenCats.filter((c) => typeof c === 'string' && c))]
+    : legacyHiddenCats();
   return {
     sections,
     meta: {
@@ -388,6 +401,7 @@ function normalizeList(raw) {
       boatMovedUp,
       categories,
       categoriesMigrated,
+      hiddenCats,
     },
   };
 }
@@ -427,7 +441,19 @@ function tripDateLabel(leave, ret) {
 
 const CACHE_KEY = 'rally.travelList.doc.v2';
 const OPEN_KEY = 'rally.travelList.open.v2';
+// Where the hidden-category filters used to live, back when they were per-device.
+// Read once by normalizeList to carry that setting into the account document,
+// and never written again. The old shape was a { name: true } map.
 const CATS_KEY = 'rally.travelList.hiddenCats.v1';
+function legacyHiddenCats() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CATS_KEY) || 'null');
+    if (raw && typeof raw === 'object') {
+      return Object.keys(raw).filter((name) => raw[name] === true);
+    }
+  } catch { /* ignore */ }
+  return [];
+}
 
 export function TravelListPage() {
   const { user } = useAuth();
@@ -444,27 +470,26 @@ export function TravelListPage() {
   // The list is always directly editable now (no separate edit mode). Kept as a
   // constant so the legacy edit-only branches simply never render.
   const editMode = false;
-  // Which toggleable categories are hidden ({ flying: true } = hidden).
-  const [hiddenCats, setHiddenCats] = useState(() => {
-    try { const raw = localStorage.getItem(CATS_KEY); if (raw) return JSON.parse(raw) || {}; } catch { /* ignore */ }
-    return {};
-  });
-  function toggleCat(key) {
-    setHiddenCats((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      try { localStorage.setItem(CATS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
+  // Which categories are switched off. Stored with the list rather than on the
+  // device, so hiding a category on the phone hides it on the website too.
+  const hiddenCats = new Set(list.meta?.hiddenCats || []);
+  function toggleCat(name) {
+    updateList((l) => {
+      const cur = l.meta.hiddenCats || [];
+      return {
+        ...l,
+        meta: { ...l.meta, hiddenCats: cur.includes(name) ? cur.filter((c) => c !== name) : [...cur, name] },
+      };
     });
   }
   // Flip every category at once, so Check/Uncheck all clears the category pills
-  // along with the items. Showing all stores {} rather than a map of falses, which
-  // also drops keys for categories that have since been renamed or deleted.
+  // along with the items. Showing all stores an empty list, which also drops
+  // names for categories that have since been renamed or deleted.
   function setAllCats(hidden) {
-    const next = hidden
-      ? Object.fromEntries((list.meta?.categories || []).map((c) => [c, true]))
-      : {};
-    setHiddenCats(next);
-    try { localStorage.setItem(CATS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    updateList((l) => ({
+      ...l,
+      meta: { ...l.meta, hiddenCats: hidden ? [...(l.meta.categories || [])] : [] },
+    }));
   }
   // Double-click an item to open an editor popup for its label and note.
   const [editItem, setEditItem] = useState(null); // { sectionId, itemId, label, note, category, children, isNew }
@@ -742,18 +767,26 @@ export function TravelListPage() {
   function renameCategory(oldName, newName) {
     const n = (newName || '').trim();
     if (!n || n === oldName) return;
-    updateList((l) => ({
-      ...l,
-      meta: { ...l.meta, categories: (l.meta.categories || []).map((c) => (c === oldName ? n : c)) },
-      sections: l.sections.map((s) => ({ ...s, items: s.items.map((it) => it.category === oldName ? { ...it, category: n } : it) })),
-    }));
+    updateList((l) => {
+      // Carry a switched-off filter over to the new name, or renaming a hidden
+      // category would show its items again and strand the old name in the doc.
+      const hidden = (l.meta.hiddenCats || []).map((c) => (c === oldName ? n : c));
+      return {
+        ...l,
+        meta: { ...l.meta, categories: (l.meta.categories || []).map((c) => (c === oldName ? n : c)), hiddenCats: hidden },
+        sections: l.sections.map((s) => ({ ...s, items: s.items.map((it) => it.category === oldName ? { ...it, category: n } : it) })),
+      };
+    });
   }
   function removeCategory(name) {
-    updateList((l) => ({
-      ...l,
-      meta: { ...l.meta, categories: (l.meta.categories || []).filter((c) => c !== name) },
-      sections: l.sections.map((s) => ({ ...s, items: s.items.map((it) => it.category === name ? { ...it, category: '' } : it) })),
-    }));
+    updateList((l) => {
+      const hidden = (l.meta.hiddenCats || []).filter((c) => c !== name);
+      return {
+        ...l,
+        meta: { ...l.meta, categories: (l.meta.categories || []).filter((c) => c !== name), hiddenCats: hidden },
+        sections: l.sections.map((s) => ({ ...s, items: s.items.map((it) => it.category === name ? { ...it, category: '' } : it) })),
+      };
+    });
   }
 
   function pickFromCalendar(eventId) {
@@ -997,7 +1030,7 @@ export function TravelListPage() {
   // a category toggle renders nothing). Only these get column slots, so we never
   // leave an empty column on the right.
   const renderableSections = list.sections.filter(
-    (s) => !(s.items.length > 0 && s.items.every((it) => it.category && hiddenCats[it.category])),
+    (s) => !(s.items.length > 0 && s.items.every((it) => it.category && hiddenCats.has(it.category))),
   );
   // Distribute lists into columns, greedily placing each into the currently
   // shortest column (estimated by leaf count) so column bottoms stay roughly
@@ -1093,10 +1126,10 @@ export function TravelListPage() {
         {(list.meta.categories || []).map((c) => (
           <button
             key={c}
-            className={`${styles.btn} ${!hiddenCats[c] ? styles.btnActive : ''}`}
+            className={`${styles.btn} ${!hiddenCats.has(c) ? styles.btnActive : ''}`}
             onClick={() => toggleCat(c)}
-            aria-pressed={!hiddenCats[c]}
-            title={hiddenCats[c] ? `Show ${c} items` : `Hide ${c} items`}
+            aria-pressed={!hiddenCats.has(c)}
+            title={hiddenCats.has(c) ? `Show ${c} items` : `Hide ${c} items`}
           >{c}</button>
         ))}
         <button
@@ -1113,7 +1146,7 @@ export function TravelListPage() {
         const sIdx = list.sections.indexOf(section);
         // Hide items whose category is toggled off; hide the whole list if every
         // item gets filtered out that way.
-        const visibleItems = section.items.filter((it) => !(it.category && hiddenCats[it.category]));
+        const visibleItems = section.items.filter((it) => !(it.category && hiddenCats.has(it.category)));
         if (section.items.length > 0 && visibleItems.length === 0) return null;
         // Count (and go green) over only the visible items, so a list turns green
         // once everything currently shown is checked — items hidden by a category
@@ -1385,7 +1418,7 @@ export function TravelListPage() {
       {/* Jet lag only matters when flying — show it only while the Flying
           category is present and not toggled off (same signal that shows/hides
           the "Flying only" list). */}
-      {(list.meta.categories || []).includes('Flying') && !hiddenCats['Flying'] && <JetLagChecklist />}
+      {(list.meta.categories || []).includes('Flying') && !hiddenCats.has('Flying') && <JetLagChecklist />}
 
       {editItem && (
         <div className={styles.overlay} onMouseDown={cancelItemEditor}>
