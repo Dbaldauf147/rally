@@ -535,13 +535,10 @@ export function TravelListPage() {
   const userId = user?.uid;
   const writeTimer = useRef(null);
   const pendingWrite = useRef(null); // newest list still waiting to be written
-  const localEdits = useRef(0);      // bumped on every local edit…
-  const syncedEdits = useRef(0);     // …and caught up when that edit's write settles
   const appliedJson = useRef(null);  // last list we put into state, from either side
   const seeded = useRef(false);      // so a missing document is seeded only once
   const listRef = useRef(list);      // current list, for the seed write below
   useEffect(() => { listRef.current = list; }, [list]);
-  const hasLocalEdits = () => localEdits.current !== syncedEdits.current;
 
   // Write the pending list now instead of waiting out the debounce. Used when the
   // page unmounts or the app is backgrounded, where the timer would otherwise be
@@ -551,10 +548,11 @@ export function TravelListPage() {
     const next = pendingWrite.current;
     if (!next || !userId) return;
     pendingWrite.current = null;
-    const version = localEdits.current;
+    // Offline this promise never settles either way — Firestore resolves it on
+    // server acknowledgement and keeps the mutation queued until then, which is
+    // why nothing here may depend on it having run.
     setDoc(doc(db, 'users', userId), { travelList: next }, { merge: true })
-      .catch(() => {}) // offline: the local cache still holds the edit
-      .then(() => { syncedEdits.current = Math.max(syncedEdits.current, version); });
+      .catch(() => {}); // offline: the SDK still holds the edit and retries
   }, [userId]);
 
   // Masonry columns: measure the grid and fit as many ~320px columns as the
@@ -592,16 +590,28 @@ export function TravelListPage() {
       if (snap.metadata.hasPendingWrites) return;
       const remote = snap.exists() ? snap.data()?.travelList : null;
       if (!remote || !Array.isArray(remote.sections)) {
-        // No saved list yet — persist the current (cached or seeded) one.
-        if (seeded.current) return;
+        // No saved list yet — persist the current (cached or seeded) one. Only
+        // on a server-confirmed absence, though: the phone runs Firestore on an
+        // in-memory cache, so the first snapshot after launch can report the
+        // document missing simply because the SDK hasn't heard back yet, and
+        // seeding from that would push this device's copy over the real list.
+        if (seeded.current || snap.metadata.fromCache) return;
         seeded.current = true;
         setDoc(ref, { travelList: normalizeList(listRef.current) }, { merge: true }).catch(() => {});
         return;
       }
-      // An edit made here hasn't reached the server yet: keep it rather than
-      // snapping back to the older remote copy. The pending write lands moments
-      // later and is what the other device then sees.
-      if (hasLocalEdits()) return;
+      // An edit made here that hasn't been written yet: keep it rather than
+      // snapping back to the older remote copy. The debounced write lands
+      // moments later and is what the other device then sees.
+      //
+      // Writes already sent are covered by the hasPendingWrites check above.
+      // This used to compare an edit counter against writes that had settled,
+      // but setDoc's promise only settles on server acknowledgement — offline it
+      // stays pending forever, so a single edit made on a phone with no signal
+      // latched the guard on and the device ignored every later change from the
+      // website for the rest of the session. hasPendingWrites comes from the
+      // SDK's own mutation queue and clears itself once the write lands.
+      if (pendingWrite.current) return;
       const normalized = normalizeList(remote);
       const json = JSON.stringify(normalized);
       if (json === appliedJson.current) return; // no actual change
@@ -625,7 +635,6 @@ export function TravelListPage() {
       try { localStorage.setItem(CACHE_KEY, json); } catch { /* ignore */ }
       if (userId) {
         pendingWrite.current = next;
-        localEdits.current += 1;
         if (writeTimer.current) clearTimeout(writeTimer.current);
         writeTimer.current = setTimeout(flushWrite, 500);
       }
