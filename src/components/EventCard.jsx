@@ -1,5 +1,6 @@
 import { format } from 'date-fns';
 import { isRecurring, shortRecurrenceLabel, describeRecurrence } from '../lib/recurrence';
+import { formatWhen } from '../lib/eventTime';
 import styles from './EventCard.module.css';
 
 export function EventCard({ event, onClick, votePct }) {
@@ -37,7 +38,7 @@ export function EventCard({ event, onClick, votePct }) {
       <div className={styles.info}>
         <h3 className={styles.title} style={cancelled ? { textDecoration: 'line-through' } : undefined}>{event.title}</h3>
         <p className={styles.meta}>
-          {showDate ? format(date, 'EEEE, MMM d · h:mm a') : ''}
+          {showDate ? formatWhen(event, date, 'EEEE, MMM d') : ''}
           {event.location && <span className={styles.location}>{showDate ? ' · ' : ''}{event.location}</span>}
         </p>
         <div className={styles.rsvpRow}>

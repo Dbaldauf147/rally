@@ -7,6 +7,7 @@ import { addFriend, buildFriendIndex, matchFriend, sanitizeMemberKey } from '../
 import { findMemberKey, planMemberUpserts, normName } from '../lib/members';
 import { WEB_ORIGIN } from '../native';
 import { format, eachDayOfInterval } from 'date-fns';
+import { formatWhen } from '../lib/eventTime';
 import styles from './PollPage.module.css';
 
 class PollPageErrorBoundary extends React.Component {
@@ -976,7 +977,7 @@ function InviteOthers({ eventTitle, eventId, eventDate, eventLocation, voterName
   const [importedContacts, setImportedContacts] = useState(null); // null = not imported, [] = imported list
   const [contactSearch, setContactSearch] = useState('');
 
-  const dateStr = eventDate && !isNaN(eventDate) ? format(eventDate, 'EEEE, MMMM d · h:mm a') : '';
+  const dateStr = eventDate && !isNaN(eventDate) ? formatWhen(event, eventDate, 'EEEE, MMMM d') : '';
 
   // Build set of existing phone numbers (cleaned) for duplicate detection
   const membersList = useMemo(() => Object.values(members || {}).filter(Boolean), [members]);

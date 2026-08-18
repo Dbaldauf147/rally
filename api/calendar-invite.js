@@ -1,6 +1,6 @@
 // Generates an .ics calendar file for an event
 export default function handler(req, res) {
-  const { title, start, end, location, description, url } = req.query;
+  const { title, start, end, location, description, url, allDay } = req.query;
   if (!title || !start) return res.status(400).send('Missing title or start');
 
   const formatICS = (dateStr) => {
@@ -8,8 +8,20 @@ export default function handler(req, res) {
     return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   };
 
-  const startICS = formatICS(start);
-  const endICS = end ? formatICS(end) : formatICS(new Date(new Date(start).getTime() + 3600000).toISOString());
+  // An all-day event arrives as plain yyyy-mm-dd (no instant, so no timezone to
+  // shift the day) and goes out as VALUE=DATE with an exclusive DTEND, per RFC 5545.
+  const isAllDay = allDay === '1' && /^\d{4}-\d{2}-\d{2}$/.test(start);
+  const dateOnly = (s) => s.replace(/-/g, '');
+  const nextDay = (s) => {
+    const [y, m, d] = s.split('-').map(Number);
+    const next = new Date(Date.UTC(y, m - 1, d + 1));
+    return next.toISOString().slice(0, 10).replace(/-/g, '');
+  };
+
+  const startICS = isAllDay ? dateOnly(start) : formatICS(start);
+  const endICS = isAllDay
+    ? nextDay(/^\d{4}-\d{2}-\d{2}$/.test(end || '') ? end : start)
+    : (end ? formatICS(end) : formatICS(new Date(new Date(start).getTime() + 3600000).toISOString()));
   const now = formatICS(new Date().toISOString());
 
   // ICS text escaping per RFC 5545: backslash first, then semicolon/comma, then newlines.
@@ -38,8 +50,8 @@ export default function handler(req, res) {
     'VERSION:2.0',
     'PRODID:-//Rally//Event//EN',
     'BEGIN:VEVENT',
-    `DTSTART:${startICS}`,
-    `DTEND:${endICS}`,
+    isAllDay ? `DTSTART;VALUE=DATE:${startICS}` : `DTSTART:${startICS}`,
+    isAllDay ? `DTEND;VALUE=DATE:${endICS}` : `DTEND:${endICS}`,
     `DTSTAMP:${now}`,
     foldLine(`SUMMARY:${escICS(title || '')}`),
     location ? foldLine(`LOCATION:${escICS(location)}`) : '',
