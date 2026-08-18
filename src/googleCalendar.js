@@ -140,6 +140,8 @@ function buildCalendarPayload({ event, calStart, calEnd, description }) {
     calStart.getHours() === 12 &&
     calStart.getMinutes() === 0 &&
     calEnd.getTime() - calStart.getTime() === 3_600_000;
+  // An event saved with no time is all-day by declaration, not by heuristic.
+  const allDay = event.allDay === true || isNoonHourFallback;
 
   const payload = {
     summary: event.title || 'Rally event',
@@ -147,7 +149,7 @@ function buildCalendarPayload({ event, calStart, calEnd, description }) {
     description: description || undefined,
   };
 
-  if (isNoonHourFallback) {
+  if (allDay) {
     const endSource =
       event.endDate?.toDate?.() ||
       (event.endDate ? new Date(event.endDate) : null);

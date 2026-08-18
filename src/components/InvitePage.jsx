@@ -4,7 +4,7 @@ import { collection, query, where, getDocs, doc, getDoc, updateDoc, arrayUnion, 
 import { db } from '../firebase';
 import { findMemberKey } from '../lib/members';
 import { useAuth } from '../contexts/AuthContext';
-import { format } from 'date-fns';
+import { formatWhen } from '../lib/eventTime';
 import styles from './InvitePage.module.css';
 
 export function InvitePage() {
@@ -97,7 +97,7 @@ export function InvitePage() {
       <div className={styles.card}>
         <p className={styles.inviteLabel}>You're invited to</p>
         <h1 className={styles.title}>{event.title}</h1>
-        <p className={styles.date}>{format(date, 'EEEE, MMMM d, yyyy · h:mm a')}</p>
+        <p className={styles.date}>{formatWhen(event, date, 'EEEE, MMMM d, yyyy')}</p>
         {event.location && <p className={styles.location}>📍 {event.location}</p>}
         {event.description && <p className={styles.desc}>{event.description}</p>}
 

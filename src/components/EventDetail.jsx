@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
 import { isRecurring, describeRecurrence } from '../lib/recurrence';
+import { formatWhen } from '../lib/eventTime';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
@@ -1275,7 +1276,7 @@ export function EventDetail() {
     + itineraryText
     + '\n\nFor more details around travel, please visit this website to view the itinerary: ' + itineraryLink;
 
-  const { calStart, calEnd } = (() => {
+  const { calStart, calEnd, calAllDay } = (() => {
     const items = (Array.isArray(event.itinerary) ? event.itinerary : [])
       .filter(it => (it.type || 'activity') !== 'travel' && it.date && it.time);
     const toDate = (it) => {
@@ -1285,14 +1286,22 @@ export function EventDetail() {
     };
     const dates = items.map(toDate).filter(Boolean);
     if (dates.length === 0) {
-      return { calStart: date, calEnd: endDate || new Date(date.getTime() + 3600000) };
+      // No itinerary times to borrow, so an all-day event stays all-day in the
+      // exports below.
+      return { calStart: date, calEnd: endDate || new Date(date.getTime() + 3600000), calAllDay: !!event.allDay };
     }
     const start = new Date(Math.min(...dates.map(d => d.getTime())));
     const end = dates.length > 1
       ? new Date(Math.max(...dates.map(d => d.getTime())))
       : new Date(start.getTime() + 3600000);
-    return { calStart: start, calEnd: end };
+    return { calStart: start, calEnd: end, calAllDay: false };
   })();
+
+  // Calendar exports want whole local days for an all-day event: a plain
+  // yyyy-mm-dd, never an ISO instant, which would land on the wrong day for
+  // anyone whose local date differs from UTC's.
+  const calYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const calLastDay = calAllDay && endDate && endDate > calStart ? endDate : calStart;
 
   const attendeeEmails = (() => {
     const seen = new Set();
@@ -1311,9 +1320,21 @@ export function EventDetail() {
   })();
   const attendeesParam = attendeeEmails.length ? `&add=${encodeURIComponent(attendeeEmails.join(','))}` : '';
 
-  const icsUrl = `/api/calendar-invite?title=${encodeURIComponent(event.title)}&start=${encodeURIComponent(calStart.toISOString())}&end=${encodeURIComponent(calEnd.toISOString())}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(icsDescription)}&url=${encodeURIComponent(inviteLink)}`;
+  const icsWhen = calAllDay
+    ? `allDay=1&start=${calYmd(calStart)}&end=${calYmd(calLastDay)}`
+    : `start=${encodeURIComponent(calStart.toISOString())}&end=${encodeURIComponent(calEnd.toISOString())}`;
+  const icsUrl = `/api/calendar-invite?title=${encodeURIComponent(event.title)}&${icsWhen}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&description=${encodeURIComponent(icsDescription)}&url=${encodeURIComponent(inviteLink)}`;
 
-  const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${calStart.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${calEnd.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&details=${encodeURIComponent(icsDescription)}${attendeesParam}`;
+  // Google's all-day form is YYYYMMDD/YYYYMMDD with an exclusive end date.
+  const googleCalDates = (() => {
+    if (!calAllDay) {
+      const stamp = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+      return `${stamp(calStart)}/${stamp(calEnd)}`;
+    }
+    const endExclusive = new Date(calLastDay.getFullYear(), calLastDay.getMonth(), calLastDay.getDate() + 1);
+    return `${calYmd(calStart).replace(/-/g, '')}/${calYmd(endExclusive).replace(/-/g, '')}`;
+  })();
+  const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${googleCalDates}${event.location ? `&location=${encodeURIComponent(event.location)}` : ''}&details=${encodeURIComponent(icsDescription)}${attendeesParam}`;
 
   const userCalSync = user?.uid ? event.googleCalendar?.[user.uid] : null;
   const calIsStale = !!userCalSync && (
@@ -1435,7 +1456,7 @@ export function EventDetail() {
 
   function handleSendInvite(e) {
     e.preventDefault();
-    const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
+    const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
     const fromName = user?.displayName || 'Someone';
     const messageText = `You're invited to ${event.title}!\n\nWhen: ${dateStr}${event.location ? `\nWhere: ${event.location}` : ''}${event.description ? `\n\n${event.description}` : ''}\n\nView event & RSVP: ${inviteLink}`;
 
@@ -1618,7 +1639,7 @@ export function EventDetail() {
                       .map(([uid, m]) => m.email || uid)
                       .filter(Boolean);
                     if (emails.length === 0) { alert('No contacts with emails to invite'); return; }
-                    const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
+                    const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
                     const subject = encodeURIComponent(`You're invited: ${event.title}`);
                     const addToCalLink = `${WEB_ORIGIN}${icsUrl}`;
                     const pollLink = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
@@ -1646,7 +1667,7 @@ export function EventDetail() {
                     .filter(([uid, m]) => uid !== user?.uid && m.phone)
                     .map(([, m]) => m.phone);
                   if (phones.length === 0) return null;
-                  const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
+                  const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
                   const pollLink = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
                   const calendarLink = `${WEB_ORIGIN}${icsUrl}`;
                   const hasAnyVotes = Object.values(voteStats || {}).some(s => s && s.total > 0);
@@ -2897,7 +2918,7 @@ export function EventDetail() {
                 if (nonResponders.length === 0) return null;
                 return (
                   <button className={styles.editBtn} disabled={reminderSending} onClick={async () => {
-                    const dateStr = event.date ? format(new Date(event.date.seconds ? event.date.seconds * 1000 : event.date), 'EEEE, MMMM d, yyyy · h:mm a') : '';
+                    const dateStr = event.date ? formatWhen(event, new Date(event.date.seconds ? event.date.seconds * 1000 : event.date), 'EEEE, MMMM d, yyyy') : '';
                     const pollLink = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
                     setReminderSending(true);
                     try {
@@ -3293,7 +3314,7 @@ export function EventDetail() {
       )}
 
       {showInvite && (() => {
-        const dateStr = format(date, 'EEEE, MMMM d, yyyy · h:mm a');
+        const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
         const fromName = user?.displayName || 'Someone';
         const messageText = `You're invited to ${event.title}!\n\nWhen: ${dateStr}${event.location ? `\nWhere: ${event.location}` : ''}\n\nView event & RSVP: ${inviteLink}`;
         const subject = `${fromName} invited you to: ${event.title}`;

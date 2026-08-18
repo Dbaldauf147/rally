@@ -5,6 +5,12 @@
 .input:focus, .textarea:focus { border-color: var(--color-accent); }
 .textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.dateTimePair { display: flex; gap: 0.4rem; }
+.dateTimePair .input { flex: 1 1 auto; min-width: 0; }
+.inputTime { flex: 0 0 auto; width: 7.5rem; padding: 0.65rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.92rem; color: var(--color-text); background: var(--color-bg); outline: none; }
+.inputTime:focus { border-color: var(--color-accent); }
+.inputTime:disabled { opacity: 0.5; cursor: not-allowed; }
+.timeHint { margin: -0.5rem 0 0; font-size: 0.75rem; color: var(--color-text-muted); text-transform: none; letter-spacing: 0; }
 .repeatBox { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.75rem; background: var(--color-surface); }
 .repeatToggle { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.88rem; font-weight: 500; }
 .repeatBody { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--color-border); }

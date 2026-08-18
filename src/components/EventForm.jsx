@@ -10,25 +10,52 @@ import {
 } from '../lib/recurrence';
 import styles from './EventForm.module.css';
 
+const pad = (n) => String(n).padStart(2, '0');
+
+function asDate(value) {
+  if (!value) return null;
+  const d = value.toDate ? value.toDate() : new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Local yyyy-mm-dd / HH:mm for the date and time inputs. Built by hand rather
+// than sliced off toISOString(), which is UTC and shifts the day for anyone
+// west of Greenwich in the evening.
+function dayValue(value) {
+  const d = asDate(value);
+  return d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : '';
+}
+
+function timeValue(value) {
+  const d = asDate(value);
+  return d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '';
+}
+
+// Combine the two inputs into a local Date. A blank time means midnight, which
+// is what an all-day event is stored as.
+function combine(day, time) {
+  if (!day) return null;
+  const [y, m, d] = day.split('-').map(Number);
+  const [h, min] = (time || '00:00').split(':').map(Number);
+  if (!y || !m || !d || !Number.isFinite(h) || !Number.isFinite(min)) return null;
+  return new Date(y, m - 1, d, h, min);
+}
+
 export function EventForm({ event, onSave, onCancel }) {
   const [title, setTitle] = useState(event?.title || '');
   const [description, setDescription] = useState(event?.description || '');
   const [location, setLocation] = useState(event?.location || '');
   const [dateTBD, setDateTBD] = useState(event?.dateTBD || false);
-  const [date, setDate] = useState(() => {
-    if (event?.date) {
-      const d = event.date.toDate ? event.date.toDate() : new Date(event.date);
-      return d.toISOString().slice(0, 16);
-    }
-    return '';
-  });
-  const [endDate, setEndDate] = useState(() => {
-    if (event?.endDate) {
-      const d = event.endDate.toDate ? event.endDate.toDate() : new Date(event.endDate);
-      return d.toISOString().slice(0, 16);
-    }
-    return '';
-  });
+  // Day and time are separate fields so the time can be left off entirely. A
+  // single datetime-local can't express "no time": leaving its clock half-typed
+  // makes the whole field invalid and the browser blocks the submit.
+  const [startDay, setStartDay] = useState(() => dayValue(event?.date));
+  const [startTime, setStartTime] = useState(() => (event?.allDay ? '' : timeValue(event?.date)));
+  const [endDay, setEndDay] = useState(() => dayValue(event?.endDate));
+  const [endTime, setEndTime] = useState(() => (event?.allDay ? '' : timeValue(event?.endDate)));
+  // No start time means an all-day event: the date is what matters and every
+  // surface hides the clock.
+  const allDay = !startTime;
   // Which planning areas this event needs handled. Captured at creation so the
   // event knows up front whether an itinerary, travel, and/or lodging are in scope.
   const [planning, setPlanning] = useState({
@@ -48,18 +75,16 @@ export function EventForm({ event, onSave, onCancel }) {
   const [endsMode, setEndsMode] = useState(savedRule?.endYear != null ? 'year' : 'never');
   const [endYear, setEndYear] = useState(String(savedRule?.endYear ?? new Date().getFullYear() + 5));
 
-  // Local Date for the start field, or null while it's empty/half-typed.
-  function startAsDate(value) {
-    if (!value) return null;
-    const d = new Date(value);
-    return isNaN(d.getTime()) ? null : d;
+  // Local Date for the start field, or null while the day is empty/half-typed.
+  function startAsDate(day = startDay) {
+    return combine(day, startTime);
   }
 
-  function handleDateChange(value) {
-    setDate(value);
+  function handleStartDayChange(value) {
+    setStartDay(value);
     // Untouched rules follow the start date; a hand-edited rule is left alone.
     if (ruleTouched) return;
-    const d = startAsDate(value);
+    const d = combine(value, startTime);
     if (d) setRule(recurrenceFromDate(d, rule.mode));
   }
 
@@ -72,14 +97,14 @@ export function EventForm({ event, onSave, onCancel }) {
     setRuleTouched(true);
     // Re-derive from the start date so switching to "3rd Saturday of…" lands on
     // the week the chosen date actually falls in, not on a stale default.
-    const d = startAsDate(date) || (event?.date?.toDate?.() ?? null) || new Date();
+    const d = startAsDate() || (event?.date?.toDate?.() ?? null) || new Date();
     setRule(r => ({ ...recurrenceFromDate(d, mode), startYear: r.startYear, endYear: r.endYear }));
   }
 
   // The rule as it will be saved, including the "ends" choice — also what the
   // plain-English preview under the picker is rendered from.
   function buildRule() {
-    const anchorYear = startAsDate(date)?.getFullYear() ?? rule.startYear ?? new Date().getFullYear();
+    const anchorYear = startAsDate()?.getFullYear() ?? rule.startYear ?? new Date().getFullYear();
     // The first year of the series is sticky. The form's start date is whatever
     // occurrence is currently showing (it rolls forward every year), so taking
     // the year straight off it would keep chopping the earlier years out of the
@@ -103,7 +128,8 @@ export function EventForm({ event, onSave, onCancel }) {
   function handleSubmit(e) {
     e.preventDefault();
     if (!title.trim()) return;
-    if (!dateTBD && !date) return;
+    const start = dateTBD ? null : startAsDate();
+    if (!dateTBD && !start) return;
     const data = {
       title: title.trim(),
       description: description.trim(),
@@ -114,9 +140,16 @@ export function EventForm({ event, onSave, onCancel }) {
     if (dateTBD) {
       data.date = event?.date || Timestamp.fromDate(new Date());
       data.endDate = event?.endDate || null;
+      data.allDay = false;
     } else {
-      data.date = Timestamp.fromDate(new Date(date));
-      data.endDate = endDate ? Timestamp.fromDate(new Date(endDate)) : null;
+      data.date = Timestamp.fromDate(start);
+      // An end day with no end time keeps the start's time, so "same time, three
+      // days later" doesn't silently become "ends at midnight".
+      const end = combine(endDay, allDay ? '' : (endTime || startTime));
+      data.endDate = end ? Timestamp.fromDate(end) : null;
+      // Written on every save (not just when true) so adding a time to an
+      // all-day event clears the flag.
+      data.allDay = allDay;
     }
     // null (not undefined) so saving an edit that turns repeating off actually
     // clears the rule on the stored doc.
@@ -146,13 +179,35 @@ export function EventForm({ event, onSave, onCancel }) {
         <div className={styles.row}>
           <label className={styles.label}>
             Start
-            <input className={styles.input} type="datetime-local" value={date} onChange={e => handleDateChange(e.target.value)} required />
+            <div className={styles.dateTimePair}>
+              <input className={styles.input} type="date" value={startDay} onChange={e => handleStartDayChange(e.target.value)} required />
+              <input className={styles.inputTime} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} aria-label="Start time (optional)" />
+            </div>
           </label>
           <label className={styles.label}>
             End (optional)
-            <input className={styles.input} type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            <div className={styles.dateTimePair}>
+              <input className={styles.input} type="date" value={endDay} min={startDay || undefined} onChange={e => setEndDay(e.target.value)} />
+              <input
+                className={styles.inputTime}
+                type="time"
+                value={allDay ? '' : endTime}
+                disabled={allDay}
+                onChange={e => setEndTime(e.target.value)}
+                aria-label="End time (optional)"
+                title={allDay ? 'Add a start time first' : undefined}
+              />
+            </div>
           </label>
         </div>
+      )}
+
+      {!dateTBD && (
+        <p className={styles.timeHint}>
+          {allDay
+            ? 'Time is optional — with none set this is an all-day event.'
+            : 'Clear the time fields to make this an all-day event.'}
+        </p>
       )}
 
       {!dateTBD && (
