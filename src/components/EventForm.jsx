@@ -176,7 +176,7 @@ export function EventForm({ event, onSave, onCancel }) {
       </label>
 
       {!dateTBD && (
-        <div className={styles.row}>
+        <div className={styles.dateRow}>
           <label className={styles.label}>
             Start
             <div className={styles.dateTimePair}>
