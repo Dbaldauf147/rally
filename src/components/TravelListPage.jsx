@@ -373,11 +373,16 @@ function normalizeList(raw) {
     tagItemsBySection(sections);
     categoriesMigrated = true;
   }
-  // Which category filters are switched off. Part of the account document so
-  // the pills match on the phone and the website; a document saved before this
-  // moved off the device has no key at all, which is when the last device-local
-  // setting is carried across. An empty list is a real value ("all showing"), so
-  // only a missing key falls back.
+  // Which category filters are switched off. Part of the account document so the
+  // pills match on the phone and the website. A document that predates this has
+  // no such field and simply starts with nothing hidden — the first toggle on
+  // any device establishes it for all of them.
+  //
+  // These used to seed from the device's own localStorage when the field was
+  // missing, which quietly made every device a candidate source of truth: one
+  // that had not yet seen the others' filters would write its old local set over
+  // theirs the next time anything on the list was edited. Starting empty costs a
+  // one-time re-toggle and cannot propagate stale state.
   //
   // A list rather than a { name: true } map on purpose: the document is written
   // with merge, which deep-merges maps, so a key removed here would never be
@@ -385,7 +390,7 @@ function normalizeList(raw) {
   // replaced wholesale.
   const hiddenCats = Array.isArray(raw.meta?.hiddenCats)
     ? [...new Set(raw.meta.hiddenCats.filter((c) => typeof c === 'string' && c))]
-    : legacyHiddenCats();
+    : [];
   return {
     sections,
     meta: {
@@ -441,19 +446,6 @@ function tripDateLabel(leave, ret) {
 
 const CACHE_KEY = 'rally.travelList.doc.v2';
 const OPEN_KEY = 'rally.travelList.open.v2';
-// Where the hidden-category filters used to live, back when they were per-device.
-// Read once by normalizeList to carry that setting into the account document,
-// and never written again. The old shape was a { name: true } map.
-const CATS_KEY = 'rally.travelList.hiddenCats.v1';
-function legacyHiddenCats() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(CATS_KEY) || 'null');
-    if (raw && typeof raw === 'object') {
-      return Object.keys(raw).filter((name) => raw[name] === true);
-    }
-  } catch { /* ignore */ }
-  return [];
-}
 
 export function TravelListPage() {
   const { user } = useAuth();
