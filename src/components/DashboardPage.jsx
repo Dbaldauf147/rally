@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { useEvents } from '../hooks/useEvents';
 import { useAuth } from '../contexts/AuthContext';
 import { EventForm } from './EventForm';
+import { isRecurring } from '../lib/recurrence';
 import { EventCard } from './EventCard';
 import styles from './DashboardPage.module.css';
 
@@ -173,6 +174,9 @@ export function DashboardPage() {
   const itineraryCompletedEvents = finalizedEvents.filter(e => e.itineraryComplete && !e.travelBooked);
   const unbookedFinalizedEvents = finalizedEvents.filter(e => !e.itineraryComplete && !e.travelBooked);
 
+  // Badge on the Repeating button, so the count is visible without opening it.
+  const recurringCount = events.filter(e => isRecurring(e) && !e.cancelled).length;
+
   async function handleCreateEvent(data) {
     setShowCreate(false);
     try {
@@ -253,6 +257,13 @@ export function DashboardPage() {
           <h1 className={styles.title}>Your Dashboard</h1>
         </div>
         <div className={styles.headerActions}>
+          <button
+            className={`${styles.createBtn} ${styles.createBtnAlt}`}
+            onClick={() => navigate('/recurring')}
+            title="See and edit every event that repeats every year"
+          >
+            🔁 Repeating{recurringCount > 0 ? ` (${recurringCount})` : ''}
+          </button>
           <button className={styles.createBtn} onClick={() => { setCreateType('event'); setShowCreate(true); }}>
             + New Event
           </button>

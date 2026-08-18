@@ -14,6 +14,7 @@ import { SharePage } from './components/SharePage';
 import { WeddingPage } from './components/WeddingPage';
 import { TravelListPage } from './components/TravelListPage';
 import { HolidaysPage } from './components/HolidaysPage';
+import { RecurringPage } from './components/RecurringPage';
 import { PTOPage } from './components/PTOPage';
 import { VotingPage } from './components/VotingPage';
 import { AdminPage } from './components/AdminPage';
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="/today" element={<Navigate to="/plans?view=today" replace />} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarView /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
+        <Route path="/recurring" element={<ProtectedRoute><RecurringPage /></ProtectedRoute>} />
         <Route path="/voting" element={<ProtectedRoute><VotingPage /></ProtectedRoute>} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/wedding" element={<ProtectedRoute><WeddingPage /></ProtectedRoute>} />
