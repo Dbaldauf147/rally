@@ -464,21 +464,47 @@ function currentPhase(season) {
     now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime()) || null;
 }
 
+const isPreseasonPhase = (phase) => PRESEASON_LABEL.test(phase?.name || '');
+const isOffSeasonPhase = (phase) => /off\s*-?\s*season/i.test(phase?.name || '');
+
+// The next phase that plays games that count, for a league ESPN currently has
+// in its exhibition window. Phases arrive sorted by start date, so the first
+// future one that's neither an exhibition nor the offseason is what the league
+// is actually counting down to — the regular season, in every league here.
+function nextCountingPhase(season) {
+  const now = Date.now();
+  return (season?.phases || []).find((p) =>
+    new Date(p.startDate).getTime() > now && !isPreseasonPhase(p) && !isOffSeasonPhase(p)) || null;
+}
+
 // Where each in-season league stands today — one row per league. The full
 // phase-by-phase calendar stays on the Sports page; the email only answers
 // "what part of the season is this, and how much of it is left".
 function buildSeasonBlock(seasons, tz) {
   if (!seasons || seasons.length === 0) return '';
+  const muted = (text) => `<span style="color:#6b7280;font-weight:400;">${text}</span>`;
   const rows = seasons.map(({ label, season }) => {
     const phase = currentPhase(season);
-    const detail = phase
-      ? `${phase.name} <span style="color:#6b7280;font-weight:400;">through ${fmtSeasonDate(phase.endDate, tz)}</span>`
-      : (season?.endDate ? `<span style="color:#6b7280;font-weight:400;">Season ends ${fmtSeasonDate(season.endDate, tz)}</span>` : '');
+    // Exhibitions are left out of the games sections, so the status line doesn't
+    // announce them either — a league sitting in its preseason counts down to
+    // the phase that does play games instead. The status underneath moves with
+    // it: "In season" is about the exhibitions we're not reporting.
+    const counting = phase && isPreseasonPhase(phase) ? nextCountingPhase(season) : null;
+    let detail;
+    let status = seasonStatusText(season);
+    if (counting) {
+      detail = `${counting.name} ${muted(`starts ${fmtSeasonDate(counting.startDate, tz)}`)}`;
+      status = `Starts in ${daysUntil(counting.startDate)} days`;
+    } else if (phase && !isPreseasonPhase(phase)) {
+      detail = `${phase.name} ${muted(`through ${fmtSeasonDate(phase.endDate, tz)}`)}`;
+    } else {
+      detail = season?.endDate ? muted(`Season ends ${fmtSeasonDate(season.endDate, tz)}`) : '';
+    }
     return `
       <tr>
         <td style="${CELL}color:#111827;font-weight:700;white-space:nowrap;">${label}<span style="color:#6b7280;font-size:0.78rem;font-weight:400;">${season?.displayName ? ' · ' + season.displayName : ''}</span></td>
         <td align="right" style="${CELL}color:#4f46e5;font-weight:600;">${detail}
-          <div style="color:#6b7280;font-size:0.78rem;font-weight:400;">${seasonStatusText(season)}</div>
+          <div style="color:#6b7280;font-size:0.78rem;font-weight:400;">${status}</div>
         </td>
       </tr>`;
   }).join('');
