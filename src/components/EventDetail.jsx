@@ -113,7 +113,8 @@ export function EventDetail() {
   const [finalizeDate, setFinalizeDate] = useState('');
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
   const [showTextAll, setShowTextAll] = useState(false);
-  const [textAllMissingOnly, setTextAllMissingOnly] = useState(false); // limit Text-All to poll non-responders
+  // Who the Text-All draft goes to: 'all' invitees, poll 'missing' (non-responders), or 'going' (the yeses).
+  const [textAllAudience, setTextAllAudience] = useState('all');
   const [cleaningPhantom, setCleaningPhantom] = useState(false);
   // User-resizable column widths for the vote matrix, keyed by 'name' or a date
   // option id → pixel width. Persisted per event in localStorage.
@@ -555,6 +556,18 @@ export function EventDetail() {
     const partnerUid = m?.plusOneOf || members.find(([, mm]) => mm?.plusOneOf === uid)?.[0];
     const pv = partnerUid ? voteStats[partnerUid] : null;
     return !!pv && (pv.yes > 0 || pv.maybe > 0);
+  }
+
+  // "The yeses" — people actually coming, for the Text Yeses send. A manual
+  // Going/Not going always wins; failing that an explicit RSVP decides; failing
+  // both we fall back to the same vote-derived Going the pills show. Unlike the
+  // Yes/Maybe filter above, a maybe is not a yes.
+  function isGoingYes(uid, m) {
+    const att = getAttendance(uid, m);
+    if (att.overridden) return att.status === 'going';
+    if (m?.rsvp === 'yes') return true;
+    if (m?.rsvp === 'no') return false;
+    return att.status === 'going';
   }
 
   async function linkMemberToFriend(uid, friend) {
@@ -1682,12 +1695,19 @@ export function EventDetail() {
                     ([uid, m]) => uid !== user?.uid && m.phone && !voteStats[uid]?.total && !m.skipVote,
                   ).length;
                   const nudgeMsg = `Hey! We're still waiting on your vote for ${event.title}. Could you take a sec to pick the dates that work for you?\n\nVote here: ${pollLink}`;
+                  // Members with a phone who are down for it — the Text Yeses audience.
+                  const goingPhoneCount = members.filter(
+                    ([uid, m]) => uid !== user?.uid && m.phone && isGoingYes(uid, m),
+                  ).length;
+                  const goingMsg = event.stage === 'finalized'
+                    ? `Hey! Reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails: ${pollLink}`
+                    : `Hey! Since you're in for ${event.title}, here's where things stand.\n\nDetails: ${pollLink}`;
                   return (
                     <>
                       {activeTab !== 'itinerary' && (
                         <button className={styles.shareBtn} onClick={() => {
                           setTextAllMessage(pollMsg);
-                          setTextAllMissingOnly(false);
+                          setTextAllAudience('all');
                           setShowTextAll(true);
                         }}>
                           💬 Text All Poll ({phones.length})
@@ -1696,15 +1716,24 @@ export function EventDetail() {
                       {activeTab !== 'itinerary' && event.stage !== 'finalized' && missingPhoneCount > 0 && (
                         <button className={styles.shareBtn} onClick={() => {
                           setTextAllMessage(nudgeMsg);
-                          setTextAllMissingOnly(true);
+                          setTextAllAudience('missing');
                           setShowTextAll(true);
                         }}>
                           💬 Text Non-Responders ({missingPhoneCount})
                         </button>
                       )}
+                      {goingPhoneCount > 0 && (
+                        <button className={styles.shareBtn} onClick={() => {
+                          setTextAllMessage(goingMsg);
+                          setTextAllAudience('going');
+                          setShowTextAll(true);
+                        }}>
+                          💬 Text Yeses ({goingPhoneCount})
+                        </button>
+                      )}
                       <button className={styles.shareBtn} onClick={() => {
                         setTextAllMessage(calMsg);
-                        setTextAllMissingOnly(false);
+                        setTextAllAudience('all');
                         setShowTextAll(true);
                       }}>
                         📅 Text All Calendar Invite ({phones.length})
@@ -1873,8 +1902,13 @@ export function EventDetail() {
       )}
 
       {showTextAll && (() => {
+        const inAudience = (uid, m) => {
+          if (textAllAudience === 'missing') return !voteStats[uid]?.total && !m.skipVote;
+          if (textAllAudience === 'going') return isGoingYes(uid, m);
+          return true;
+        };
         const recipients = members.filter(([uid, m]) =>
-          uid !== user?.uid && m.phone && (!textAllMissingOnly || (!voteStats[uid]?.total && !m.skipVote)),
+          uid !== user?.uid && m.phone && inAudience(uid, m),
         );
         const phones = recipients.map(([, m]) => m.phone);
         if (phones.length === 0) return null;
@@ -1924,7 +1958,7 @@ export function EventDetail() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Edit text draft — {textAllMissingOnly ? 'non-responders' : 'sending to'} {recipients.length}
+                Edit text draft — {textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : 'sending to'} {recipients.length}
               </span>
               <button
                 onClick={() => { if (!textAllSending) { setShowTextAll(false); setTextAllMessage(''); } }}
