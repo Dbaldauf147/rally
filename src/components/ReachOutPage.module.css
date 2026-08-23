@@ -175,3 +175,51 @@
 }
 .detailInput:focus { outline: none; border-color: var(--color-accent); }
 .noteInput { resize: vertical; line-height: 1.35; }
+
+/* Phone hero card: whoever's birthday is today sits at the very top of the
+   page, loud enough that it reads before anything else on screen. */
+.bdayHero {
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  background: linear-gradient(135deg, #fff8e1 0%, #ffe9a8 100%);
+  border: 2px solid #f1c232;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 6px 18px rgba(241, 194, 50, 0.35);
+}
+.bdayHeroTop { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.55rem; }
+.bdayHeroCake { font-size: 1.5rem; line-height: 1; animation: bdayPop 2.6s ease-in-out infinite; }
+.bdayHeroKicker { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: #92400e; }
+@keyframes bdayPop {
+  0%, 82%, 100% { transform: scale(1) rotate(0deg); }
+  88% { transform: scale(1.18) rotate(-9deg); }
+  94% { transform: scale(1.12) rotate(9deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bdayHeroCake { animation: none; }
+}
+
+.bdayCard + .bdayCard { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px dashed #f1c232; }
+.bdayName {
+  appearance: none; background: none; border: none; padding: 0; margin: 0;
+  font-family: inherit; text-align: left; cursor: pointer;
+  font-size: 1.45rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; color: #7c2d12;
+  max-width: 100%; overflow-wrap: anywhere;
+}
+.bdayMeta { margin: 0.2rem 0 0; font-size: 0.82rem; font-weight: 600; color: #92400e; }
+.bdayNote { margin: 0.35rem 0 0; font-size: 0.85rem; font-style: italic; color: #92400e; }
+.bdayActions { display: flex; align-items: stretch; gap: 0.5rem; margin-top: 0.75rem; }
+.bdayBtn, .bdayBtnGhost {
+  appearance: none; font-family: inherit; cursor: pointer;
+  font-size: 0.95rem; font-weight: 700; padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-md);
+}
+.bdayBtn { flex: 1; border: 1px solid #b45309; background: #b45309; color: #fff; }
+.bdayBtn:hover { filter: brightness(1.07); }
+.bdayBtnGhost { border: 1px solid #f1c232; background: rgba(255, 255, 255, 0.72); color: #92400e; }
+.bdayBtnGhost:hover { background: #fff; }
+.bdayDone {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+  padding: 0.6rem 0.9rem; border-radius: var(--radius-md);
+  background: #dcfce7; border: 1px solid #86efac; color: #166534;
+  font-size: 0.9rem; font-weight: 700;
+}
