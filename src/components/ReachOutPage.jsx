@@ -502,8 +502,20 @@ export function ReachOutPage() {
     let rows = decorated;
     if (categoryFilter !== 'all') rows = rows.filter(c => c.category === categoryFilter);
     if (dueOnly) rows = rows.filter(c => c._due);
-    return [...rows].sort((a, b) => compareRows(a, b, sortKey, sortDir));
-  }, [decorated, categoryFilter, dueOnly, sortKey, sortDir]);
+    return [...rows].sort((a, b) => {
+      // Phone layout: today's birthdays ride above everything else, whatever
+      // the chosen sort — they're the one reach-out that can't slip a day.
+      if (isMobile && !!a._bdayToday !== !!b._bdayToday) return a._bdayToday ? -1 : 1;
+      return compareRows(a, b, sortKey, sortDir);
+    });
+  }, [decorated, categoryFilter, dueOnly, sortKey, sortDir, isMobile]);
+
+  // Everyone whose birthday is today — the phone's hero card at the top of the
+  // page. Retired contacts stay out of it.
+  const birthdaysToday = useMemo(
+    () => decorated.filter(c => c._bdayToday && !c._retired),
+    [decorated],
+  );
 
   // Fuzzy-predicted Friends match for each unlinked person (id -> friend).
   const predictions = useMemo(() => {
@@ -554,6 +566,39 @@ export function ReachOutPage() {
           <button className={styles.btnPrimary} onClick={startAdd}>+ Add person</button>
         </div>
       </div>
+
+      {/* Phone: the birthday card sits above everything else on the page, with
+          the name big enough to read at a glance and a one-tap way to act on
+          it. Desktop keeps the golden row in the table instead. */}
+      {isMobile && birthdaysToday.length > 0 && (
+        <section className={styles.bdayHero} aria-label="Birthdays today">
+          <div className={styles.bdayHeroTop}>
+            <span className={styles.bdayHeroCake} aria-hidden="true">🎂</span>
+            <span className={styles.bdayHeroKicker}>
+              {birthdaysToday.length === 1 ? "It's their birthday today" : `${birthdaysToday.length} birthdays today`}
+            </span>
+          </div>
+          {birthdaysToday.map(c => {
+            const reachedToday = c.lastReachOut === todayK;
+            const meta = [c.category, c.method ? `${c.method} them` : null].filter(Boolean).join(' · ');
+            return (
+              <div key={c.id} className={styles.bdayCard}>
+                <button className={styles.bdayName} onClick={() => openDetails(c)}>{c.name}</button>
+                {meta && <p className={styles.bdayMeta}>{meta}</p>}
+                {c.note && <p className={styles.bdayNote}>{c.note}</p>}
+                <div className={styles.bdayActions}>
+                  {reachedToday ? (
+                    <span className={styles.bdayDone}>✅ Wished today</span>
+                  ) : (
+                    <button className={styles.bdayBtn} onClick={() => setConfirmReach(c)}>Reach out now</button>
+                  )}
+                  <button className={styles.bdayBtnGhost} onClick={() => openDetails(c)}>Details</button>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       {/* The daily 9am nudge only reaches a device that registered for push, and
           every way that fails is silent on the phone — so say so here. */}
@@ -738,7 +783,7 @@ export function ReachOutPage() {
               const rowClass = c._bdayToday ? styles.trBday : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
                 <tr key={c.id} className={rowClass} onClick={isMobile ? undefined : () => startEdit(c)} title={isMobile ? undefined : 'Click to edit'}>
-                  {isMobile && <PersonCell name={c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => openDetails(c)} />}
+                  {isMobile && <PersonCell name={c._bdayToday ? `🎂 ${c.name}` : c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => openDetails(c)} />}
                   {showLast && <td>{fmtMDY(c._last)}</td>}
                   {showCheck && (
                     <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
