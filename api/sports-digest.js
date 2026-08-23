@@ -109,9 +109,36 @@ function normalizeTopics(cfg) {
   };
 }
 
-// ESPN season type 1 is the exhibition phase — "Preseason" everywhere, "Spring
-// Training" in MLB. Those games don't count, so they stay out of the digest.
-const isPreseasonEvent = (ev) => Number(ev?.seasonType?.type) === 1;
+// ESPN labels the exhibition phase differently by league — "Preseason" in the
+// NFL, NBA and NHL, "Spring Training" in MLB — so match the label rather than
+// the wording of any one sport.
+const PRESEASON_LABEL = /pre[-\s]?season|spring training|exhibition/i;
+
+// Whether an event is an exhibition. The season-type NUMBER can't carry this on
+// its own: type 1 is the exhibition phase in the US leagues but the REGULAR
+// season in ESPN's soccer feeds, so keying off the number alone would drop
+// every Premier League and MLS fixture. Go by the label ESPN ships on the
+// event, and fall back to the number only where there's no label to read and
+// the league is one that numbers its exhibitions 1.
+function isPreseasonEvent(ev, sportPath) {
+  const type = ev?.seasonType;
+  if (!type) return false;
+  const name = String(type.name || '');
+  const abbrev = String(type.abbreviation || '');
+  if (name || abbrev) return PRESEASON_LABEL.test(name) || /^pre$/i.test(abbrev);
+  return !String(sportPath || '').startsWith('soccer/') && Number(type.type) === 1;
+}
+
+// Union of two event lists, keyed by ESPN's event id, so a game that comes back
+// in both the default and the regular-season response is only listed once.
+function mergeEvents(...lists) {
+  const byId = new Map();
+  for (const ev of lists.flat()) {
+    const key = String(ev?.id ?? `${ev?.date}|${ev?.name}`);
+    if (!byId.has(key)) byId.set(key, ev);
+  }
+  return [...byId.values()];
+}
 
 async function fetchScheduleEvents(team, seasonType) {
   const q = seasonType ? `?seasontype=${seasonType}` : '';
@@ -126,16 +153,19 @@ async function fetchScheduleEvents(team, seasonType) {
 // games excluded. The endpoint defaults to whichever phase the league is in
 // right now, so through August an NFL team comes back with nothing BUT
 // preseason — ask for the regular season explicitly when that's what we got, or
-// dropping the exhibitions would just leave the section empty. If the regular
-// season isn't published yet (the NBA in August), there's genuinely nothing to
-// show and the team falls away, which is the right answer.
+// dropping the exhibitions would just leave the section empty. The two
+// responses are merged rather than swapped so a mixed list (the last exhibition
+// alongside week 1) keeps its real games. If the regular season isn't published
+// yet (the NBA in August), there's genuinely nothing to show and the team falls
+// away, which is the right answer.
 async function fetchTeamSchedule(team) {
-  let events = await fetchScheduleEvents(team);
-  if (events.some(isPreseasonEvent)) {
+  const scheduled = await fetchScheduleEvents(team);
+  const isExhibition = (ev) => isPreseasonEvent(ev, team.sportPath);
+  let events = scheduled.filter((ev) => !isExhibition(ev));
+  if (scheduled.some(isExhibition)) {
     const regular = await fetchScheduleEvents(team, 2).catch(() => []);
-    if (regular.length) events = regular;
+    events = mergeEvents(events, regular.filter((ev) => !isExhibition(ev)));
   }
-  events = events.filter((ev) => !isPreseasonEvent(ev));
   const now = Date.now();
   const DAY = 86400000;
 
