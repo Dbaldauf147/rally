@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { TodayPage } from './TodayPage';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { format, startOfWeek, addDays, addWeeks, eachDayOfInterval, isSameDay } from 'date-fns';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,6 +10,7 @@ import { getVotingEventsForState, VOTING_TYPES } from '../electionDates';
 import { getHolidayMap } from '../holidays';
 import { isRecurring, occurrencesInRange } from '../lib/recurrence';
 import { API_BASE, isNativeApp } from '../native';
+import { fetchDailyForecast, geocode } from '../lib/weather';
 import styles from './Plans.module.css';
 
 function toDateStr(d) {
@@ -61,6 +62,30 @@ async function getValidGoogleToken() {
   return token || null;
 }
 
+// Where the forecast is for until the user picks somewhere else. Same
+// coordinates the Itinerary map already falls back to, so the two agree.
+const DEFAULT_WEATHER_LOC = { label: 'New York, NY, US', lat: 40.7128, lng: -74.006 };
+const WEATHER_LOC_KEY = 'rally.plans.weatherLoc';
+
+// One day's forecast, sized to sit under the date without crowding it. Days
+// past the forecast horizon (Open-Meteo stops at 16) simply render nothing.
+function WeatherLine({ w }) {
+  if (!w || (w.high == null && w.low == null)) return null;
+  const title = [w.label, w.precip != null ? `${w.precip}% chance of precipitation` : null]
+    .filter(Boolean).join(' · ');
+  return (
+    <span className={styles.weather} title={title}>
+      {w.icon && <span aria-hidden="true">{w.icon}</span>}
+      <span className={styles.weatherTemp}>
+        {w.high != null && <span className={styles.weatherHigh}>{w.high}°</span>}
+        {w.high != null && w.low != null && '/'}
+        {w.low != null && <span className={styles.weatherLow}>{w.low}°</span>}
+      </span>
+      {w.precip > 0 && <span className={styles.weatherPrecip}>💧{w.precip}%</span>}
+    </span>
+  );
+}
+
 export function Plans() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -83,12 +108,34 @@ export function Plans() {
   useEffect(() => {
     if (!user?.uid) return;
     return onSnapshot(doc(db, 'users', user.uid), (snap) => {
-      const v = snap.exists() ? snap.data().voting : null;
+      const data = snap.exists() ? snap.data() : {};
+      const v = data.voting;
       if (v && typeof v === 'object') {
         setVotingPrefs({ state: v.state || '', customDates: Array.isArray(v.customDates) ? v.customDates : [] });
       }
+      const w = data.plansWeather;
+      if (w && typeof w.lat === 'number' && typeof w.lng === 'number') {
+        setWeatherLoc({ label: w.label || '', lat: w.lat, lng: w.lng });
+        try { localStorage.setItem(WEATHER_LOC_KEY, JSON.stringify(w)); } catch { /* ignore */ }
+      }
     });
   }, [user]);
+  // Forecast location, mirrored to localStorage so the grid paints weather on
+  // first load instead of waiting for the user doc to arrive.
+  const [weatherLoc, setWeatherLoc] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(WEATHER_LOC_KEY) || 'null');
+      if (saved && typeof saved.lat === 'number' && typeof saved.lng === 'number') return saved;
+    } catch { /* fall through to the default */ }
+    return DEFAULT_WEATHER_LOC;
+  });
+  const [weatherByDay, setWeatherByDay] = useState({}); // 'YYYY-MM-DD' -> forecast
+  const [showLocPicker, setShowLocPicker] = useState(false);
+  const [locQuery, setLocQuery] = useState('');
+  const [locResults, setLocResults] = useState(null); // null = no search run yet
+  const [locBusy, setLocBusy] = useState(false);
+  const [locError, setLocError] = useState('');
+  const [dateSpots, setDateSpots] = useState([]); // want-to-try date spots from Prep Day
   const [googleConnected, setGoogleConnected] = useState(() => !!localStorage.getItem('google-cal-token'));
   const [calendars, setCalendars] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => {
@@ -105,6 +152,67 @@ export function Plans() {
     setDateReminder(status);
     try { localStorage.setItem('rally.joanneDate.status', status); } catch {}
   };
+
+  // Pull the forecast whenever the location changes. A failure here is not
+  // worth a banner — the grid is still perfectly usable without weather, so we
+  // just leave the lines off.
+  useEffect(() => {
+    if (!weatherLoc) return;
+    let cancelled = false;
+    fetchDailyForecast(weatherLoc.lat, weatherLoc.lng)
+      .then(map => { if (!cancelled) setWeatherByDay(map); })
+      .catch(() => { if (!cancelled) setWeatherByDay({}); });
+    return () => { cancelled = true; };
+  }, [weatherLoc]);
+
+  // Five "want to try" date spots from Prep Day. The endpoint answers with an
+  // empty list when it isn't configured, so an un-wired install shows nothing
+  // rather than an error.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`${API_BASE}/api/prepday-datespots?limit=5`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.spots)) setDateSpots(data.spots);
+      } catch { /* Prep Day is a nice-to-have here — stay quiet */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
+
+  async function saveWeatherLoc(loc) {
+    setWeatherLoc(loc);
+    setShowLocPicker(false);
+    setLocQuery('');
+    setLocResults(null);
+    try { localStorage.setItem(WEATHER_LOC_KEY, JSON.stringify(loc)); } catch { /* ignore */ }
+    if (user?.uid) {
+      await setDoc(doc(db, 'users', user.uid), { plansWeather: loc }, { merge: true }).catch(() => {});
+    }
+  }
+
+  async function searchLocation(e) {
+    e?.preventDefault?.();
+    const q = locQuery.trim();
+    if (!q) return;
+    setLocBusy(true);
+    setLocError('');
+    try {
+      const results = await geocode(q);
+      setLocResults(results);
+      if (results.length === 0) setLocError('No match — try a city, or "city, state".');
+    } catch (err) {
+      setLocError(err.message || 'Could not look that up.');
+      setLocResults([]);
+    } finally {
+      setLocBusy(false);
+    }
+  }
 
   // Compute the three weeks (Monday-anchored)
   const today = new Date();
@@ -387,6 +495,27 @@ export function Plans() {
         </div>
       </div>
       )}
+      {dateSpots.length > 0 && (
+        <section className={styles.spotsCard} aria-label="Date spots to try">
+          <h2 className={styles.spotsTitle}>💜 Date spots to try</h2>
+          <p className={styles.spotsSub}>Want-to-try spots from Prep Day — somewhere to put on the calendar.</p>
+          <ul className={styles.spotsList}>
+            {dateSpots.map(spot => (
+              <li key={spot.id} className={styles.spotRow}>
+                <span className={styles.spotName}>
+                  {spot.url
+                    ? <a href={spot.url} target="_blank" rel="noreferrer" className={styles.spotLink}>{spot.name}</a>
+                    : spot.name}
+                </span>
+                {(spot.dish || spot.address) && (
+                  <span className={styles.spotMeta}>{[spot.dish, spot.address].filter(Boolean).join(' · ')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <div className={styles.header}>
         <div className={styles.titleBlock}>
           <h1 className={styles.title}>Plans</h1>
@@ -396,6 +525,13 @@ export function Plans() {
           </p>
         </div>
         <div className={styles.controls}>
+          <button
+            className={styles.btn}
+            onClick={() => setShowLocPicker(v => !v)}
+            title="Where the forecast is for"
+          >
+            📍 {weatherLoc?.label || 'Set location'}
+          </button>
           {googleConnected && (
             <>
               <button className={styles.btn} onClick={() => setShowCalPicker(v => !v)}>
@@ -415,6 +551,40 @@ export function Plans() {
           <h2 className={styles.connectTitle}>Connect Google Calendar</h2>
           <p className={styles.connectDesc}>Pick the calendars you want to combine into a single two-week view.</p>
           <button className={styles.btnPrimary} onClick={connect}>Connect Google Calendar</button>
+        </div>
+      )}
+
+      {showLocPicker && (
+        <div className={styles.calPickerCard}>
+          <div className={styles.calPickerHeader}>
+            <h3 className={styles.calPickerTitle}>Forecast location</h3>
+            <button className={styles.calPickerClose} onClick={() => setShowLocPicker(false)} aria-label="Close">×</button>
+          </div>
+          <p className={styles.connectDesc}>
+            Showing weather for <strong>{weatherLoc?.label || 'nowhere yet'}</strong>. Search for a city or zip to change it.
+          </p>
+          <form className={styles.locForm} onSubmit={searchLocation}>
+            <input
+              className={styles.locInput}
+              value={locQuery}
+              onChange={e => setLocQuery(e.target.value)}
+              placeholder="City, state or zip"
+              aria-label="Search for a place"
+            />
+            <button className={styles.btnPrimary} type="submit" disabled={locBusy || !locQuery.trim()}>
+              {locBusy ? 'Searching…' : 'Search'}
+            </button>
+          </form>
+          {locError && <p className={styles.locError}>{locError}</p>}
+          {locResults?.length > 0 && (
+            <div className={styles.calList}>
+              {locResults.map((r, i) => (
+                <button key={`${r.lat},${r.lng},${i}`} className={styles.locResult} onClick={() => saveWeatherLoc(r)}>
+                  📍 {r.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -475,6 +645,7 @@ export function Plans() {
                       <div className={styles.dayLabel}>
                         <span className={styles.dayName}>{weekdayLabels[i]}</span>
                         <span className={styles.dayDate}>{format(day, 'MMM d')}</span>
+                        <WeatherLine w={weatherByDay[toDateStr(day)]} />
                       </div>
                       <div className={styles.dayEvents}>{renderCell(day)}</div>
                     </div>
@@ -526,16 +697,19 @@ export function Plans() {
                   <td className={wkCls(w1IsToday)}>
                     {label}
                     <span className={styles.dateLabel}>{format(w1, 'MMM d')}</span>
+                    <WeatherLine w={weatherByDay[toDateStr(w1)]} />
                   </td>
                   <td className={evCls(w1, w1IsToday)}>{renderCell(w1)}</td>
                   <td className={wkCls(w2IsToday)}>
                     {label}
                     <span className={styles.dateLabel}>{format(w2, 'MMM d')}</span>
+                    <WeatherLine w={weatherByDay[toDateStr(w2)]} />
                   </td>
                   <td className={evCls(w2, w2IsToday)}>{renderCell(w2)}</td>
                   <td className={wkCls(w3IsToday)}>
                     {label}
                     <span className={styles.dateLabel}>{format(w3, 'MMM d')}</span>
+                    <WeatherLine w={weatherByDay[toDateStr(w3)]} />
                   </td>
                   <td className={evCls(w3, w3IsToday)}>{renderCell(w3)}</td>
                 </tr>
