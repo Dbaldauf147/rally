@@ -109,9 +109,36 @@ function normalizeTopics(cfg) {
   };
 }
 
-// ESPN season type 1 is the exhibition phase — "Preseason" everywhere, "Spring
-// Training" in MLB. Those games don't count, so they stay out of the digest.
-const isPreseasonEvent = (ev) => Number(ev?.seasonType?.type) === 1;
+// ESPN labels the exhibition phase differently by league — "Preseason" in the
+// NFL, NBA and NHL, "Spring Training" in MLB — so match the label rather than
+// the wording of any one sport.
+const PRESEASON_LABEL = /pre[-\s]?season|spring training|exhibition/i;
+
+// Whether an event is an exhibition. The season-type NUMBER can't carry this on
+// its own: type 1 is the exhibition phase in the US leagues but the REGULAR
+// season in ESPN's soccer feeds, so keying off the number alone would drop
+// every Premier League and MLS fixture. Go by the label ESPN ships on the
+// event, and fall back to the number only where there's no label to read and
+// the league is one that numbers its exhibitions 1.
+function isPreseasonEvent(ev, sportPath) {
+  const type = ev?.seasonType;
+  if (!type) return false;
+  const name = String(type.name || '');
+  const abbrev = String(type.abbreviation || '');
+  if (name || abbrev) return PRESEASON_LABEL.test(name) || /^pre$/i.test(abbrev);
+  return !String(sportPath || '').startsWith('soccer/') && Number(type.type) === 1;
+}
+
+// Union of two event lists, keyed by ESPN's event id, so a game that comes back
+// in both the default and the regular-season response is only listed once.
+function mergeEvents(...lists) {
+  const byId = new Map();
+  for (const ev of lists.flat()) {
+    const key = String(ev?.id ?? `${ev?.date}|${ev?.name}`);
+    if (!byId.has(key)) byId.set(key, ev);
+  }
+  return [...byId.values()];
+}
 
 async function fetchScheduleEvents(team, seasonType) {
   const q = seasonType ? `?seasontype=${seasonType}` : '';
@@ -126,16 +153,19 @@ async function fetchScheduleEvents(team, seasonType) {
 // games excluded. The endpoint defaults to whichever phase the league is in
 // right now, so through August an NFL team comes back with nothing BUT
 // preseason — ask for the regular season explicitly when that's what we got, or
-// dropping the exhibitions would just leave the section empty. If the regular
-// season isn't published yet (the NBA in August), there's genuinely nothing to
-// show and the team falls away, which is the right answer.
+// dropping the exhibitions would just leave the section empty. The two
+// responses are merged rather than swapped so a mixed list (the last exhibition
+// alongside week 1) keeps its real games. If the regular season isn't published
+// yet (the NBA in August), there's genuinely nothing to show and the team falls
+// away, which is the right answer.
 async function fetchTeamSchedule(team) {
-  let events = await fetchScheduleEvents(team);
-  if (events.some(isPreseasonEvent)) {
+  const scheduled = await fetchScheduleEvents(team);
+  const isExhibition = (ev) => isPreseasonEvent(ev, team.sportPath);
+  let events = scheduled.filter((ev) => !isExhibition(ev));
+  if (scheduled.some(isExhibition)) {
     const regular = await fetchScheduleEvents(team, 2).catch(() => []);
-    if (regular.length) events = regular;
+    events = mergeEvents(events, regular.filter((ev) => !isExhibition(ev)));
   }
-  events = events.filter((ev) => !isPreseasonEvent(ev));
   const now = Date.now();
   const DAY = 86400000;
 
@@ -434,21 +464,47 @@ function currentPhase(season) {
     now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime()) || null;
 }
 
+const isPreseasonPhase = (phase) => PRESEASON_LABEL.test(phase?.name || '');
+const isOffSeasonPhase = (phase) => /off\s*-?\s*season/i.test(phase?.name || '');
+
+// The next phase that plays games that count, for a league ESPN currently has
+// in its exhibition window. Phases arrive sorted by start date, so the first
+// future one that's neither an exhibition nor the offseason is what the league
+// is actually counting down to — the regular season, in every league here.
+function nextCountingPhase(season) {
+  const now = Date.now();
+  return (season?.phases || []).find((p) =>
+    new Date(p.startDate).getTime() > now && !isPreseasonPhase(p) && !isOffSeasonPhase(p)) || null;
+}
+
 // Where each in-season league stands today — one row per league. The full
 // phase-by-phase calendar stays on the Sports page; the email only answers
 // "what part of the season is this, and how much of it is left".
 function buildSeasonBlock(seasons, tz) {
   if (!seasons || seasons.length === 0) return '';
+  const muted = (text) => `<span style="color:#6b7280;font-weight:400;">${text}</span>`;
   const rows = seasons.map(({ label, season }) => {
     const phase = currentPhase(season);
-    const detail = phase
-      ? `${phase.name} <span style="color:#6b7280;font-weight:400;">through ${fmtSeasonDate(phase.endDate, tz)}</span>`
-      : (season?.endDate ? `<span style="color:#6b7280;font-weight:400;">Season ends ${fmtSeasonDate(season.endDate, tz)}</span>` : '');
+    // Exhibitions are left out of the games sections, so the status line doesn't
+    // announce them either — a league sitting in its preseason counts down to
+    // the phase that does play games instead. The status underneath moves with
+    // it: "In season" is about the exhibitions we're not reporting.
+    const counting = phase && isPreseasonPhase(phase) ? nextCountingPhase(season) : null;
+    let detail;
+    let status = seasonStatusText(season);
+    if (counting) {
+      detail = `${counting.name} ${muted(`starts ${fmtSeasonDate(counting.startDate, tz)}`)}`;
+      status = `Starts in ${daysUntil(counting.startDate)} days`;
+    } else if (phase && !isPreseasonPhase(phase)) {
+      detail = `${phase.name} ${muted(`through ${fmtSeasonDate(phase.endDate, tz)}`)}`;
+    } else {
+      detail = season?.endDate ? muted(`Season ends ${fmtSeasonDate(season.endDate, tz)}`) : '';
+    }
     return `
       <tr>
         <td style="${CELL}color:#111827;font-weight:700;white-space:nowrap;">${label}<span style="color:#6b7280;font-size:0.78rem;font-weight:400;">${season?.displayName ? ' · ' + season.displayName : ''}</span></td>
         <td align="right" style="${CELL}color:#4f46e5;font-weight:600;">${detail}
-          <div style="color:#6b7280;font-size:0.78rem;font-weight:400;">${seasonStatusText(season)}</div>
+          <div style="color:#6b7280;font-size:0.78rem;font-weight:400;">${status}</div>
         </td>
       </tr>`;
   }).join('');
