@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import {
   evenShares, sumShares, unassigned, money, expenseStatus, toCents, toDollars,
+  remainingFor, amountPaid, paymentsFor,
 } from '../lib/expenses';
 import styles from './ExpensesPage.module.css';
 
@@ -11,8 +13,17 @@ import styles from './ExpensesPage.module.css';
    decisions apply whichever screen you arrived from. */
 export function ExpenseSplitter({ expense, events, memberOptions, actions, onDone }) {
   const {
-    assignEvent, setParticipants, setSplit, setPaidBy, toggleSettled, settleAll, archive,
+    assignEvent, setParticipants, setSplit, setPaidBy,
+    addPayment, removePayment, payRemaining, archive,
   } = actions;
+
+  // Which person's payment box is open, and what's typed in it.
+  const [paying, setPaying] = useState(null);
+  const [reminding, setReminding] = useState(false);
+  const [remindResult, setRemindResult] = useState(null);
+  // Defaults to {} so this component can be rendered outside an AuthProvider
+  // without crashing on the destructure — reminders simply aren't offered.
+  const { user } = useAuth() || {};
 
   const participants = useMemo(
     () => (expense.participants || []).filter(Boolean),
@@ -70,6 +81,58 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
   }
 
   const owedKeys = participants.filter(k => k !== expense.paidBy);
+
+  /* Email people what they still owe. Explicit, never scheduled: nagging your
+     friends on a cron is a good way to lose both the money and the friends. */
+  const remind = useCallback(async (keys) => {
+    if (!user || reminding) return;
+    setReminding(true);
+    setRemindResult(null);
+    try {
+      const recipients = keys.map(key => {
+        const share = shownShares[key] || 0;
+        const person = memberOptions.find(m => m.key === key);
+        return {
+          key,
+          name: person?.name || key,
+          email: person?.email || null,
+          amount: remainingFor(expense, key, share),
+          paid: amountPaid(expense, key, share),
+        };
+      }).filter(r => r.amount > 0);
+
+      if (!recipients.length) {
+        setRemindResult({ ok: false, message: 'Nothing outstanding to remind about' });
+        return;
+      }
+      const withoutEmail = recipients.filter(r => !r.email).map(r => r.name);
+
+      const res = await fetch('/api/expense-reminder', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${await user.getIdToken()}`,
+        },
+        body: JSON.stringify({
+          recipients: recipients.filter(r => r.email),
+          expenseTitle: expense.description,
+          eventTitle: events.find(e => e.id === expense.eventId)?.title || '',
+          fromName: user.displayName || user.email || 'Someone',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
+      const parts = [];
+      if (data.skipped) parts.push('Email isn\'t set up on this deployment');
+      else parts.push(`Reminded ${data.sent} of ${data.total}`);
+      if (withoutEmail.length) parts.push(`no email on file for ${withoutEmail.join(', ')}`);
+      setRemindResult({ ok: !data.skipped && data.sent > 0, message: parts.join(' · ') });
+    } catch (err) {
+      setRemindResult({ ok: false, message: err.message });
+    } finally {
+      setReminding(false);
+    }
+  }, [user, reminding, shownShares, memberOptions, expense, events]);
 
   return (
     <div className={styles.editor}>
@@ -157,7 +220,10 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
           <ul className={styles.shareList}>
             {participants.map(key => {
               const isPayer = key === expense.paidBy;
-              const settled = !!expense.settled?.[key];
+              const share = shownShares[key] || 0;
+              const paid = isPayer ? 0 : amountPaid(expense, key, share);
+              const left = isPayer ? 0 : remainingFor(expense, key, share);
+              const settled = !isPayer && paid > 0 && left === 0;
               return (
                 <li key={key} className={styles.shareRow}>
                   <span className={styles.shareName}>
@@ -186,15 +252,85 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
                     <button
                       type="button"
                       className={settled ? styles.settledOn : styles.settledOff}
-                      onClick={() => toggleSettled(expense, key)}
+                      onClick={() => setPaying(paying?.key === key
+                        ? null
+                        : { key, amount: String(left) })}
                     >
-                      {settled ? '✓ paid up' : 'mark paid'}
+                      {settled ? '✓ paid up' : paid > 0 ? `${money(left)} left` : 'record payment'}
                     </button>
                   )}
                 </li>
               );
             })}
           </ul>
+
+          {paying && (() => {
+            const share = shownShares[paying.key] || 0;
+            const left = remainingFor(expense, paying.key, share);
+            const typed = Number(paying.amount);
+            const valid = Number.isFinite(typed) && typed > 0;
+            const over = valid && toCents(typed) > toCents(left);
+            return (
+              <div className={styles.payBox}>
+                <div className={styles.payHead}>
+                  {nameFor(paying.key)} owes {money(left)}
+                </div>
+                <div className={styles.payRow}>
+                  <input
+                    className={styles.shareInput}
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0"
+                    autoFocus
+                    value={paying.amount}
+                    onChange={(e) => setPaying({ ...paying, amount: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className={styles.secondaryBtn}
+                    disabled={!valid}
+                    onClick={() => { addPayment(expense, paying.key, typed); setPaying(null); }}
+                  >
+                    Record
+                  </button>
+                  {toCents(left) > 0 && (
+                    <button
+                      type="button"
+                      className={styles.linkBtn}
+                      onClick={() => setPaying({ ...paying, amount: String(left) })}
+                    >
+                      all of it
+                    </button>
+                  )}
+                  <button type="button" className={styles.linkBtn} onClick={() => setPaying(null)}>
+                    cancel
+                  </button>
+                </div>
+                {over && (
+                  <div className={styles.payWarn}>
+                    That's {money(typed - left)} more than they owe on this one.
+                  </div>
+                )}
+                {paymentsFor(expense, paying.key).length > 0 && (
+                  <ul className={styles.payLog}>
+                    {paymentsFor(expense, paying.key).map(p => (
+                      <li key={p.id}>
+                        {money(p.amount)} on {String(p.at).slice(0, 10)}
+                        <button
+                          type="button"
+                          className={styles.linkBtn}
+                          onClick={() => removePayment(expense, p.id)}
+                        >
+                          undo
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })()}
 
           {custom && left !== 0 && (
             <div className={styles.remainder}>
@@ -213,18 +349,43 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
             </div>
           )}
 
+          {remindResult && (
+            <div className={remindResult.ok ? styles.remindOk : styles.remindWarn}>
+              {remindResult.message}
+            </div>
+          )}
+
           <div className={styles.editorFooter}>
             <div className={styles.footerSummary}>
               {status.unsplit
                 ? 'Nobody else is in on this yet'
                 : status.outstanding === 0
                   ? `All square — ${money(status.owedTotal)} collected`
-                  : `${money(status.outstanding)} still owed to you`}
+                  : status.collected > 0
+                    ? `${money(status.outstanding)} still owed · ${money(status.collected)} in`
+                    : `${money(status.outstanding)} still owed to you`}
               {custom && <span className={styles.checkSum}> · shares total {money(sumShares(shownShares))}</span>}
             </div>
             <div className={styles.footerActions}>
-              {owedKeys.some(k => !expense.settled?.[k]) && (
-                <button type="button" className={styles.secondaryBtn} onClick={() => settleAll(expense, owedKeys)}>
+              {status.outstanding > 0 && (
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  disabled={reminding}
+                  onClick={() => remind(owedKeys)}
+                >
+                  {reminding ? 'Sending…' : 'Remind them'}
+                </button>
+              )}
+              {status.outstanding > 0 && (
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={() => payRemaining(
+                    expense,
+                    Object.fromEntries(owedKeys.map(k => [k, remainingFor(expense, k, shownShares[k] || 0)])),
+                  )}
+                >
                   Everyone paid
                 </button>
               )}

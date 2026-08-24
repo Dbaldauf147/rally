@@ -73,6 +73,16 @@
 .dangerBtn { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--color-danger); font-size: 0.8rem; font-weight: 650; cursor: pointer; }
 .dangerBtn:hover { border-color: var(--color-danger); }
 
+.remindOk { margin-top: 0.75rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: rgba(22, 163, 74, 0.12); color: #15803d; font-size: 0.8rem; font-weight: 600; }
+.remindWarn { margin-top: 0.75rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: rgba(232, 163, 23, 0.12); color: #8a6100; font-size: 0.8rem; font-weight: 600; }
+
+.payBox { margin-top: 0.75rem; padding: 0.75rem 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface-alt); }
+.payHead { font-size: 0.85rem; font-weight: 650; margin-bottom: 0.5rem; }
+.payRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.payWarn { margin-top: 0.5rem; font-size: 0.78rem; font-weight: 600; color: #8a6100; }
+.payLog { list-style: none; margin: 0.6rem 0 0; padding: 0.6rem 0 0; border-top: 1px solid var(--color-border-light); font-size: 0.78rem; color: var(--color-text-muted); }
+.payLog li { display: flex; align-items: center; gap: 0.5rem; padding: 0.15rem 0; }
+
 /* Embedded in an event's tab: the page chrome is already there. */
 .embedded { padding: 0; }
 .embedded .title { font-size: 1.15rem; }

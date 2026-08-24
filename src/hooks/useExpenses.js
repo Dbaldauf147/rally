@@ -72,17 +72,55 @@ export function useExpenses() {
     updatedAt: new Date().toISOString(),
   }), [patch]);
 
-  const toggleSettled = useCallback((expense, key) => {
+  /* Log a payment against one person's share.
+
+     The whole array is rewritten rather than arrayUnion'd: two payments of the
+     same amount on the same day are identical objects to Firestore, and
+     arrayUnion would silently collapse them into one — losing a real payment.
+
+     Recording a payment also clears that person's legacy `settled` flag, so
+     the two ways of saying "they paid" can never disagree. */
+  const addPayment = useCallback((expense, key, amount, note) => {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value === 0) return Promise.resolve();
     const settled = { ...(expense.settled || {}) };
-    if (settled[key]) delete settled[key];
-    else settled[key] = true;
-    return patch(expense.id, { settled, updatedAt: new Date().toISOString() });
+    delete settled[key];
+    return patch(expense.id, {
+      payments: [...(expense.payments || []), {
+        id: crypto.randomUUID(),
+        key,
+        amount: value,
+        at: new Date().toISOString(),
+        note: (note || '').slice(0, 200),
+      }],
+      settled,
+      updatedAt: new Date().toISOString(),
+    });
   }, [patch]);
 
-  const settleAll = useCallback((expense, keys) => {
+  const removePayment = useCallback((expense, paymentId) => patch(expense.id, {
+    payments: (expense.payments || []).filter(p => p.id !== paymentId),
+    updatedAt: new Date().toISOString(),
+  }), [patch]);
+
+  /* Settle several people at once, each for exactly what they still owe. One
+     write, so "everyone paid" can't half-apply. */
+  const payRemaining = useCallback((expense, owed) => {
+    const entries = Object.entries(owed).filter(([, left]) => Number(left) > 0);
+    if (!entries.length) return Promise.resolve();
+    const at = new Date().toISOString();
     const settled = { ...(expense.settled || {}) };
-    for (const k of keys) settled[k] = true;
-    return patch(expense.id, { settled, updatedAt: new Date().toISOString() });
+    for (const [key] of entries) delete settled[key];
+    return patch(expense.id, {
+      payments: [
+        ...(expense.payments || []),
+        ...entries.map(([key, left]) => ({
+          id: crypto.randomUUID(), key, amount: Number(left), at, note: '',
+        })),
+      ],
+      settled,
+      updatedAt: at,
+    });
   }, [patch]);
 
   // Archive rather than delete: the charge still exists in the bank feed, and
@@ -96,6 +134,7 @@ export function useExpenses() {
 
   return {
     expenses, loading, error,
-    assignEvent, setParticipants, setSplit, setPaidBy, toggleSettled, settleAll, archive, remove,
+    assignEvent, setParticipants, setSplit, setPaidBy,
+    addPayment, removePayment, payRemaining, archive, remove,
   };
 }

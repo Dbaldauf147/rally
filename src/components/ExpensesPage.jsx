@@ -22,7 +22,7 @@ const FILTERS = [
 function memberListFor(event) {
   if (!event) return [];
   return Object.entries(event.members || {})
-    .map(([key, m]) => ({ key, name: m?.name || m?.email || key }))
+    .map(([key, m]) => ({ key, name: m?.name || m?.email || key, email: m?.email || null }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

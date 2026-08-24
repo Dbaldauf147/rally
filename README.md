@@ -17,9 +17,18 @@ lives in the two deployments' env vars.
 An expense arrives unassigned. Putting it on an event is what makes it
 splittable, because an event is where the people are — participants come from
 that event's `members` map. From there the split is even or custom per person,
-and each person can be ticked off as they pay you back.
+and people pay you back in as many instalments as they like: settling up is
+a log of payments, not a checkbox. Older expenses still carry the checkbox
+this replaced, and are read as "paid in full" until a real payment is logged
+against that person.
 
-`src/lib/expenses.js` holds the arithmetic and is pure. It divides in whole
+Reminders are sent by an explicit click, never a cron. A ledger that nags
+your friends on a schedule without you deciding to is a good way to lose
+both.
+
+`src/lib/expenses.js` holds the arithmetic, is pure, and has tests
+(`npm test`) — it is the one place here where being subtly wrong costs real
+money. It divides in whole
 cents rather than dollars: splitting $10 three ways in floats gives shares that
 add up to $9.999…, and that missing fraction becomes a balance nobody can ever
 settle. Rounding to cents and handing the remainder out one cent at a time
