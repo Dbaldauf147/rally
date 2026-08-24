@@ -37,11 +37,63 @@ function prepdayApp() {
   return initializeApp({ credential: cert(sa) }, 'prepday');
 }
 
-// A spot counts as a date spot when one of its free-form voting categories
-// mentions "date" as a word — "Date Nights" is the one in use, but "date
-// spots" and the like should count too. The word boundary keeps an unrelated
-// category that merely contains the letters (an "Update…" of some kind) out.
-function isDateSpot(r) {
+// "Date Nights" is a BUCKET in Prep Day, not a free-form category — it sits in
+// the same row as Breakfast and Lunch/Dinner, and the list is user-editable at
+// users/{uid}.eatingOutBuckets. Everything below mirrors that app's own
+// matching so this endpoint and its filter chip always agree.
+
+// The seed list Prep Day falls back to before the user saves their own.
+const DEFAULT_BUCKETS = [
+  { key: 'breakfast', label: 'Breakfast' },
+  { key: 'lunch-dinner', label: 'Lunch/Dinner' },
+  { key: 'drinking', label: 'Drinking' },
+  { key: 'coffee', label: 'Coffee' },
+  { key: 'going-out', label: 'Going Out' },
+];
+
+// Mirrors sanitizeBucketConfig + effectiveBucketConfig: keep well-formed
+// {key,label} entries, drop blanks and duplicates, fall back to the seed.
+function effectiveBuckets(list) {
+  const seen = new Set();
+  const out = [];
+  if (Array.isArray(list)) {
+    for (const b of list) {
+      if (!b || typeof b !== 'object') continue;
+      const key = typeof b.key === 'string' ? b.key.trim() : '';
+      const label = typeof b.label === 'string' ? b.label.trim() : '';
+      if (!key || !label || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ key, label });
+    }
+  }
+  return out.length ? out : DEFAULT_BUCKETS;
+}
+
+// Whichever bucket the user named for dates — "Date Nights" today, but a
+// rename to "Date Spots" or "Dates" keeps working. Matched on the label
+// because the key is frozen at creation and can drift from it.
+function findDateBucket(buckets) {
+  return buckets.find(b => /\bdate\b/i.test(b.label)) || null;
+}
+
+// Mirrors bucketsOf: the multi-value list, else the legacy single mealType.
+function bucketsOf(r, validKeys) {
+  if (Array.isArray(r.buckets)) return r.buckets.filter(k => validKeys.has(k));
+  if (r.mealType && validKeys.has(r.mealType)) return [r.mealType];
+  return [];
+}
+
+// Mirrors restaurantMatchesBucket: in the bucket, or carrying a free-text
+// category that contains the bucket's label.
+function inBucket(r, bucket, validKeys) {
+  if (bucketsOf(r, validKeys).includes(bucket.key)) return true;
+  const term = bucket.label.toLowerCase();
+  return (r.categories || []).some(c => String(c || '').toLowerCase().includes(term));
+}
+
+// No bucket named for dates at all — fall back to the category-word match so
+// the card still finds something rather than silently emptying.
+function categorySaysDate(r) {
   return (r?.categories || []).some(c => /\bdate\b/i.test(String(c || '')));
 }
 
@@ -89,10 +141,19 @@ export default async function handler(req, res) {
   try {
     const prepUser = await getAuth(prepday).getUserByEmail(email);
     const snap = await getFirestore(prepday).doc(`users/${prepUser.uid}`).get();
-    const restaurants = snap.exists ? snap.get('restaurants') : null;
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const restaurants = data.restaurants;
     if (!Array.isArray(restaurants)) {
       return res.status(200).json({ spots: [], reason: 'No restaurants on the Prep Day account' });
     }
+
+    // The bucket config lives on the same doc, so this costs no extra read.
+    const buckets = effectiveBuckets(data.eatingOutBuckets);
+    const validKeys = new Set(buckets.map(b => b.key));
+    const dateBucket = findDateBucket(buckets);
+    const isDateSpot = dateBucket
+      ? r => inBucket(r, dateBucket, validKeys)
+      : categorySaysDate;
 
     const spots = restaurants
       .filter(r => r && r.status === 'want-to-try' && isDateSpot(r))
@@ -108,7 +169,7 @@ export default async function handler(req, res) {
         categories: r.categories || [],
       }));
 
-    return res.status(200).json({ spots, total: spots.length });
+    return res.status(200).json({ spots, total: spots.length, bucket: dateBucket?.label || null });
   } catch (err) {
     if (err?.code === 'auth/user-not-found') {
       return res.status(200).json({ spots: [], reason: `No Prep Day account for ${email}` });
