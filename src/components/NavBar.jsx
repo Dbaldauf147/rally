@@ -44,6 +44,7 @@ export function NavBar() {
           <NavLink to="/voting" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Voting</NavLink>
           <NavLink to="/recurring" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>🔁 Repeating</NavLink>
           <NavLink to="/friends" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Friends</NavLink>
+          <NavLink to="/expenses" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Expenses</NavLink>
           {isOwner && (
             <NavLink to="/reachout" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Reach Out</NavLink>
           )}
