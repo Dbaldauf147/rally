@@ -6,10 +6,13 @@ import styles from './NavBar.module.css';
 
 const OWNER_EMAIL = 'baldaufdan@gmail.com';
 
-// Owner-only tools tucked behind the gear menu.
+// Tucked behind the gear menu rather than the main links. Repeating is for
+// everyone; the rest are owner-only tools, so the menu itself now shows
+// whenever at least one of its items does.
 const GEAR_ITEMS = [
-  { to: '/holidays', label: 'Holidays' },
-  { to: '/admin', label: 'Admin' },
+  { to: '/recurring', label: 'Repeating' },
+  { to: '/holidays', label: 'Holidays', ownerOnly: true },
+  { to: '/admin', label: 'Admin', ownerOnly: true },
 ];
 
 export function NavBar() {
@@ -20,6 +23,7 @@ export function NavBar() {
   const [gearOpen, setGearOpen] = useState(false);
   const gearRef = useRef(null);
   const isOwner = user?.email === OWNER_EMAIL;
+  const gearItems = GEAR_ITEMS.filter(it => !it.ownerOnly || isOwner);
 
   useEffect(() => subscribePins(user?.uid, setPinnedTrips), [user]);
 
@@ -42,7 +46,6 @@ export function NavBar() {
           <NavLink to="/calendar" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Rally Calendar</NavLink>
           <NavLink to="/plans" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Plans</NavLink>
           <NavLink to="/voting" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Voting</NavLink>
-          <NavLink to="/recurring" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>🔁 Repeating</NavLink>
           <NavLink to="/friends" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Friends</NavLink>
           {isOwner && (
             <NavLink to="/reachout" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Reach Out</NavLink>
@@ -79,7 +82,7 @@ export function NavBar() {
           ))}
         </div>
         <div className={styles.right}>
-          {isOwner && (
+          {gearItems.length > 0 && (
             <div className={styles.gearWrap} ref={gearRef}>
               <button
                 type="button"
@@ -92,7 +95,7 @@ export function NavBar() {
               >⚙️</button>
               {gearOpen && (
                 <div className={styles.gearMenu} role="menu">
-                  {GEAR_ITEMS.map(it => (
+                  {gearItems.map(it => (
                     <NavLink
                       key={it.to}
                       to={it.to}
