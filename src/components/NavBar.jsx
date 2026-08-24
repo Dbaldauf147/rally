@@ -6,11 +6,11 @@ import styles from './NavBar.module.css';
 
 const OWNER_EMAIL = 'baldaufdan@gmail.com';
 
-// Tucked behind the gear menu rather than the main links. Repeating is for
-// everyone; the rest are owner-only tools, so the menu itself now shows
-// whenever at least one of its items does.
+// Owner-only tools tucked behind the gear menu rather than the main links.
+// The menu shows whenever at least one of its items does, so opening any of
+// these up later is a matter of dropping its ownerOnly flag.
 const GEAR_ITEMS = [
-  { to: '/recurring', label: 'Repeating' },
+  { to: '/recurring', label: 'Repeating', ownerOnly: true },
   { to: '/holidays', label: 'Holidays', ownerOnly: true },
   { to: '/admin', label: 'Admin', ownerOnly: true },
 ];
