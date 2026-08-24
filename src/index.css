@@ -66,6 +66,13 @@ html.native [contenteditable="true"] {
   user-select: text;
 }
 
+/* Leave room for the fixed left sidebar on desktop when it's mounted. Kept
+   here rather than in NavBar.module.css because CSS modules would hash the
+   class name, and the body element is outside the component. */
+@media (min-width: 761px) {
+  body.has-sidebar { padding-left: var(--sidebar-w, 216px); }
+}
+
 /* Leave room for the fixed bottom tab bar on mobile when it's mounted. */
 @media (max-width: 760px) {
   body.has-tabbar { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }

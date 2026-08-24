@@ -1,26 +1,37 @@
-/* The bar runs the full width and starts flush left: page containers below it
-   range from 800px to 1600px, so a centred column here matched none of them and
-   only pushed the links inward — which on a wide screen left the last one
-   clipped inside the scroller while empty margin sat on both sides. */
-.nav { background: var(--color-surface); border-bottom: 1px solid var(--color-border); position: sticky; top: 0; z-index: 100; padding-top: env(safe-area-inset-top); }
-.inner { margin: 0; padding: 0 calc(1.5rem + env(safe-area-inset-right)) 0 calc(1.5rem + env(safe-area-inset-left)); display: flex; flex-wrap: nowrap; align-items: center; height: 56px; gap: 1rem; }
-.logo { font-size: 1.25rem; font-weight: 700; color: var(--color-accent); text-decoration: none; letter-spacing: -0.02em; flex-shrink: 0; }
-/* Single row that scrolls horizontally rather than wrapping when the links
-   outgrow the bar. min-width:0 lets it shrink inside the flex row. */
-.links { display: flex; flex-wrap: nowrap; gap: 0.25rem; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+/* A fixed sidebar down the left edge rather than a bar across the top: the
+   links stack vertically, so a long menu grows downward with room to spare
+   instead of fighting for horizontal space. Page content clears it via
+   body.has-sidebar in index.css. */
+.nav {
+  background: var(--color-surface); border-right: 1px solid var(--color-border);
+  position: fixed; top: 0; left: 0; bottom: 0; width: var(--sidebar-w, 216px);
+  z-index: 100; display: flex;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+}
+/* Column layout: logo, then the links, then the account block pinned to the
+   bottom on its margin-top:auto. */
+.inner {
+  display: flex; flex-direction: column; align-items: stretch;
+  flex: 1; min-width: 0; min-height: 0; gap: 0.75rem;
+  padding: 1rem 0.7rem calc(1rem + env(safe-area-inset-bottom));
+}
+.logo { font-size: 1.35rem; font-weight: 700; color: var(--color-accent); text-decoration: none; letter-spacing: -0.02em; flex-shrink: 0; padding: 0.1rem 0.55rem 0.35rem; }
+/* Stacked, and scrolls vertically when the list outgrows the viewport. */
+.links { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 0.15rem; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .links::-webkit-scrollbar { display: none; }
 
-/* On mobile the bottom tab bar replaces the top nav entirely. */
+/* On mobile the bottom tab bar replaces the sidebar entirely. */
 @media (max-width: 760px) {
   .nav { display: none; }
 }
-.link, .linkActive { padding: 0.4rem 0.75rem; border-radius: var(--radius-md); font-size: 0.88rem; font-weight: 500; color: var(--color-text-secondary); text-decoration: none; transition: all 0.15s; white-space: nowrap; flex-shrink: 0; }
+.link, .linkActive { display: block; padding: 0.5rem 0.55rem; border-radius: var(--radius-md); font-size: 0.9rem; font-weight: 500; color: var(--color-text-secondary); text-decoration: none; transition: all 0.15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .link:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .linkActive { background: var(--color-accent-light); color: var(--color-accent); }
-.pinnedWrap { display: inline-flex; align-items: center; }
+.pinnedWrap { display: flex; align-items: center; flex-shrink: 0; }
 .pinnedWrap .link, .pinnedWrap .linkActive {
-  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding-right: 0.35rem;
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding-right: 0.25rem;
 }
 .pinnedUnpin {
   background: none; border: none; color: var(--color-text-muted);
@@ -28,11 +39,12 @@
   border-radius: var(--radius-sm);
 }
 .pinnedUnpin:hover { color: var(--color-danger, #dc2626); }
-.right { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+/* Pinned to the bottom of the sidebar, wrapping if the names are long. */
+.right { margin-top: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.4rem; flex-shrink: 0; padding-top: 0.6rem; border-top: 1px solid var(--color-border); }
 .gearWrap { position: relative; display: inline-flex; }
 .gearBtn { background: none; border: none; font-size: 1.05rem; line-height: 1; cursor: pointer; padding: 0.3rem 0.45rem; border-radius: var(--radius-sm); }
 .gearBtn:hover { background: var(--color-surface-alt); }
-.gearMenu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 0.35rem; display: flex; flex-direction: column; gap: 0.15rem; z-index: 200; }
+.gearMenu { position: absolute; left: 0; bottom: calc(100% + 6px); min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 0.35rem; display: flex; flex-direction: column; gap: 0.15rem; z-index: 200; }
 .gearItem, .gearItemActive { padding: 0.5rem 0.65rem; border-radius: var(--radius-sm); font-size: 0.88rem; font-weight: 500; color: var(--color-text-secondary); text-decoration: none; }
 .gearItem:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .gearItemActive { background: var(--color-accent-light); color: var(--color-accent); }
