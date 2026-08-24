@@ -1,5 +1,9 @@
+/* The bar runs the full width and starts flush left: page containers below it
+   range from 800px to 1600px, so a centred column here matched none of them and
+   only pushed the links inward — which on a wide screen left the last one
+   clipped inside the scroller while empty margin sat on both sides. */
 .nav { background: var(--color-surface); border-bottom: 1px solid var(--color-border); position: sticky; top: 0; z-index: 100; padding-top: env(safe-area-inset-top); }
-.inner { max-width: 1200px; margin: 0 auto; padding: 0 calc(1.5rem + env(safe-area-inset-right)) 0 calc(1.5rem + env(safe-area-inset-left)); display: flex; flex-wrap: nowrap; align-items: center; height: 56px; gap: 1rem; }
+.inner { margin: 0; padding: 0 calc(1.5rem + env(safe-area-inset-right)) 0 calc(1.5rem + env(safe-area-inset-left)); display: flex; flex-wrap: nowrap; align-items: center; height: 56px; gap: 1rem; }
 .logo { font-size: 1.25rem; font-weight: 700; color: var(--color-accent); text-decoration: none; letter-spacing: -0.02em; flex-shrink: 0; }
 /* Single row that scrolls horizontally rather than wrapping when the links
    outgrow the bar. min-width:0 lets it shrink inside the flex row. */
