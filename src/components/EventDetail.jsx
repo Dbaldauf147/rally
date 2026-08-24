@@ -16,6 +16,7 @@ import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
+import { EventExpenses } from './EventExpenses';
 import { BoatDay, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
 import { boatRosterUnion, dateKeyOf } from '../boatDays';
 import {
@@ -1503,6 +1504,7 @@ export function EventDetail() {
     ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
     { key: 'notes', label: 'Notes' },
+    { key: 'expenses', label: 'Expenses' },
     { key: 'chat', label: 'Chat' },
   ];
 
@@ -3333,6 +3335,10 @@ export function EventDetail() {
           canManageAll={isOwner || event.members?.[user?.uid]?.role === 'editor'}
           onSave={async (data) => { await updateEvent(eventId, data); }}
         />
+      )}
+
+      {activeTab === 'expenses' && (
+        <EventExpenses event={event} />
       )}
 
       {activeTab === 'chat' && (

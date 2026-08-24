@@ -20,6 +20,7 @@ import { VotingPage } from './components/VotingPage';
 import { AdminPage } from './components/AdminPage';
 import { ReachOutPage } from './components/ReachOutPage';
 import { SportsPage } from './components/SportsPage';
+import { ExpensesPage } from './components/ExpensesPage';
 // Today is now a subtab of Plans; keep its old URL working via redirect below.
 import { NavBar } from './components/NavBar';
 import { BottomTabBar } from './components/BottomTabBar';
@@ -76,6 +77,7 @@ export default function App() {
         <Route path="/recurring" element={<ProtectedRoute><RecurringPage /></ProtectedRoute>} />
         <Route path="/voting" element={<ProtectedRoute><VotingPage /></ProtectedRoute>} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
+        <Route path="/expenses" element={<ProtectedRoute><ExpensesPage /></ProtectedRoute>} />
         <Route path="/wedding" element={<ProtectedRoute><WeddingPage /></ProtectedRoute>} />
         <Route path="/travel-list" element={<ProtectedRoute><TravelListPage /></ProtectedRoute>} />
         <Route path="/holidays" element={<ProtectedRoute><HolidaysPage /></ProtectedRoute>} />

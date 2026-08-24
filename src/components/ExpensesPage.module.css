@@ -1,0 +1,88 @@
+/* Expenses: charges from Wealth Architect, split between the people on an event. */
+
+.page { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 5rem; }
+.header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+.headline { font-size: 1.05rem; font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; }
+.subtitle { color: var(--color-text-muted); font-size: 0.9rem; margin: 0.35rem 0 1.5rem; line-height: 1.5; }
+.muted { color: var(--color-text-muted); font-size: 0.9rem; }
+.error { padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: var(--radius-lg); background: rgba(220, 38, 38, 0.08); color: var(--color-danger); font-size: 0.88rem; }
+
+/* Who owes what, across every charge. */
+.balances { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+.balanceCard { padding: 0.85rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.balanceName { font-size: 0.88rem; font-weight: 600; margin-bottom: 0.2rem; }
+.balanceOwed { font-size: 1.15rem; font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; }
+.balanceClear { font-size: 1rem; font-weight: 600; color: var(--color-text-muted); }
+.balanceMeta { margin-top: 0.15rem; font-size: 0.75rem; color: var(--color-text-muted); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+.filter, .filterOn { padding: 0.4rem 0.85rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-secondary); }
+.filterOn { border-color: transparent; background: var(--color-accent); color: #fff; }
+
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.item { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
+.itemHead { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.85rem 1rem; border: none; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.itemHead:hover { background: var(--color-surface-alt); }
+.itemMain { flex: 1; min-width: 0; }
+.itemDesc { display: block; font-size: 0.95rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.itemMeta { display: block; margin-top: 0.15rem; font-size: 0.78rem; color: var(--color-text-muted); }
+.itemAmount { flex: none; font-size: 0.95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.chevron { flex: none; color: var(--color-text-muted); font-size: 0.8rem; }
+
+.empty { padding: 3rem 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1.6; }
+
+/* ── The splitter ─────────────────────────────────────────── */
+.editor { padding: 0.25rem 1rem 1rem; border-top: 1px solid var(--color-border-light); }
+.editorRow { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.9rem; }
+.fieldLabel { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-muted); }
+.select { flex: 1; padding: 0.45rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text); font-size: 0.88rem; }
+.select:focus { outline: none; border-color: var(--color-accent); }
+.hint { margin: 0.75rem 0 0.25rem; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+.chip, .chipOn { padding: 0.35rem 0.7rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-secondary); }
+.chipOn { border-color: transparent; background: var(--color-accent); color: #fff; }
+.chip:disabled, .chipOn:disabled { cursor: default; opacity: 0.75; }
+
+.splitHead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.1rem; }
+.toggle { display: inline-flex; padding: 2px; border-radius: 999px; background: var(--color-surface-alt); }
+.toggleOn, .toggleOff { padding: 0.3rem 0.8rem; border: none; border-radius: 999px; font-size: 0.78rem; font-weight: 650; cursor: pointer; background: none; color: var(--color-text-muted); }
+.toggleOn { background: var(--color-surface); color: var(--color-text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+
+.shareList { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.shareRow { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--color-border-light); }
+.shareName { flex: 1; min-width: 0; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.payerTag { margin-left: 0.4rem; padding: 0.05rem 0.35rem; border-radius: 4px; background: var(--color-surface-alt); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.shareAmount { flex: none; width: 88px; text-align: right; font-size: 0.9rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.shareInput { flex: none; width: 88px; padding: 0.35rem 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text); font-size: 0.9rem; text-align: right; font-variant-numeric: tabular-nums; }
+.shareInput:focus { outline: none; border-color: var(--color-accent); }
+.shareNote { flex: none; width: 92px; text-align: right; font-size: 0.75rem; color: var(--color-text-muted); }
+.settledOff, .settledOn { flex: none; width: 92px; padding: 0.3rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 650; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-secondary); }
+.settledOn { border-color: transparent; background: rgba(22, 163, 74, 0.12); color: #15803d; }
+
+.remainder { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.75rem; padding: 0.55rem 0.75rem; border-radius: var(--radius-sm); background: rgba(232, 163, 23, 0.12); color: #8a6100; font-size: 0.82rem; font-weight: 600; }
+.remainderActions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.linkBtn { border: none; background: none; padding: 0; font: inherit; font-weight: 700; color: inherit; text-decoration: underline; cursor: pointer; }
+
+.editorFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 1rem; }
+.footerSummary { font-size: 0.85rem; color: var(--color-text-secondary); }
+.checkSum { color: var(--color-text-muted); }
+.footerActions { display: flex; gap: 0.5rem; }
+.secondaryBtn { padding: 0.4rem 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-secondary); font-size: 0.8rem; font-weight: 650; cursor: pointer; }
+.dangerBtn { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--color-danger); font-size: 0.8rem; font-weight: 650; cursor: pointer; }
+.dangerBtn:hover { border-color: var(--color-danger); }
+
+.remindOk { margin-top: 0.75rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: rgba(22, 163, 74, 0.12); color: #15803d; font-size: 0.8rem; font-weight: 600; }
+.remindWarn { margin-top: 0.75rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: rgba(232, 163, 23, 0.12); color: #8a6100; font-size: 0.8rem; font-weight: 600; }
+
+.payBox { margin-top: 0.75rem; padding: 0.75rem 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface-alt); }
+.payHead { font-size: 0.85rem; font-weight: 650; margin-bottom: 0.5rem; }
+.payRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.payWarn { margin-top: 0.5rem; font-size: 0.78rem; font-weight: 600; color: #8a6100; }
+.payLog { list-style: none; margin: 0.6rem 0 0; padding: 0.6rem 0 0; border-top: 1px solid var(--color-border-light); font-size: 0.78rem; color: var(--color-text-muted); }
+.payLog li { display: flex; align-items: center; gap: 0.5rem; padding: 0.15rem 0; }
+
+/* Embedded in an event's tab: the page chrome is already there. */
+.embedded { padding: 0; }
+.embedded .title { font-size: 1.15rem; }
