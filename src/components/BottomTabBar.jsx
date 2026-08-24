@@ -49,7 +49,6 @@ export function BottomTabBar() {
     { to: '/plans', label: 'Plans', icon: icons.plans },
   ];
   const moreItems = [
-    { to: '/recurring', label: 'Repeating', icon: icons.repeating },
     { to: '/friends', label: 'Friends', icon: icons.friends },
     ...(isOwner ? [
       { to: '/wedding', label: 'Wedding', icon: icons.wedding },
@@ -57,11 +56,15 @@ export function BottomTabBar() {
       { to: '/pto', label: 'PTO', icon: icons.pto },
     ] : []),
   ];
-  // Owner-only tools live behind the gear/Settings section of the sheet.
-  const settingsItems = isOwner ? [
-    { to: '/holidays', label: 'Holidays', icon: icons.holidays },
-    { to: '/admin', label: 'Admin', icon: icons.admin },
-  ] : [];
+  // The gear/Settings section of the sheet: Repeating for everyone, then the
+  // owner-only tools.
+  const settingsItems = [
+    { to: '/recurring', label: 'Repeating', icon: icons.repeating },
+    ...(isOwner ? [
+      { to: '/holidays', label: 'Holidays', icon: icons.holidays },
+      { to: '/admin', label: 'Admin', icon: icons.admin },
+    ] : []),
+  ];
   const moreRoutes = [...moreItems, ...settingsItems].map(i => i.to);
   const moreActive = moreOpen || moreRoutes.includes(location.pathname);
 
