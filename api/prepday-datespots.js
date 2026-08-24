@@ -38,9 +38,11 @@ function prepdayApp() {
 }
 
 // A spot counts as a date spot when one of its free-form voting categories
-// mentions "date" — "date spots", "date night", however it got typed.
+// mentions "date" as a word — "Date Nights" is the one in use, but "date
+// spots" and the like should count too. The word boundary keeps an unrelated
+// category that merely contains the letters (an "Update…" of some kind) out.
 function isDateSpot(r) {
-  return (r?.categories || []).some(c => /date/i.test(String(c || '')));
+  return (r?.categories || []).some(c => /\bdate\b/i.test(String(c || '')));
 }
 
 // Prep Day ranks "where do I want to go next" with an up/down vote score.

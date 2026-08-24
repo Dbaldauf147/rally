@@ -496,8 +496,8 @@ export function Plans() {
       </div>
       )}
       {dateSpots.length > 0 && (
-        <section className={styles.spotsCard} aria-label="Date spots to try">
-          <h2 className={styles.spotsTitle}>💜 Date spots to try</h2>
+        <section className={styles.spotsCard} aria-label="Date nights to try">
+          <h2 className={styles.spotsTitle}>💜 Date nights to try</h2>
           <p className={styles.spotsSub}>Want-to-try spots from Prep Day — somewhere to put on the calendar.</p>
           <ul className={styles.spotsList}>
             {dateSpots.map(spot => (
