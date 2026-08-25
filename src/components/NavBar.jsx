@@ -27,6 +27,13 @@ export function NavBar() {
 
   useEffect(() => subscribePins(user?.uid, setPinnedTrips), [user]);
 
+  // The sidebar is fixed, so page content needs padding to clear it. Only
+  // applies above the phone breakpoint — see index.css.
+  useEffect(() => {
+    document.body.classList.add('has-sidebar');
+    return () => document.body.classList.remove('has-sidebar');
+  }, []);
+
   // Close the gear menu on outside click or Escape.
   useEffect(() => {
     if (!gearOpen) return;
