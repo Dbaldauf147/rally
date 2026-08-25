@@ -51,7 +51,7 @@ export function BottomTabBar() {
   ];
   const moreItems = [
     { to: '/friends', label: 'Friends', icon: icons.friends },
-    { to: '/expenses', label: 'Expenses', icon: icons.expenses },
+    { to: '/expenses', label: 'Trip Expenses', icon: icons.expenses },
     ...(isOwner ? [
       { to: '/wedding', label: 'Wedding', icon: icons.wedding },
       { to: '/travel-list', label: 'Travel List', icon: icons.travel },
