@@ -33,14 +33,14 @@ export function EventExpenses({ event }) {
   return (
     <div className={`${styles.page} ${styles.embedded}`}>
       <header className={styles.header}>
-        <h2 className={styles.title}>Expenses</h2>
+        <h2 className={styles.title}>Trip Expenses</h2>
         {outstanding > 0 && <div className={styles.headline}>{money(outstanding)} owed to you</div>}
       </header>
 
       {mine.length === 0 ? (
         <p className={styles.hint}>
           No charges on this event yet. Tag one to split in the Wealth Architect categorizer,
-          then put it on this event — either here or from the Expenses page.
+          then put it on this event — either here or from the Trip Expenses page.
         </p>
       ) : (
         <ul className={styles.list}>

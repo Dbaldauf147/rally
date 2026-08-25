@@ -67,7 +67,7 @@ export function ExpensesPage() {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Expenses</h1>
+        <h1 className={styles.title}>Trip Expenses</h1>
         {totalOutstanding > 0 && (
           <div className={styles.headline}>{money(totalOutstanding)} owed to you</div>
         )}
