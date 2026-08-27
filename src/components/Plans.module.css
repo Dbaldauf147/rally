@@ -119,27 +119,32 @@
 }
 .locResult:hover { background: var(--color-surface-alt); }
 
-/* One day's forecast, tucked under the date in both layouts. */
+/* Rain/thunder days only, tucked under the date in both layouts. Blue and
+   bold on purpose: these are the handful of cells meant to pull the eye. */
 .weather {
-  display: flex; align-items: center; gap: 0.2rem; flex-wrap: wrap;
+  display: inline-flex; align-items: center; gap: 0.15rem;
   margin-top: 0.15rem; font-size: 0.68rem; line-height: 1.2;
-  font-variant-numeric: tabular-nums; color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  color: #2563eb; font-weight: 600;
 }
-.weatherTemp { white-space: nowrap; }
-.weatherHigh { font-weight: 700; color: var(--color-text-secondary); }
-.weatherLow { color: var(--color-text-muted); }
-.weatherPrecip { color: #2563eb; font-weight: 600; }
 
 /* Prep Day's want-to-try date spots, above the grid. */
-.spotsCard {
-  padding: 0.85rem 1rem; margin-bottom: 1rem;
-  background: #fdf2f8; border: 1px solid #f9a8d4;
-  border-radius: var(--radius-md); color: #9d174d;
-}
-.spotsTitle { margin: 0; font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; }
-.spotsSub { margin: 0.15rem 0 0.6rem; font-size: 0.78rem; opacity: 0.85; }
-.spotsList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
-.spotRow { display: flex; flex-direction: column; gap: 0.1rem; }
-.spotName { font-size: 0.9rem; font-weight: 700; }
+/* A titled table under the weeks, so it reads as a sibling of the one above
+   rather than a coloured callout. The pink now lives in the heading only. */
+.spotsCard { margin: 1.5rem 0 0; }
+.spotsTitle { margin: 0; font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; color: #9d174d; }
+.spotsSub { margin: 0.15rem 0 0.6rem; font-size: 0.78rem; color: var(--color-text-muted); }
+.spotsTableWrap { overflow-x: auto; }
+.spotsTable { min-width: 420px; }
+.spotName { font-size: 0.9rem; font-weight: 700; display: block; }
 .spotLink { color: inherit; text-decoration: underline; }
-.spotMeta { font-size: 0.76rem; opacity: 0.85; }
+/* On the <span> under the name only — never on a <td>, where display:block
+   would drop the cell out of the table's layout. */
+.spotMeta { display: block; font-size: 0.76rem; color: var(--color-text-muted); }
+/* Qualified by .spotsTable: bare `.spotTick` loses to `.table td`, which is
+   the more specific selector and left-aligns everything. */
+.spotsTable th.spotTickCol { text-align: center; }
+.spotsTable td.spotTick { text-align: center; color: var(--color-text-muted); }
+/* JOANNE_COLOR from Prep Day's Eating Out page, so the two apps match. */
+.spotsTable td.spotTickJoanne { text-align: center; color: #ec4899; font-weight: 700; }
+.spotsTable td.spotDish { font-size: 0.76rem; color: var(--color-text-muted); }

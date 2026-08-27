@@ -106,6 +106,54 @@ function byPriority(a, b) {
   return String(a.name || '').localeCompare(String(b.name || ''));
 }
 
+// Somewhere new to go beats somewhere we've been, so unvisited spots sort
+// first — but visited ones still fill the remaining slots. Filtering them out
+// entirely left the card with a single row, most date spots being places we
+// already like.
+function unvisitedFirst(r) {
+  return r?.status === 'want-to-try' ? 0 : 1;
+}
+
+// Punctuation and spacing differ between a hand-typed entry and a Maps import
+// of the same place, so compare on letters and digits only.
+function normalize(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Just the street line. A Maps import carries the full "25 Clinton St, New
+// York, NY 10002, USA" where the hand-typed twin stops at the zip, so matching
+// whole addresses misses the pair — but the street number is still specific
+// enough to keep two branches of the same chain apart.
+function streetOf(address) {
+  return normalize(String(address || '').split(',')[0]);
+}
+
+// The same place can sit in the list twice under different ids (imported once
+// by hand and once from a Maps link, say). Five slots are too few to spend two
+// on one restaurant, so collapse by name+address. Runs after the sort, so the
+// copy that survives is the better-ranked one.
+function dedupe(list) {
+  const seen = new Set();
+  return list.filter(r => {
+    const key = `${normalize(r.name)}|${streetOf(r.address)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Prep Day keeps the list at users/{uid}/data/eatingOut.restaurants. The field
+ * of the same name on the user doc is the legacy home, and Prep Day DELETES it
+ * once a client migrates the account (see its firestoreSync saveRestaurants),
+ * so the subdoc is read first and the old field only as a fallback.
+ */
+function pickRestaurants(eatingOutSnap, userData) {
+  const fromSubdoc = eatingOutSnap.exists ? eatingOutSnap.data()?.restaurants : null;
+  if (Array.isArray(fromSubdoc)) return fromSubdoc;
+  return Array.isArray(userData.restaurants) ? userData.restaurants : null;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -140,14 +188,18 @@ export default async function handler(req, res) {
 
   try {
     const prepUser = await getAuth(prepday).getUserByEmail(email);
-    const snap = await getFirestore(prepday).doc(`users/${prepUser.uid}`).get();
-    const data = snap.exists ? (snap.data() || {}) : {};
-    const restaurants = data.restaurants;
-    if (!Array.isArray(restaurants)) {
+    // The bucket config lives on the user doc, the restaurants in a subdoc.
+    const userRef = getFirestore(prepday).doc(`users/${prepUser.uid}`);
+    const [userSnap, eatingOutSnap] = await Promise.all([
+      userRef.get(),
+      userRef.collection('data').doc('eatingOut').get(),
+    ]);
+    const data = userSnap.exists ? (userSnap.data() || {}) : {};
+    const restaurants = pickRestaurants(eatingOutSnap, data);
+    if (!restaurants) {
       return res.status(200).json({ spots: [], reason: 'No restaurants on the Prep Day account' });
     }
 
-    // The bucket config lives on the same doc, so this costs no extra read.
     const buckets = effectiveBuckets(data.eatingOutBuckets);
     const validKeys = new Set(buckets.map(b => b.key));
     const dateBucket = findDateBucket(buckets);
@@ -155,9 +207,12 @@ export default async function handler(req, res) {
       ? r => inBucket(r, dateBucket, validKeys)
       : categorySaysDate;
 
-    const spots = restaurants
-      .filter(r => r && r.status === 'want-to-try' && isDateSpot(r))
-      .sort(byPriority)
+    const matching = dedupe(
+      restaurants
+        .filter(r => r && isDateSpot(r))
+        .sort((a, b) => unvisitedFirst(a) - unvisitedFirst(b) || byPriority(a, b)),
+    );
+    const spots = matching
       .slice(0, limit)
       // Only what the Plans card renders — no notes, ratings, or coordinates.
       .map(r => ({
@@ -167,9 +222,18 @@ export default async function handler(req, res) {
         address: r.address || '',
         dish: r.dish || '',
         categories: r.categories || [],
+        // Lets the card mark the ones we've already been to.
+        visited: r.status !== 'want-to-try',
+        // Prep Day's own "Taken Joanne here" checkbox. Only ever written as
+        // true, so absent means no — which is the answer the card wants.
+        takenJoanne: r.takenJoanne === true,
       }));
 
-    return res.status(200).json({ spots, total: spots.length, bucket: dateBucket?.label || null });
+    return res.status(200).json({
+      spots,
+      total: matching.length,
+      bucket: dateBucket?.label || null,
+    });
   } catch (err) {
     if (err?.code === 'auth/user-not-found') {
       return res.status(200).json({ spots: [], reason: `No Prep Day account for ${email}` });

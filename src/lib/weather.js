@@ -33,6 +33,32 @@ const WMO = [
   [[95, 96, 99], '⛈', 'Thunderstorms'],
 ];
 
+// The codes that mean "you will get wet": drizzle, rain, showers, thunder,
+// and snow. Everything else — clear, cloud, fog — is a day the Plans grid
+// leaves blank, because the grid is for spotting the days that could spoil a
+// plan, not for reading a full forecast.
+const WET_CODES = new Set([
+  51, 53, 55, 56, 57,       // drizzle
+  61, 63, 65, 66, 67,       // rain
+  71, 73, 75, 77, 85, 86,   // snow
+  80, 81, 82,               // showers
+  95, 96, 99,               // thunderstorms
+]);
+
+// A "showers" code at 15% is not worth a mark on a planning grid. This is
+// roughly where a phone forecast starts bothering to show you a raindrop.
+const WET_MIN_PRECIP = 30;
+
+// The day's forecast if it is likely to rain/storm, otherwise null. Days past
+// the forecast horizon have no entry at all and fall out here too. Where
+// Open-Meteo gives no probability (the far edge of the range), the code alone
+// decides rather than the day silently disappearing.
+export function wetDay(w) {
+  if (!w || !WET_CODES.has(w.code)) return null;
+  if (w.precip != null && w.precip < WET_MIN_PRECIP) return null;
+  return w;
+}
+
 export function describeCode(code) {
   for (const [codes, icon, label] of WMO) {
     if (codes.includes(code)) return { icon, label };

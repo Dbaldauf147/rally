@@ -10,7 +10,7 @@ import { getVotingEventsForState, VOTING_TYPES } from '../electionDates';
 import { getHolidayMap } from '../holidays';
 import { isRecurring, occurrencesInRange } from '../lib/recurrence';
 import { API_BASE, isNativeApp } from '../native';
-import { fetchDailyForecast, geocode } from '../lib/weather';
+import { fetchDailyForecast, geocode, wetDay } from '../lib/weather';
 import styles from './Plans.module.css';
 
 function toDateStr(d) {
@@ -67,21 +67,19 @@ async function getValidGoogleToken() {
 const DEFAULT_WEATHER_LOC = { label: 'New York, NY, US', lat: 40.7128, lng: -74.006 };
 const WEATHER_LOC_KEY = 'rally.plans.weatherLoc';
 
-// One day's forecast, sized to sit under the date without crowding it. Days
-// past the forecast horizon (Open-Meteo stops at 16) simply render nothing.
+// A rain/thunder warning under the date, and nothing at all on the days you
+// can ignore. Temperature deliberately isn't here — a clear day should read as
+// empty space, so the wet ones are the only thing the eye catches when you
+// scan three weeks at once.
 function WeatherLine({ w }) {
-  if (!w || (w.high == null && w.low == null)) return null;
-  const title = [w.label, w.precip != null ? `${w.precip}% chance of precipitation` : null]
+  const wet = wetDay(w);
+  if (!wet) return null;
+  const title = [wet.label, wet.precip != null ? `${wet.precip}% chance of precipitation` : null]
     .filter(Boolean).join(' · ');
   return (
-    <span className={styles.weather} title={title}>
-      {w.icon && <span aria-hidden="true">{w.icon}</span>}
-      <span className={styles.weatherTemp}>
-        {w.high != null && <span className={styles.weatherHigh}>{w.high}°</span>}
-        {w.high != null && w.low != null && '/'}
-        {w.low != null && <span className={styles.weatherLow}>{w.low}°</span>}
-      </span>
-      {w.precip > 0 && <span className={styles.weatherPrecip}>💧{w.precip}%</span>}
+    <span className={styles.weather} role="img" aria-label={title} title={title}>
+      {wet.icon && <span aria-hidden="true">{wet.icon}</span>}
+      {wet.precip != null && <span aria-hidden="true">{wet.precip}%</span>}
     </span>
   );
 }
@@ -495,27 +493,6 @@ export function Plans() {
         </div>
       </div>
       )}
-      {dateSpots.length > 0 && (
-        <section className={styles.spotsCard} aria-label="Date nights to try">
-          <h2 className={styles.spotsTitle}>💜 Date nights to try</h2>
-          <p className={styles.spotsSub}>Want-to-try spots from Prep Day — somewhere to put on the calendar.</p>
-          <ul className={styles.spotsList}>
-            {dateSpots.map(spot => (
-              <li key={spot.id} className={styles.spotRow}>
-                <span className={styles.spotName}>
-                  {spot.url
-                    ? <a href={spot.url} target="_blank" rel="noreferrer" className={styles.spotLink}>{spot.name}</a>
-                    : spot.name}
-                </span>
-                {(spot.dish || spot.address) && (
-                  <span className={styles.spotMeta}>{[spot.dish, spot.address].filter(Boolean).join(' · ')}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       <div className={styles.header}>
         <div className={styles.titleBlock}>
           <h1 className={styles.title}>Plans</h1>
@@ -561,7 +538,7 @@ export function Plans() {
             <button className={styles.calPickerClose} onClick={() => setShowLocPicker(false)} aria-label="Close">×</button>
           </div>
           <p className={styles.connectDesc}>
-            Showing weather for <strong>{weatherLoc?.label || 'nowhere yet'}</strong>. Search for a city or zip to change it.
+            Showing rain and storm days for <strong>{weatherLoc?.label || 'nowhere yet'}</strong>. Search for a city or zip to change it.
           </p>
           <form className={styles.locForm} onSubmit={searchLocation}>
             <input
@@ -717,6 +694,58 @@ export function Plans() {
             })}
           </tbody>
         </table>
+      )}
+
+      {/* Last on the page: read the three weeks first, then pick somewhere to
+          drop into them. Sits below the mobile day cards too — only the
+          desktop table above is viewport-gated, this card shows either way. */}
+      {dateSpots.length > 0 && (
+        <section className={styles.spotsCard} aria-label="Date nights to try">
+          <h2 className={styles.spotsTitle}>💜 Date nights to try</h2>
+          <p className={styles.spotsSub}>From your Prep Day Date Nights list — somewhere to put on the calendar. Ones you haven&apos;t been to yet come first.</p>
+          {/* Narrow screens scroll this sideways rather than crushing the
+              columns — the weeks table above just hides itself on mobile, but
+              four columns still read fine here. */}
+          <div className={styles.spotsTableWrap}>
+            <table className={`${styles.table} ${styles.spotsTable}`}>
+              <colgroup>
+                <col />
+                <col style={{ width: '30%' }} />
+                <col style={{ width: 66 }} />
+                <col style={{ width: 78 }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Place</th>
+                  <th>What to get</th>
+                  <th className={styles.spotTickCol}>Been</th>
+                  {/* "Joanne" matches the column Prep Day's Eating Out table
+                      uses for the same flag, so the two read alike. */}
+                  <th className={styles.spotTickCol}>Joanne</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dateSpots.map(spot => (
+                  <tr key={spot.id}>
+                    <td>
+                      <span className={styles.spotName}>
+                        {spot.url
+                          ? <a href={spot.url} target="_blank" rel="noreferrer" className={styles.spotLink}>{spot.name}</a>
+                          : spot.name}
+                      </span>
+                      {spot.address && <span className={styles.spotMeta}>{spot.address}</span>}
+                    </td>
+                    <td className={styles.spotDish}>{spot.dish || '—'}</td>
+                    <td className={styles.spotTick}>{spot.visited ? '✓' : '—'}</td>
+                    <td className={spot.takenJoanne ? styles.spotTickJoanne : styles.spotTick}>
+                      {spot.takenJoanne ? '✓' : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </div>
       )}
