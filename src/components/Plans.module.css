@@ -145,6 +145,46 @@
    the more specific selector and left-aligns everything. */
 .spotsTable th.spotTickCol { text-align: center; }
 .spotsTable td.spotTick { text-align: center; color: var(--color-text-muted); }
-/* JOANNE_COLOR from Prep Day's Eating Out page, so the two apps match. */
-.spotsTable td.spotTickJoanne { text-align: center; color: #ec4899; font-weight: 700; }
 .spotsTable td.spotDish { font-size: 0.76rem; color: var(--color-text-muted); }
+
+/* Your own bullet list under the Prep Day table. Sits on its own rule so the
+   two lists read as separate things that happen to share a card. */
+.ideas { margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid var(--color-border); }
+.ideasTitle {
+  margin: 0 0 0.4rem; font-size: 0.82rem; font-weight: 700;
+  letter-spacing: -0.01em; color: #9d174d;
+}
+.ideasEmpty { margin: 0 0 0.5rem; font-size: 0.78rem; color: var(--color-text-muted); }
+.ideasList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.ideasItem { display: flex; align-items: center; gap: 0.4rem; }
+.ideasBullet { color: #ec4899; font-weight: 700; line-height: 1; }
+/* Borderless until you're in it — the bullet is the affordance, so a row of
+   input boxes would make the list look like a form instead of a list. */
+.ideasInput {
+  flex: 1; min-width: 0; font: inherit; font-size: 0.9rem;
+  padding: 0.25rem 0.3rem; color: var(--color-text);
+  background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+}
+.ideasInput:hover { border-color: var(--color-border); }
+.ideasInput:focus { outline: none; border-color: #ec4899; background: var(--color-surface); }
+.ideasRemove {
+  flex: none; appearance: none; border: none; background: none; cursor: pointer;
+  padding: 0 0.3rem; font-size: 1rem; line-height: 1;
+  color: var(--color-text-muted); opacity: 0; transition: opacity 0.12s;
+}
+/* Hidden until the row is hovered or the caret is in it, so a long list isn't
+   a column of x's. Always visible on touch, where there is no hover. */
+.ideasItem:hover .ideasRemove, .ideasInput:focus + .ideasRemove { opacity: 1; }
+.ideasRemove:focus { opacity: 1; outline: revert; }
+@media (hover: none) { .ideasRemove { opacity: 1; } }
+.ideasAdd {
+  appearance: none; margin-top: 0.45rem; padding: 0.25rem 0.5rem;
+  font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  color: #9d174d; background: none; border: 1px dashed #f9a8d4;
+  border-radius: var(--radius-sm, 4px);
+}
+.ideasAdd:hover { background: #fdf2f8; }
+/* With no Prep Day rows above it there is nothing to divide, so the rule and
+   its breathing room come off. */
+.ideasAlone { margin-top: 0.5rem; padding-top: 0; border-top: none; }

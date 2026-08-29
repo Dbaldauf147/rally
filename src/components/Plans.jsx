@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { TodayPage } from './TodayPage';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
@@ -66,6 +66,10 @@ async function getValidGoogleToken() {
 // coordinates the Itinerary map already falls back to, so the two agree.
 const DEFAULT_WEATHER_LOC = { label: 'New York, NY, US', lat: 40.7128, lng: -74.006 };
 const WEATHER_LOC_KEY = 'rally.plans.weatherLoc';
+// Your own list of places, typed straight into the Plans page. Lives on the
+// user doc so it follows you between devices, mirrored to localStorage so the
+// card paints before Firestore answers.
+const DATE_IDEAS_KEY = 'rally.plans.dateIdeas';
 
 // A rain/thunder warning under the date, and nothing at all on the days you
 // can ignore. Temperature deliberately isn't here — a clear day should read as
@@ -116,6 +120,11 @@ export function Plans() {
         setWeatherLoc({ label: w.label || '', lat: w.lat, lng: w.lng });
         try { localStorage.setItem(WEATHER_LOC_KEY, JSON.stringify(w)); } catch { /* ignore */ }
       }
+      const ideas = data.plansDateIdeas;
+      if (Array.isArray(ideas) && !ideasDirty.current) {
+        setDateIdeas(ideas.map(String));
+        try { localStorage.setItem(DATE_IDEAS_KEY, JSON.stringify(ideas)); } catch { /* ignore */ }
+      }
     });
   }, [user]);
   // Forecast location, mirrored to localStorage so the grid paints weather on
@@ -134,6 +143,22 @@ export function Plans() {
   const [locBusy, setLocBusy] = useState(false);
   const [locError, setLocError] = useState('');
   const [dateSpots, setDateSpots] = useState([]); // want-to-try date spots from Prep Day
+  // Your own bullet list of places. One string per row; blank rows are kept
+  // while you type and dropped on save.
+  const [dateIdeas, setDateIdeas] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(DATE_IDEAS_KEY) || 'null');
+      if (Array.isArray(saved)) return saved.map(String);
+    } catch { /* fall through to an empty list */ }
+    return [];
+  });
+  const ideaRefs = useRef([]);
+  const ideasSaveTimer = useRef(null);
+  // Set while an edit is in flight. Our own write comes back through the
+  // snapshot listener below, and adopting it mid-keystroke would bounce the
+  // caret to the end of the input.
+  const ideasDirty = useRef(false);
+  useEffect(() => () => clearTimeout(ideasSaveTimer.current), []);
   const [googleConnected, setGoogleConnected] = useState(() => !!localStorage.getItem('google-cal-token'));
   const [calendars, setCalendars] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => {
@@ -182,6 +207,57 @@ export function Plans() {
     })();
     return () => { cancelled = true; };
   }, [user]);
+
+  // Bullet rows. Every edit writes through to localStorage immediately and to
+  // Firestore on a short debounce, so typing doesn't fire a write per key.
+  function updateDateIdeas(next) {
+    ideasDirty.current = true;
+    setDateIdeas(next);
+    try { localStorage.setItem(DATE_IDEAS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    if (!user?.uid) return;
+    clearTimeout(ideasSaveTimer.current);
+    ideasSaveTimer.current = setTimeout(() => {
+      // Blank rows are scaffolding for typing, not places — they stay on
+      // screen but never reach the saved list.
+      const clean = next.map(s => s.trim()).filter(Boolean);
+      setDoc(doc(db, 'users', user.uid), { plansDateIdeas: clean }, { merge: true })
+        .catch(() => {})
+        .finally(() => { ideasDirty.current = false; });
+    }, 600);
+  }
+
+  // The new row doesn't exist until React repaints, so focus lands a frame later.
+  function focusIdea(i) {
+    requestAnimationFrame(() => {
+      const el = ideaRefs.current[i];
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }
+
+  function addIdea() {
+    updateDateIdeas([...dateIdeas, '']);
+    focusIdea(dateIdeas.length);
+  }
+
+  function removeIdea(i) {
+    updateDateIdeas(dateIdeas.filter((_, j) => j !== i));
+  }
+
+  function onIdeaKeyDown(e, i) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const next = [...dateIdeas];
+      next.splice(i + 1, 0, '');
+      updateDateIdeas(next);
+      focusIdea(i + 1);
+    } else if (e.key === 'Backspace' && dateIdeas[i] === '') {
+      e.preventDefault();
+      removeIdea(i);
+      focusIdea(Math.max(0, i - 1));
+    }
+  }
 
   async function saveWeatherLoc(loc) {
     setWeatherLoc(loc);
@@ -699,29 +775,27 @@ export function Plans() {
       {/* Last on the page: read the three weeks first, then pick somewhere to
           drop into them. Sits below the mobile day cards too — only the
           desktop table above is viewport-gated, this card shows either way. */}
-      {dateSpots.length > 0 && (
         <section className={styles.spotsCard} aria-label="Date nights to try">
           <h2 className={styles.spotsTitle}>💜 Date nights to try</h2>
-          <p className={styles.spotsSub}>From your Prep Day Date Nights list — somewhere to put on the calendar. Ones you haven&apos;t been to yet come first.</p>
+          {dateSpots.length > 0 && (<>
+          <p className={styles.spotsSub}>From your Prep Day Date Nights list — somewhere to put on the calendar. Anywhere you&apos;ve already taken Joanne is left out; ones you haven&apos;t been to at all come first.</p>
           {/* Narrow screens scroll this sideways rather than crushing the
               columns — the weeks table above just hides itself on mobile, but
-              four columns still read fine here. */}
+              three columns still read fine here. */}
           <div className={styles.spotsTableWrap}>
             <table className={`${styles.table} ${styles.spotsTable}`}>
               <colgroup>
                 <col />
                 <col style={{ width: '30%' }} />
                 <col style={{ width: 66 }} />
-                <col style={{ width: 78 }} />
               </colgroup>
               <thead>
                 <tr>
                   <th>Place</th>
                   <th>What to get</th>
+                  {/* No "Joanne" column any more: every row here is somewhere
+                      she hasn't been, so the tick would always read "—". */}
                   <th className={styles.spotTickCol}>Been</th>
-                  {/* "Joanne" matches the column Prep Day's Eating Out table
-                      uses for the same flag, so the two read alike. */}
-                  <th className={styles.spotTickCol}>Joanne</th>
                 </tr>
               </thead>
               <tbody>
@@ -737,16 +811,48 @@ export function Plans() {
                     </td>
                     <td className={styles.spotDish}>{spot.dish || '—'}</td>
                     <td className={styles.spotTick}>{spot.visited ? '✓' : '—'}</td>
-                    <td className={spot.takenJoanne ? styles.spotTickJoanne : styles.spotTick}>
-                      {spot.takenJoanne ? '✓' : '—'}
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          </>)}
+          {/* Your own running list, kept apart from Prep Day's table because
+              nothing here syncs back to it. One bullet per row: Enter starts
+              the next place, Backspace on an empty row deletes it and puts the
+              caret back on the line above. */}
+          <div className={dateSpots.length > 0 ? styles.ideas : `${styles.ideas} ${styles.ideasAlone}`}>
+            <h3 className={styles.ideasTitle}>Our own list</h3>
+            {dateIdeas.length === 0 && (
+              <p className={styles.ideasEmpty}>Anywhere you&apos;ve been meaning to try.</p>
+            )}
+            <ul className={styles.ideasList}>
+              {dateIdeas.map((text, i) => (
+                <li key={i} className={styles.ideasItem}>
+                  <span className={styles.ideasBullet} aria-hidden="true">&bull;</span>
+                  <input
+                    className={styles.ideasInput}
+                    value={text}
+                    placeholder="Somewhere to try..."
+                    aria-label={`Place ${i + 1}`}
+                    ref={el => { ideaRefs.current[i] = el; }}
+                    onChange={e => updateDateIdeas(dateIdeas.map((t, j) => (j === i ? e.target.value : t)))}
+                    onKeyDown={e => onIdeaKeyDown(e, i)}
+                  />
+                  <button
+                    type="button"
+                    className={styles.ideasRemove}
+                    aria-label={`Remove ${text || 'this place'}`}
+                    onClick={() => removeIdea(i)}
+                  >
+                    &times;
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button type="button" className={styles.ideasAdd} onClick={addIdea}>+ Add a place</button>
+          </div>
         </section>
-      )}
     </div>
       )}
     </>

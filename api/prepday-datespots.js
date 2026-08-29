@@ -114,6 +114,15 @@ function unvisitedFirst(r) {
   return r?.status === 'want-to-try' ? 0 : 1;
 }
 
+// Prep Day's "Taken Joanne here" checkbox. The card is a shortlist of dates
+// still to plan, so anywhere she has already been is dropped outright rather
+// than sorted down — unlike `visited`, which only ranks, because somewhere I
+// have been without her is still a date I could take her on. The flag is only
+// ever written as true, so absent means no.
+function alreadyTakenJoanne(r) {
+  return r?.takenJoanne === true;
+}
+
 // Punctuation and spacing differ between a hand-typed entry and a Maps import
 // of the same place, so compare on letters and digits only.
 function normalize(s) {
@@ -209,7 +218,7 @@ export default async function handler(req, res) {
 
     const matching = dedupe(
       restaurants
-        .filter(r => r && isDateSpot(r))
+        .filter(r => r && isDateSpot(r) && !alreadyTakenJoanne(r))
         .sort((a, b) => unvisitedFirst(a) - unvisitedFirst(b) || byPriority(a, b)),
     );
     const spots = matching
@@ -224,9 +233,6 @@ export default async function handler(req, res) {
         categories: r.categories || [],
         // Lets the card mark the ones we've already been to.
         visited: r.status !== 'want-to-try',
-        // Prep Day's own "Taken Joanne here" checkbox. Only ever written as
-        // true, so absent means no — which is the answer the card wants.
-        takenJoanne: r.takenJoanne === true,
       }));
 
     return res.status(200).json({
