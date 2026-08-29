@@ -1,6 +1,6 @@
 /* Expenses: charges from Wealth Architect, split between the people on an event. */
 
-.page { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 5rem; }
+.page { max-width: 1100px; margin: 0 auto; padding: 2rem 1rem 5rem; }
 .header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
 .headline { font-size: 1.05rem; font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; }
@@ -20,9 +20,92 @@
 .filter, .filterOn { padding: 0.4rem 0.85rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-secondary); }
 .filterOn { border-color: transparent; background: var(--color-accent); color: #fff; }
 
+/* Acting on several charges at once. Only appears as a bar of buttons once
+   something is ticked — until then it is just the select-all row. */
+.bulkBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.6rem; padding: 0.5rem 0.75rem; border: 1px solid var(--color-accent); border-radius: var(--radius-lg); background: var(--color-surface-alt); }
+.bulkAll { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 650; color: var(--color-text-secondary); cursor: pointer; }
+.bulkCount { font-size: 0.82rem; font-weight: 700; color: var(--color-accent); }
+.bulkActions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.bulkSelect { padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text); font-size: 0.8rem; font-weight: 600; max-width: 190px; }
+.bulkSelect:focus { outline: none; border-color: var(--color-accent); }
+
+/* ── The charge table ─────────────────────────────────────────
+   Sideways scroll rather than squeezing: money columns that wrap stop being
+   comparable to each other, which is the only reason to use a table here. */
+.tableWrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 0.88rem; }
+.table th { padding: 0.55rem 0.6rem; text-align: left; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-muted); background: var(--color-surface-alt); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.table td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--color-border-light); vertical-align: middle; }
+.row:hover td { background: var(--color-surface-alt); }
+/* The tint has to sit on the cells: a background on <tr> is painted under the
+   cells' own and disappears the moment a row is hovered. */
+.rowOn td { background: var(--color-accent-light); }
+.rowOn:hover td { background: var(--color-accent-light); }
+
+/* Header cells double as sort buttons. The arrow shows only on the column in
+   force, so the header doesn't read as a row of arrows. */
+.thBtn, .thBtnOn { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0; border: none; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
+.thBtnOn { color: var(--color-accent); }
+.sortArrow { font-size: 0.7rem; }
+
+.colPick { width: 34px; }
+.pickBox { display: flex; align-items: center; justify-content: center; padding: 0.15rem; cursor: pointer; }
+.pickBox input { width: 16px; height: 16px; accent-color: var(--color-accent); cursor: pointer; }
+.colDate { width: 92px; white-space: nowrap; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.cellDesc { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.colEvent { width: 190px; }
+.colSplit { width: 90px; white-space: nowrap; color: var(--color-text-secondary); }
+.colNum { width: 100px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+.colOpen { width: 38px; text-align: center; }
+/* `.table th` sets text-align:left and outranks a bare column class, so the
+   money headers have to say it at the same specificity to line up with the
+   figures under them. */
+.table th.colNum { text-align: right; }
+.table th.colOpen { text-align: center; }
+
+/* Reassigning is the most common edit on this page, so it happens in the row
+   itself — no opening it, no tick boxes involved. */
+.rowSelect { width: 100%; max-width: 100%; padding: 0.3rem 0.4rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text); font: inherit; font-size: 0.82rem; }
+.rowSelect:focus { outline: none; border-color: var(--color-accent); }
+.rowSelectEmpty { color: var(--color-text-muted); border-style: dashed; }
+.rowSelect:disabled { opacity: 0.6; }
+
+.tagWarn { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(232, 163, 23, 0.14); color: #8a6100; font-size: 0.72rem; font-weight: 700; }
+.owed { color: var(--color-accent); }
+.clear { color: var(--color-text-muted); font-weight: 600; }
+.openBtn { padding: 0.2rem 0.35rem; border: none; background: none; color: var(--color-text-muted); font-size: 0.85rem; cursor: pointer; }
+.openBtn:hover { color: var(--color-text); }
+
+/* The splitter opens as a full-width row under the charge it belongs to. */
+.table td.editorCell { padding: 0; background: var(--color-surface-alt); }
+.editorCell .editor { border-top: none; }
+
+.table tfoot td { border-bottom: none; border-top: 1px solid var(--color-border); background: var(--color-surface-alt); font-weight: 700; }
+.footLabel { font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); }
+
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* On a phone the date and split columns are the ones you can live without —
+   the charge, where it's going, and the money stay. */
+@media (max-width: 640px) {
+  .table { min-width: 0; font-size: 0.84rem; }
+  .table .colDate, .table .colSplit { display: none; }
+  .cellDesc { max-width: 140px; }
+  .colEvent { width: 130px; }
+  .colNum { width: 78px; }
+}
+
 .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
 .item { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
-.itemHead { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.85rem 1rem; border: none; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.itemOn { border-color: var(--color-accent); }
+.itemRow { display: flex; align-items: center; }
+/* Padded rather than sized, so the tap target is finger-sized on a phone
+   without the box itself growing. */
+.pick { flex: none; display: flex; align-items: center; padding: 0.85rem 0 0.85rem 1rem; cursor: pointer; }
+.pick input { width: 16px; height: 16px; accent-color: var(--color-accent); cursor: pointer; }
+/* width:100% is what makes it fill the row on the event tab, where it is the
+   only child; flex+min-width:0 lets it shrink beside the tick box here. */
+.itemHead { display: flex; align-items: center; gap: 0.75rem; width: 100%; flex: 1; min-width: 0; padding: 0.85rem 1rem; border: none; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit; }
 .itemHead:hover { background: var(--color-surface-alt); }
 .itemMain { flex: 1; min-width: 0; }
 .itemDesc { display: block; font-size: 0.95rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -72,6 +155,7 @@
 .secondaryBtn { padding: 0.4rem 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-secondary); font-size: 0.8rem; font-weight: 650; cursor: pointer; }
 .dangerBtn { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--color-danger); font-size: 0.8rem; font-weight: 650; cursor: pointer; }
 .dangerBtn:hover { border-color: var(--color-danger); }
+.secondaryBtn:disabled, .dangerBtn:disabled, .linkBtn:disabled { opacity: 0.5; cursor: default; }
 
 .remindOk { margin-top: 0.75rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: rgba(22, 163, 74, 0.12); color: #15803d; font-size: 0.8rem; font-weight: 600; }
 .remindWarn { margin-top: 0.75rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: rgba(232, 163, 23, 0.12); color: #8a6100; font-size: 0.8rem; font-weight: 600; }
