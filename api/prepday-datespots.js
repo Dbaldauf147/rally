@@ -15,6 +15,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 
 const DEFAULT_PREPDAY_EMAIL = 'baldaufdan@gmail.com';
+// Whose list this is, and so the only account allowed to read it back.
+const OWNER_EMAIL = 'baldaufdan@gmail.com';
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 20;
 
@@ -183,10 +185,18 @@ export default async function handler(req, res) {
   if (!token) {
     return res.status(401).json({ error: 'Missing bearer token' });
   }
+  let claims;
   try {
-    await getAuth(rally).verifyIdToken(token);
+    claims = await getAuth(rally).verifyIdToken(token);
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
+  }
+  // Being signed in was never enough here: this is one person's restaurant
+  // list, not shared trip data, and every Rally account could read it. The
+  // Plans card hides itself for everyone else, but hiding a card doesn't stop
+  // anyone calling the endpoint — so the check that matters is this one.
+  if ((claims.email || '').trim().toLowerCase() !== OWNER_EMAIL) {
+    return res.status(403).json({ error: 'Not available' });
   }
 
   const limit = Math.min(

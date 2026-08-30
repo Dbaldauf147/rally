@@ -70,6 +70,11 @@ const WEATHER_LOC_KEY = 'rally.plans.weatherLoc';
 // user doc so it follows you between devices, mirrored to localStorage so the
 // card paints before Firestore answers.
 const DATE_IDEAS_KEY = 'rally.plans.dateIdeas';
+// The date-night card and its reminder are personal, not shared trip planning
+// — everyone else on Rally gets the weeks grid without them. The endpoint that
+// backs the card enforces the same thing server-side, since a hidden card is
+// not a closed door.
+const OWNER_EMAIL = 'baldaufdan@gmail.com';
 
 // A rain/thunder warning under the date, and nothing at all on the days you
 // can ignore. Temperature deliberately isn't here — a clear day should read as
@@ -97,6 +102,7 @@ export function Plans() {
   const { user } = useAuth();
   const { events } = useEvents();
   const isMobile = useIsMobile();
+  const isOwner = user?.email === OWNER_EMAIL;
   // The user's saved Voting page prefs (state + custom dates), used to overlay
   // election dates onto this grid. Falls back to localStorage for fast paint.
   const [votingPrefs, setVotingPrefs] = useState(() => {
@@ -192,7 +198,8 @@ export function Plans() {
   // empty list when it isn't configured, so an un-wired install shows nothing
   // rather than an error.
   useEffect(() => {
-    if (!user) return;
+    // Nobody else can read this list, so nobody else should ask for it.
+    if (!user || user.email !== OWNER_EMAIL) return;
     let cancelled = false;
     (async () => {
       try {
@@ -559,7 +566,7 @@ export function Plans() {
       </div>
       {view === 'today' ? <TodayPage /> : (
     <div className={styles.page}>
-      {!dateReminder && (
+      {isOwner && !dateReminder && (
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '1rem', background: '#fdf2f8', border: '1px solid #f9a8d4', borderRadius: 'var(--radius-md)', color: '#9d174d', fontSize: '0.9rem', fontWeight: 600 }}>
         <span style={{ fontSize: '1.15rem' }} aria-hidden="true">💜</span>
         <span>Reminder: plan a date with Joanne.</span>
@@ -775,6 +782,7 @@ export function Plans() {
       {/* Last on the page: read the three weeks first, then pick somewhere to
           drop into them. Sits below the mobile day cards too — only the
           desktop table above is viewport-gated, this card shows either way. */}
+        {isOwner && (
         <section className={styles.spotsCard} aria-label="Date nights to try">
           <h2 className={styles.spotsTitle}>💜 Date nights to try</h2>
           {dateSpots.length > 0 && (<>
@@ -853,6 +861,7 @@ export function Plans() {
             <button type="button" className={styles.ideasAdd} onClick={addIdea}>+ Add a place</button>
           </div>
         </section>
+        )}
     </div>
       )}
     </>
