@@ -10,6 +10,11 @@ The web app and PWA are unaffected — this is additive.
 - `npm run cap:sync` — builds the web app and syncs it into the iOS project.
 - `.github/workflows/ios.yml` — builds on a macOS runner and uploads to TestFlight,
   using App Store Connect API-key cloud signing (no fastlane, no cert repo).
+- `@capacitor-community/contacts` installed; the workflow syncs it into the
+  regenerated project and writes `NSContactsUsageDescription` into the app plist,
+  so the Friends page can read the address book in the app. That route only works
+  on a TestFlight build cut after this landed — older installs fall back to
+  importing a .vcf.
 - The `ios/` folder is **git-ignored** and generated fresh on the runner each build
   (it can't be generated reliably on Windows).
 
@@ -61,7 +66,9 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 - **App icon**: 1024×1024 PNG, no transparency (re-render from the logo at 1024).
 - **Screenshots**: required per device size (from the build on a device/simulator).
 - **Privacy policy URL**: Apple requires one (host a page on the Rally site).
-- **App Privacy disclosure**: you collect email — declare it.
+- **App Privacy disclosure**: you collect email — declare it. The app also reads
+  the address book and stores the contacts the user picks, so declare **Contacts**
+  too; Apple checks this against the `NSContactsUsageDescription` in the binary.
 
 ### 8. Submit for review
 - In App Store Connect, select the TestFlight build for the App Store version and

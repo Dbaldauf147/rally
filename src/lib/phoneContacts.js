@@ -14,18 +14,19 @@
 // send any of them through the one import preview it already has.
 //
 // NOTE ON THE NATIVE ROUTE: this calls the plugin through registerPlugin
-// rather than importing @capacitor-community/contacts, so the web build needs
-// no new dependency and nothing here breaks when the plugin is absent — the
-// call simply rejects and we fall back to the file route. But the iOS shell
-// loads its JS from the deployed site (capacitor.config.json `server.url`),
-// which means shipping this code does NOT by itself enable the native route:
-// the plugin has to be installed, `npx cap sync ios` run, an
-// NSContactsUsageDescription added to Info.plist, and the app rebuilt and
-// re-released. Until that happens iPhone users get the file route, which
-// works today.
+// rather than importing @capacitor-community/contacts, so the web build pulls
+// in no plugin code and nothing here breaks when the plugin is absent — the
+// call simply rejects and we fall back to the file route. The plugin is now a
+// dependency and .github/workflows/ios.yml both syncs it into the regenerated
+// iOS project and writes the NSContactsUsageDescription iOS demands before it
+// will even show the permission prompt. But the shell loads its JS from the
+// deployed site (capacitor.config.json `server.url`), so this route only goes
+// live on iPhones running a TestFlight build cut after that workflow ran —
+// older installs keep falling back to the file route, which works today.
 
 import { registerPlugin } from '@capacitor/core';
 import { isNativeApp } from '../native';
+import { fromNativeContact, fromPickerContact, hasSomething } from './contactRows';
 
 // Resolves to the native implementation when one is compiled in; every method
 // rejects with UNIMPLEMENTED when it isn't.
@@ -71,60 +72,6 @@ export class NeedsFileFallback extends Error {
   }
 }
 
-const firstValue = (v) => (Array.isArray(v) ? v.find(x => x != null && String(x).trim()) : v);
-
-// Contact Picker hands back arrays for every field, and `name` is an array of
-// whole display names rather than parts.
-function fromPickerContact(c) {
-  const out = {};
-  const name = firstValue(c.name);
-  const email = firstValue(c.email);
-  const tel = firstValue(c.tel);
-  if (name) out.Name = String(name).trim();
-  if (email) out.Email = String(email).trim().toLowerCase();
-  if (tel) out.Phone = String(tel).trim();
-  return out;
-}
-
-/* The native plugin's contact shape (@capacitor-community/contacts).
-
-   Its fields are nested and every one is optional — a contact with only a
-   phone number is normal — so each is reached defensively. */
-function fromNativeContact(c) {
-  const out = {};
-  const n = c?.name || {};
-  const display = n.display || [n.given, n.middle, n.family].filter(Boolean).join(' ');
-  if (display?.trim()) out.Name = display.trim();
-
-  const emails = (c?.emails || []).filter(e => e?.address);
-  const isWork = (e) => String(e.type || e.label || '').toLowerCase().includes('work');
-  const personal = emails.filter(e => !isWork(e));
-  const work = emails.filter(isWork);
-  if (personal[0]) out.Email = String(personal[0].address).trim().toLowerCase();
-  if (work[0]) out['Work Email'] = String(work[0].address).trim().toLowerCase();
-  if (!out.Email && work[0]) { out.Email = out['Work Email']; delete out['Work Email']; }
-
-  const phones = (c?.phones || []).filter(p => p?.number);
-  const mobile = phones.find(p => String(p.type || p.label || '').toLowerCase().match(/mobile|cell|iphone/));
-  const chosen = mobile || phones[0];
-  if (chosen) out.Phone = String(chosen.number).trim();
-
-  const addr = (c?.postalAddresses || []).find(a => a?.street || a?.city);
-  if (addr) {
-    out.Address = [addr.street, addr.city, [addr.region, addr.postcode].filter(Boolean).join(' '), addr.country]
-      .filter(Boolean).join(', ');
-  }
-
-  const b = c?.birthday;
-  if (b && b.month && b.day) {
-    out.Birthday = `${b.month}/${b.day}`;
-    if (b.year) out['Date of Birth'] = `${b.month}/${b.day}/${b.year}`;
-  }
-
-  if (c?.organization?.company) out.Group = String(c.organization.company).trim();
-  return out;
-}
-
 /* Pull contacts from whichever route this device supports.
 
    Returns [] when the user cancels the OS sheet — a cancel is not an error and
@@ -141,19 +88,25 @@ export async function pickPhoneContacts() {
       const res = await NativeContacts.getContacts({
         projection: { name: true, phones: true, emails: true, postalAddresses: true, birthday: true, organization: true },
       });
-      return (res?.contacts || []).map(fromNativeContact).filter(c => c.Name || c.Email || c.Phone);
+      return (res?.contacts || []).map(fromNativeContact).filter(hasSomething);
     } catch (err) {
       if (err instanceof NeedsFileFallback) throw err;
-      // UNIMPLEMENTED means the shell predates the plugin — expected until the
-      // app is rebuilt, and the file route still works.
-      throw new NeedsFileFallback('This version of the app can’t read contacts directly yet.');
+      // Two very different failures land here and they must not read alike.
+      // UNIMPLEMENTED means the shell was built before the plugin was added, so
+      // the fix is a newer app; anything else is a real failure on a shell that
+      // does have it. Either way the file route still works.
+      const code = err?.code || err?.message || '';
+      const missing = /unimplemented|not implemented/i.test(String(code));
+      throw new NeedsFileFallback(missing
+        ? 'This version of the app can’t read contacts directly yet.'
+        : 'Rally couldn’t read your contacts.');
     }
   }
 
   if (source === SOURCE.PICKER) {
     try {
       const picked = await navigator.contacts.select(PICKER_PROPS, { multiple: true });
-      return (picked || []).map(fromPickerContact).filter(c => c.Name || c.Email || c.Phone);
+      return (picked || []).map(fromPickerContact).filter(hasSomething);
     } catch {
       // The API throws on cancel in some builds, and on any non-user-gesture
       // call. Neither is worth an error message.
