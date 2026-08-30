@@ -331,15 +331,28 @@ function fmtSeasonDate(iso, tz) {
   }
 }
 
-// Gather all requested content for one team, only fetching what's toggled on.
-async function fetchTeamDigest(team, topics, standingsCache) {
-  const out = { name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null };
+/* Gather all requested content for one team, only fetching what's toggled on.
+   `season` is the league's, and decides whether standings mean anything yet.
+
+   Exhibition results are already kept out of the scores and upcoming sections
+   (isPreseasonEvent) and out of the season status line, but ESPN's team and
+   standings endpoints answer with whatever the current phase holds — so during
+   the NFL preseason they return exhibition W-L, and the email printed 3-0
+   records and a league table a week before any of it counted. Nothing was
+   wrong with the numbers; they were just answers to a question nobody asked.
+   Standings now follow the same rule the games sections do: skipped entirely
+   until the phase that counts starts, with a line saying when that is. */
+async function fetchTeamDigest(team, topics, standingsCache, season) {
+  const out = { name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null };
   if (topics.scores || topics.upcoming) {
     const sched = await fetchTeamSchedule(team);
     out.results = sched.results;
     out.upcoming = sched.upcoming;
   }
   if (topics.standings) {
+    out.standingsFrom = standingsHeldUntil(season);
+    // Nothing to rank yet — skip the fetch as well as the block.
+    if (out.standingsFrom) return out;
     try {
       out.table = await fetchTeamStandingsTable(team, standingsCache);
     } catch { /* fall back to the one-line summary below */ }
@@ -467,6 +480,20 @@ function currentPhase(season) {
 const isPreseasonPhase = (phase) => PRESEASON_LABEL.test(phase?.name || '');
 const isOffSeasonPhase = (phase) => /off\s*-?\s*season/i.test(phase?.name || '');
 
+/* Whether standings should be withheld, and what they're waiting for.
+ *
+ * Returns the phase to wait for while a league is playing exhibitions, or null
+ * once its results count. Exported for tests: this is the whole reason a
+ * preseason 3-0 used to reach the email as though it were the standings.
+ */
+export function standingsHeldUntil(season) {
+  const phase = currentPhase(season);
+  if (!phase || !isPreseasonPhase(phase)) return null;
+  // ESPN occasionally has no upcoming counting phase to name, which still
+  // shouldn't resurrect the exhibition table — hence the unnamed fallback.
+  return nextCountingPhase(season) || { name: 'The regular season', startDate: null };
+}
+
 // The next phase that plays games that count, for a league ESPN currently has
 // in its exhibition window. Phases arrive sorted by start date, so the first
 // future one that's neither an exhibition nor the offseason is what the league
@@ -580,7 +607,14 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams)
   const sections = teamDigests
     .map((t) => {
       const blocks = [];
-      if (topics.standings && t.table) {
+      if (topics.standings && t.standingsFrom) {
+        // In the exhibition window: say when the table starts meaning something
+        // rather than printing preseason W-L as though it were the standings.
+        const when = t.standingsFrom.startDate
+          ? `starts ${fmtSeasonDate(t.standingsFrom.startDate, tz)}`
+          : 'hasn’t started yet';
+        blocks.push(`${sectionLabel('Standings', blocks.length === 0)}<div style="color:#9ca3af;">${t.standingsFrom.name} ${when}.</div>`);
+      } else if (topics.standings && t.table) {
         blocks.push(`${sectionLabel('Standings', blocks.length === 0)}${standingsBlock(t.table, t.teamId)}`);
       } else if (topics.standings && (t.record || t.standing)) {
         const parts = [t.record, t.standing].filter(Boolean).join(' · ');
@@ -662,12 +696,13 @@ async function buildDigestForUser(userData) {
   // in the out-of-season footer, sorted by whichever league returns first.
   const inSeasonTeams = teams.filter((t) => active.get(t.sportPath) !== false);
   const standingsCache = new Map(); // one standings fetch per league, per send
+  const seasonByPath = new Map(leagues.map((l) => [l.sportPath, l.season]));
   const digests = [];
   for (const team of inSeasonTeams) {
     try {
-      digests.push(await fetchTeamDigest(team, topics, standingsCache));
+      digests.push(await fetchTeamDigest(team, topics, standingsCache, seasonByPath.get(team.sportPath)));
     } catch (err) {
-      digests.push({ name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, error: err.message });
+      digests.push({ name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null, error: err.message });
     }
   }
 
