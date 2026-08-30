@@ -7,6 +7,11 @@ import { planMemberUpsert } from '../lib/members';
 // uses, so someone added mid-invite is a real contact afterwards, not a
 // one-off row that only exists on this event.
 import { addFriend as writeFriend } from '../lib/friends';
+// Same three routes the Friends page uses (native plugin, Android's picker, a
+// .vcf file); the rows come back already shaped, so no column mapping here.
+import { pickPhoneContacts, contactsSource, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
+import { parseVCards } from '../lib/vcard';
+import { isOwnerEmail } from '../lib/pagePrivacy';
 import { WEB_ORIGIN } from '../native';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
@@ -109,6 +114,23 @@ export function EventDetail() {
   // they'd typed into the search box, since that's usually the person's name.
   const [newContact, setNewContact] = useState(null);
   const [savingContact, setSavingContact] = useState(false);
+  // The other way out of a failed search: pull the person off the phone.
+  // `importRows` is null until contacts come back, then holds what was found;
+  // `importPicked` is the set of row indexes ticked to be added.
+  const [importRows, setImportRows] = useState(null);
+  const [importPicked, setImportPicked] = useState(() => new Set());
+  const [importBusy, setImportBusy] = useState(false);
+  // The Rally account, not this event's organizer role (`isOwner` below is that
+  // and means something different). The friend Groups and Tags filters are
+  // named after how one person files their own contacts — "stimmy", "far away",
+  // "Kismet core" — so they're shown only to that person; a co-organizer adding
+  // guests sees the plain search box.
+  const isAppOwner = isOwnerEmail(user?.email);
+  const vcfRef = useRef(null);
+  // What they were searching for when the import started. A ref because the
+  // file input's change event fires long after the click that opened it.
+  const importTermRef = useRef('');
+  const phoneSource = contactsSource();
   const [friendSearch, setFriendSearch] = useState('');
   const [friendGroupFilter, setFriendGroupFilter] = useState([]);
   const [friendTagFilter, setFriendTagFilter] = useState([]);
@@ -394,6 +416,73 @@ export function EventDetail() {
       cleanupPhantomFriend();
     }
   }, [event?.members?.friend, user?.uid, eventId]);
+
+  /* ── Importing contacts from the phone, mid-invite ──────────
+     Offered beside "add manually" when a search finds nobody. The phone routes
+     hand back rows that are already shaped (Name / Email / Phone / …), so this
+     skips the column-mapping step the Friends page needs for spreadsheets and
+     goes straight to "who of these do you want". */
+  function receiveImportedContacts(rows) {
+    if (!rows || rows.length === 0) {
+      setResult({ type: 'error', message: 'No contacts found there.' });
+      setTimeout(() => setResult(null), 4000);
+      return;
+    }
+    // Tick whoever matches what they were searching for — that's the person
+    // they came here for. With no search term nothing starts ticked: a .vcf can
+    // hold an entire address book, and volunteering to put all of it on the
+    // event is the one mistake this flow could make at scale.
+    const term = (importTermRef.current || '').trim().toLowerCase();
+    const picked = new Set();
+    if (term) {
+      rows.forEach((r, i) => {
+        if (`${r.Name || ''} ${r.Email || ''}`.toLowerCase().includes(term)) picked.add(i);
+      });
+    }
+    setImportRows(rows);
+    setImportPicked(picked);
+  }
+
+  async function startContactImport(term) {
+    importTermRef.current = term || '';
+    // No in-app route on this device: go straight to the file picker.
+    if (phoneSource === SOURCE.FILE) { vcfRef.current?.click(); return; }
+    try {
+      const rows = await pickPhoneContacts();
+      if (rows.length === 0) return; // closed the OS sheet without picking
+      receiveImportedContacts(rows);
+    } catch (err) {
+      if (err instanceof NeedsFileFallback) {
+        setResult({ type: 'error', message: `${err.message} Pick a vCard (.vcf) exported from Contacts instead.` });
+        setTimeout(() => setResult(null), 6000);
+        vcfRef.current?.click();
+        return;
+      }
+      setResult({ type: 'error', message: 'Could not read contacts: ' + err.message });
+      setTimeout(() => setResult(null), 5000);
+    }
+  }
+
+  function handleVcfSelect(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        receiveImportedContacts(parseVCards(evt.target.result));
+      } catch (err) {
+        setResult({ type: 'error', message: 'Could not read that vCard: ' + err.message });
+        setTimeout(() => setResult(null), 5000);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function closeContactImport() {
+    setImportRows(null);
+    setImportPicked(new Set());
+  }
 
   async function cleanupPhantomFriend() {
     if (cleaningPhantom) return;
@@ -2579,7 +2668,7 @@ export function EventDetail() {
                     autoFocus
                     style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.88rem', fontFamily: 'inherit', marginBottom: '0.5rem', boxSizing: 'border-box' }}
                   />
-                  {allGroups.length > 0 && (
+                  {isAppOwner && allGroups.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem', alignItems: 'center' }}>
                       <span style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginRight: '0.2rem' }}>Groups:</span>
                       {allGroups.map(g => {
@@ -2600,7 +2689,7 @@ export function EventDetail() {
                       )}
                     </div>
                   )}
-                  {allTags.length > 0 && (
+                  {isAppOwner && allTags.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem', alignItems: 'center' }}>
                       <span style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginRight: '0.2rem' }}>Tags:</span>
                       {allTags.map(t => {
@@ -2671,23 +2760,148 @@ export function EventDetail() {
                       seeds the form — an @ in it means they typed an address. */}
                   {(() => {
                     const term = friendSearch.trim();
+
+                    /* Picked contacts, waiting to be confirmed. Shown instead
+                       of the two buttons — the choice has been made by now. */
+                    if (importRows) {
+                      const rows = importRows;
+                      const matched = importPicked.size;
+                      async function addPickedContacts() {
+                        const chosen = [...importPicked].map(i => rows[i]).filter(Boolean);
+                        if (!chosen.length || importBusy) return;
+                        setImportBusy(true);
+                        const added = [];
+                        const failed = [];
+                        for (const r of chosen) {
+                          const name = (r.Name || '').trim() || (r.Email || '').trim();
+                          if (!name) continue;
+                          try {
+                            // Saved as a contact first, so an imported person
+                            // outlives this event, then added through the same
+                            // upsert every other row uses.
+                            const id = await writeFriend(user.uid, {
+                              name,
+                              email: r.Email || '',
+                              phone: r.Phone || '',
+                              workEmail: r['Work Email'] || '',
+                              address: r.Address || '',
+                              birthday: r.Birthday || '',
+                              dob: r['Date of Birth'] || '',
+                              group: r.Group || '',
+                            });
+                            await addFriendToEvent({
+                              id,
+                              name,
+                              email: (r.Email || '').trim().toLowerCase(),
+                              phone: (r.Phone || '').trim(),
+                            });
+                            added.push(name);
+                          } catch {
+                            failed.push(name);
+                          }
+                        }
+                        setImportBusy(false);
+                        closeContactImport();
+                        setFriendSearch('');
+                        setResult(failed.length
+                          ? { type: 'error', message: `${added.length} added, ${failed.length} failed: ${failed.slice(0, 3).join(', ')}` }
+                          : { type: 'success', message: `${added.length} added to your contacts and this event` });
+                        setTimeout(() => setResult(null), 4500);
+                      }
+                      return (
+                        <div style={{ marginTop: '0.5rem', padding: '0.6rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg)' }}>
+                          <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>
+                            {rows.length} contact{rows.length === 1 ? '' : 's'} found
+                            {term && matched > 0 && ` · ${matched} matching “${term}” ticked`}
+                          </div>
+                          <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' }}>
+                            {rows.map((r, i) => (
+                              <label
+                                key={`${r.Name || r.Email || 'row'}-${i}`}
+                                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.55rem', borderBottom: '1px solid var(--color-border-light)', cursor: 'pointer', fontSize: '0.82rem' }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={importPicked.has(i)}
+                                  onChange={() => setImportPicked(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(i)) next.delete(i); else next.add(i);
+                                    return next;
+                                  })}
+                                  style={{ width: 15, height: 15, accentColor: 'var(--color-accent)' }}
+                                />
+                                <span style={{ flex: 1, minWidth: 0 }}>
+                                  <span style={{ display: 'block', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.Name || r.Email || 'Unnamed'}</span>
+                                  {(r.Email || r.Phone) && (
+                                    <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {[r.Email, r.Phone].filter(Boolean).join(' · ')}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => setImportPicked(importPicked.size === rows.length ? new Set() : new Set(rows.map((_, i) => i)))}
+                              disabled={importBusy}
+                              style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit' }}
+                            >
+                              {importPicked.size === rows.length ? 'None' : 'All'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={addPickedContacts}
+                              disabled={importBusy || importPicked.size === 0}
+                              style={{ flex: 1, padding: '0.45rem', border: 'none', borderRadius: 'var(--radius-md)', background: importPicked.size > 0 && !importBusy ? 'var(--color-accent)' : 'var(--color-border)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: importPicked.size > 0 && !importBusy ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                            >
+                              {importBusy ? 'Adding…' : `Add ${importPicked.size} to event`}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={closeContactImport}
+                              disabled={importBusy}
+                              style={{ padding: '0.45rem 0.7rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+
                     if (!newContact) {
                       // Worth offering while searching (the person may not be
                       // in the list) and whenever the list has come up empty.
                       if (!term && available.length > 0) return null;
                       const looksLikeEmail = term.includes('@');
+                      // Two ways out of a failed search: type the person in, or
+                      // pull them off the phone.
                       return (
-                        <button
-                          type="button"
-                          onClick={() => setNewContact({
-                            name: looksLikeEmail ? '' : term,
-                            email: looksLikeEmail ? term.toLowerCase() : '',
-                            phone: '',
-                          })}
-                          style={{ display: 'block', width: '100%', marginTop: '0.5rem', padding: '0.5rem', border: '1px dashed var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-accent-light)', color: 'var(--color-accent)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-                        >
-                          + Add {term ? `“${term}”` : 'someone new'} as a new contact
-                        </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.5rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => setNewContact({
+                              name: looksLikeEmail ? '' : term,
+                              email: looksLikeEmail ? term.toLowerCase() : '',
+                              phone: '',
+                            })}
+                            style={{ display: 'block', width: '100%', padding: '0.5rem', border: '1px dashed var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-accent-light)', color: 'var(--color-accent)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            + Add {term ? `“${term}”` : 'someone new'} manually
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startContactImport(term)}
+                            title={phoneSource === SOURCE.FILE
+                              ? 'Export a vCard from your Contacts app, then pick it here'
+                              : 'Pick people straight out of your phone’s contacts'}
+                            style={{ display: 'block', width: '100%', padding: '0.5rem', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            📱 {phoneSource === SOURCE.FILE ? 'Import from a vCard (.vcf)' : 'Import from phone contacts'}
+                          </button>
+                        </div>
                       );
                     }
                     const canSave = newContact.name.trim().length > 0 && !savingContact;
@@ -2754,7 +2968,16 @@ export function EventDetail() {
                       </div>
                     );
                   })()}
-                  <button onClick={() => { setShowAddFriend(false); setFriendSearch(''); setFriendGroupFilter([]); setFriendTagFilter([]); setNewContact(null); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {/* iOS Files reports .vcf as text/x-vcard or nothing at all,
+                      so the extension has to be listed alongside the types. */}
+                  <input
+                    ref={vcfRef}
+                    type="file"
+                    accept=".vcf,text/vcard,text/x-vcard"
+                    style={{ display: 'none' }}
+                    onChange={handleVcfSelect}
+                  />
+                  <button onClick={() => { setShowAddFriend(false); setFriendSearch(''); setFriendGroupFilter([]); setFriendTagFilter([]); setNewContact(null); closeContactImport(); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Done
                   </button>
                 </div>
