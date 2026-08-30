@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { usePagePrivacy } from '../lib/pagePrivacyContext';
+import { pageKey } from '../lib/pagePrivacy';
 import styles from './BottomTabBar.module.css';
 
 const OWNER_EMAIL = 'baldaufdan@gmail.com';
@@ -35,6 +37,10 @@ export function BottomTabBar() {
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
   const isOwner = user?.email === OWNER_EMAIL;
+  const privatePages = usePagePrivacy();
+  // The owner sees every tab, including the ones they've hidden — that's how
+  // they get back to a page to unhide it.
+  const hiddenPages = isOwner || !privatePages ? {} : privatePages;
 
   useEffect(() => {
     document.body.classList.add('has-tabbar');
@@ -64,7 +70,10 @@ export function BottomTabBar() {
     { to: '/holidays', label: 'Holidays', icon: icons.holidays },
     { to: '/admin', label: 'Admin', icon: icons.admin },
   ] : [];
-  const moreRoutes = [...moreItems, ...settingsItems].map(i => i.to);
+  // A page the owner has hidden shouldn't leave a tab behind that only leads to
+  // "not available" — and the label alone would give away what's there.
+  const visible = (items) => items.filter(i => !hiddenPages[pageKey(i.to)]);
+  const moreRoutes = [...visible(moreItems), ...visible(settingsItems)].map(i => i.to);
   const moreActive = moreOpen || moreRoutes.includes(location.pathname);
 
   async function handleSignOut() {
@@ -80,7 +89,7 @@ export function BottomTabBar() {
         <div className={styles.sheet} role="dialog" aria-label="More">
           <div className={styles.sheetHandle} />
           <div className={styles.sheetGrid}>
-            {moreItems.map(it => (
+            {visible(moreItems).map(it => (
               <NavLink
                 key={it.to}
                 to={it.to}
@@ -92,13 +101,13 @@ export function BottomTabBar() {
               </NavLink>
             ))}
           </div>
-          {settingsItems.length > 0 && (
+          {visible(settingsItems).length > 0 && (
             <div className={styles.sheetSection}>
               <div className={styles.sheetSectionLabel}>
                 <span className={styles.sheetSectionIcon}>{icons.gear}</span> Settings
               </div>
               <div className={styles.sheetGrid}>
-                {settingsItems.map(it => (
+                {visible(settingsItems).map(it => (
                   <NavLink
                     key={it.to}
                     to={it.to}
@@ -120,7 +129,7 @@ export function BottomTabBar() {
       )}
 
       <nav className={styles.tabbar} aria-label="Primary">
-        {primary.map(it => (
+        {visible(primary).map(it => (
           <NavLink
             key={it.to}
             to={it.to}

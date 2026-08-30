@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { getPinnedTrips, subscribePins, togglePin } from '../pinnedTrips';
+import { usePagePrivacy } from '../lib/pagePrivacyContext';
+import { pageKey } from '../lib/pagePrivacy';
 import styles from './NavBar.module.css';
 
 const OWNER_EMAIL = 'baldaufdan@gmail.com';
@@ -15,6 +17,22 @@ const GEAR_ITEMS = [
   { to: '/admin', label: 'Admin', ownerOnly: true },
 ];
 
+// The main sidebar links, as data so the owner-only and hidden-page filters
+// can both apply without repeating a condition per link.
+const NAV_ITEMS = [
+  { to: '/', label: 'Dashboard', end: true },
+  { to: '/calendar', label: 'Rally Calendar' },
+  { to: '/plans', label: 'Plans' },
+  { to: '/voting', label: 'Voting' },
+  { to: '/friends', label: 'Friends' },
+  { to: '/expenses', label: 'Trip Expenses' },
+  { to: '/reachout', label: 'Reach Out', ownerOnly: true },
+  { to: '/sports', label: 'Sports', ownerOnly: true },
+  { to: '/wedding', label: 'Wedding', ownerOnly: true },
+  { to: '/travel-list', label: 'Travel List', ownerOnly: true },
+  { to: '/pto', label: 'PTO', ownerOnly: true },
+];
+
 export function NavBar() {
   const { user, logOut } = useAuth();
   const navigate = useNavigate();
@@ -23,7 +41,13 @@ export function NavBar() {
   const [gearOpen, setGearOpen] = useState(false);
   const gearRef = useRef(null);
   const isOwner = user?.email === OWNER_EMAIL;
-  const gearItems = GEAR_ITEMS.filter(it => !it.ownerOnly || isOwner);
+  const privatePages = usePagePrivacy();
+  // The owner keeps every link, hidden pages included — otherwise there'd be
+  // no way back to a page to turn it visible again.
+  const hidden = isOwner || !privatePages ? {} : privatePages;
+  const allowed = (it) => (!it.ownerOnly || isOwner) && !hidden[pageKey(it.to)];
+  const gearItems = GEAR_ITEMS.filter(allowed);
+  const navItems = NAV_ITEMS.filter(allowed);
 
   useEffect(() => subscribePins(user?.uid, setPinnedTrips), [user]);
 
@@ -49,27 +73,14 @@ export function NavBar() {
       <div className={styles.inner}>
         <NavLink to="/" className={styles.logo}>Rally</NavLink>
         <div className={styles.links}>
-          <NavLink to="/" end className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Dashboard</NavLink>
-          <NavLink to="/calendar" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Rally Calendar</NavLink>
-          <NavLink to="/plans" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Plans</NavLink>
-          <NavLink to="/voting" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Voting</NavLink>
-          <NavLink to="/friends" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Friends</NavLink>
-          <NavLink to="/expenses" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Trip Expenses</NavLink>
-          {isOwner && (
-            <NavLink to="/reachout" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Reach Out</NavLink>
-          )}
-          {isOwner && (
-            <NavLink to="/sports" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Sports</NavLink>
-          )}
-          {isOwner && (
-            <NavLink to="/wedding" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Wedding</NavLink>
-          )}
-          {isOwner && (
-            <NavLink to="/travel-list" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>Travel List</NavLink>
-          )}
-          {isOwner && (
-            <NavLink to="/pto" className={({ isActive }) => isActive ? styles.linkActive : styles.link}>PTO</NavLink>
-          )}
+          {navItems.map(it => (
+            <NavLink
+              key={it.to}
+              to={it.to}
+              end={it.end}
+              className={({ isActive }) => isActive ? styles.linkActive : styles.link}
+            >{it.label}</NavLink>
+          ))}
           {pinnedTrips.map(t => (
             <span key={t.id} className={styles.pinnedWrap}>
               <NavLink

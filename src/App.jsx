@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { DashboardPage } from './components/DashboardPage';
@@ -31,11 +31,40 @@ import { ReachOutBadgeRunner } from './hooks/useReachOutBadge';
 import { PushRegistrationRunner } from './hooks/usePushRegistration';
 import { NativeLandingRunner } from './hooks/useNativeLanding';
 import { useShareDeepLink } from './hooks/useShareDeepLink';
+import { PagePrivacyProvider } from './components/PagePrivacyProvider';
+import { usePagePrivacy } from './lib/pagePrivacyContext';
+import { PagePrivacyToggle } from './components/PagePrivacyToggle';
+import { isOwnerEmail, pageKey } from './lib/pagePrivacy';
 
+const centered = { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: 'var(--color-text-muted)' };
+
+/* Signed in, and allowed to see this particular page.
+
+   The owner can mark any page private (see PagePrivacyToggle); everyone else
+   gets a flat "not available" here rather than a redirect, so a stale link
+   doesn't silently dump someone on the dashboard wondering what happened. The
+   wording deliberately says nothing about what the page is. */
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: 'var(--color-text-muted)' }}>Loading...</div>;
+  const { pathname } = useLocation();
+  const privatePages = usePagePrivacy();
+
+  if (loading) return <div style={centered}>Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
+
+  if (!isOwnerEmail(user.email)) {
+    // null means the config hasn't arrived. Hold rather than render the page,
+    // otherwise a private page is briefly visible to everyone on every load.
+    if (privatePages === null) return <div style={centered}>Loading...</div>;
+    if (privatePages[pageKey(pathname)]) {
+      return (
+        <div style={{ ...centered, flexDirection: 'column', gap: '0.5rem', padding: '2rem', textAlign: 'center' }}>
+          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)' }}>This page isn’t available</div>
+          <div style={{ fontSize: '0.88rem' }}>Ask Dan if you think you should have access.</div>
+        </div>
+      );
+    }
+  }
   return children;
 }
 
@@ -56,7 +85,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <PagePrivacyProvider>
       {user && <NavBar />}
       {user && <BottomTabBar />}
       {user && <GoogleCalendarAutoSyncRunner />}
@@ -90,6 +119,9 @@ export default function App() {
         <Route path="/trip/:tripId" element={<ProtectedRoute><TripDetail /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </>
+      {/* Owner-only, and it renders nothing for anyone else — so the ability to
+          hide pages isn't advertised to the people it hides them from. */}
+      {user && <PagePrivacyToggle />}
+    </PagePrivacyProvider>
   );
 }

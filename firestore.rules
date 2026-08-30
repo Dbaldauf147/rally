@@ -29,6 +29,18 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
+    // Which pages the owner has hidden from everyone else (appConfig/pageVisibility).
+    // Every signed-in user has to be able to READ this — a viewer can only hide
+    // a page if they know it's hidden — but only the owner may change it.
+    // This governs what the app renders, not what the data rules allow: a page
+    // hidden here still sits on top of collections whose own rules decide who
+    // can read them.
+    match /appConfig/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.email == 'baldaufdan@gmail.com';
+    }
+
     // Users: only the owner can read/write their own data.
     // The admin (by email) can read every user doc to power the admin page.
     match /users/{userId} {
