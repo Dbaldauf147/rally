@@ -3,7 +3,10 @@ import { Navigate } from 'react-router-dom';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE } from '../native';
 import styles from './WeddingPage.module.css';
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const SEED_CONTACTS = [
   { firstName: 'Skyler', lastName: 'Marinoff', address: '1661 Sacramento Street', city: 'San Francisco', state: 'CA', zip: '94109', phone: '(631) 418-6458', email: 'Skyler.marinoff@gmail.com' },
@@ -282,6 +285,12 @@ export function WeddingPage() {
   const [importText, setImportText] = useState('');
   const [importHasHeader, setImportHasHeader] = useState(true);
   const [importMappings, setImportMappings] = useState([]);
+  // Weekly guest-list email. null until the user doc arrives so the card can
+  // stay quiet rather than flashing "off" at someone who has it on.
+  const [digestCfg, setDigestCfg] = useState(null);
+  const [digestOpen, setDigestOpen] = useState(false);
+  const [digestBusy, setDigestBusy] = useState(false);
+  const [digestMsg, setDigestMsg] = useState(null);
   const seedAttempted = useRef(false);
   const columnsMenuRef = useRef(null);
   const columnConfigRef = useRef({});
@@ -299,6 +308,15 @@ export function WeddingPage() {
         setSavedGroups(Array.isArray(data.weddingGroups) ? data.weddingGroups : []);
         setSavedCategories(Array.isArray(data.weddingCategories) ? data.weddingCategories : []);
         setColumnConfig(data.weddingColumnConfig && typeof data.weddingColumnConfig === 'object' ? data.weddingColumnConfig : {});
+        // Defaults chosen so switching it on is a one-click decision: their own
+        // address, Sunday morning, whatever timezone the browser is in.
+        const wd = data.weddingDigest && typeof data.weddingDigest === 'object' ? data.weddingDigest : {};
+        setDigestCfg({
+          enabled: !!wd.enabled,
+          email: wd.email || data.email || user.email || '',
+          sendWeekday: typeof wd.sendWeekday === 'number' ? wd.sendWeekday : 0,
+          timezone: wd.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
+        });
         const stored = Array.isArray(data.weddingContacts) ? data.weddingContacts : null;
         setLoading(false);
         if (stored) {
@@ -355,6 +373,51 @@ export function WeddingPage() {
   const persistContacts = async (next) => {
     if (!user) return;
     await setDoc(doc(db, 'users', user.uid), { weddingContacts: next }, { merge: true });
+  };
+
+  /* ── Weekly guest-list email ────────────────────────────────
+     Settings live on the user doc; the cron in api/wedding-digest.js reads
+     them. Merge-written field by field so turning the digest on never
+     overwrites lastSentDate or the snapshot the "since last week" line needs. */
+  const saveDigest = async (patch) => {
+    if (!user || !digestCfg) return;
+    const next = { ...digestCfg, ...patch };
+    setDigestCfg(next);
+    setDigestMsg(null);
+    try {
+      await setDoc(doc(db, 'users', user.uid), { weddingDigest: patch }, { merge: true });
+    } catch (err) {
+      setDigestMsg({ type: 'error', text: `Couldn’t save: ${err.message}` });
+    }
+  };
+
+  const sendDigestTest = async () => {
+    if (!user || digestBusy) return;
+    setDigestBusy(true);
+    setDigestMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/wedding-digest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDigestMsg({ type: 'error', text: data.error || `Send failed (${res.status})` });
+      } else if (data.skipped) {
+        setDigestMsg({ type: 'error', text: `Nothing sent — ${data.skipped}.` });
+      } else if (data.reason) {
+        // Email isn't wired up in this environment; say so rather than
+        // reporting a success that never left the building.
+        setDigestMsg({ type: 'error', text: data.reason });
+      } else {
+        setDigestMsg({ type: 'ok', text: `Sent to ${digestCfg.email}.` });
+      }
+    } catch (err) {
+      setDigestMsg({ type: 'error', text: err.message });
+    } finally {
+      setDigestBusy(false);
+    }
   };
 
   const persistGroups = async (next) => {
@@ -853,6 +916,86 @@ export function WeddingPage() {
         <div className={styles.count}>{filtered.length} of {contacts.length} contacts</div>
       </div>
       <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>
+
+      {/* Weekly email. Collapsed to a single line until opened — it's a setting
+          you touch once, and the guest list is what the page is for. */}
+      {digestCfg && (
+        <div className={styles.digest}>
+          <button
+            type="button"
+            className={styles.digestToggle}
+            onClick={() => setDigestOpen((v) => !v)}
+            aria-expanded={digestOpen}
+          >
+            <span>📧 Weekly email</span>
+            <span className={digestCfg.enabled ? styles.digestOn : styles.digestOff}>
+              {digestCfg.enabled ? `On · ${WEEKDAYS[digestCfg.sendWeekday] || 'Sunday'}s` : 'Off'}
+            </span>
+            <span className={styles.digestChevron} aria-hidden="true">{digestOpen ? '▾' : '▸'}</span>
+          </button>
+
+          {digestOpen && (
+            <div className={styles.digestBody}>
+              <p className={styles.digestHint}>
+                A summary of where the guest list stands: how many households have a full mailing
+                address, who&apos;s still missing one, and what changed since last week.
+              </p>
+              <label className={styles.digestCheck}>
+                <input
+                  type="checkbox"
+                  checked={digestCfg.enabled}
+                  onChange={(e) => saveDigest({ enabled: e.target.checked })}
+                />
+                <span>Email me a weekly summary</span>
+              </label>
+
+              {digestCfg.enabled && (
+                <div className={styles.digestFields}>
+                  <label className={styles.digestField}>
+                    <span>Send to</span>
+                    <input
+                      type="email"
+                      value={digestCfg.email}
+                      placeholder="you@example.com"
+                      onChange={(e) => setDigestCfg({ ...digestCfg, email: e.target.value })}
+                      onBlur={(e) => saveDigest({ email: e.target.value.trim() })}
+                    />
+                  </label>
+                  <label className={styles.digestField}>
+                    <span>Every</span>
+                    <select
+                      value={digestCfg.sendWeekday}
+                      onChange={(e) => saveDigest({ sendWeekday: Number(e.target.value) })}
+                    >
+                      {WEEKDAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                    </select>
+                  </label>
+                </div>
+              )}
+
+              <div className={styles.digestActions}>
+                <button
+                  type="button"
+                  className={styles.digestTest}
+                  onClick={sendDigestTest}
+                  disabled={digestBusy || !digestCfg.email}
+                >
+                  {digestBusy ? 'Sending…' : 'Send one now'}
+                </button>
+                {digestMsg && (
+                  <span className={digestMsg.type === 'ok' ? styles.digestOkMsg : styles.digestErrMsg}>
+                    {digestMsg.text}
+                  </span>
+                )}
+              </div>
+              <p className={styles.digestNote}>
+                Sends in the morning on your chosen day. A test send doesn&apos;t count as the
+                week&apos;s email, so next one still shows what changed.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={styles.summary}>
         <div className={styles.summaryRow}>
