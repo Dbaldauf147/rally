@@ -3,6 +3,10 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { doc, collection, onSnapshot, updateDoc, arrayUnion, arrayRemove, getDocs, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { planMemberUpsert } from '../lib/members';
+// Creating a friend from here writes through the same path the Friends page
+// uses, so someone added mid-invite is a real contact afterwards, not a
+// one-off row that only exists on this event.
+import { addFriend as writeFriend } from '../lib/friends';
 import { WEB_ORIGIN } from '../native';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
@@ -100,6 +104,11 @@ export function EventDetail() {
   const [friends, setFriends] = useState([]);
   const [dateOptionsVoters, setDateOptionsVoters] = useState({});
   const [showAddFriend, setShowAddFriend] = useState(false);
+  // Making a new contact without leaving the invite list. `newContact` is null
+  // until the user asks for it, then holds the draft — seeded from whatever
+  // they'd typed into the search box, since that's usually the person's name.
+  const [newContact, setNewContact] = useState(null);
+  const [savingContact, setSavingContact] = useState(false);
   const [friendSearch, setFriendSearch] = useState('');
   const [friendGroupFilter, setFriendGroupFilter] = useState([]);
   const [friendTagFilter, setFriendTagFilter] = useState([]);
@@ -2655,7 +2664,97 @@ export function EventDetail() {
                         </button>
                       ))}
                   </div>
-                  <button onClick={() => { setShowAddFriend(false); setFriendSearch(''); setFriendGroupFilter([]); setFriendTagFilter([]); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {/* Not everyone you invite is already a contact, and "No
+                      matching friends" is a dead end at exactly the moment you
+                      know who you want. Offer to create them here instead. The
+                      search text is nearly always the person's name, so it
+                      seeds the form — an @ in it means they typed an address. */}
+                  {(() => {
+                    const term = friendSearch.trim();
+                    if (!newContact) {
+                      // Worth offering while searching (the person may not be
+                      // in the list) and whenever the list has come up empty.
+                      if (!term && available.length > 0) return null;
+                      const looksLikeEmail = term.includes('@');
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setNewContact({
+                            name: looksLikeEmail ? '' : term,
+                            email: looksLikeEmail ? term.toLowerCase() : '',
+                            phone: '',
+                          })}
+                          style={{ display: 'block', width: '100%', marginTop: '0.5rem', padding: '0.5rem', border: '1px dashed var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-accent-light)', color: 'var(--color-accent)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          + Add {term ? `“${term}”` : 'someone new'} as a new contact
+                        </button>
+                      );
+                    }
+                    const canSave = newContact.name.trim().length > 0 && !savingContact;
+                    const field = (key, placeholder, type) => (
+                      <input
+                        type={type || 'text'}
+                        value={newContact[key]}
+                        placeholder={placeholder}
+                        onChange={e => setNewContact(c => ({ ...c, [key]: e.target.value }))}
+                        style={{ width: '100%', padding: '0.45rem 0.6rem', marginBottom: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                      />
+                    );
+                    async function saveNewContact() {
+                      const name = newContact.name.trim();
+                      if (!name || savingContact) return;
+                      setSavingContact(true);
+                      try {
+                        // Written to the friends list first, so the person
+                        // outlives this event — then added to the event through
+                        // the same upsert every other row uses, which dedupes
+                        // them against anyone already on it under another key.
+                        const id = await writeFriend(user.uid, { name, email: newContact.email, phone: newContact.phone });
+                        await addFriendToEvent({
+                          id,
+                          name,
+                          email: newContact.email.trim().toLowerCase(),
+                          phone: newContact.phone.trim(),
+                        });
+                        setResult({ type: 'success', message: `${name} added to your contacts and this event` });
+                        setTimeout(() => setResult(null), 3000);
+                        setNewContact(null);
+                        setFriendSearch('');
+                      } catch (err) {
+                        setResult({ type: 'error', message: `Couldn’t add ${name}: ${err.message}` });
+                        setTimeout(() => setResult(null), 4500);
+                      } finally {
+                        setSavingContact(false);
+                      }
+                    }
+                    return (
+                      <div style={{ marginTop: '0.5rem', padding: '0.6rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg)' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>New contact</div>
+                        {field('name', 'Name (required)')}
+                        {field('email', 'Email (optional)', 'email')}
+                        {field('phone', 'Phone (optional)', 'tel')}
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button
+                            type="button"
+                            onClick={saveNewContact}
+                            disabled={!canSave}
+                            style={{ flex: 1, padding: '0.45rem', border: 'none', borderRadius: 'var(--radius-md)', background: canSave ? 'var(--color-accent)' : 'var(--color-border)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: canSave ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                          >
+                            {savingContact ? 'Adding…' : 'Add & invite'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewContact(null)}
+                            disabled={savingContact}
+                            style={{ padding: '0.45rem 0.7rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <button onClick={() => { setShowAddFriend(false); setFriendSearch(''); setFriendGroupFilter([]); setFriendTagFilter([]); setNewContact(null); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Done
                   </button>
                 </div>

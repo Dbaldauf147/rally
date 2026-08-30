@@ -18,6 +18,10 @@ import {
   normalizeFieldDefs, coerceCustomValue, coerceCustomMap, formatCustomValue,
   customSortValue, customFieldValues,
 } from '../lib/customFields';
+// Contacts off the phone itself. Whichever route the device supports, the rows
+// come back in the same shape and go through the mapping preview below.
+import { parseVCards, headersFor } from '../lib/vcard';
+import { pickPhoneContacts, contactsSource, sourceLabel, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
 import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
@@ -888,6 +892,9 @@ export function FriendsPage() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
   const fileRef = useRef(null);
+  const vcfRef = useRef(null);
+  // Fixed for the life of the page — it depends on the platform, not on state.
+  const phoneSource = contactsSource();
 
   // New contact form
   const [newName, setNewName] = useState('');
@@ -1242,6 +1249,62 @@ export function FriendsPage() {
     };
     reader.readAsBinaryString(file);
     e.target.value = '';
+  }
+
+  /* ── Contacts from the phone ────────────────────────────────
+     Every route (native plugin, Android's picker, a .vcf file) lands here, so
+     phone contacts get the same column mapping, the same preview, and the same
+     email-keyed dedupe that a spreadsheet import gets. */
+  function openImportPreview(rows, emptyMessage) {
+    if (!rows || rows.length === 0) {
+      setResult({ type: 'error', message: emptyMessage });
+      setTimeout(() => setResult(null), 4500);
+      return;
+    }
+    setBulkRawRows(rows);
+    setBulkHeaders(headersFor(rows));
+    setBulkMapping(autoDetectMapping(headersFor(rows), customFields));
+    setShowBulk(true);
+  }
+
+  async function handlePhoneImport() {
+    try {
+      const rows = await pickPhoneContacts();
+      // An empty list here means the user closed the OS sheet without picking
+      // anyone. That isn't a failure and shouldn't read like one.
+      if (rows.length === 0) return;
+      openImportPreview(rows, 'No usable contacts in that selection.');
+    } catch (err) {
+      if (err instanceof NeedsFileFallback) {
+        // No in-app route on this device — go straight to the file picker
+        // rather than making the user find it, and say why it opened.
+        setResult({ type: 'error', message: `${err.message} Pick a vCard (.vcf) exported from your Contacts app instead.` });
+        setTimeout(() => setResult(null), 6000);
+        vcfRef.current?.click();
+        return;
+      }
+      setResult({ type: 'error', message: 'Could not read contacts: ' + err.message });
+      setTimeout(() => setResult(null), 5000);
+    }
+  }
+
+  function handleVcfSelect(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        openImportPreview(
+          parseVCards(evt.target.result),
+          'No contacts found in that file. Export a vCard (.vcf) from your Contacts app and try again.',
+        );
+      } catch (err) {
+        setResult({ type: 'error', message: 'Could not read that vCard: ' + err.message });
+        setTimeout(() => setResult(null), 5000);
+      }
+    };
+    reader.readAsText(file);
   }
 
   function applyMapping() {
@@ -1673,6 +1736,16 @@ export function FriendsPage() {
         <div className={styles.actions}>
           <button className={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add Contact</button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileSelect} />
+          {/* text/vcard covers Android; iOS Files reports .vcf as text/x-vcard
+              or nothing at all, so the extension has to be listed too. */}
+          <input ref={vcfRef} type="file" accept=".vcf,text/vcard,text/x-vcard" style={{ display: 'none' }} onChange={handleVcfSelect} />
+          <button
+            className={styles.addBtn}
+            onClick={() => (phoneSource === SOURCE.FILE ? vcfRef.current?.click() : handlePhoneImport())}
+            title={phoneSource === SOURCE.FILE
+              ? 'Export a vCard from your Contacts app, then pick it here'
+              : 'Pick people straight out of your phone’s contacts'}
+          >📱 {sourceLabel(phoneSource)}</button>
           <button className={styles.uploadBtn} onClick={() => fileRef.current?.click()}>Upload Excel</button>
           <button
             className={styles.uploadBtn}
