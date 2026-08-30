@@ -785,51 +785,12 @@ export function Plans() {
         {isOwner && (
         <section className={styles.spotsCard} aria-label="Date nights to try">
           <h2 className={styles.spotsTitle}>💜 Date nights to try</h2>
-          {dateSpots.length > 0 && (<>
-          <p className={styles.spotsSub}>From your Prep Day Date Nights list — somewhere to put on the calendar. Anywhere you&apos;ve already taken Joanne is left out; ones you haven&apos;t been to at all come first.</p>
-          {/* Narrow screens scroll this sideways rather than crushing the
-              columns — the weeks table above just hides itself on mobile, but
-              three columns still read fine here. */}
-          <div className={styles.spotsTableWrap}>
-            <table className={`${styles.table} ${styles.spotsTable}`}>
-              <colgroup>
-                <col />
-                <col style={{ width: '30%' }} />
-                <col style={{ width: 66 }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Place</th>
-                  <th>What to get</th>
-                  {/* No "Joanne" column any more: every row here is somewhere
-                      she hasn't been, so the tick would always read "—". */}
-                  <th className={styles.spotTickCol}>Been</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dateSpots.map(spot => (
-                  <tr key={spot.id}>
-                    <td>
-                      <span className={styles.spotName}>
-                        {spot.url
-                          ? <a href={spot.url} target="_blank" rel="noreferrer" className={styles.spotLink}>{spot.name}</a>
-                          : spot.name}
-                      </span>
-                      {spot.address && <span className={styles.spotMeta}>{spot.address}</span>}
-                    </td>
-                    <td className={styles.spotDish}>{spot.dish || '—'}</td>
-                    <td className={styles.spotTick}>{spot.visited ? '✓' : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          </>)}
-          {/* Your own running list, kept apart from Prep Day's table because
-              nothing here syncs back to it. One bullet per row: Enter starts
-              the next place, Backspace on an empty row deletes it and puts the
-              caret back on the line above. */}
-          <div className={dateSpots.length > 0 ? styles.ideas : `${styles.ideas} ${styles.ideasAlone}`}>
+          {/* Our own list leads: it's the one we actually add to, and Prep Day's
+              suggestions underneath are the place to draw from. Nothing here
+              syncs back to Prep Day. One bullet per row: Enter starts the next
+              place, Backspace on an empty row deletes it and puts the caret
+              back on the line above. */}
+          <div className={styles.ideas}>
             <h3 className={styles.ideasTitle}>Our own list</h3>
             {dateIdeas.length === 0 && (
               <p className={styles.ideasEmpty}>Anywhere you&apos;ve been meaning to try.</p>
@@ -860,6 +821,51 @@ export function Plans() {
             </ul>
             <button type="button" className={styles.ideasAdd} onClick={addIdea}>+ Add a place</button>
           </div>
+          {/* The divider rides with this block rather than sitting on the list
+              above, so with no suggestions to show the card ends cleanly at
+              "+ Add a place" instead of on a rule with nothing under it. */}
+          {dateSpots.length > 0 && (
+          <div className={styles.prepDay}>
+            <p className={styles.spotsSub}>From your Prep Day Date Nights list — somewhere to put on the calendar. Anywhere you&apos;ve already taken Joanne is left out; ones you haven&apos;t been to at all come first.</p>
+            {/* Narrow screens scroll this sideways rather than crushing the
+                columns — the weeks table above just hides itself on mobile, but
+                three columns still read fine here. */}
+            <div className={styles.spotsTableWrap}>
+              <table className={`${styles.table} ${styles.spotsTable}`}>
+                <colgroup>
+                  <col />
+                  <col style={{ width: '30%' }} />
+                  <col style={{ width: 66 }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Place</th>
+                    <th>What to get</th>
+                    {/* No "Joanne" column any more: every row here is somewhere
+                        she hasn't been, so the tick would always read "—". */}
+                    <th className={styles.spotTickCol}>Been</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dateSpots.map(spot => (
+                    <tr key={spot.id}>
+                      <td>
+                        <span className={styles.spotName}>
+                          {spot.url
+                            ? <a href={spot.url} target="_blank" rel="noreferrer" className={styles.spotLink}>{spot.name}</a>
+                            : spot.name}
+                        </span>
+                        {spot.address && <span className={styles.spotMeta}>{spot.address}</span>}
+                      </td>
+                      <td className={styles.spotDish}>{spot.dish || '—'}</td>
+                      <td className={styles.spotTick}>{spot.visited ? '✓' : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          )}
         </section>
         )}
     </div>
