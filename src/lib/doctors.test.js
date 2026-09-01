@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   STATUS, NO_TYPE, parseStatus, normalizeEntry, normalizeList, hasContent, entryTitle,
-  entrySubtitle, matchesQuery, groupByType, countByStatus, cardRows, typeUsage,
+  entrySubtitle, matchesQuery, groupByType, countByStatus, issueCell, typeUsage,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
 } from './doctors';
@@ -72,22 +72,17 @@ describe('entryTitle', () => {
   });
 });
 
-describe('cardRows', () => {
-  it('drops the issue row when the issue is already the card title', () => {
-    expect(cardRows(entry({ issue: 'Neck sprain' }))).toEqual([]);
+describe('issueCell', () => {
+  it('blanks the issue when the issue is already what the row is called', () => {
+    expect(issueCell(entry({ issue: 'Neck sprain' }))).toBe('');
   });
 
-  it('keeps the issue row when something else titles the card', () => {
-    expect(cardRows(entry({ doctor: 'Dr. Kim', issue: 'Eczema' }))).toEqual(['issue']);
+  it('keeps the issue when something else names the row', () => {
+    expect(issueCell(entry({ doctor: 'Dr. Kim', issue: 'Eczema' }))).toBe('Eczema');
   });
 
-  it('lists the rest in reading order and skips the empty ones', () => {
-    const e = entry({ doctor: 'Dr. Kim', issue: 'Eczema', currentMeds: 'X', cadence: 'Every 1 year(s)' });
-    expect(cardRows(e)).toEqual(['issue', 'currentMeds', 'cadence']);
-  });
-
-  it('leaves contact details to the buttons', () => {
-    expect(cardRows(entry({ doctor: 'Dr. Kim', phone: '555', email: 'a@b.c', location: 'X' }))).toEqual([]);
+  it('is blank when there is no issue at all', () => {
+    expect(issueCell(entry({ doctor: 'Dr. Kim' }))).toBe('');
   });
 });
 
@@ -277,7 +272,7 @@ describe('a card under its own type heading', () => {
   it('keeps the issue as the title when the heading took the type', () => {
     const e = normalizeEntry({ type: 'Ear', issue: 'Eczema' });
     expect(entryTitle(e, 'Ear')).toBe('Eczema');
-    expect(cardRows(e, 'Ear')).toEqual([]);
+    expect(issueCell(e, 'Ear')).toBe('');
   });
 });
 

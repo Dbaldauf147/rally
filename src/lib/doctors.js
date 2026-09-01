@@ -146,17 +146,13 @@ export function entrySubtitle(e, omit = '') {
     .join(' · ');
 }
 
-/* The detail rows a card shows, in reading order.
+/* What the Issue column carries.
 
-   Contact details are left out because the card turns those into buttons. The
-   issue is left out when it is already the card's title — a row headed ISSUE
-   repeating the heading above it word for word is pure noise, and rows with
-   nothing but an issue are common in this list. */
-const DETAIL_ROWS = ['issue', 'currentMeds', 'previousMeds', 'cadence', 'notes'];
-
-export function cardRows(entry, omit = '') {
-  const title = entryTitle(entry, omit);
-  return DETAIL_ROWS.filter((k) => entry[k] && !(k === 'issue' && entry.issue === title));
+   Blank when the issue is already what the row is called — rows with nothing
+   but an issue are common in this list, and printing "Neck sprain" in the name
+   column and again in the issue column beside it is pure noise. */
+export function issueCell(entry, omit = '') {
+  return entry.issue && entry.issue !== entryTitle(entry, omit) ? entry.issue : '';
 }
 
 /* Free-text search across everything, because the thing you remember about a

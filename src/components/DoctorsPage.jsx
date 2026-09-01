@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   FIELDS, STATUS, STATUS_ORDER, NO_TYPE, statusLabel, showsStatusBadge, typeHeading,
   normalizeEntry, normalizeList, hasContent, entryTitle, entrySubtitle,
-  groupByType, countByStatus, cardRows, typeUsage,
+  groupByType, countByStatus, issueCell, typeUsage,
   addType, renameType, removeType, moveType,
   telHref, mailHref, mapHref, safeLink, linkLabel, makeId, seedDoctors,
 } from '../lib/doctors';
@@ -292,53 +292,71 @@ function TypeManager({ list, onChange, onClose }) {
   );
 }
 
-function EntryCard({ entry, groupType, onEdit }) {
+/* One record, one row.
+
+   Everything a row holds gets its own column, so two doctors can be read
+   against each other straight down the page. Cells with nothing in them are
+   left literally empty and picked up by a dash in CSS, which keeps a sparse
+   row — most of this list — from reading as a broken one. */
+function EntryRow({ entry, groupType, onEdit }) {
   const tel = telHref(entry.phone);
   const mail = mailHref(entry.email);
   const map = mapHref(entry.location);
   const link = safeLink(entry.link);
   const subtitle = entrySubtitle(entry, groupType);
-  const rows = cardRows(entry, groupType);
+  const issue = issueCell(entry, groupType);
 
   return (
-    <article className={styles.card}>
-      <header className={styles.cardHead}>
-        <div className={styles.cardTitleWrap}>
-          <h3 className={styles.cardTitle}>{entryTitle(entry, groupType)}</h3>
-          {subtitle && <div className={styles.cardSubtitle}>{subtitle}</div>}
-        </div>
-        <div className={styles.cardTools}>
-          {showsStatusBadge(entry.status) && (
-            <span className={entry.status === STATUS.TREATING ? styles.badgeLive : styles.badge}>
-              {statusLabel(entry.status)}
-            </span>
-          )}
-          <button type="button" className={styles.editBtn} onClick={onEdit} title="Edit this record">Edit</button>
-        </div>
-      </header>
+    <tr className={styles.row}>
+      <td className={styles.cellName}>
+        <div className={styles.name}>{entryTitle(entry, groupType)}</div>
+        {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
+      </td>
 
-      {rows.length > 0 && (
-        <dl className={styles.rows}>
-          {rows.map((k) => (
-            <div key={k} className={styles.row}>
-              <dt className={styles.rowLabel}>{FIELD_OF[k].label}</dt>
-              <dd className={styles.rowValue}>{entry[k]}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      <td className={styles.cellIssue}>
+        {issue ? <div>{issue}</div> : null}
+        {entry.notes ? <div className={styles.muted}>{entry.notes}</div> : null}
+      </td>
 
-      {(tel || mail || map || link) && (
-        <div className={styles.actions}>
-          {tel && <a className={styles.action} href={tel}>Call {entry.phone}</a>}
-          {mail && <a className={styles.action} href={mail}>{entry.email}</a>}
-          {map && <a className={styles.action} href={map} target="_blank" rel="noreferrer">{entry.location}</a>}
-          {link && <a className={styles.action} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a>}
-        </div>
-      )}
-    </article>
+      <td className={styles.cellMeds}>
+        {entry.currentMeds ? <div>{entry.currentMeds}</div> : null}
+        {entry.previousMeds ? <div className={styles.muted}>Was: {entry.previousMeds}</div> : null}
+      </td>
+
+      <td className={styles.cellContact}>
+        {tel ? <a className={styles.link} href={tel}>{entry.phone}</a> : null}
+        {mail ? <a className={styles.link} href={mail}>{entry.email}</a> : null}
+        {map ? (
+          <a className={`${styles.link} ${styles.linkMuted}`} href={map} target="_blank" rel="noreferrer">
+            {entry.location}
+          </a>
+        ) : null}
+        {link ? (
+          <a className={styles.link} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a>
+        ) : null}
+      </td>
+
+      <td className={styles.cellCadence}>{entry.cadence || null}</td>
+
+      <td className={styles.cellStatus}>
+        {showsStatusBadge(entry.status) ? (
+          <span className={entry.status === STATUS.TREATING ? styles.badgeLive : styles.badge}>
+            {statusLabel(entry.status)}
+          </span>
+        ) : (
+          <span className={styles.statusPlain}>{statusLabel(entry.status)}</span>
+        )}
+      </td>
+
+      <td className={styles.cellEdit}>
+        <button type="button" className={styles.editBtn} onClick={onEdit} title="Edit this record">Edit</button>
+      </td>
+    </tr>
   );
 }
+
+// What an edit form or a type heading has to stretch across.
+const COLUMNS = 7;
 
 export function DoctorsPage() {
   const { user } = useAuth();
@@ -458,38 +476,60 @@ export function DoctorsPage() {
         </div>
       )}
 
-      {groups.map((group) => (
-        <section key={group.type || '__none__'} className={styles.group}>
-          <h2 className={styles.groupHead}>
-            {typeHeading(group.type)}
-            <span className={styles.groupCount}>{group.entries.length}</span>
-          </h2>
-          <div className={styles.grid}>
-            {group.entries.map((entry) => (
-              editingId === entry.id ? (
-                <div key={entry.id} className={styles.formCard}>
-                  <div className={styles.formTitle}>{entryTitle(entry)}</div>
-                  <EntryForm
-                    key={entry.id}
-                    entry={entry}
-                    types={safeList.types}
-                    onSave={saveEntry}
-                    onCancel={() => setEditingId(null)}
-                    onDelete={() => deleteEntry(entry.id)}
-                  />
-                </div>
-              ) : (
-                <EntryCard
-                  key={entry.id}
-                  entry={entry}
-                  groupType={group.type}
-                  onEdit={() => { setEditingId(entry.id); setAdding(null); setManagingTypes(false); }}
-                />
-              )
+      {groups.length > 0 && (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th className={styles.cellName}>Doctor</th>
+                <th>Issue</th>
+                <th>Meds</th>
+                <th>Contact</th>
+                <th>Cadence</th>
+                <th>Status</th>
+                <th className={styles.cellEdit}><span className={styles.srOnly}>Edit</span></th>
+              </tr>
+            </thead>
+
+            {/* A tbody per type, so the headings stay inside the table and every
+                group is measured against the same column widths. */}
+            {groups.map((group) => (
+              <tbody key={group.type || '__none__'}>
+                <tr className={styles.groupRow}>
+                  <th scope="colgroup" colSpan={COLUMNS} className={styles.groupHead}>
+                    {typeHeading(group.type)}
+                    <span className={styles.groupCount}>{group.entries.length}</span>
+                  </th>
+                </tr>
+                {group.entries.map((entry) => (
+                  editingId === entry.id ? (
+                    <tr key={entry.id} className={styles.editRow}>
+                      <td colSpan={COLUMNS}>
+                        <div className={styles.formTitle}>{entryTitle(entry)}</div>
+                        <EntryForm
+                          key={entry.id}
+                          entry={entry}
+                          types={safeList.types}
+                          onSave={saveEntry}
+                          onCancel={() => setEditingId(null)}
+                          onDelete={() => deleteEntry(entry.id)}
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    <EntryRow
+                      key={entry.id}
+                      entry={entry}
+                      groupType={group.type}
+                      onEdit={() => { setEditingId(entry.id); setAdding(null); setManagingTypes(false); }}
+                    />
+                  )
+                ))}
+              </tbody>
             ))}
-          </div>
-        </section>
-      ))}
+          </table>
+        </div>
+      )}
     </div>
   );
 }
