@@ -1,8 +1,10 @@
 // The wedding checklist — what to do, counting backward from the date.
 //
-// The content is fixed rather than editable: it's a planning timeline, and the
-// thing that changes is which items are done, not what the items are. So the
-// stored document is only a set of ticked ids, and this file is the list.
+// The list below is the starting point, not the law: it seeds an account that
+// has never edited one, and from then on the stored document carries its own
+// phases and tasks. Ticks stay a separate map keyed by phase and task id, so
+// rewording a task keeps its tick and an account that only ever stored ticks
+// still reads back correctly against the seed.
 //
 // Ids are explicit slugs, not positions. A checklist keyed by index would move
 // everyone's ticks the first time a task was inserted or reworded, which is
@@ -13,7 +15,7 @@
 // there when you need it. `milestone` marks the few items everything else
 // hangs off: booking the venue, mailing the invitations, the licence.
 
-export const PHASES = [
+export const SEED_PHASES = [
   {
     id: 'now',
     title: 'Now, before the date exists',
@@ -157,38 +159,82 @@ export const PHASES = [
   },
 ];
 
-// A task's key in the stored document. Phase-scoped so two phases can both have
-// a "fitting" without sharing a tick.
+// A task's key in the ticked set. Phase-scoped so two phases can both have a
+// "final fitting" without sharing a tick.
 export const taskKey = (phaseId, taskId) => `${phaseId}.${taskId}`;
 
-export const ALL_TASKS = PHASES.flatMap((p) =>
-  p.tasks.map((t) => ({ ...t, phaseId: p.id, key: taskKey(p.id, t.id) })));
+/* Ids for anything added later.
 
-export const TOTAL_TASKS = ALL_TASKS.length;
-
-const KNOWN_KEYS = new Set(ALL_TASKS.map((t) => t.key));
-
-/* The ticked set, as stored.
-
-   Keys that no longer match a task are dropped on the way in: a task removed
-   from the list above should not leave a tick behind inflating the count. */
-export function normalizeDone(raw) {
-  const out = {};
-  if (!raw || typeof raw !== 'object') return out;
-  Object.entries(raw).forEach(([key, value]) => {
-    if (value && KNOWN_KEYS.has(key)) out[key] = true;
-  });
-  return out;
+   Prefixed so a hand-written seed id and a generated one can never collide,
+   and generated once rather than derived from the text — renaming a task must
+   not move its tick. */
+let seq = 0;
+export function makeId(prefix = 't') {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+  } catch { /* fall through */ }
+  seq += 1;
+  return `${prefix}-${Date.now().toString(36)}${seq}`;
 }
 
-export function toggleTask(done, key) {
-  const next = { ...normalizeDone(done) };
-  if (next[key]) delete next[key];
-  else if (KNOWN_KEYS.has(key)) next[key] = true;
-  return next;
+export function normalizeTask(raw) {
+  return {
+    id: String(raw?.id || makeId('t')),
+    text: String(raw?.text ?? '').trim(),
+    note: String(raw?.note ?? '').trim(),
+    milestone: Boolean(raw?.milestone),
+  };
 }
+
+export function normalizePhase(raw) {
+  return {
+    id: String(raw?.id || makeId('p')),
+    title: String(raw?.title ?? '').trim(),
+    when: String(raw?.when ?? '').trim(),
+    tasks: (Array.isArray(raw?.tasks) ? raw.tasks : []).map(normalizeTask),
+  };
+}
+
+/* The stored document: the list itself, plus which tasks are ticked.
+
+   Ticks stay a separate map keyed by phase and task id rather than a flag on
+   the task. That's what lets the content become editable without disturbing
+   anything already ticked — an account that only ever stored ticks reads back
+   with the built-in list underneath them, unchanged.
+
+   A missing `phases` means the account predates editing, so it gets the seed.
+   An empty array is a deliberately emptied list and is left empty. */
+export function normalizeChecklist(raw) {
+  const phases = (Array.isArray(raw?.phases) ? raw.phases : SEED_PHASES).map(normalizePhase);
+  const known = new Set(phases.flatMap((p) => p.tasks.map((t) => taskKey(p.id, t.id))));
+  const done = {};
+  const rawDone = raw?.done;
+  if (rawDone && typeof rawDone === 'object') {
+    Object.entries(rawDone).forEach(([key, value]) => {
+      // A tick against a task that no longer exists is dropped, so deleting a
+      // task can't leave a phantom behind inflating the count.
+      if (value && known.has(key)) done[key] = true;
+    });
+  }
+  return { phases, done };
+}
+
+export const seedChecklist = () => normalizeChecklist({ phases: SEED_PHASES, done: {} });
+
+export const allTasks = (phases) =>
+  phases.flatMap((p) => p.tasks.map((t) => ({ ...t, phaseId: p.id, key: taskKey(p.id, t.id) })));
+
+export const totalTasks = (phases) => phases.reduce((n, p) => n + p.tasks.length, 0);
 
 export const isDone = (done, key) => Boolean(done?.[key]);
+
+export function toggleTask(list, key) {
+  const { phases, done } = normalizeChecklist(list);
+  const next = { ...done };
+  if (next[key]) delete next[key];
+  else if (allTasks(phases).some((t) => t.key === key)) next[key] = true;
+  return { phases, done: next };
+}
 
 export function phaseProgress(phase, done) {
   const total = phase.tasks.length;
@@ -196,26 +242,96 @@ export function phaseProgress(phase, done) {
   return { complete, total, finished: total > 0 && complete === total };
 }
 
-export function overallProgress(done) {
-  const complete = Object.keys(normalizeDone(done)).length;
-  return {
-    complete,
-    total: TOTAL_TASKS,
-    pct: TOTAL_TASKS ? Math.round((complete / TOTAL_TASKS) * 100) : 0,
-  };
+export function overallProgress(list) {
+  const { phases, done } = normalizeChecklist(list);
+  const total = totalTasks(phases);
+  const complete = Object.keys(done).length;
+  return { complete, total, pct: total ? Math.round((complete / total) * 100) : 0 };
 }
 
 /* The first thing still outstanding, in timeline order.
 
    The list is long enough that "where was I" is a real question, and the answer
    is almost always the earliest unfinished task rather than anything clever. */
-export function nextUp(done) {
-  return ALL_TASKS.find((t) => !isDone(done, t.key)) || null;
+export function nextUp(list) {
+  const { phases, done } = normalizeChecklist(list);
+  return allTasks(phases).find((t) => !isDone(done, t.key)) || null;
 }
 
-// The phase a reader should land in: the first with anything left to do, so the
-// finished ones can start collapsed.
-export function firstUnfinishedPhase(done) {
-  const phase = PHASES.find((p) => !phaseProgress(p, done).finished);
-  return phase ? phase.id : null;
+// --- editing the list ------------------------------------------------------
+//
+// Every one of these takes the whole document and hands back a new one, so a
+// change that has to touch both the phases and the ticks can't half-apply.
+// Removing anything runs back through normalizeChecklist, which is what prunes
+// the ticks that came with it.
+
+const mapPhase = (list, phaseId, fn) => ({
+  ...list,
+  phases: list.phases.map((p) => (p.id === phaseId ? fn(p) : p)),
+});
+
+function moveInArray(items, index, delta) {
+  const to = index + delta;
+  if (index < 0 || to < 0 || to >= items.length) return items;
+  const next = [...items];
+  const [moved] = next.splice(index, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
+export function addTask(list, phaseId, task = {}) {
+  const l = normalizeChecklist(list);
+  if (!l.phases.some((p) => p.id === phaseId)) return l;
+  return mapPhase(l, phaseId, (p) => ({ ...p, tasks: [...p.tasks, normalizeTask({ ...task, id: task.id || makeId('t') })] }));
+}
+
+// Editing the wording leaves the id alone, so a task keeps its tick through a
+// rewrite — which is the whole point of keying ticks by id and not by text.
+export function updateTask(list, phaseId, taskId, patch) {
+  const l = normalizeChecklist(list);
+  return mapPhase(l, phaseId, (p) => ({
+    ...p,
+    tasks: p.tasks.map((t) => (t.id === taskId ? normalizeTask({ ...t, ...patch, id: t.id }) : t)),
+  }));
+}
+
+export function removeTask(list, phaseId, taskId) {
+  const l = normalizeChecklist(list);
+  return normalizeChecklist(mapPhase(l, phaseId, (p) => ({ ...p, tasks: p.tasks.filter((t) => t.id !== taskId) })));
+}
+
+export function moveTask(list, phaseId, taskId, delta) {
+  const l = normalizeChecklist(list);
+  return mapPhase(l, phaseId, (p) => ({
+    ...p,
+    tasks: moveInArray(p.tasks, p.tasks.findIndex((t) => t.id === taskId), delta),
+  }));
+}
+
+export function addPhase(list, phase = {}) {
+  const l = normalizeChecklist(list);
+  return { ...l, phases: [...l.phases, normalizePhase({ ...phase, id: phase.id || makeId('p') })] };
+}
+
+export function updatePhase(list, phaseId, patch) {
+  const l = normalizeChecklist(list);
+  return mapPhase(l, phaseId, (p) => ({ ...normalizePhase({ ...p, ...patch, id: p.id }), tasks: p.tasks }));
+}
+
+export function removePhase(list, phaseId) {
+  const l = normalizeChecklist(list);
+  return normalizeChecklist({ ...l, phases: l.phases.filter((p) => p.id !== phaseId) });
+}
+
+export function movePhase(list, phaseId, delta) {
+  const l = normalizeChecklist(list);
+  return { ...l, phases: moveInArray(l.phases, l.phases.findIndex((p) => p.id === phaseId), delta) };
+}
+
+/* Put the built-in list back, keeping whatever ticks still land on a task.
+
+   Once the list is editable the original is otherwise unreachable, and a
+   half-deleted checklist with no way back would be a trap. */
+export function restoreSeed(list) {
+  return normalizeChecklist({ phases: SEED_PHASES, done: normalizeChecklist(list).done });
 }
