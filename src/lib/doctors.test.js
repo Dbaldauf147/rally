@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   STATUS, NO_TYPE, parseStatus, normalizeEntry, normalizeList, hasContent, entryTitle,
   entrySubtitle, matchesQuery, groupByType, countByStatus, issueCell, typeUsage,
+  addEntry, updateEntry, removeEntry, isBlank,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
 } from './doctors';
@@ -357,5 +358,99 @@ describe('seeded types', () => {
   it('files both skin records under the one Skin heading', () => {
     const skin = groupByType(seedDoctors()).find((g) => g.type === 'Skin');
     expect(skin.entries.map((e) => e.doctor)).toEqual(['Dr. Annemarie Uliasz, MD', 'Sochulak, Stephen']);
+  });
+});
+
+describe('editing records a cell at a time', () => {
+  const base = () => normalizeList({
+    types: ['Skin', 'Ear'],
+    entries: [
+      { id: '1', doctor: 'Dr. A', type: 'Skin', issue: 'Rash' },
+      { id: '2', doctor: 'Dr. B', type: 'Ear' },
+    ],
+  });
+  const byId = (l, id) => l.entries.find((e) => e.id === id);
+
+  it('patches one field and leaves the rest alone', () => {
+    const l = updateEntry(base(), '1', { issue: 'Eczema' });
+    expect(byId(l, '1')).toMatchObject({ doctor: 'Dr. A', type: 'Skin', issue: 'Eczema' });
+  });
+
+  it('patches several fields at once, as one cell can carry', () => {
+    const l = updateEntry(base(), '1', { phone: '(212) 555-0199', email: 'a@b.c' });
+    expect(byId(l, '1')).toMatchObject({ phone: '(212) 555-0199', email: 'a@b.c' });
+  });
+
+  it('trims what was typed', () => {
+    expect(byId(updateEntry(base(), '1', { doctor: '  Dr. Aa  ' }), '1').doctor).toBe('Dr. Aa');
+  });
+
+  it('cannot be talked into changing a record id', () => {
+    const l = updateEntry(base(), '1', { id: '999', doctor: 'X' });
+    expect(l.entries.map((e) => e.id)).toEqual(['1', '2']);
+    expect(byId(l, '1').doctor).toBe('X');
+  });
+
+  it('ignores a patch aimed at a record that is not there', () => {
+    expect(updateEntry(base(), 'nope', { doctor: 'X' }).entries).toHaveLength(2);
+  });
+
+  it('registers a new type the moment a record starts using it', () => {
+    const l = updateEntry(base(), '1', { type: 'Dermatology' });
+    expect(l.types).toContain('Dermatology');
+    expect(groupByType(l).map((g) => g.type)).toContain('Dermatology');
+  });
+
+  it('moves a record to another heading without touching the rest of it', () => {
+    const l = updateEntry(base(), '1', { type: 'Ear' });
+    const ear = groupByType(l).find((g) => g.type === 'Ear');
+    expect(ear.entries.map((e) => e.id).sort()).toEqual(['1', '2']);
+    expect(byId(l, '1').issue).toBe('Rash');
+  });
+
+  it('clears a field back to empty', () => {
+    expect(byId(updateEntry(base(), '1', { issue: '' }), '1').issue).toBe('');
+  });
+
+  it('adds a record, with an id of its own', () => {
+    const l = addEntry(base(), { doctor: 'Dr. C' });
+    expect(l.entries).toHaveLength(3);
+    expect(l.entries[2].doctor).toBe('Dr. C');
+    expect(new Set(l.entries.map((e) => e.id)).size).toBe(3);
+  });
+
+  it('adds a blank record, which is what the table drops in to type into', () => {
+    const l = addEntry(base(), {});
+    expect(l.entries).toHaveLength(3);
+    expect(isBlank(l.entries[2])).toBe(true);
+    expect(groupByType(l).find((g) => g.type === NO_TYPE).entries).toHaveLength(1);
+  });
+
+  it('removes a record', () => {
+    const l = removeEntry(base(), '1');
+    expect(l.entries.map((e) => e.id)).toEqual(['2']);
+  });
+
+  it('ignores a remove for a record that is not there', () => {
+    expect(removeEntry(base(), 'nope').entries).toHaveLength(2);
+  });
+
+  it('does not mutate what it was given', () => {
+    const before = base();
+    updateEntry(before, '1', { doctor: 'Changed' });
+    removeEntry(before, '1');
+    addEntry(before, { doctor: 'New' });
+    expect(before.entries).toHaveLength(2);
+    expect(byId(before, '1').doctor).toBe('Dr. A');
+  });
+});
+
+describe('isBlank', () => {
+  it('is true for a row added and never filled in', () => {
+    expect(isBlank(normalizeEntry({}))).toBe(true);
+  });
+
+  it('is false as soon as anything is typed', () => {
+    expect(isBlank(normalizeEntry({ phone: '555' }))).toBe(false);
   });
 });

@@ -200,6 +200,38 @@ export function countByStatus(entries) {
 // used to warn before deleting a type that is in use.
 export const typeUsage = (entries, type) => entries.filter((e) => sameType(e.type, type)).length;
 
+// --- editing the records ---------------------------------------------------
+//
+// The table edits a cell at a time, so a change arrives as a patch of one or
+// two fields rather than a whole record. Each of these takes the document and
+// hands back a new one, and runs the result through normalizeList — which is
+// what registers a type the moment a record starts using it, so typing a new
+// speciality into a row makes its heading appear without a second step.
+
+export function addEntry(list, entry = {}) {
+  const l = normalizeList(list);
+  return normalizeList({ ...l, entries: [...l.entries, normalizeEntry({ ...entry, id: entry.id || makeId() })] });
+}
+
+// The id is fixed: a patch can carry one in from a stale render without
+// silently turning an edit into a second record.
+export function updateEntry(list, id, patch) {
+  const l = normalizeList(list);
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => (e.id === id ? normalizeEntry({ ...e, ...patch, id: e.id }) : e)),
+  });
+}
+
+export function removeEntry(list, id) {
+  const l = normalizeList(list);
+  return normalizeList({ ...l, entries: l.entries.filter((e) => e.id !== id) });
+}
+
+// A row that was added and never filled in. Offered so the page can clear one
+// away rather than leaving a line of dashes behind.
+export const isBlank = (entry) => !hasContent(entry);
+
 // --- editing the type list -------------------------------------------------
 //
 // All of these take the whole document and hand back a new one, so a rename

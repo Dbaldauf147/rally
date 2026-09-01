@@ -4,9 +4,10 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  FIELDS, STATUS, STATUS_ORDER, NO_TYPE, statusLabel, showsStatusBadge, typeHeading,
-  normalizeEntry, normalizeList, hasContent, entryTitle, entrySubtitle,
+  FIELDS, STATUS, STATUS_ORDER, NO_TYPE, statusLabel, typeHeading,
+  normalizeEntry, normalizeList, entryTitle, entrySubtitle,
   groupByType, countByStatus, issueCell, typeUsage,
+  addEntry, updateEntry, removeEntry, isBlank,
   addType, renameType, removeType, moveType,
   telHref, mailHref, mapHref, safeLink, linkLabel, makeId, seedDoctors,
 } from '../lib/doctors';
@@ -115,98 +116,217 @@ function useDoctorList(userId) {
   return { list, loaded, update };
 }
 
-// A blank record, so "Add" opens the same form an existing row opens.
+// A blank record, dropped straight into the table for you to type into.
 const emptyEntry = () => normalizeEntry({ id: makeId(), status: STATUS.NONE });
 
 // The sentinel the type <select> uses for "let me type a new one". It starts
 // with a space, which a real type name never does once trimmed.
 const NEW_TYPE = ' new';
 
-/* The draft is seeded from the record once and then owned by the form.
+/* Which fields each column edits.
 
-   Callers key this on the record's id, so switching rows builds a fresh form
-   rather than syncing the prop back into state on every change — which would
-   also mean a snapshot arriving mid-edit overwrote what was being typed. */
-function EntryForm({ entry, types, onSave, onCancel, onDelete }) {
-  const [draft, setDraft] = useState(entry);
-  // A type typed in here joins the shared list on save, so the heading exists
-  // from then on without a separate trip to the type editor.
-  const [addingType, setAddingType] = useState(false);
-  const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
-  const canSave = hasContent(normalizeEntry(draft));
+   A column shows more than one field — Contact is four of them — so opening a
+   cell gives you every field that column is responsible for, stacked. That way
+   the table stays six columns wide while still reaching all thirteen fields. */
+const CELL_FIELDS = {
+  name: ['doctor', 'place'],
+  issue: ['issue', 'notes'],
+  meds: ['currentMeds', 'previousMeds'],
+  contact: ['phone', 'email', 'location', 'link'],
+  cadence: ['cadence'],
+};
+
+/* One field inside an open cell.
+
+   Uncontrolled, committing on blur or Enter: the stored shape trims its
+   strings, so writing state per keystroke would eat the space the moment you
+   typed it. Escape closes the cell without committing, because unmounting the
+   input is what cancels it — React fires no blur on unmount. */
+function CellInput({ value, field, autoFocus, onCommit }) {
+  return (
+    <input
+      className={styles.cellInput}
+      type={field.type || 'text'}
+      defaultValue={value}
+      placeholder={field.label}
+      aria-label={field.label}
+      autoFocus={autoFocus}
+      onBlur={(e) => onCommit({ [field.key]: e.target.value })}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+    />
+  );
+}
+
+// The speciality lives in the name cell, beside the doctor it belongs to.
+// Choosing a type here moves the row to that heading; inventing one makes the
+// heading, because normalizeList registers any type a record uses.
+function TypeField({ entry, types, onCommit }) {
+  const [typing, setTyping] = useState(false);
+  if (typing) {
+    return (
+      <input
+        className={styles.cellInput}
+        autoFocus
+        defaultValue=""
+        placeholder="New type"
+        aria-label="New type"
+        onBlur={(e) => { onCommit({ type: e.target.value }); setTyping(false); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+      />
+    );
+  }
+  return (
+    <select
+      className={styles.cellInput}
+      aria-label="Type"
+      value={entry.type}
+      onChange={(e) => {
+        if (e.target.value === NEW_TYPE) { setTyping(true); return; }
+        onCommit({ type: e.target.value });
+      }}
+    >
+      <option value={NO_TYPE}>{typeHeading(NO_TYPE)}</option>
+      {types.map((t) => <option key={t} value={t}>{t}</option>)}
+      <option value={NEW_TYPE}>+ New type…</option>
+    </select>
+  );
+}
+
+/* A cell you can click into.
+
+   Closed, it is the read view and nothing else — an empty one stays literally
+   empty so the CSS dash still finds it. Open, it holds the editors for its
+   fields and closes when focus leaves the cell entirely, so Tab moves between
+   the fields inside it without shutting the door behind you. */
+function Cell({ className, open, onOpen, onClose, label, display, children }) {
+  if (!open) {
+    return (
+      <td
+        className={className}
+        tabIndex={0}
+        role="button"
+        aria-label={`Edit ${label}`}
+        title="Click to edit"
+        onClick={onOpen}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      >
+        {display}
+      </td>
+    );
+  }
+  return (
+    <td
+      className={`${className} ${styles.cellOpen}`}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) onClose(); }}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }}
+    >
+      <div className={styles.cellFields}>{children}</div>
+    </td>
+  );
+}
+
+/* One record, one row.
+
+   Everything a row holds gets its own column, so two doctors can be read
+   against each other straight down the page. Cells with nothing in them are
+   left literally empty and picked up by a dash in CSS, which keeps a sparse
+   row — most of this list — from reading as a broken one. */
+function EntryRow({ entry, groupType, types, openCell, onOpenCell, onCloseCell, onCommit, onDelete }) {
+  const tel = telHref(entry.phone);
+  const mail = mailHref(entry.email);
+  const map = mapHref(entry.location);
+  const link = safeLink(entry.link);
+  const subtitle = entrySubtitle(entry, groupType);
+  const issue = issueCell(entry, groupType);
+
+  const cell = (col, className, label, display) => (
+    <Cell
+      className={className}
+      label={label}
+      open={openCell === col}
+      onOpen={() => onOpenCell(col)}
+      onClose={onCloseCell}
+      display={display}
+    >
+      {col === 'name' && <TypeField entry={entry} types={types} onCommit={onCommit} />}
+      {CELL_FIELDS[col]?.map((key, i) => (
+        <CellInput
+          key={key}
+          field={FIELD_OF[key]}
+          value={entry[key]}
+          autoFocus={i === 0 && col !== 'name'}
+          onCommit={onCommit}
+        />
+      ))}
+    </Cell>
+  );
 
   return (
-    <form
-      className={styles.form}
-      onSubmit={(e) => { e.preventDefault(); if (canSave) onSave(normalizeEntry(draft)); }}
-    >
-      <div className={styles.formGrid}>
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Type</span>
-          {addingType ? (
-            <input
-              className={styles.input}
-              autoFocus
-              value={draft.type}
-              placeholder="New type"
-              onChange={(e) => set('type', e.target.value)}
-              onBlur={() => { if (!draft.type.trim()) setAddingType(false); }}
-            />
-          ) : (
-            <select
-              className={styles.input}
-              value={draft.type}
-              onChange={(e) => {
-                if (e.target.value === NEW_TYPE) { set('type', ''); setAddingType(true); return; }
-                set('type', e.target.value);
-              }}
-            >
-              <option value={NO_TYPE}>{typeHeading(NO_TYPE)}</option>
-              {types.map((t) => <option key={t} value={t}>{t}</option>)}
-              <option value={NEW_TYPE}>+ New type…</option>
-            </select>
-          )}
-        </label>
+    <tr className={styles.row}>
+      {cell('name', styles.cellName, 'doctor', (
+        <>
+          <div className={styles.name}>{entryTitle(entry, groupType)}</div>
+          {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
+        </>
+      ))}
 
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Status</span>
-          <select className={styles.input} value={draft.status} onChange={(e) => set('status', e.target.value)}>
-            {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-          </select>
-        </label>
+      {cell('issue', styles.cellIssue, 'issue', (
+        <>
+          {issue ? <div>{issue}</div> : null}
+          {entry.notes ? <div className={styles.muted}>{entry.notes}</div> : null}
+        </>
+      ))}
 
-        {FIELDS.map((f) => (
-          <label key={f.key} className={f.long ? styles.fieldWide : styles.field}>
-            <span className={styles.fieldLabel}>{f.label}</span>
-            {f.key === 'notes' ? (
-              <textarea
-                className={styles.input}
-                rows={2}
-                value={draft[f.key]}
-                placeholder={f.placeholder || ''}
-                onChange={(e) => set(f.key, e.target.value)}
-              />
-            ) : (
-              <input
-                className={styles.input}
-                type={f.type || 'text'}
-                value={draft[f.key]}
-                placeholder={f.placeholder || ''}
-                onChange={(e) => set(f.key, e.target.value)}
-              />
-            )}
-          </label>
-        ))}
-      </div>
-      <div className={styles.formActions}>
-        <button type="submit" className={styles.btnPrimary} disabled={!canSave}>Save</button>
-        <button type="button" className={styles.btn} onClick={onCancel}>Cancel</button>
-        {onDelete && (
-          <button type="button" className={`${styles.btn} ${styles.btnDanger}`} onClick={onDelete}>Delete</button>
-        )}
-        {!canSave && <span className={styles.hint}>Fill in at least one field.</span>}
-      </div>
-    </form>
+      {cell('meds', styles.cellMeds, 'meds', (
+        <>
+          {entry.currentMeds ? <div>{entry.currentMeds}</div> : null}
+          {entry.previousMeds ? <div className={styles.muted}>Was: {entry.previousMeds}</div> : null}
+        </>
+      ))}
+
+      {cell('contact', styles.cellContact, 'contact details', (
+        <>
+          {tel ? <a className={styles.link} href={tel} onClick={(e) => e.stopPropagation()}>{entry.phone}</a> : null}
+          {mail ? <a className={styles.link} href={mail} onClick={(e) => e.stopPropagation()}>{entry.email}</a> : null}
+          {map ? (
+            <a
+              className={`${styles.link} ${styles.linkMuted}`} href={map} target="_blank" rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >{entry.location}</a>
+          ) : null}
+          {link ? (
+            <a
+              className={styles.link} href={link} target="_blank" rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >{linkLabel(entry.link)} ↗</a>
+          ) : null}
+        </>
+      ))}
+
+      {cell('cadence', styles.cellCadence, 'cadence', entry.cadence || null)}
+
+      {/* Status is a fixed set, so its cell is the select itself rather than a
+          click-to-open — there is nothing to type and nothing to cancel. */}
+      <td className={styles.cellStatus}>
+        <select
+          className={styles.statusSelect}
+          aria-label="Status"
+          value={entry.status}
+          onChange={(e) => onCommit({ status: e.target.value })}
+        >
+          {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+        </select>
+      </td>
+
+      <td className={styles.cellEdit}>
+        <button
+          type="button"
+          className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+          title={`Delete ${entryTitle(entry, groupType)}`}
+          onClick={onDelete}
+        >×</button>
+      </td>
+    </tr>
   );
 }
 
@@ -245,7 +365,7 @@ function TypeManager({ list, onChange, onClose }) {
         <button type="button" className={styles.btn} onClick={onClose}>Done</button>
       </div>
       <p className={styles.hint}>
-        The headings the page is organised by, in order. Renaming one carries its
+        The headings the table is organised by, in order. Renaming one carries its
         records along; deleting one keeps them.
       </p>
 
@@ -292,70 +412,7 @@ function TypeManager({ list, onChange, onClose }) {
   );
 }
 
-/* One record, one row.
-
-   Everything a row holds gets its own column, so two doctors can be read
-   against each other straight down the page. Cells with nothing in them are
-   left literally empty and picked up by a dash in CSS, which keeps a sparse
-   row — most of this list — from reading as a broken one. */
-function EntryRow({ entry, groupType, onEdit }) {
-  const tel = telHref(entry.phone);
-  const mail = mailHref(entry.email);
-  const map = mapHref(entry.location);
-  const link = safeLink(entry.link);
-  const subtitle = entrySubtitle(entry, groupType);
-  const issue = issueCell(entry, groupType);
-
-  return (
-    <tr className={styles.row}>
-      <td className={styles.cellName}>
-        <div className={styles.name}>{entryTitle(entry, groupType)}</div>
-        {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
-      </td>
-
-      <td className={styles.cellIssue}>
-        {issue ? <div>{issue}</div> : null}
-        {entry.notes ? <div className={styles.muted}>{entry.notes}</div> : null}
-      </td>
-
-      <td className={styles.cellMeds}>
-        {entry.currentMeds ? <div>{entry.currentMeds}</div> : null}
-        {entry.previousMeds ? <div className={styles.muted}>Was: {entry.previousMeds}</div> : null}
-      </td>
-
-      <td className={styles.cellContact}>
-        {tel ? <a className={styles.link} href={tel}>{entry.phone}</a> : null}
-        {mail ? <a className={styles.link} href={mail}>{entry.email}</a> : null}
-        {map ? (
-          <a className={`${styles.link} ${styles.linkMuted}`} href={map} target="_blank" rel="noreferrer">
-            {entry.location}
-          </a>
-        ) : null}
-        {link ? (
-          <a className={styles.link} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a>
-        ) : null}
-      </td>
-
-      <td className={styles.cellCadence}>{entry.cadence || null}</td>
-
-      <td className={styles.cellStatus}>
-        {showsStatusBadge(entry.status) ? (
-          <span className={entry.status === STATUS.TREATING ? styles.badgeLive : styles.badge}>
-            {statusLabel(entry.status)}
-          </span>
-        ) : (
-          <span className={styles.statusPlain}>{statusLabel(entry.status)}</span>
-        )}
-      </td>
-
-      <td className={styles.cellEdit}>
-        <button type="button" className={styles.editBtn} onClick={onEdit} title="Edit this record">Edit</button>
-      </td>
-    </tr>
-  );
-}
-
-// What an edit form or a type heading has to stretch across.
+// What a type heading has to stretch across.
 const COLUMNS = 7;
 
 export function DoctorsPage() {
@@ -363,32 +420,31 @@ export function DoctorsPage() {
   const { list, loaded, update } = useDoctorList(user?.uid);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
-  const [editingId, setEditingId] = useState(null);
-  const [adding, setAdding] = useState(null);
   const [managingTypes, setManagingTypes] = useState(false);
+  // Which single cell is open for editing: { id, col }. One at a time, so
+  // clicking another cell commits the one you were in and moves on.
+  const [openCell, setOpenCell] = useState(null);
 
   const safeList = useMemo(() => list || { types: [], entries: [] }, [list]);
   const entries = safeList.entries;
   const counts = useMemo(() => countByStatus(entries), [entries]);
   const groups = useMemo(() => groupByType(safeList, { query, status }), [safeList, query, status]);
 
-  function saveEntry(next) {
-    // A type typed into the form needs no separate write: normalizeList appends
-    // any type a record uses that the list is missing.
-    update((l) => ({
-      types: l.types,
-      entries: l.entries.some((e) => e.id === next.id)
-        ? l.entries.map((e) => (e.id === next.id ? next : e))
-        : [...l.entries, next],
-    }));
-    setEditingId(null);
-    setAdding(null);
+  function handleAdd() {
+    const blank = emptyEntry();
+    update((l) => addEntry(l, blank));
+    setManagingTypes(false);
+    // Open the new row's first cell, so adding a record lands you in it rather
+    // than leaving you to find the empty line.
+    setOpenCell({ id: blank.id, col: 'name' });
   }
 
-  function deleteEntry(id) {
-    if (!window.confirm('Delete this record? This cannot be undone.')) return;
-    update((l) => ({ ...l, entries: l.entries.filter((e) => e.id !== id) }));
-    setEditingId(null);
+  function handleDelete(entry) {
+    const name = entryTitle(entry);
+    // A row added and never filled in has nothing to lose, so it goes quietly.
+    if (!isBlank(entry) && !window.confirm(`Delete ${name}? This cannot be undone.`)) return;
+    update((l) => removeEntry(l, entry.id));
+    setOpenCell(null);
   }
 
   if (user && user.email !== OWNER_EMAIL) return <Navigate to="/" replace />;
@@ -406,7 +462,8 @@ export function DoctorsPage() {
         </div>
       </div>
       <p className={styles.subtitle}>
-        Who was seen for what, and how to reach them again. Only you can see this page.
+        Who was seen for what, and how to reach them again. Click any cell to edit it.
+        Only you can see this page.
       </p>
 
       <div className={styles.toolbar}>
@@ -435,35 +492,18 @@ export function DoctorsPage() {
         <button
           type="button"
           className={styles.btn}
-          onClick={() => { setManagingTypes((m) => !m); setAdding(null); setEditingId(null); }}
+          onClick={() => { setManagingTypes((m) => !m); setOpenCell(null); }}
         >Manage types</button>
-        <button
-          type="button"
-          className={styles.btnPrimary}
-          onClick={() => { setAdding(emptyEntry()); setEditingId(null); setManagingTypes(false); }}
-        >+ Add</button>
+        <button type="button" className={styles.btnPrimary} onClick={handleAdd}>+ Add</button>
       </div>
 
       {managingTypes && (
         <TypeManager list={safeList} onChange={update} onClose={() => setManagingTypes(false)} />
       )}
 
-      {adding && (
-        <div className={styles.formCard}>
-          <div className={styles.formTitle}>New record</div>
-          <EntryForm
-            key={adding.id}
-            entry={adding}
-            types={safeList.types}
-            onSave={saveEntry}
-            onCancel={() => setAdding(null)}
-          />
-        </div>
-      )}
-
       {!loaded && entries.length === 0 && <div className={styles.empty}>Loading…</div>}
 
-      {loaded && entries.length === 0 && !adding && (
+      {loaded && entries.length === 0 && (
         <div className={styles.empty}>No records yet. Add the first one.</div>
       )}
 
@@ -487,7 +527,7 @@ export function DoctorsPage() {
                 <th>Contact</th>
                 <th>Cadence</th>
                 <th>Status</th>
-                <th className={styles.cellEdit}><span className={styles.srOnly}>Edit</span></th>
+                <th className={styles.cellEdit}><span className={styles.srOnly}>Delete</span></th>
               </tr>
             </thead>
 
@@ -502,28 +542,17 @@ export function DoctorsPage() {
                   </th>
                 </tr>
                 {group.entries.map((entry) => (
-                  editingId === entry.id ? (
-                    <tr key={entry.id} className={styles.editRow}>
-                      <td colSpan={COLUMNS}>
-                        <div className={styles.formTitle}>{entryTitle(entry)}</div>
-                        <EntryForm
-                          key={entry.id}
-                          entry={entry}
-                          types={safeList.types}
-                          onSave={saveEntry}
-                          onCancel={() => setEditingId(null)}
-                          onDelete={() => deleteEntry(entry.id)}
-                        />
-                      </td>
-                    </tr>
-                  ) : (
-                    <EntryRow
-                      key={entry.id}
-                      entry={entry}
-                      groupType={group.type}
-                      onEdit={() => { setEditingId(entry.id); setAdding(null); setManagingTypes(false); }}
-                    />
-                  )
+                  <EntryRow
+                    key={entry.id}
+                    entry={entry}
+                    groupType={group.type}
+                    types={safeList.types}
+                    openCell={openCell?.id === entry.id ? openCell.col : null}
+                    onOpenCell={(col) => { setOpenCell({ id: entry.id, col }); setManagingTypes(false); }}
+                    onCloseCell={() => setOpenCell(null)}
+                    onCommit={(patch) => update((l) => updateEntry(l, entry.id, patch))}
+                    onDelete={() => handleDelete(entry)}
+                  />
                 ))}
               </tbody>
             ))}
