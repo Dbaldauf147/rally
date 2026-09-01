@@ -136,3 +136,12 @@
 .statusSelect { max-width: 100%; padding: 0.2rem 0.25rem; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; font-family: inherit; font-size: 0.78rem; color: var(--color-text-secondary); cursor: pointer; }
 .statusSelect:hover { border-color: var(--color-border); background: var(--color-surface); }
 .statusSelect:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+
+/* Columns the owner added. They sit between Cadence and Status and take their
+   width from the content, since there is no telling what they hold. */
+.cellCustom { min-width: 6rem; }
+.cellCheck { width: 16px; height: 16px; accent-color: var(--color-accent); cursor: pointer; }
+.fieldRow { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+.fieldRow .input { flex: 1 1 8rem; min-width: 0; }
+.fieldType { padding: 0.4rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.82rem; color: var(--color-text); }
+.fieldType:focus { outline: none; border-color: var(--color-accent); }

@@ -9,8 +9,12 @@ import {
   groupByType, countByStatus, issueCell, typeUsage,
   addEntry, updateEntry, removeEntry, isBlank,
   addType, renameType, removeType, moveType,
+  addField, updateField, removeField, moveField, fieldUsage, setCustomValue, customValueOf,
   telHref, mailHref, mapHref, safeLink, linkLabel, makeId, seedDoctors,
 } from '../lib/doctors';
+import {
+  CUSTOM_FIELD_TYPES, formatCustomValue, parseOptionList, optionListText,
+} from '../lib/customFields';
 import styles from './DoctorsPage.module.css';
 
 /* The owner's doctor list: who was seen for what, and how to reach them again.
@@ -225,13 +229,186 @@ function Cell({ className, open, onOpen, onClose, label, display, children }) {
   );
 }
 
+/* A value in a column the owner added.
+
+   Fixed-choice types — a yes/no or a list — render as the control itself, the
+   way Status does: there is nothing to type and nothing to cancel, so making
+   you click to open one would only be a step in the way. Everything you type
+   into goes through the same click-to-open cell as the built-in fields. */
+function CustomCell({ entry, field, open, onOpen, onClose, onCommit }) {
+  const value = customValueOf(entry, field);
+  const commit = (raw) => onCommit(field.id, raw);
+
+  if (field.type === 'checkbox') {
+    return (
+      <td className={styles.cellCustom}>
+        <input
+          type="checkbox"
+          className={styles.cellCheck}
+          aria-label={field.label}
+          checked={value === true}
+          onChange={(e) => commit(e.target.checked)}
+        />
+      </td>
+    );
+  }
+
+  if (field.type === 'select') {
+    return (
+      <td className={styles.cellCustom}>
+        <select
+          className={styles.statusSelect}
+          aria-label={field.label}
+          value={value ?? ''}
+          onChange={(e) => commit(e.target.value)}
+        >
+          <option value="">—</option>
+          {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
+          {/* A value that arrived before the list did still has to show. */}
+          {value && !field.options.includes(String(value)) && (
+            <option value={value}>{String(value)}</option>
+          )}
+        </select>
+      </td>
+    );
+  }
+
+  return (
+    <Cell
+      className={styles.cellCustom}
+      label={field.label}
+      open={open}
+      onOpen={onOpen}
+      onClose={onClose}
+      display={formatCustomValue(field, value) || null}
+    >
+      <input
+        className={styles.cellInput}
+        type={field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'}
+        defaultValue={field.type === 'date' ? (value || '') : (value ?? '')}
+        placeholder={field.label}
+        aria-label={field.label}
+        autoFocus
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+      />
+    </Cell>
+  );
+}
+
+/* Adding, renaming, reordering and deleting the columns themselves.
+
+   Behind a toggle beside Manage types, because both edit the shape of the table
+   rather than what is in it. */
+function ColumnManager({ list, onChange, onClose }) {
+  const [label, setLabel] = useState('');
+  const [type, setType] = useState('text');
+  const { fields, entries } = list;
+
+  function handleAdd(e) {
+    e.preventDefault();
+    if (!label.trim()) return;
+    onChange(addField(list, { label, type }));
+    setLabel('');
+    setType('text');
+  }
+
+  function handleRemove(field) {
+    const used = fieldUsage(entries, field.id);
+    const warning = used
+      ? `Delete the “${field.label}” column? ${used} record${used === 1 ? '' : 's'} have a value in it, and those values are deleted too.`
+      : `Delete the “${field.label}” column?`;
+    if (window.confirm(warning)) onChange(removeField(list, field.id));
+  }
+
+  return (
+    <div className={styles.formCard}>
+      <div className={styles.typeHead}>
+        <div className={styles.formTitle}>Columns</div>
+        <button type="button" className={styles.btn} onClick={onClose}>Done</button>
+      </div>
+      <p className={styles.hint}>
+        Columns of your own, on top of the built-in ones. Renaming one keeps its values;
+        deleting one deletes them.
+      </p>
+
+      <ul className={styles.typeList}>
+        {fields.map((f, i) => (
+          <li key={f.id} className={styles.fieldRow}>
+            <input
+              className={styles.input}
+              defaultValue={f.label}
+              aria-label={`Rename ${f.label}`}
+              onBlur={(e) => onChange(updateField(list, f.id, { label: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+            />
+            <select
+              className={styles.fieldType}
+              aria-label={`Type of ${f.label}`}
+              value={f.type}
+              onChange={(e) => onChange(updateField(list, f.id, { type: e.target.value }))}
+            >
+              {CUSTOM_FIELD_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            {f.type === 'select' && (
+              <input
+                className={styles.input}
+                defaultValue={optionListText(f.options)}
+                placeholder="Choices, comma separated"
+                aria-label={`Choices for ${f.label}`}
+                onBlur={(e) => onChange(updateField(list, f.id, { options: parseOptionList(e.target.value) }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+              />
+            )}
+            <span className={styles.typeCount} title={`${fieldUsage(entries, f.id)} record(s) with a value`}>
+              {fieldUsage(entries, f.id)}
+            </span>
+            <button
+              type="button" className={styles.iconBtn} title={`Move ${f.label} left`}
+              disabled={i === 0} onClick={() => onChange(moveField(list, f.id, -1))}
+            >←</button>
+            <button
+              type="button" className={styles.iconBtn} title={`Move ${f.label} right`}
+              disabled={i === fields.length - 1} onClick={() => onChange(moveField(list, f.id, 1))}
+            >→</button>
+            <button
+              type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+              title={`Delete ${f.label}`} onClick={() => handleRemove(f)}
+            >×</button>
+          </li>
+        ))}
+        {fields.length === 0 && <li className={styles.hint}>No columns of your own yet.</li>}
+      </ul>
+
+      <form className={styles.typeAdd} onSubmit={handleAdd}>
+        <input
+          className={styles.input}
+          value={label}
+          placeholder="Add a column"
+          aria-label="New column name"
+          onChange={(e) => setLabel(e.target.value)}
+        />
+        <select
+          className={styles.fieldType}
+          aria-label="New column type"
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        >
+          {CUSTOM_FIELD_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+        <button type="submit" className={styles.btnPrimary} disabled={!label.trim()}>Add</button>
+      </form>
+    </div>
+  );
+}
+
 /* One record, one row.
 
    Everything a row holds gets its own column, so two doctors can be read
    against each other straight down the page. Cells with nothing in them are
    left literally empty and picked up by a dash in CSS, which keeps a sparse
    row — most of this list — from reading as a broken one. */
-function EntryRow({ entry, groupType, types, openCell, onOpenCell, onCloseCell, onCommit, onDelete }) {
+function EntryRow({ entry, groupType, types, fields, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete }) {
   const tel = telHref(entry.phone);
   const mail = mailHref(entry.email);
   const map = mapHref(entry.location);
@@ -304,6 +481,18 @@ function EntryRow({ entry, groupType, types, openCell, onOpenCell, onCloseCell, 
       ))}
 
       {cell('cadence', styles.cellCadence, 'cadence', entry.cadence || null)}
+
+      {fields.map((field) => (
+        <CustomCell
+          key={field.id}
+          entry={entry}
+          field={field}
+          open={openCell === `cf:${field.id}`}
+          onOpen={() => onOpenCell(`cf:${field.id}`)}
+          onClose={onCloseCell}
+          onCommit={onCommitCustom}
+        />
+      ))}
 
       {/* Status is a fixed set, so its cell is the select itself rather than a
           click-to-open — there is nothing to type and nothing to cancel. */}
@@ -412,8 +601,9 @@ function TypeManager({ list, onChange, onClose }) {
   );
 }
 
-// What a type heading has to stretch across.
-const COLUMNS = 7;
+// The six built-in columns plus the delete button. A type heading has to
+// stretch across these and every column the owner has added.
+const BASE_COLUMNS = 7;
 
 export function DoctorsPage() {
   const { user } = useAuth();
@@ -421,11 +611,12 @@ export function DoctorsPage() {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [managingTypes, setManagingTypes] = useState(false);
+  const [managingColumns, setManagingColumns] = useState(false);
   // Which single cell is open for editing: { id, col }. One at a time, so
   // clicking another cell commits the one you were in and moves on.
   const [openCell, setOpenCell] = useState(null);
 
-  const safeList = useMemo(() => list || { types: [], entries: [] }, [list]);
+  const safeList = useMemo(() => list || { types: [], fields: [], entries: [] }, [list]);
   const entries = safeList.entries;
   const counts = useMemo(() => countByStatus(entries), [entries]);
   const groups = useMemo(() => groupByType(safeList, { query, status }), [safeList, query, status]);
@@ -434,6 +625,7 @@ export function DoctorsPage() {
     const blank = emptyEntry();
     update((l) => addEntry(l, blank));
     setManagingTypes(false);
+    setManagingColumns(false);
     // Open the new row's first cell, so adding a record lands you in it rather
     // than leaving you to find the empty line.
     setOpenCell({ id: blank.id, col: 'name' });
@@ -494,11 +686,20 @@ export function DoctorsPage() {
           className={styles.btn}
           onClick={() => { setManagingTypes((m) => !m); setOpenCell(null); }}
         >Manage types</button>
+        <button
+          type="button"
+          className={styles.btn}
+          onClick={() => { setManagingColumns((m) => !m); setManagingTypes(false); setOpenCell(null); }}
+        >Columns</button>
         <button type="button" className={styles.btnPrimary} onClick={handleAdd}>+ Add</button>
       </div>
 
       {managingTypes && (
         <TypeManager list={safeList} onChange={update} onClose={() => setManagingTypes(false)} />
+      )}
+
+      {managingColumns && (
+        <ColumnManager list={safeList} onChange={update} onClose={() => setManagingColumns(false)} />
       )}
 
       {!loaded && entries.length === 0 && <div className={styles.empty}>Loading…</div>}
@@ -526,6 +727,7 @@ export function DoctorsPage() {
                 <th>Meds</th>
                 <th>Contact</th>
                 <th>Cadence</th>
+                {safeList.fields.map((f) => <th key={f.id}>{f.label}</th>)}
                 <th>Status</th>
                 <th className={styles.cellEdit}><span className={styles.srOnly}>Delete</span></th>
               </tr>
@@ -536,7 +738,7 @@ export function DoctorsPage() {
             {groups.map((group) => (
               <tbody key={group.type || '__none__'}>
                 <tr className={styles.groupRow}>
-                  <th scope="colgroup" colSpan={COLUMNS} className={styles.groupHead}>
+                  <th scope="colgroup" colSpan={BASE_COLUMNS + safeList.fields.length} className={styles.groupHead}>
                     {typeHeading(group.type)}
                     <span className={styles.groupCount}>{group.entries.length}</span>
                   </th>
@@ -547,10 +749,12 @@ export function DoctorsPage() {
                     entry={entry}
                     groupType={group.type}
                     types={safeList.types}
+                    fields={safeList.fields}
                     openCell={openCell?.id === entry.id ? openCell.col : null}
-                    onOpenCell={(col) => { setOpenCell({ id: entry.id, col }); setManagingTypes(false); }}
+                    onOpenCell={(col) => { setOpenCell({ id: entry.id, col }); setManagingTypes(false); setManagingColumns(false); }}
                     onCloseCell={() => setOpenCell(null)}
                     onCommit={(patch) => update((l) => updateEntry(l, entry.id, patch))}
+                    onCommitCustom={(fieldId, value) => update((l) => setCustomValue(l, entry.id, fieldId, value))}
                     onDelete={() => handleDelete(entry)}
                   />
                 ))}

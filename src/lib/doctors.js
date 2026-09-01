@@ -16,6 +16,10 @@
 // of the headings is a thing you can arrange, and renaming a type has to carry
 // every record using it along with it.
 
+import {
+  normalizeFieldDefs, newFieldId, coerceCustomValue, formatCustomValue,
+} from './customFields';
+
 export const STATUS = { TREATING: 'treating', RESOLVED: 'resolved', NONE: 'none' };
 
 // Status is no longer a heading — it's a badge on the card and a filter above
@@ -91,6 +95,11 @@ export function normalizeEntry(raw) {
   const out = { id: String(raw?.id || makeId()) };
   FIELD_KEYS.forEach((k) => { out[k] = String(raw?.[k] ?? '').trim(); });
   out.status = parseStatus(raw?.status);
+  // Values for columns the owner added. Kept as stored — coercing needs the
+  // field definition, which lives on the list and not on the record.
+  out.custom = (raw?.custom && typeof raw.custom === 'object' && !Array.isArray(raw.custom))
+    ? { ...raw.custom }
+    : {};
   return out;
 }
 
@@ -117,7 +126,7 @@ export function normalizeList(raw) {
   const entries = rawEntries.map(normalizeEntry);
   const declared = Array.isArray(raw?.types) ? raw.types : [];
   const used = entries.map((e) => e.type).filter(Boolean);
-  return { types: dedupeTypes([...declared, ...used]), entries };
+  return { types: dedupeTypes([...declared, ...used]), fields: normalizeFieldDefs(raw?.fields), entries };
 }
 
 // A row worth keeping. Somebody who recorded only "Levator spasm" still has a
@@ -157,10 +166,14 @@ export function issueCell(entry, omit = '') {
 
 /* Free-text search across everything, because the thing you remember about a
    doctor is rarely their name — it's the street, the drug, or the complaint. */
-export function matchesQuery(entry, query) {
+export function matchesQuery(entry, query, fields = []) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return true;
-  const hay = [...FIELD_KEYS.map((k) => entry[k]), statusLabel(entry.status)].join(' ').toLowerCase();
+  const hay = [
+    ...FIELD_KEYS.map((k) => entry[k]),
+    statusLabel(entry.status),
+    ...fields.map((f) => formatCustomValue(f, entry.custom?.[f.id])),
+  ].join(' ').toLowerCase();
   return q.split(/\s+/).every((term) => hay.includes(term));
 }
 
@@ -169,9 +182,9 @@ export function matchesQuery(entry, query) {
    Untyped rows come last under their own heading, and a group with nothing in
    it doesn't render at all rather than leaving a bare heading behind. */
 export function groupByType(list, { query = '', status = 'all' } = {}) {
-  const { types, entries } = normalizeList(list);
+  const { types, fields, entries } = normalizeList(list);
   const visible = entries.filter((e) =>
-    (status === 'all' || e.status === status) && matchesQuery(e, query));
+    (status === 'all' || e.status === status) && matchesQuery(e, query, fields));
 
   const groups = types.map((type) => ({
     type,
@@ -326,6 +339,94 @@ export function linkLabel(link) {
     return l;
   }
 }
+
+// --- columns of your own ---------------------------------------------------
+//
+// The thirteen built-in fields are what the original spreadsheet had. Anything
+// else — a referral source, a copay, whether they take your insurance — is a
+// column you add here.
+//
+// This reuses lib/customFields.js, the same definitions-and-values machinery
+// the Friends list runs on: an ordered array of definitions beside the records,
+// and values on each record under `custom`, keyed by the field's generated id
+// rather than its label, so renaming a column keeps every value attached to it.
+
+export function addField(list, def = {}) {
+  const l = normalizeList(list);
+  const label = String(def.label ?? '').trim();
+  if (!label) return l;
+  const fields = normalizeFieldDefs([...l.fields, { ...def, id: def.id || newFieldId(), label }]);
+  return { ...l, fields };
+}
+
+export function updateField(list, id, patch) {
+  const l = normalizeList(list);
+  const fields = normalizeFieldDefs(l.fields.map((f) => (f.id === id ? { ...f, ...patch, id: f.id } : f)));
+  // A label edited down to nothing would be dropped by normalizeFieldDefs and
+  // take the column with it, so an empty rename is refused instead.
+  if (fields.length !== l.fields.length) return l;
+  return { ...l, fields };
+}
+
+/* Delete a column, and the values under it.
+
+   Unlike the Friends list, which keeps orphaned answers on the grounds that a
+   hidden field may come back, a deleted column here is gone: its id is never
+   reissued, so anything left behind would be data no screen can ever show
+   again. The page warns how many records are carrying a value first. */
+export function removeField(list, id) {
+  const l = normalizeList(list);
+  return {
+    ...l,
+    fields: l.fields.filter((f) => f.id !== id),
+    entries: l.entries.map((e) => {
+      if (!(id in (e.custom || {}))) return e;
+      const custom = { ...e.custom };
+      delete custom[id];
+      return { ...e, custom };
+    }),
+  };
+}
+
+export function moveField(list, id, delta) {
+  const l = normalizeList(list);
+  const from = l.fields.findIndex((f) => f.id === id);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= l.fields.length) return l;
+  const fields = [...l.fields];
+  const [moved] = fields.splice(from, 1);
+  fields.splice(to, 0, moved);
+  return { ...l, fields };
+}
+
+// How many records are carrying a value for a column — what the delete warning
+// counts, and what the column manager shows beside each one.
+export const fieldUsage = (entries, id) =>
+  entries.filter((e) => {
+    const v = e.custom?.[id];
+    return v !== undefined && v !== null && v !== '' && v !== false;
+  }).length;
+
+/* Write one custom value, coerced by its own definition.
+
+   Coercing here rather than at the input means a number column stores a number
+   whatever the cell was typed into, and a date column stores an ISO date, so
+   sorting and the search index don't have to guess later. */
+export function setCustomValue(list, entryId, fieldId, raw) {
+  const l = normalizeList(list);
+  const field = l.fields.find((f) => f.id === fieldId);
+  if (!field) return l;
+  const value = coerceCustomValue(field, raw);
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => (e.id === entryId ? { ...e, custom: { ...e.custom, [fieldId]: value } } : e)),
+  });
+}
+
+export const customValueOf = (entry, field) => entry?.custom?.[field?.id];
+
+// What a custom column reads as, for display and for search.
+export const customText = (entry, field) => formatCustomValue(field, customValueOf(entry, field));
 
 /* The list as first recorded, used only when the account has none saved yet.
 

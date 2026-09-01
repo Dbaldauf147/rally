@@ -3,6 +3,7 @@ import {
   STATUS, NO_TYPE, parseStatus, normalizeEntry, normalizeList, hasContent, entryTitle,
   entrySubtitle, matchesQuery, groupByType, countByStatus, issueCell, typeUsage,
   addEntry, updateEntry, removeEntry, isBlank,
+  addField, updateField, removeField, moveField, fieldUsage, setCustomValue, customValueOf,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
 } from './doctors';
@@ -452,5 +453,120 @@ describe('isBlank', () => {
 
   it('is false as soon as anything is typed', () => {
     expect(isBlank(normalizeEntry({ phone: '555' }))).toBe(false);
+  });
+});
+
+describe('columns of your own', () => {
+  const withField = (label = 'Copay', type = 'text') =>
+    addField(normalizeList({ entries: [{ id: '1', doctor: 'Dr. A' }, { id: '2', doctor: 'Dr. B' }] }), { label, type });
+  const idOf = (l) => l.fields[0].id;
+
+  it('adds a column', () => {
+    const l = withField();
+    expect(l.fields).toHaveLength(1);
+    expect(l.fields[0]).toMatchObject({ label: 'Copay', type: 'text' });
+    expect(l.fields[0].id).toBeTruthy();
+  });
+
+  it('refuses a column with no name', () => {
+    expect(addField(normalizeList({ entries: [] }), { label: '  ' }).fields).toEqual([]);
+  });
+
+  it('stores a value against the record', () => {
+    const l0 = withField();
+    const l = setCustomValue(l0, '1', idOf(l0), '$40');
+    expect(customValueOf(l.entries[0], l.fields[0])).toBe('$40');
+    expect(customValueOf(l.entries[1], l.fields[0])).toBeUndefined();
+  });
+
+  it('coerces the value by the column’s own type', () => {
+    const l0 = withField('Copay', 'number');
+    const l = setCustomValue(l0, '1', idOf(l0), '$40');
+    expect(customValueOf(l.entries[0], l.fields[0])).toBe(40);
+  });
+
+  it('keeps a value that cannot be coerced out of the record rather than storing junk', () => {
+    const l0 = withField('Copay', 'number');
+    const l = setCustomValue(l0, '1', idOf(l0), 'no idea');
+    expect(customValueOf(l.entries[0], l.fields[0])).toBe('');
+  });
+
+  it('ignores a write to a column that is not there', () => {
+    const l0 = withField();
+    expect(setCustomValue(l0, '1', 'cf_nope', 'x').entries[0].custom).toEqual({});
+  });
+
+  it('renaming a column keeps every value attached', () => {
+    const base = withField();
+    const id = idOf(base);
+    const withValue = setCustomValue(base, '1', id, '$40');
+    const renamed = updateField(withValue, id, { label: 'Co-pay' });
+    expect(renamed.fields[0].label).toBe('Co-pay');
+    expect(renamed.fields[0].id).toBe(id);
+    expect(customValueOf(renamed.entries[0], renamed.fields[0])).toBe('$40');
+  });
+
+  it('refuses a rename to nothing, which would drop the column', () => {
+    const base = withField();
+    expect(updateField(base, idOf(base), { label: '   ' }).fields).toHaveLength(1);
+    expect(updateField(base, idOf(base), { label: '   ' }).fields[0].label).toBe('Copay');
+  });
+
+  it('cannot be talked into changing a column id', () => {
+    const base = withField();
+    const l = updateField(base, idOf(base), { id: 'cf_other', label: 'X' });
+    expect(l.fields[0].id).toBe(idOf(base));
+  });
+
+  it('deleting a column takes its values with it', () => {
+    const base = withField();
+    const id = idOf(base);
+    const withValue = setCustomValue(base, '1', id, '$40');
+    expect(fieldUsage(withValue.entries, id)).toBe(1);
+    const l = removeField(withValue, id);
+    expect(l.fields).toEqual([]);
+    expect(l.entries[0].custom).toEqual({});
+    expect(l.entries).toHaveLength(2);
+  });
+
+  it('counts only the records actually carrying a value', () => {
+    const base = withField();
+    const id = idOf(base);
+    expect(fieldUsage(base.entries, id)).toBe(0);
+    const some = setCustomValue(setCustomValue(base, '1', id, 'x'), '2', id, '');
+    expect(fieldUsage(some.entries, id)).toBe(1);
+  });
+
+  it('reorders columns, and does nothing at either end', () => {
+    let l = addField(withField('A'), { label: 'B' });
+    l = addField(l, { label: 'C' });
+    const labels = (x) => x.fields.map((f) => f.label);
+    const bId = l.fields[1].id;
+    expect(labels(moveField(l, bId, -1))).toEqual(['B', 'A', 'C']);
+    expect(labels(moveField(l, l.fields[0].id, -1))).toEqual(['A', 'B', 'C']);
+    expect(labels(moveField(l, l.fields[2].id, 1))).toEqual(['A', 'B', 'C']);
+  });
+
+  it('survives a document whose fields are malformed', () => {
+    expect(normalizeList({ fields: 'nope', entries: [] }).fields).toEqual([]);
+    expect(normalizeList({ fields: [{ label: 'no id' }], entries: [] }).fields).toEqual([]);
+  });
+
+  it('keeps custom values through a normalize round trip', () => {
+    const base = withField();
+    const id = idOf(base);
+    const withValue = setCustomValue(base, '1', id, '$40');
+    expect(normalizeList(JSON.parse(JSON.stringify(withValue))).entries[0].custom[id]).toBe('$40');
+  });
+
+  it('searches the added columns as well as the built-in ones', () => {
+    const base = withField('Referred by');
+    const id = idOf(base);
+    const l = setCustomValue(base, '1', id, 'Aunt Carol');
+    expect(matchesQuery(l.entries[0], 'aunt carol', l.fields)).toBe(true);
+    expect(matchesQuery(l.entries[1], 'aunt carol', l.fields)).toBe(false);
+    // groupByType passes the definitions through, so the page search reaches them.
+    const groups = groupByType(l, { query: 'aunt carol' });
+    expect(groups.flatMap((g) => g.entries).map((e) => e.id)).toEqual(['1']);
   });
 });

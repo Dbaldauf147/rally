@@ -9,7 +9,7 @@
 // under `custom`, keyed by the field's generated id rather than its label, so
 // renaming "Shirt size" to "T-shirt" keeps every value attached.
 
-import { parseLooseDate, validParts, pad2 } from './friends';
+import { parseLooseDate, validParts, pad2 } from './looseDate';
 
 export const CUSTOM_FIELD_TYPES = [
   { key: 'text', label: 'Text' },
