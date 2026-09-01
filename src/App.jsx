@@ -16,6 +16,7 @@ import { TravelListPage } from './components/TravelListPage';
 import { HolidaysPage } from './components/HolidaysPage';
 import { RecurringPage } from './components/RecurringPage';
 import { PTOPage } from './components/PTOPage';
+import { DoctorsPage } from './components/DoctorsPage';
 import { VotingPage } from './components/VotingPage';
 import { AdminPage } from './components/AdminPage';
 import { ReachOutPage } from './components/ReachOutPage';
@@ -111,6 +112,7 @@ export default function App() {
         <Route path="/travel-list" element={<ProtectedRoute><TravelListPage /></ProtectedRoute>} />
         <Route path="/holidays" element={<ProtectedRoute><HolidaysPage /></ProtectedRoute>} />
         <Route path="/pto" element={<ProtectedRoute><PTOPage /></ProtectedRoute>} />
+        <Route path="/doctors" element={<ProtectedRoute><DoctorsPage /></ProtectedRoute>} />
         <Route path="/reachout" element={<ProtectedRoute><ReachOutPage /></ProtectedRoute>} />
         <Route path="/sports" element={<ProtectedRoute><SportsPage /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />

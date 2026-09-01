@@ -1,0 +1,71 @@
+.page { max-width: 1000px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+
+.header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; }
+.title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+.summary { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; color: var(--color-text-muted); white-space: nowrap; }
+.summaryLive { color: var(--color-warning); font-weight: 600; }
+.subtitle { color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: 1.25rem; }
+
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+.search { flex: 1; min-width: 220px; padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-family: inherit; font-size: 0.9rem; color: var(--color-text); }
+.search:focus { outline: none; border-color: var(--color-accent); }
+
+.pills { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.pill, .pillOn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.4rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface); color: var(--color-text-secondary); font-family: inherit; font-size: 0.8rem; cursor: pointer; }
+.pill:hover { background: var(--color-surface-alt); color: var(--color-text); }
+.pillOn { background: var(--color-accent-light); border-color: var(--color-accent); color: var(--color-accent); font-weight: 600; }
+.pillCount { font-size: 0.72rem; opacity: 0.75; font-variant-numeric: tabular-nums; }
+
+.group { margin-bottom: 2rem; }
+.groupHead { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); margin-bottom: 0.75rem; }
+.groupCount { display: inline-flex; align-items: center; justify-content: center; min-width: 1.3rem; height: 1.3rem; padding: 0 0.35rem; border-radius: var(--radius-full); background: var(--color-surface-alt); color: var(--color-text-secondary); font-size: 0.7rem; letter-spacing: 0; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0.85rem; align-items: start; }
+
+.card { display: flex; flex-direction: column; gap: 0.7rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 0.9rem 1rem; box-shadow: var(--shadow-sm); }
+.cardHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+.cardTitleWrap { min-width: 0; }
+.cardTitle { font-size: 1rem; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.cardSubtitle { margin-top: 0.15rem; font-size: 0.8rem; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.editBtn { flex-shrink: 0; padding: 0.25rem 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font-family: inherit; font-size: 0.75rem; cursor: pointer; }
+.editBtn:hover { background: var(--color-surface-alt); color: var(--color-text); }
+
+.rows { display: flex; flex-direction: column; gap: 0.4rem; }
+.row { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0.5rem; align-items: baseline; }
+.rowLabel { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.rowValue { font-size: 0.85rem; color: var(--color-text-secondary); line-height: 1.45; overflow-wrap: anywhere; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.35rem; padding-top: 0.2rem; border-top: 1px solid var(--color-border-light); margin-top: 0.1rem; }
+.action { display: inline-block; max-width: 100%; margin-top: 0.5rem; padding: 0.3rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-bg); color: var(--color-accent); font-size: 0.78rem; text-decoration: none; overflow-wrap: anywhere; }
+.action:hover { background: var(--color-accent-light); border-color: var(--color-accent); }
+
+.formCard { background: var(--color-surface); border: 1px solid var(--color-accent); border-radius: var(--radius-lg); padding: 1rem; margin-bottom: 1.25rem; box-shadow: var(--shadow-md); grid-column: 1 / -1; }
+.formTitle { font-size: 0.9rem; font-weight: 650; margin-bottom: 0.75rem; }
+.form { display: flex; flex-direction: column; gap: 0.85rem; }
+.formGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.7rem; }
+.field, .fieldWide { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.fieldWide { grid-column: 1 / -1; }
+.fieldLabel { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.input { width: 100%; padding: 0.45rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.88rem; color: var(--color-text); resize: vertical; }
+.input:focus { outline: none; border-color: var(--color-accent); }
+
+.formActions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.btn, .btnPrimary { padding: 0.45rem 0.9rem; border-radius: var(--radius-sm); font-family: inherit; font-size: 0.83rem; cursor: pointer; }
+.btn { border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary); }
+.btn:hover { background: var(--color-surface-alt); color: var(--color-text); }
+.btnPrimary { border: none; background: var(--color-accent); color: #fff; font-weight: 600; }
+.btnPrimary:hover { background: var(--color-accent-hover); }
+.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btnDanger { margin-left: auto; }
+.btnDanger:hover { background: var(--color-danger-light); border-color: var(--color-danger-light); color: var(--color-danger); }
+.hint { font-size: 0.78rem; color: var(--color-text-muted); }
+
+.empty { padding: 2rem 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem; background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: var(--radius-lg); }
+.linkBtn { padding: 0; border: none; background: none; color: var(--color-accent); font-family: inherit; font-size: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+
+@media (max-width: 600px) {
+  .page { padding: 1.25rem 0.75rem 4rem; }
+  .grid { grid-template-columns: 1fr; }
+  .toolbar .btnPrimary { width: 100%; }
+  .row { grid-template-columns: 5.5rem 1fr; }
+}

@@ -24,6 +24,7 @@ const icons = {
   wedding: svg(<path d="M12 21s-7-4.6-9.3-9C1.2 9 2.6 5.5 6 5.5c2 0 3.2 1.2 4 2.4.8-1.2 2-2.4 4-2.4 3.4 0 4.8 3.5 3.3 6.5C19 16.4 12 21 12 21z" />),
   travel: svg(<><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M12 11v5" /></>),
   holidays: svg(<><rect x="3" y="8" width="18" height="5" rx="1" /><path d="M5 13v8h14v-8M12 8v13M12 8S9 3 6.5 4.5 9 8 12 8zM12 8s3-5 5.5-3.5S15 8 12 8z" /></>),
+  doctors: svg(<><path d="M6 3v5a5 5 0 0 0 10 0V3" /><path d="M11 13v3a4 4 0 0 0 8 0v-2" /><circle cx="19" cy="12" r="2.2" /></>),
   pto: svg(<><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" /></>),
   admin: svg(<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />),
   reachout: svg(<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />),
@@ -62,6 +63,7 @@ export function BottomTabBar() {
       { to: '/wedding', label: 'Wedding', icon: icons.wedding },
       { to: '/travel-list', label: 'Travel List', icon: icons.travel },
       { to: '/pto', label: 'PTO', icon: icons.pto },
+      { to: '/doctors', label: 'Doctors', icon: icons.doctors },
     ] : []),
   ];
   // Owner-only tools live behind the gear/Settings section of the sheet.

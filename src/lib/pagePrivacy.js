@@ -40,6 +40,7 @@ const LABELS = {
   holidays: 'Holidays',
   recurring: 'Repeating',
   pto: 'PTO',
+  doctors: 'Doctors',
   reachout: 'Reach Out',
   sports: 'Sports',
   admin: 'Admin',
