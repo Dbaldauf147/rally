@@ -1,4 +1,7 @@
-.page { max-width: 1180px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+/* Wide on purpose: the columns are the page, and the owner can add more of
+   them. It still centres, and still keeps a margin on the very largest
+   screens rather than running edge to edge. */
+.page { max-width: min(1800px, 96vw); margin: 0 auto; padding: 2rem 1rem 4rem; }
 
 .header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; }
 .title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
@@ -44,6 +47,10 @@
 .cellMeds { width: 17%; }
 .cellContact { width: 22%; }
 .cellCadence { width: 9%; }
+/* A counted column, so it reads as numbers: right-aligned and tabular, which
+   is what lets one row's count be compared with the one below it. */
+.cellDays { width: 6%; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.table thead th.cellDays { text-align: right; }
 .cellStatus { width: 8%; white-space: nowrap; }
 .cellEdit { width: 1%; text-align: right; white-space: nowrap; }
 
@@ -145,3 +152,9 @@
 .fieldRow .input { flex: 1 1 8rem; min-width: 0; }
 .fieldType { padding: 0.4rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.82rem; color: var(--color-text); }
 .fieldType:focus { outline: none; border-color: var(--color-accent); }
+
+.showToggle { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; cursor: pointer; }
+.showToggle input { width: 14px; height: 14px; accent-color: var(--color-accent); cursor: pointer; }
+/* Keeps a built-in column's row aligned with the added ones, which carry a
+   delete button where this sits. */
+.iconSpacer { width: 28px; flex-shrink: 0; }

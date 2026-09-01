@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   STATUS, NO_TYPE, parseStatus, normalizeEntry, normalizeList, hasContent, entryTitle,
   entrySubtitle, matchesQuery, groupByType, countByStatus, issueCell, typeUsage,
+  daysSince, daysSinceLabel, dateColumns, daysSinceField, setDaysSinceSource,
   addEntry, updateEntry, removeEntry, isBlank,
-  addField, updateField, removeField, moveField, fieldUsage, setCustomValue, customValueOf,
+  addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
+  BUILTIN_COLUMNS, resolveColumns, visibleColumns, renameColumn, setColumnHidden, moveColumn,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
 } from './doctors';
@@ -85,6 +87,85 @@ describe('issueCell', () => {
 
   it('is blank when there is no issue at all', () => {
     expect(issueCell(entry({ doctor: 'Dr. Kim' }))).toBe('');
+  });
+});
+
+describe('how long since the last visit', () => {
+  const march = new Date(2026, 2, 20); // 20 March 2026, local
+
+  it('counts whole days back to the date', () => {
+    expect(daysSince('2026-03-20', march)).toBe(0);
+    expect(daysSince('2026-03-19', march)).toBe(1);
+    expect(daysSince('2025-03-20', march)).toBe(365);
+  });
+
+  it('counts across a daylight-saving change without slipping a day', () => {
+    // US clocks went forward on 8 March 2026.
+    expect(daysSince('2026-03-01', march)).toBe(19);
+  });
+
+  it('reads a date written loosely, not only the ISO one a Date column stores', () => {
+    expect(daysSince('3/19/2026', march)).toBe(1);
+    expect(daysSince('Mar 19, 2026', march)).toBe(1);
+  });
+
+  it('has no count without a whole date', () => {
+    expect(daysSince('', march)).toBeNull();
+    expect(daysSince(undefined, march)).toBeNull();
+    expect(daysSince('sometime', march)).toBeNull();
+    expect(daysSince('7/30', march)).toBeNull(); // no year: which July?
+  });
+
+  it('prints a bare number, and says the two things a number cannot', () => {
+    expect(daysSinceLabel('2026-03-19', march)).toBe('1');
+    expect(daysSinceLabel('2026-03-20', march)).toBe('Today');
+    expect(daysSinceLabel('2026-04-02', march)).toBe('in 13');
+    expect(daysSinceLabel('', march)).toBe('');
+  });
+});
+
+describe('what the counter counts from', () => {
+  const withDate = (label = 'Last Visit') =>
+    addField(normalizeList({ entries: [{ id: '1', doctor: 'Dr. A' }] }), { label, type: 'date' });
+  const idOf = (l, label) => l.fields.find((f) => f.label === label).id;
+
+  it('finds the one Date column without being told', () => {
+    const l = withDate();
+    expect(daysSinceField(l).label).toBe('Last Visit');
+  });
+
+  it('has nothing to count from until there is a Date column', () => {
+    expect(daysSinceField(normalizeList({ entries: [] }))).toBeNull();
+    expect(dateColumns(addField(normalizeList({ entries: [] }), { label: 'Copay' }))).toEqual([]);
+  });
+
+  it('takes the leftmost Date column when there are several', () => {
+    const l = addField(withDate(), { label: 'Next appointment', type: 'date' });
+    expect(dateColumns(l).map((c) => c.label)).toEqual(['Last Visit', 'Next appointment']);
+    expect(daysSinceField(l).label).toBe('Last Visit');
+  });
+
+  it('counts from the one the owner picked instead', () => {
+    const l = addField(withDate(), { label: 'Next appointment', type: 'date' });
+    const picked = setDaysSinceSource(l, idOf(l, 'Next appointment'));
+    expect(daysSinceField(picked).label).toBe('Next appointment');
+  });
+
+  it('refuses a column that is not a date', () => {
+    const l = addField(withDate(), { label: 'Copay', type: 'number' });
+    expect(setDaysSinceSource(l, idOf(l, 'Copay')).daysSinceSource).toBe('');
+  });
+
+  it('falls back when the chosen column is deleted since', () => {
+    const l = addField(withDate(), { label: 'Next appointment', type: 'date' });
+    const picked = setDaysSinceSource(l, idOf(l, 'Next appointment'));
+    const gone = removeField(picked, idOf(l, 'Next appointment'));
+    expect(daysSinceField(gone).label).toBe('Last Visit');
+  });
+
+  it('is a column like any other, and can be hidden', () => {
+    const l = setColumnHidden(withDate(), 'daysSince', true);
+    expect(visibleColumns(l).map((c) => c.key)).not.toContain('daysSince');
   });
 });
 
@@ -537,15 +618,6 @@ describe('columns of your own', () => {
     expect(fieldUsage(some.entries, id)).toBe(1);
   });
 
-  it('reorders columns, and does nothing at either end', () => {
-    let l = addField(withField('A'), { label: 'B' });
-    l = addField(l, { label: 'C' });
-    const labels = (x) => x.fields.map((f) => f.label);
-    const bId = l.fields[1].id;
-    expect(labels(moveField(l, bId, -1))).toEqual(['B', 'A', 'C']);
-    expect(labels(moveField(l, l.fields[0].id, -1))).toEqual(['A', 'B', 'C']);
-    expect(labels(moveField(l, l.fields[2].id, 1))).toEqual(['A', 'B', 'C']);
-  });
 
   it('survives a document whose fields are malformed', () => {
     expect(normalizeList({ fields: 'nope', entries: [] }).fields).toEqual([]);
@@ -568,5 +640,107 @@ describe('columns of your own', () => {
     // groupByType passes the definitions through, so the page search reaches them.
     const groups = groupByType(l, { query: 'aunt carol' });
     expect(groups.flatMap((g) => g.entries).map((e) => e.id)).toEqual(['1']);
+  });
+});
+
+describe('the columns, built-in and added alike', () => {
+  const base = () => normalizeList({ entries: [{ id: '1', doctor: 'Dr. A' }] });
+  const keys = (l) => resolveColumns(l).map((c) => c.key);
+  const labels = (l) => resolveColumns(l).map((c) => c.label);
+  const addCol = (l, label = 'Copay') => addField(l, { label });
+  const lastId = (l) => l.fields[l.fields.length - 1].id;
+
+  it('starts with the built-in columns, in their built order', () => {
+    expect(keys(base())).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
+    expect(labels(base())).toEqual(['Doctor', 'Issue', 'Meds', 'Contact', 'Cadence', 'Days since', 'Status']);
+  });
+
+  it('puts an added column on the end without any bookkeeping', () => {
+    const l = addCol(base());
+    expect(keys(l)).toHaveLength(8);
+    expect(labels(l).at(-1)).toBe('Copay');
+    expect(resolveColumns(l).at(-1).kind).toBe('custom');
+  });
+
+  it('renames a built-in column', () => {
+    const l = renameColumn(base(), 'meds', 'Medication');
+    expect(labels(l)[2]).toBe('Medication');
+    expect(keys(l)[2]).toBe('meds');
+  });
+
+  it('renaming a built-in back to its default drops the override', () => {
+    const l = renameColumn(renameColumn(base(), 'meds', 'Medication'), 'meds', 'Meds');
+    expect(l.columnLabels).toEqual({});
+  });
+
+  it('renames an added column through the same door', () => {
+    const l0 = addCol(base());
+    const l = renameColumn(l0, lastId(l0), 'Co-pay');
+    expect(labels(l).at(-1)).toBe('Co-pay');
+    expect(l.fields[0].label).toBe('Co-pay');
+  });
+
+  it('refuses a rename to nothing', () => {
+    expect(labels(renameColumn(base(), 'meds', '   '))[2]).toBe('Meds');
+  });
+
+  it('ignores a rename of a column that does not exist', () => {
+    expect(labels(renameColumn(base(), 'nope', 'X'))).toEqual(labels(base()));
+  });
+
+  it('hides a built-in column without touching the records', () => {
+    const l = setColumnHidden(base(), 'contact', true);
+    expect(visibleColumns(l).map((c) => c.key)).not.toContain('contact');
+    expect(resolveColumns(l).map((c) => c.key)).toContain('contact');
+    expect(l.entries).toHaveLength(1);
+  });
+
+  it('unhiding brings it back where it was', () => {
+    const hidden = setColumnHidden(base(), 'contact', true);
+    expect(keys(setColumnHidden(hidden, 'contact', false))).toEqual(keys(base()));
+    expect(visibleColumns(setColumnHidden(hidden, 'contact', false))).toHaveLength(7);
+  });
+
+  it('hiding twice does not stack up', () => {
+    const l = setColumnHidden(setColumnHidden(base(), 'contact', true), 'contact', true);
+    expect(l.hiddenColumns).toEqual(['contact']);
+  });
+
+  it('moves a column along the order, built-in or added', () => {
+    expect(keys(moveColumn(base(), 'issue', -1)).slice(0, 2)).toEqual(['issue', 'name']);
+    const l = addCol(base());
+    const id = lastId(l);
+    expect(keys(moveColumn(l, id, -1)).at(-2)).toBe(id);
+  });
+
+  it('lets an added column sit between two built-in ones', () => {
+    let l = addCol(base());
+    const id = lastId(l);
+    l = moveColumn(l, id, -6);
+    expect(keys(l)).toEqual(['name', id, 'issue', 'meds', 'contact', 'cadence', 'daysSince', 'status']);
+  });
+
+  it('does nothing at either end', () => {
+    expect(keys(moveColumn(base(), 'name', -1))).toEqual(keys(base()));
+    expect(keys(moveColumn(base(), 'status', 1))).toEqual(keys(base()));
+  });
+
+  it('a stored order survives a column being deleted since', () => {
+    const l0 = addCol(base());
+    const id = lastId(l0);
+    const ordered = moveColumn(l0, id, -7);
+    const l = removeField(ordered, id);
+    expect(keys(l)).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
+  });
+
+  it('a stored order missing a column still shows it, on the end', () => {
+    const l = normalizeList({ entries: [], columnOrder: ['status', 'name'] });
+    expect(keys(l)).toEqual(['status', 'name', 'issue', 'meds', 'contact', 'cadence', 'daysSince']);
+  });
+
+  it('survives a document whose column settings are malformed', () => {
+    const l = normalizeList({ entries: [], columnOrder: 'nope', columnLabels: 'nope', hiddenColumns: 7 });
+    expect(keys(l)).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
+    expect(visibleColumns(l)).toHaveLength(7);
   });
 });

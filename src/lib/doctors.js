@@ -20,6 +20,8 @@ import {
   normalizeFieldDefs, newFieldId, coerceCustomValue, formatCustomValue,
 } from './customFields';
 
+import { parseLooseDate, validParts } from './looseDate';
+
 export const STATUS = { TREATING: 'treating', RESOLVED: 'resolved', NONE: 'none' };
 
 // Status is no longer a heading — it's a badge on the card and a filter above
@@ -87,6 +89,40 @@ export function makeId() {
   return `d${Date.now().toString(36)}${seq}`;
 }
 
+// --- how long since the last visit ------------------------------------------
+//
+// The date itself is a column of the owner's own — a Date column added through
+// the column manager — so nothing here stores one. This only reads whatever
+// that column holds and counts.
+
+/* Whole days between the date and today, or null when there is no date.
+
+   Both ends are pinned to UTC midnight before subtracting, so the count is a
+   number of calendar days and can't slip by one when the clocks change between
+   the visit and today. parseLooseDate reads the ISO date a Date column stores,
+   and also whatever a value written before the column had a type looks like. */
+export function daysSince(value, today = new Date()) {
+  const p = parseLooseDate(value);
+  if (!validParts(p) || !p.year) return null;
+  const then = Date.UTC(p.year, p.month - 1, p.day);
+  const now = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((now - then) / 86400000);
+}
+
+/* What the counter column prints.
+
+   A bare number, because a column of bare numbers is what lets two rows be
+   compared at a glance. "Today" reads better than a 0, and a date still in the
+   future — an appointment typed in early — counts forward rather than printing
+   a negative nobody reads as a date ahead. */
+export function daysSinceLabel(value, today = new Date()) {
+  const days = daysSince(value, today);
+  if (days === null) return '';
+  if (days === 0) return 'Today';
+  if (days < 0) return `in ${-days}`;
+  return String(days);
+}
+
 /* One record, with every field present as a string.
 
    Missing beats absent here: the form binds an input per field, and a record
@@ -126,7 +162,25 @@ export function normalizeList(raw) {
   const entries = rawEntries.map(normalizeEntry);
   const declared = Array.isArray(raw?.types) ? raw.types : [];
   const used = entries.map((e) => e.type).filter(Boolean);
-  return { types: dedupeTypes([...declared, ...used]), fields: normalizeFieldDefs(raw?.fields), entries };
+  // Column order, renames and hidden-ness are stored by key alone; see
+  // resolveColumns, which is what turns them back into columns.
+  const strings = (v) => (Array.isArray(v) ? [...new Set(v.map((x) => String(x ?? '').trim()).filter(Boolean))] : []);
+  const labels = {};
+  if (raw?.columnLabels && typeof raw.columnLabels === 'object') {
+    Object.entries(raw.columnLabels).forEach(([k, v]) => {
+      const label = String(v ?? '').trim();
+      if (k && label) labels[k] = label;
+    });
+  }
+  return {
+    types: dedupeTypes([...declared, ...used]),
+    fields: normalizeFieldDefs(raw?.fields),
+    columnOrder: strings(raw?.columnOrder),
+    columnLabels: labels,
+    hiddenColumns: strings(raw?.hiddenColumns),
+    daysSinceSource: String(raw?.daysSinceSource ?? '').trim(),
+    entries,
+  };
 }
 
 // A row worth keeping. Somebody who recorded only "Levator spasm" still has a
@@ -388,16 +442,6 @@ export function removeField(list, id) {
   };
 }
 
-export function moveField(list, id, delta) {
-  const l = normalizeList(list);
-  const from = l.fields.findIndex((f) => f.id === id);
-  const to = from + delta;
-  if (from < 0 || to < 0 || to >= l.fields.length) return l;
-  const fields = [...l.fields];
-  const [moved] = fields.splice(from, 1);
-  fields.splice(to, 0, moved);
-  return { ...l, fields };
-}
 
 // How many records are carrying a value for a column — what the delete warning
 // counts, and what the column manager shows beside each one.
@@ -427,6 +471,133 @@ export const customValueOf = (entry, field) => entry?.custom?.[field?.id];
 
 // What a custom column reads as, for display and for search.
 export const customText = (entry, field) => formatCustomValue(field, customValueOf(entry, field));
+
+// --- the columns, built-in and added alike ---------------------------------
+//
+// The six built-in columns and the ones the owner adds are the same thing to
+// the table, so they share one order, one set of labels and one hidden list.
+// That's what lets an added column sit between two built-in ones instead of
+// being stuck on the end.
+//
+// Order, labels and hidden-ness are stored by key and nothing else: the
+// built-in columns are defined in code, an added one in `fields`. A key that
+// belongs to neither — a column deleted since — is simply skipped when the
+// order is resolved, so stale entries can't leave a gap.
+
+export const BUILTIN_COLUMNS = [
+  { key: 'name', label: 'Doctor' },
+  { key: 'issue', label: 'Issue' },
+  { key: 'meds', label: 'Meds' },
+  { key: 'contact', label: 'Contact' },
+  { key: 'cadence', label: 'Cadence' },
+  // Computed, not stored: it counts from a Date column of the owner's own.
+  { key: 'daysSince', label: 'Days since' },
+  { key: 'status', label: 'Status' },
+];
+
+const BUILTIN_LABEL = Object.fromEntries(BUILTIN_COLUMNS.map((c) => [c.key, c.label]));
+export const isBuiltinColumn = (key) => key in BUILTIN_LABEL;
+
+/* Every column in display order, hidden ones included.
+
+   Anything known but unplaced goes on the end, so adding a column needs no
+   bookkeeping here and an order written before a column existed still works. */
+export function resolveColumns(list) {
+  const l = normalizeList(list);
+  const known = [...BUILTIN_COLUMNS.map((c) => c.key), ...l.fields.map((f) => f.id)];
+  const knownSet = new Set(known);
+  const seen = new Set();
+  const ordered = [];
+  l.columnOrder.forEach((k) => {
+    if (knownSet.has(k) && !seen.has(k)) { seen.add(k); ordered.push(k); }
+  });
+  known.forEach((k) => { if (!seen.has(k)) { seen.add(k); ordered.push(k); } });
+
+  const hidden = new Set(l.hiddenColumns);
+  return ordered.map((key) => {
+    const field = l.fields.find((f) => f.id === key) || null;
+    return {
+      key,
+      kind: field ? 'custom' : 'builtin',
+      field,
+      // An added column is named by its definition; a built-in one by its
+      // override if it has been renamed, and by the default otherwise.
+      label: field ? field.label : (l.columnLabels[key] || BUILTIN_LABEL[key]),
+      hidden: hidden.has(key),
+    };
+  });
+}
+
+export const visibleColumns = (list) => resolveColumns(list).filter((c) => !c.hidden);
+
+/* The Date columns the counter could count from, in display order. */
+export const dateColumns = (list) =>
+  resolveColumns(list).filter((c) => c.kind === 'custom' && c.field.type === 'date');
+
+/* The one it actually counts from.
+
+   The owner's choice when they have made one and it is still a Date column;
+   otherwise the leftmost Date column, so a list with a single "Last Visit"
+   column needs no choosing at all. Null when there is no Date column yet —
+   the counter then has nothing to count and every cell in it is empty. */
+export function daysSinceField(list) {
+  const l = normalizeList(list);
+  const dates = dateColumns(l);
+  const chosen = dates.find((c) => c.key === l.daysSinceSource);
+  return (chosen || dates[0])?.field || null;
+}
+
+// Point the counter at a different Date column. A key that isn't one is
+// refused rather than stored and silently ignored later.
+export function setDaysSinceSource(list, key) {
+  const l = normalizeList(list);
+  if (!dateColumns(l).some((c) => c.key === key)) return l;
+  return { ...l, daysSinceSource: key };
+}
+
+/* Rename any column.
+
+   An added column is named by its own definition, so that's where the new name
+   goes; a built-in one keeps its name in an override map. Renaming a built-in
+   back to what it started as drops the override rather than storing a value
+   equal to the default. */
+export function renameColumn(list, key, label) {
+  const l = normalizeList(list);
+  const clean = String(label ?? '').trim();
+  if (!clean) return l;
+  if (l.fields.some((f) => f.id === key)) return updateField(l, key, { label: clean });
+  if (!isBuiltinColumn(key)) return l;
+  const columnLabels = { ...l.columnLabels };
+  if (clean === BUILTIN_LABEL[key]) delete columnLabels[key];
+  else columnLabels[key] = clean;
+  return { ...l, columnLabels };
+}
+
+/* Show or hide a column.
+
+   Hiding is what "remove" means for a built-in column: the phone numbers and
+   addresses are still on every record, and unhiding brings the column back
+   with all of them. Deleting an added column is the destructive one, because
+   its values have nowhere else to live — see removeField. */
+export function setColumnHidden(list, key, hidden) {
+  const l = normalizeList(list);
+  const rest = l.hiddenColumns.filter((k) => k !== key);
+  return { ...l, hiddenColumns: hidden ? [...rest, key] : rest };
+}
+
+// Move a column along the running order. Off either end is a no-op, so the
+// buttons can stay live without the caller bounds-checking.
+export function moveColumn(list, key, delta) {
+  const l = normalizeList(list);
+  const order = resolveColumns(l).map((c) => c.key);
+  const from = order.indexOf(key);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= order.length) return l;
+  const next = [...order];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return { ...l, columnOrder: next };
+}
 
 /* The list as first recorded, used only when the account has none saved yet.
 

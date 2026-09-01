@@ -17,6 +17,7 @@ export const CUSTOM_FIELD_TYPES = [
   { key: 'date', label: 'Date' },
   { key: 'select', label: 'Choice list' },
   { key: 'checkbox', label: 'Yes / No' },
+  { key: 'link', label: 'Link' },
 ];
 const TYPE_KEYS = CUSTOM_FIELD_TYPES.map(t => t.key);
 
@@ -60,6 +61,21 @@ export function parseOptionList(text) {
 }
 export const optionListText = (options) => (options || []).join('\n');
 
+/* A pasted address, as an href.
+
+   Only http(s) is ever followed — a `javascript:` URL pasted into a cell must
+   not become a clickable script. A bare "zocdoc.com/dr-x" is what people
+   actually paste, so a scheme-less value that looks like a host gets https://
+   put on the front rather than being rejected. */
+export function linkHref(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  // Anything carrying a scheme we did not just accept is refused outright.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return null;
+  return /^[\w-]+(\.[\w-]+)+([/?#].*)?$/.test(s) ? `https://${s}` : null;
+}
+
 const TRUTHY = new Set(['true', 'yes', 'y', '1', 'x', '✓', 'checked']);
 
 // Anything a form, a spreadsheet cell or a paste can hand us → the shape the
@@ -81,6 +97,7 @@ export function coerceCustomValue(field, raw) {
     const n = Number(digits);
     return digits !== '' && Number.isFinite(n) ? n : '';
   }
+  if (type === 'link') return s;
   if (type === 'date') {
     const p = parseLooseDate(s);
     // A date field wants the whole date; a year-less "7/30" has nowhere to go.
@@ -106,6 +123,8 @@ export function formatCustomValue(field, value) {
   const type = field?.type || 'text';
   if (type === 'checkbox') return value === true ? 'Yes' : value === false ? 'No' : '';
   if (value === undefined || value === null || value === '') return '';
+  // A link reads as its address in text — the table draws it as an anchor.
+  if (type === 'link') return String(value);
   if (type === 'date') {
     const p = parseLooseDate(value);
     return validParts(p) && p.year ? `${p.month}/${p.day}/${p.year}` : String(value);

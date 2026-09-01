@@ -9,11 +9,13 @@ import {
   groupByType, countByStatus, issueCell, typeUsage,
   addEntry, updateEntry, removeEntry, isBlank,
   addType, renameType, removeType, moveType,
-  addField, updateField, removeField, moveField, fieldUsage, setCustomValue, customValueOf,
+  addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
+  resolveColumns, renameColumn, setColumnHidden, moveColumn,
+  dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel,
   telHref, mailHref, mapHref, safeLink, linkLabel, makeId, seedDoctors,
 } from '../lib/doctors';
 import {
-  CUSTOM_FIELD_TYPES, formatCustomValue, parseOptionList, optionListText,
+  CUSTOM_FIELD_TYPES, formatCustomValue, parseOptionList, optionListText, linkHref,
 } from '../lib/customFields';
 import styles from './DoctorsPage.module.css';
 
@@ -253,6 +255,35 @@ function CustomCell({ entry, field, open, onOpen, onClose, onCommit }) {
     );
   }
 
+  // A link column holds a whole URL, which would blow the column open. The
+  // cell says "link" and carries the address behind it.
+  if (field.type === 'link') {
+    const href = linkHref(value);
+    return (
+      <Cell
+        className={styles.cellCustom}
+        label={field.label}
+        open={open}
+        onOpen={onOpen}
+        onClose={onClose}
+        display={href
+          ? <a className={styles.link} href={href} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>link ↗</a>
+          : (value ? String(value) : null)}
+      >
+        <input
+          className={styles.cellInput}
+          type="url"
+          defaultValue={value ?? ''}
+          placeholder="Paste the website address"
+          aria-label={field.label}
+          autoFocus
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+        />
+      </Cell>
+    );
+  }
+
   if (field.type === 'select') {
     return (
       <td className={styles.cellCustom}>
@@ -296,14 +327,21 @@ function CustomCell({ entry, field, open, onOpen, onClose, onCommit }) {
   );
 }
 
-/* Adding, renaming, reordering and deleting the columns themselves.
+/* The columns themselves: what they are called, what order they run in, and
+   which ones show at all.
 
-   Behind a toggle beside Manage types, because both edit the shape of the table
-   rather than what is in it. */
-function ColumnManager({ list, onChange, onClose }) {
+   Built-in and added columns sit in one list because they are one list to the
+   table. The difference is only in what can be done to them: an added column
+   has a type and can be deleted outright, while a built-in one can be hidden
+   but never deleted — its values live on every record and are not this
+   panel's to throw away. */
+function ColumnManager({ list, columns, onChange, onClose }) {
   const [label, setLabel] = useState('');
   const [type, setType] = useState('text');
-  const { fields, entries } = list;
+  // The counter column reads a Date column of the owner's own, so the manager
+  // is where it is told which one.
+  const dates = dateColumns(list);
+  const source = daysSinceField(list);
 
   function handleAdd(e) {
     e.preventDefault();
@@ -313,12 +351,12 @@ function ColumnManager({ list, onChange, onClose }) {
     setType('text');
   }
 
-  function handleRemove(field) {
-    const used = fieldUsage(entries, field.id);
+  function handleRemove(col) {
+    const used = fieldUsage(list.entries, col.key);
     const warning = used
-      ? `Delete the “${field.label}” column? ${used} record${used === 1 ? '' : 's'} have a value in it, and those values are deleted too.`
-      : `Delete the “${field.label}” column?`;
-    if (window.confirm(warning)) onChange(removeField(list, field.id));
+      ? `Delete the “${col.label}” column? ${used} record${used === 1 ? '' : 's'} have a value in it, and those values are deleted too.`
+      : `Delete the “${col.label}” column?`;
+    if (window.confirm(warning)) onChange(removeField(list, col.key));
   }
 
   return (
@@ -328,56 +366,84 @@ function ColumnManager({ list, onChange, onClose }) {
         <button type="button" className={styles.btn} onClick={onClose}>Done</button>
       </div>
       <p className={styles.hint}>
-        Columns of your own, on top of the built-in ones. Renaming one keeps its values;
-        deleting one deletes them.
+        Rename any column, drag the order about with the arrows, and untick Show to
+        take one off the table. Hiding a built-in column keeps its values — untick and
+        tick it back and they are all still there. Deleting a column you added deletes
+        what is in it.
       </p>
 
       <ul className={styles.typeList}>
-        {fields.map((f, i) => (
-          <li key={f.id} className={styles.fieldRow}>
+        {columns.map((col, i) => (
+          <li key={col.key} className={styles.fieldRow}>
             <input
               className={styles.input}
-              defaultValue={f.label}
-              aria-label={`Rename ${f.label}`}
-              onBlur={(e) => onChange(updateField(list, f.id, { label: e.target.value }))}
+              defaultValue={col.label}
+              aria-label={`Rename ${col.label}`}
+              onBlur={(e) => onChange(renameColumn(list, col.key, e.target.value))}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
             />
-            <select
-              className={styles.fieldType}
-              aria-label={`Type of ${f.label}`}
-              value={f.type}
-              onChange={(e) => onChange(updateField(list, f.id, { type: e.target.value }))}
-            >
-              {CUSTOM_FIELD_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-            </select>
-            {f.type === 'select' && (
+            {col.kind === 'custom' && (
+              <select
+                className={styles.fieldType}
+                aria-label={`Type of ${col.label}`}
+                value={col.field.type}
+                onChange={(e) => onChange(updateField(list, col.key, { type: e.target.value }))}
+              >
+                {CUSTOM_FIELD_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
+            )}
+            {col.key === 'daysSince' && (
+              dates.length ? (
+                <select
+                  className={styles.fieldType}
+                  aria-label="Days since counts from"
+                  value={source?.id || ''}
+                  onChange={(e) => onChange(setDaysSinceSource(list, e.target.value))}
+                >
+                  {dates.map((c) => <option key={c.key} value={c.key}>from {c.label}</option>)}
+                </select>
+              ) : <span className={styles.hint}>Add a Date column for it to count from</span>
+            )}
+            {col.kind === 'custom' && col.field.type === 'select' && (
               <input
                 className={styles.input}
-                defaultValue={optionListText(f.options)}
+                defaultValue={optionListText(col.field.options)}
                 placeholder="Choices, comma separated"
-                aria-label={`Choices for ${f.label}`}
-                onBlur={(e) => onChange(updateField(list, f.id, { options: parseOptionList(e.target.value) }))}
+                aria-label={`Choices for ${col.label}`}
+                onBlur={(e) => onChange(updateField(list, col.key, { options: parseOptionList(e.target.value) }))}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
               />
             )}
-            <span className={styles.typeCount} title={`${fieldUsage(entries, f.id)} record(s) with a value`}>
-              {fieldUsage(entries, f.id)}
-            </span>
+            {col.kind === 'custom' && (
+              <span className={styles.typeCount} title={`${fieldUsage(list.entries, col.key)} record(s) with a value`}>
+                {fieldUsage(list.entries, col.key)}
+              </span>
+            )}
+            <label className={styles.showToggle}>
+              <input
+                type="checkbox"
+                checked={!col.hidden}
+                aria-label={`Show ${col.label}`}
+                onChange={(e) => onChange(setColumnHidden(list, col.key, !e.target.checked))}
+              />
+              Show
+            </label>
             <button
-              type="button" className={styles.iconBtn} title={`Move ${f.label} left`}
-              disabled={i === 0} onClick={() => onChange(moveField(list, f.id, -1))}
+              type="button" className={styles.iconBtn} title={`Move ${col.label} left`}
+              disabled={i === 0} onClick={() => onChange(moveColumn(list, col.key, -1))}
             >←</button>
             <button
-              type="button" className={styles.iconBtn} title={`Move ${f.label} right`}
-              disabled={i === fields.length - 1} onClick={() => onChange(moveField(list, f.id, 1))}
+              type="button" className={styles.iconBtn} title={`Move ${col.label} right`}
+              disabled={i === columns.length - 1} onClick={() => onChange(moveColumn(list, col.key, 1))}
             >→</button>
-            <button
-              type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-              title={`Delete ${f.label}`} onClick={() => handleRemove(f)}
-            >×</button>
+            {col.kind === 'custom' ? (
+              <button
+                type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                title={`Delete ${col.label}`} onClick={() => handleRemove(col)}
+              >×</button>
+            ) : <span className={styles.iconSpacer} />}
           </li>
         ))}
-        {fields.length === 0 && <li className={styles.hint}>No columns of your own yet.</li>}
       </ul>
 
       <form className={styles.typeAdd} onSubmit={handleAdd}>
@@ -408,7 +474,10 @@ function ColumnManager({ list, onChange, onClose }) {
    against each other straight down the page. Cells with nothing in them are
    left literally empty and picked up by a dash in CSS, which keeps a sparse
    row — most of this list — from reading as a broken one. */
-function EntryRow({ entry, groupType, types, fields, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete }) {
+// Headers that need their column’s own alignment or width, keyed by column.
+const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
+
+function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete }) {
   const tel = telHref(entry.phone);
   const mail = mailHref(entry.email);
   const map = mapHref(entry.location);
@@ -418,6 +487,7 @@ function EntryRow({ entry, groupType, types, fields, openCell, onOpenCell, onClo
 
   const cell = (col, className, label, display) => (
     <Cell
+      key={col}
       className={className}
       label={label}
       open={openCell === col}
@@ -438,30 +508,29 @@ function EntryRow({ entry, groupType, types, fields, openCell, onOpenCell, onClo
     </Cell>
   );
 
-  return (
-    <tr className={styles.row}>
-      {cell('name', styles.cellName, 'doctor', (
+  // One built-in column, by key. Each still owns its own display — a doctor
+  // name is not a phone number — so this is a switch and not a loop.
+  const builtin = (col) => {
+    switch (col.key) {
+      case 'name': return cell('name', styles.cellName, col.label, (
         <>
           <div className={styles.name}>{entryTitle(entry, groupType)}</div>
           {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
         </>
-      ))}
-
-      {cell('issue', styles.cellIssue, 'issue', (
+      ));
+      case 'issue': return cell('issue', styles.cellIssue, col.label, (
         <>
           {issue ? <div>{issue}</div> : null}
           {entry.notes ? <div className={styles.muted}>{entry.notes}</div> : null}
         </>
-      ))}
-
-      {cell('meds', styles.cellMeds, 'meds', (
+      ));
+      case 'meds': return cell('meds', styles.cellMeds, col.label, (
         <>
           {entry.currentMeds ? <div>{entry.currentMeds}</div> : null}
           {entry.previousMeds ? <div className={styles.muted}>Was: {entry.previousMeds}</div> : null}
         </>
-      ))}
-
-      {cell('contact', styles.cellContact, 'contact details', (
+      ));
+      case 'contact': return cell('contact', styles.cellContact, col.label, (
         <>
           {tel ? <a className={styles.link} href={tel} onClick={(e) => e.stopPropagation()}>{entry.phone}</a> : null}
           {mail ? <a className={styles.link} href={mail} onClick={(e) => e.stopPropagation()}>{entry.email}</a> : null}
@@ -478,34 +547,54 @@ function EntryRow({ entry, groupType, types, fields, openCell, onOpenCell, onClo
             >{linkLabel(entry.link)} ↗</a>
           ) : null}
         </>
+      ));
+      case 'cadence': return cell('cadence', styles.cellCadence, col.label, entry.cadence || null);
+      // Counted, not typed: there is nothing to open here, and the number
+      // carries the date it counted from as its tooltip.
+      case 'daysSince': {
+        const since = daysFrom ? customValueOf(entry, daysFrom) : '';
+        const counted = daysSinceLabel(since);
+        return (
+          <td
+            key="daysSince"
+            className={styles.cellDays}
+            title={counted ? `${daysFrom.label}: ${formatCustomValue(daysFrom, since)}` : undefined}
+          >{counted || null}</td>
+        );
+      }
+      // Status is a fixed set, so its cell is the select itself rather than a
+      // click-to-open — there is nothing to type and nothing to cancel.
+      case 'status': return (
+        <td key="status" className={styles.cellStatus}>
+          <select
+            className={styles.statusSelect}
+            aria-label={col.label}
+            value={entry.status}
+            onChange={(e) => onCommit({ status: e.target.value })}
+          >
+            {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+          </select>
+        </td>
+      );
+      default: return null;
+    }
+  };
+
+  return (
+    <tr className={styles.row}>
+      {columns.map((col) => (
+        col.kind === 'custom' ? (
+          <CustomCell
+            key={col.key}
+            entry={entry}
+            field={col.field}
+            open={openCell === `cf:${col.key}`}
+            onOpen={() => onOpenCell(`cf:${col.key}`)}
+            onClose={onCloseCell}
+            onCommit={onCommitCustom}
+          />
+        ) : builtin(col)
       ))}
-
-      {cell('cadence', styles.cellCadence, 'cadence', entry.cadence || null)}
-
-      {fields.map((field) => (
-        <CustomCell
-          key={field.id}
-          entry={entry}
-          field={field}
-          open={openCell === `cf:${field.id}`}
-          onOpen={() => onOpenCell(`cf:${field.id}`)}
-          onClose={onCloseCell}
-          onCommit={onCommitCustom}
-        />
-      ))}
-
-      {/* Status is a fixed set, so its cell is the select itself rather than a
-          click-to-open — there is nothing to type and nothing to cancel. */}
-      <td className={styles.cellStatus}>
-        <select
-          className={styles.statusSelect}
-          aria-label="Status"
-          value={entry.status}
-          onChange={(e) => onCommit({ status: e.target.value })}
-        >
-          {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-        </select>
-      </td>
 
       <td className={styles.cellEdit}>
         <button
@@ -601,9 +690,6 @@ function TypeManager({ list, onChange, onClose }) {
   );
 }
 
-// The six built-in columns plus the delete button. A type heading has to
-// stretch across these and every column the owner has added.
-const BASE_COLUMNS = 7;
 
 export function DoctorsPage() {
   const { user } = useAuth();
@@ -620,6 +706,11 @@ export function DoctorsPage() {
   const entries = safeList.entries;
   const counts = useMemo(() => countByStatus(entries), [entries]);
   const groups = useMemo(() => groupByType(safeList, { query, status }), [safeList, query, status]);
+  // Every column, for the manager; the showing ones, for the table.
+  const allColumns = useMemo(() => resolveColumns(safeList), [safeList]);
+  const shownColumns = useMemo(() => allColumns.filter((c) => !c.hidden), [allColumns]);
+  // Resolved once for the whole table rather than per row.
+  const daysFrom = useMemo(() => daysSinceField(safeList), [safeList]);
 
   function handleAdd() {
     const blank = emptyEntry();
@@ -699,7 +790,7 @@ export function DoctorsPage() {
       )}
 
       {managingColumns && (
-        <ColumnManager list={safeList} onChange={update} onClose={() => setManagingColumns(false)} />
+        <ColumnManager list={safeList} columns={allColumns} onChange={update} onClose={() => setManagingColumns(false)} />
       )}
 
       {!loaded && entries.length === 0 && <div className={styles.empty}>Loading…</div>}
@@ -722,13 +813,9 @@ export function DoctorsPage() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th className={styles.cellName}>Doctor</th>
-                <th>Issue</th>
-                <th>Meds</th>
-                <th>Contact</th>
-                <th>Cadence</th>
-                {safeList.fields.map((f) => <th key={f.id}>{f.label}</th>)}
-                <th>Status</th>
+                {shownColumns.map((col) => (
+                  <th key={col.key} className={HEAD_CLASS[col.key]}>{col.label}</th>
+                ))}
                 <th className={styles.cellEdit}><span className={styles.srOnly}>Delete</span></th>
               </tr>
             </thead>
@@ -738,7 +825,7 @@ export function DoctorsPage() {
             {groups.map((group) => (
               <tbody key={group.type || '__none__'}>
                 <tr className={styles.groupRow}>
-                  <th scope="colgroup" colSpan={BASE_COLUMNS + safeList.fields.length} className={styles.groupHead}>
+                  <th scope="colgroup" colSpan={shownColumns.length + 1} className={styles.groupHead}>
                     {typeHeading(group.type)}
                     <span className={styles.groupCount}>{group.entries.length}</span>
                   </th>
@@ -749,7 +836,8 @@ export function DoctorsPage() {
                     entry={entry}
                     groupType={group.type}
                     types={safeList.types}
-                    fields={safeList.fields}
+                    columns={shownColumns}
+                    daysFrom={daysFrom}
                     openCell={openCell?.id === entry.id ? openCell.col : null}
                     onOpenCell={(col) => { setOpenCell({ id: entry.id, col }); setManagingTypes(false); setManagingColumns(false); }}
                     onCloseCell={() => setOpenCell(null)}
