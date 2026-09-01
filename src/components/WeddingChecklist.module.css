@@ -1,0 +1,51 @@
+/* The checklist sits inside the Wedding page's own .page wrapper, so this file
+   owns nothing above the content itself. Narrower than the guest-list table on
+   purpose: this is prose to read down, not a grid to scan across. */
+.wrap { max-width: 780px; }
+
+.progressCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem 1.1rem; margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
+.progressTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.7rem; }
+.progressCount { font-size: 1rem; font-weight: 650; }
+.nextUp { margin-top: 0.25rem; font-size: 0.85rem; color: var(--color-text-secondary); line-height: 1.45; }
+.nextUp strong { color: var(--color-text); font-weight: 600; }
+.progressPct { flex-shrink: 0; font-size: 1.5rem; font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+.bar { height: 8px; border-radius: var(--radius-full); background: var(--color-surface-alt); overflow: hidden; }
+.barFill { height: 100%; border-radius: var(--radius-full); background: var(--color-accent); transition: width 0.25s ease; }
+
+.hideDone { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.8rem; font-size: 0.82rem; color: var(--color-text-secondary); cursor: pointer; }
+.hideDone input { width: 15px; height: 15px; accent-color: var(--color-accent); cursor: pointer; }
+
+.phase { margin-bottom: 0.5rem; }
+.phaseHead { display: flex; align-items: baseline; gap: 0.5rem; width: 100%; padding: 0.6rem 0.2rem; border: none; border-bottom: 1px solid var(--color-border); background: none; font-family: inherit; text-align: left; cursor: pointer; }
+.phaseHead:hover { background: var(--color-surface-alt); }
+.caret { flex-shrink: 0; font-size: 0.7rem; color: var(--color-text-muted); }
+.phaseTitle { font-size: 0.95rem; font-weight: 650; color: var(--color-text); }
+.phaseWhen { font-size: 0.8rem; color: var(--color-text-muted); font-style: italic; }
+.phaseCount, .phaseCountDone { margin-left: auto; flex-shrink: 0; font-size: 0.78rem; font-weight: 600; font-variant-numeric: tabular-nums; padding: 0.1rem 0.45rem; border-radius: var(--radius-full); }
+.phaseCount { color: var(--color-text-muted); background: var(--color-surface-alt); }
+.phaseCountDone { color: var(--color-success); background: var(--color-success-light); }
+
+.tasks { list-style: none; margin: 0.4rem 0 1.1rem; padding: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.task, .taskMilestone { border-radius: var(--radius-sm); }
+.task:hover, .taskMilestone:hover { background: var(--color-surface-alt); }
+/* The few items everything else counts from get a spine down the left. */
+.taskMilestone { border-left: 3px solid var(--color-accent); background: var(--color-accent-light); }
+.taskMilestone:hover { background: var(--color-accent-light); }
+.taskMilestone .taskText { font-weight: 650; }
+
+.taskLabel { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.45rem 0.6rem; cursor: pointer; }
+.checkbox { flex-shrink: 0; width: 17px; height: 17px; margin-top: 0.1rem; accent-color: var(--color-accent); cursor: pointer; }
+.taskBody { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.taskText, .taskTextDone { font-size: 0.9rem; line-height: 1.45; }
+.taskText { color: var(--color-text); }
+.taskTextDone { color: var(--color-text-muted); text-decoration: line-through; }
+.taskNote { font-size: 0.8rem; line-height: 1.5; color: var(--color-text-muted); }
+
+.footnote { margin-top: 1.5rem; font-size: 0.8rem; color: var(--color-text-muted); }
+
+@media (max-width: 600px) {
+  .progressTop { gap: 0.5rem; }
+  .progressPct { font-size: 1.25rem; }
+  .taskLabel { padding: 0.5rem 0.4rem; }
+}

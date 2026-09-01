@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../native';
+import { WeddingChecklist } from './WeddingChecklist';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -265,7 +266,12 @@ function renderCell(col, c) {
   }
 }
 
-export function WeddingPage() {
+/* The guest list — the original Wedding page, now one of two subtabs.
+
+   Left whole rather than split up: it owns a lot of interlocking state
+   (filters, selection, bulk edit, the import dialog) and none of it is
+   shared with the checklist beside it. */
+function GuestList() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState([]);
   const [friends, setFriends] = useState([]);
@@ -1328,5 +1334,48 @@ export function WeddingPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/* Wedding is two things: who is coming, and what still has to be done.
+
+   They share a tab because they are the same project, and they sit on subtabs
+   rather than one long page because you open the page for one or the other,
+   never both. The choice rides in the URL the way Plans does it, so a link to
+   the checklist is a link to the checklist. */
+export function WeddingPage() {
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get('view') === 'checklist' ? 'checklist' : 'guests';
+  const setView = (v) => setSearchParams(v === 'checklist' ? { view: 'checklist' } : {});
+
+  if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
+
+  return (
+    <>
+      <div className={styles.subtabBar}>
+        <div className={styles.subtabInner}>
+          <button
+            type="button"
+            className={view === 'guests' ? styles.subtabActive : styles.subtab}
+            onClick={() => setView('guests')}
+          >Guest List</button>
+          <button
+            type="button"
+            className={view === 'checklist' ? styles.subtabActive : styles.subtab}
+            onClick={() => setView('checklist')}
+          >Checklist</button>
+        </div>
+      </div>
+      {view === 'checklist' ? (
+        <div className={styles.page}>
+          <div className={styles.header}>
+            <h1 className={styles.title}>Wedding</h1>
+          </div>
+          <p className={styles.subtitle}>Everything that has to happen, counting backward from the date.</p>
+          <WeddingChecklist />
+        </div>
+      ) : <GuestList />}
+    </>
   );
 }
