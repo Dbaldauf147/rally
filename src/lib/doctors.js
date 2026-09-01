@@ -9,22 +9,30 @@
 // (the gastroenterologist), an issue with no doctor at all (a neck sprain that
 // resolved on its own), or both at once. Nothing here requires a doctor or an
 // issue, and the display leans on whichever one a row actually has.
+//
+// The page is organised by type, and the types are a list the owner edits
+// rather than whatever strings happen to be typed into the records. That's why
+// the stored document is `{ types, entries }` and not just an array: the order
+// of the headings is a thing you can arrange, and renaming a type has to carry
+// every record using it along with it.
 
 export const STATUS = { TREATING: 'treating', RESOLVED: 'resolved', NONE: 'none' };
 
-// Order is the running order of the page: what's live now, then standing care,
-// then history. Sorting and the filter pills both read it, so the two can't
-// disagree about what comes first.
+// Status is no longer a heading — it's a badge on the card and a filter above
+// the list. This order drives the filter pills.
 export const STATUS_ORDER = [STATUS.TREATING, STATUS.NONE, STATUS.RESOLVED];
 
-export const STATUS_META = {
-  [STATUS.TREATING]: { label: 'Being treated', heading: 'Being treated now' },
-  [STATUS.NONE]: { label: 'Ongoing', heading: 'Ongoing care' },
-  [STATUS.RESOLVED]: { label: 'Resolved', heading: 'Resolved' },
+export const STATUS_LABELS = {
+  [STATUS.TREATING]: 'Being treated',
+  [STATUS.NONE]: 'Ongoing',
+  [STATUS.RESOLVED]: 'Resolved',
 };
 
-export const statusLabel = (s) => STATUS_META[s]?.label || STATUS_META[STATUS.NONE].label;
-export const statusHeading = (s) => STATUS_META[s]?.heading || STATUS_META[STATUS.NONE].heading;
+export const statusLabel = (s) => STATUS_LABELS[s] || STATUS_LABELS[STATUS.NONE];
+
+// "Ongoing" is the resting state of a standing doctor. Badging it would put a
+// label on most of the page and say nothing, so only the two that are news show.
+export const showsStatusBadge = (s) => s === STATUS.TREATING || s === STATUS.RESOLVED;
 
 /* The spreadsheet's "Resolved?" column, which held free text rather than a
    flag: "Resolved", "Being Treated", or "-" for a doctor with no open issue.
@@ -38,14 +46,20 @@ export function parseStatus(raw) {
   return STATUS.NONE;
 }
 
+// Rows with no type at all — the sprains and the plantar fasciitis, which were
+// never anybody's speciality. They group under their own heading, last.
+export const NO_TYPE = '';
+export const NO_TYPE_LABEL = 'No type';
+export const typeHeading = (type) => type || NO_TYPE_LABEL;
+
 // Every text field on a record, in the order the original sheet had them. The
-// add/edit form and the CSV export both build themselves from this, so a new
-// field is added in one place.
+// add/edit form builds itself from this, so a new field is added in one place.
+// `type` is absent on purpose: it's chosen from the managed list, not typed
+// free-hand alongside the rest.
 export const FIELDS = [
   { key: 'doctor', label: 'Doctor' },
   { key: 'phone', label: 'Phone', type: 'tel' },
   { key: 'email', label: 'Email', type: 'email' },
-  { key: 'type', label: 'Type', placeholder: 'Skin, Dentist, Primary Physician…' },
   { key: 'issue', label: 'Issue' },
   { key: 'currentMeds', label: 'Current Meds' },
   { key: 'previousMeds', label: 'Previous Meds' },
@@ -56,7 +70,9 @@ export const FIELDS = [
   { key: 'notes', label: 'Notes', long: true },
 ];
 
-const FIELD_KEYS = FIELDS.map((f) => f.key);
+// `type` still lives on the record and still has to be normalized and searched
+// like any other text, it just isn't rendered as a free-text input.
+const FIELD_KEYS = [...FIELDS.map((f) => f.key), 'type'];
 
 let seq = 0;
 export function makeId() {
@@ -78,9 +94,30 @@ export function normalizeEntry(raw) {
   return out;
 }
 
+// Type names are compared case-insensitively so "skin" and "Skin" can't become
+// two headings, but the casing that was typed first is the one kept.
+export const sameType = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+function dedupeTypes(names) {
+  const out = [];
+  names.forEach((raw) => {
+    const name = String(raw ?? '').trim();
+    if (name && !out.some((t) => sameType(t, name))) out.push(name);
+  });
+  return out;
+}
+
+/* The stored document.
+
+   Any type a record uses but the list has lost is appended rather than
+   silently swallowing that record into "No type" — the list decides the order
+   of the headings, but it never decides which records exist. */
 export function normalizeList(raw) {
-  const entries = Array.isArray(raw?.entries) ? raw.entries : Array.isArray(raw) ? raw : [];
-  return { entries: entries.map(normalizeEntry) };
+  const rawEntries = Array.isArray(raw?.entries) ? raw.entries : Array.isArray(raw) ? raw : [];
+  const entries = rawEntries.map(normalizeEntry);
+  const declared = Array.isArray(raw?.types) ? raw.types : [];
+  const used = entries.map((e) => e.type).filter(Boolean);
+  return { types: dedupeTypes([...declared, ...used]), entries };
 }
 
 // A row worth keeping. Somebody who recorded only "Levator spasm" still has a
@@ -89,17 +126,24 @@ export const hasContent = (e) => FIELD_KEYS.some((k) => e[k]);
 
 /* What a row is called. The doctor's name when there is one, otherwise the
    place, the issue, or the speciality — in that order, because that's the
-   descending order of how specifically each one identifies the row. */
-export function entryTitle(e) {
-  return e.doctor || e.place || e.issue || e.type || 'Untitled';
+   descending order of how specifically each one identifies the row.
+
+   `omit` is the heading the card already sits under. A card headed
+   "Gastroenterologist" inside a "Gastroenterologist" group says nothing twice,
+   so that candidate is skipped and the row admits what it really is: a
+   speciality nobody has been found for yet. */
+export function entryTitle(e, omit = '') {
+  const pick = [e.doctor, e.place, e.issue, e.type].find((c) => c && !sameType(c, omit));
+  return pick || 'No doctor recorded yet';
 }
 
-// The title already shows one of these; the subtitle shows the next one down
-// so a row titled by its issue doesn't repeat the issue underneath.
-export function entrySubtitle(e) {
-  const parts = [e.doctor ? e.type : '', e.doctor && e.place ? e.place : ''].filter(Boolean);
-  if (parts.length) return parts.join(' · ');
-  return e.doctor ? '' : [e.type, e.place].filter((p) => p && p !== entryTitle(e)).join(' · ');
+// Whatever identifies the row next, minus the bit already used as the title and
+// the bit already used as the group heading.
+export function entrySubtitle(e, omit = '') {
+  const title = entryTitle(e, omit);
+  return [e.place, e.type]
+    .filter((v) => v && v !== title && !sameType(v, omit))
+    .join(' · ');
 }
 
 /* The detail rows a card shows, in reading order.
@@ -110,8 +154,8 @@ export function entrySubtitle(e) {
    nothing but an issue are common in this list. */
 const DETAIL_ROWS = ['issue', 'currentMeds', 'previousMeds', 'cadence', 'notes'];
 
-export function cardRows(entry) {
-  const title = entryTitle(entry);
+export function cardRows(entry, omit = '') {
+  const title = entryTitle(entry, omit);
   return DETAIL_ROWS.filter((k) => entry[k] && !(k === 'issue' && entry.issue === title));
 }
 
@@ -124,26 +168,95 @@ export function matchesQuery(entry, query) {
   return q.split(/\s+/).every((term) => hay.includes(term));
 }
 
-// Alphabetical within a status group, by whatever the row is titled by, so the
-// list stays in a predictable order as rows are added and edited.
-const byTitle = (a, b) => entryTitle(a).localeCompare(entryTitle(b), undefined, { sensitivity: 'base' });
+/* The visible list, grouped under the type headings in the owner's order.
 
-/* The visible list, grouped for rendering.
+   Untyped rows come last under their own heading, and a group with nothing in
+   it doesn't render at all rather than leaving a bare heading behind. */
+export function groupByType(list, { query = '', status = 'all' } = {}) {
+  const { types, entries } = normalizeList(list);
+  const visible = entries.filter((e) =>
+    (status === 'all' || e.status === status) && matchesQuery(e, query));
 
-   Returns every status in STATUS_ORDER that has rows, so an empty group simply
-   doesn't render rather than leaving a bare heading behind. */
-export function groupByStatus(entries, { query = '', status = 'all' } = {}) {
-  const visible = entries
-    .filter((e) => (status === 'all' || e.status === status) && matchesQuery(e, query));
-  return STATUS_ORDER
-    .map((s) => ({ status: s, entries: visible.filter((e) => e.status === s).sort(byTitle) }))
-    .filter((g) => g.entries.length > 0);
+  const groups = types.map((type) => ({
+    type,
+    entries: visible
+      .filter((e) => sameType(e.type, type))
+      .sort((a, b) => entryTitle(a, type).localeCompare(entryTitle(b, type), undefined, { sensitivity: 'base' })),
+  }));
+
+  groups.push({
+    type: NO_TYPE,
+    entries: visible
+      .filter((e) => !e.type)
+      .sort((a, b) => entryTitle(a).localeCompare(entryTitle(b), undefined, { sensitivity: 'base' })),
+  });
+
+  return groups.filter((g) => g.entries.length > 0);
 }
 
 export function countByStatus(entries) {
   const counts = Object.fromEntries(STATUS_ORDER.map((s) => [s, 0]));
   entries.forEach((e) => { if (counts[e.status] != null) counts[e.status] += 1; });
   return counts;
+}
+
+// How many records a type is carrying — shown beside it in the type editor, and
+// used to warn before deleting a type that is in use.
+export const typeUsage = (entries, type) => entries.filter((e) => sameType(e.type, type)).length;
+
+// --- editing the type list -------------------------------------------------
+//
+// All of these take the whole document and hand back a new one, so a rename
+// that has to touch both the list and the records can't half-apply.
+
+export function addType(list, name) {
+  const l = normalizeList(list);
+  const clean = String(name ?? '').trim();
+  if (!clean || l.types.some((t) => sameType(t, clean))) return l;
+  return { ...l, types: [...l.types, clean] };
+}
+
+/* Rename a type, carrying every record using it.
+
+   Renaming onto a name that already exists merges the two, which is the only
+   sensible reading of it — the alternative is two headings spelled the same. */
+export function renameType(list, from, to) {
+  const l = normalizeList(list);
+  const clean = String(to ?? '').trim();
+  if (!clean || !l.types.some((t) => sameType(t, from))) return l;
+
+  const collides = l.types.some((t) => sameType(t, clean) && !sameType(t, from));
+  const types = collides
+    ? l.types.filter((t) => !sameType(t, from))
+    : l.types.map((t) => (sameType(t, from) ? clean : t));
+
+  return {
+    types,
+    entries: l.entries.map((e) => (sameType(e.type, from) ? { ...e, type: clean } : e)),
+  };
+}
+
+/* Drop a type. The records keep existing and fall into "No type" — deleting a
+   heading must never quietly delete somebody's medical history with it. */
+export function removeType(list, name) {
+  const l = normalizeList(list);
+  return {
+    types: l.types.filter((t) => !sameType(t, name)),
+    entries: l.entries.map((e) => (sameType(e.type, name) ? { ...e, type: NO_TYPE } : e)),
+  };
+}
+
+// Move a type up or down the running order. Off either end is a no-op, so the
+// buttons can stay live without the caller bounds-checking.
+export function moveType(list, name, delta) {
+  const l = normalizeList(list);
+  const from = l.types.findIndex((t) => sameType(t, name));
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= l.types.length) return l;
+  const types = [...l.types];
+  const [moved] = types.splice(from, 1);
+  types.splice(to, 0, moved);
+  return { ...l, types };
 }
 
 // --- links out -------------------------------------------------------------
@@ -195,6 +308,9 @@ export function linkLabel(link) {
    — silently "correcting" a drug name in someone's medical notes is not this
    file's business. */
 export function seedDoctors() {
+  // The speciality column in the order it was given, which is the order the
+  // headings run in until they're rearranged.
+  const types = ['Gastroenterologist', 'Skin', 'Colorectal', 'Primary Physician', 'Dentist', 'Ear'];
   const rows = [
     { type: 'Gastroenterologist', status: '-' },
     {
@@ -255,5 +371,5 @@ export function seedDoctors() {
     { status: 'Resolved', issue: 'Levator spasm' },
   ];
   // Fixed ids so a re-seed can't produce a second copy of the same row.
-  return normalizeList({ entries: rows.map((r, i) => ({ ...r, id: `seed-${i + 1}` })) });
+  return normalizeList({ types, entries: rows.map((r, i) => ({ ...r, id: `seed-${i + 1}` })) });
 }

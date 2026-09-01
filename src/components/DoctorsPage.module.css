@@ -69,3 +69,23 @@
   .toolbar .btnPrimary { width: 100%; }
   .row { grid-template-columns: 5.5rem 1fr; }
 }
+
+/* Status badge — the page groups by type now, so "being treated" has to travel
+   on the card itself rather than in a heading. */
+.cardTools { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+.badge, .badgeLive { padding: 0.15rem 0.45rem; border-radius: var(--radius-full); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.badge { background: var(--color-surface-alt); color: var(--color-text-muted); }
+.badgeLive { background: var(--color-warning-light); color: #92400e; }
+
+/* Type editor */
+.typeHead { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.typeList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.75rem 0; list-style: none; padding: 0; }
+.typeRow { display: flex; align-items: center; gap: 0.35rem; }
+.typeRow .input { flex: 1; min-width: 0; }
+.typeCount { min-width: 1.6rem; text-align: center; font-size: 0.72rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.iconBtn { width: 28px; height: 28px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-family: inherit; font-size: 0.9rem; line-height: 1; cursor: pointer; }
+.iconBtn:hover:not(:disabled) { background: var(--color-surface-alt); color: var(--color-text); }
+.iconBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+.iconBtnDanger:hover:not(:disabled) { background: var(--color-danger-light); border-color: var(--color-danger-light); color: var(--color-danger); }
+.typeAdd { display: flex; gap: 0.5rem; }
+.typeAdd .input { flex: 1; min-width: 0; }

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  STATUS, parseStatus, normalizeEntry, normalizeList, hasContent, entryTitle,
-  matchesQuery, groupByStatus, countByStatus, cardRows, telHref, mailHref, mapHref,
-  safeLink, linkLabel, seedDoctors,
+  STATUS, NO_TYPE, parseStatus, normalizeEntry, normalizeList, hasContent, entryTitle,
+  entrySubtitle, matchesQuery, groupByType, countByStatus, cardRows, typeUsage,
+  addType, renameType, removeType, moveType, sameType, showsStatusBadge,
+  telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
 } from './doctors';
 
 const entry = (o) => normalizeEntry(o);
@@ -116,40 +117,6 @@ describe('matchesQuery', () => {
   });
 });
 
-describe('groupByStatus', () => {
-  const entries = [
-    entry({ issue: 'Neck sprain', status: 'Resolved' }),
-    entry({ issue: 'Plantar fasciitis (right foot)', status: 'Being Treated' }),
-    entry({ type: 'Gastroenterologist', status: '-' }),
-    entry({ doctor: 'Aaron Adams', status: 'Resolved' }),
-  ];
-
-  it('runs live issues first, then ongoing care, then history', () => {
-    expect(groupByStatus(entries).map((g) => g.status))
-      .toEqual([STATUS.TREATING, STATUS.NONE, STATUS.RESOLVED]);
-  });
-
-  it('sorts alphabetically inside a group by whatever titles the row', () => {
-    const resolved = groupByStatus(entries).find((g) => g.status === STATUS.RESOLVED);
-    expect(resolved.entries.map(entryTitle)).toEqual(['Aaron Adams', 'Neck sprain']);
-  });
-
-  it('leaves out a group with nothing in it rather than a bare heading', () => {
-    expect(groupByStatus(entries, { query: 'plantar' }).map((g) => g.status))
-      .toEqual([STATUS.TREATING]);
-  });
-
-  it('narrows to one status without disturbing the order of the rest', () => {
-    const groups = groupByStatus(entries, { status: STATUS.RESOLVED });
-    expect(groups).toHaveLength(1);
-    expect(groups[0].entries).toHaveLength(2);
-  });
-
-  it('applies the search and the status filter together', () => {
-    expect(groupByStatus(entries, { status: STATUS.RESOLVED, query: 'gastro' })).toEqual([]);
-  });
-});
-
 describe('countByStatus', () => {
   it('counts each status, including the empty ones', () => {
     const counts = countByStatus([entry({ issue: 'a', status: 'Resolved' }), entry({ issue: 'b' })]);
@@ -228,5 +195,172 @@ describe('seedDoctors', () => {
   it('leaves medication spellings exactly as they were written down', () => {
     const sanjay = entries.find((e) => e.doctor === 'Sanjay Jobanputra');
     expect(sanjay.currentMeds).toBe('Diltiazem 2% Lidocaine 5% (Metamusicil too)');
+  });
+});
+
+describe('normalizeList types', () => {
+  it('keeps the declared order of the headings', () => {
+    const l = normalizeList({ types: ['Skin', 'Ear'], entries: [] });
+    expect(l.types).toEqual(['Skin', 'Ear']);
+  });
+
+  it('folds a type spelled with different capitals into one heading', () => {
+    expect(normalizeList({ types: ['Skin', 'skin', ' SKIN '], entries: [] }).types).toEqual(['Skin']);
+  });
+
+  it('rescues a type a record uses that the list has lost', () => {
+    const l = normalizeList({ types: ['Skin'], entries: [{ type: 'Ear' }] });
+    expect(l.types).toEqual(['Skin', 'Ear']);
+  });
+
+  it('survives a document with no types at all', () => {
+    expect(normalizeList({ entries: [{ issue: 'x' }] }).types).toEqual([]);
+  });
+});
+
+describe('groupByType', () => {
+  const list = {
+    types: ['Skin', 'Ear'],
+    entries: [
+      { id: '1', doctor: 'Zoe Skin', type: 'Skin', status: 'Resolved' },
+      { id: '2', doctor: 'Adam Skin', type: 'skin', status: '-' },
+      { id: '3', doctor: 'Ken Ear', type: 'Ear', status: 'Being Treated' },
+      { id: '4', issue: 'Neck sprain', status: 'Resolved' },
+    ],
+  };
+
+  it('runs the headings in the stored order, untyped last', () => {
+    expect(groupByType(list).map((g) => g.type)).toEqual(['Skin', 'Ear', NO_TYPE]);
+  });
+
+  it('gathers a type spelled with different capitals under one heading', () => {
+    const skin = groupByType(list).find((g) => g.type === 'Skin');
+    expect(skin.entries).toHaveLength(2);
+  });
+
+  it('sorts alphabetically inside a heading', () => {
+    const skin = groupByType(list).find((g) => g.type === 'Skin');
+    expect(skin.entries.map((e) => e.doctor)).toEqual(['Adam Skin', 'Zoe Skin']);
+  });
+
+  it('drops a heading nothing is left under rather than showing it empty', () => {
+    expect(groupByType(list, { query: 'neck' }).map((g) => g.type)).toEqual([NO_TYPE]);
+  });
+
+  it('filters by status across every heading at once', () => {
+    const groups = groupByType(list, { status: STATUS.RESOLVED });
+    expect(groups.map((g) => g.type)).toEqual(['Skin', NO_TYPE]);
+  });
+
+  it('reads a bare array of entries, from before types existed', () => {
+    expect(groupByType([{ id: 'a', issue: 'Neck sprain' }]).map((g) => g.type)).toEqual([NO_TYPE]);
+  });
+});
+
+describe('a card under its own type heading', () => {
+  const gastro = normalizeEntry({ type: 'Gastroenterologist' });
+
+  it('does not repeat the heading as its title', () => {
+    expect(entryTitle(gastro, 'Gastroenterologist')).toBe('No doctor recorded yet');
+  });
+
+  it('still uses the type as a title away from that heading', () => {
+    expect(entryTitle(gastro)).toBe('Gastroenterologist');
+  });
+
+  it('leaves the type out of the subtitle under its own heading', () => {
+    const e = normalizeEntry({ doctor: 'Dr. Kim', type: 'Ear', place: 'Union Sq' });
+    expect(entrySubtitle(e, 'Ear')).toBe('Union Sq');
+    expect(entrySubtitle(e)).toBe('Union Sq · Ear');
+  });
+
+  it('keeps the issue as the title when the heading took the type', () => {
+    const e = normalizeEntry({ type: 'Ear', issue: 'Eczema' });
+    expect(entryTitle(e, 'Ear')).toBe('Eczema');
+    expect(cardRows(e, 'Ear')).toEqual([]);
+  });
+});
+
+describe('editing the type list', () => {
+  const base = () => normalizeList({
+    types: ['Skin', 'Ear', 'Dentist'],
+    entries: [{ id: '1', doctor: 'A', type: 'Skin' }, { id: '2', doctor: 'B', type: 'Ear' }],
+  });
+
+  it('adds a type', () => {
+    expect(addType(base(), 'Cardiology').types).toEqual(['Skin', 'Ear', 'Dentist', 'Cardiology']);
+  });
+
+  it('refuses a blank or duplicate type', () => {
+    expect(addType(base(), '   ').types).toHaveLength(3);
+    expect(addType(base(), 'skin').types).toHaveLength(3);
+  });
+
+  it('renames a type and carries its records along', () => {
+    const l = renameType(base(), 'Skin', 'Dermatology');
+    expect(l.types).toEqual(['Dermatology', 'Ear', 'Dentist']);
+    expect(l.entries.find((e) => e.id === '1').type).toBe('Dermatology');
+  });
+
+  it('merges when renamed onto a type that already exists', () => {
+    const l = renameType(base(), 'Skin', 'Ear');
+    expect(l.types).toEqual(['Ear', 'Dentist']);
+    expect(l.entries.every((e) => e.type === 'Ear')).toBe(true);
+  });
+
+  it('ignores a rename to nothing, or of a type that is not there', () => {
+    expect(renameType(base(), 'Skin', '  ').types).toEqual(['Skin', 'Ear', 'Dentist']);
+    expect(renameType(base(), 'Nope', 'X').types).toEqual(['Skin', 'Ear', 'Dentist']);
+  });
+
+  it('deleting a type keeps its records and drops them into No type', () => {
+    const l = removeType(base(), 'Skin');
+    expect(l.types).toEqual(['Ear', 'Dentist']);
+    expect(l.entries).toHaveLength(2);
+    expect(l.entries.find((e) => e.id === '1').type).toBe(NO_TYPE);
+  });
+
+  it('reorders a type, and does nothing at either end', () => {
+    expect(moveType(base(), 'Ear', -1).types).toEqual(['Ear', 'Skin', 'Dentist']);
+    expect(moveType(base(), 'Ear', 1).types).toEqual(['Skin', 'Dentist', 'Ear']);
+    expect(moveType(base(), 'Skin', -1).types).toEqual(['Skin', 'Ear', 'Dentist']);
+    expect(moveType(base(), 'Dentist', 1).types).toEqual(['Skin', 'Ear', 'Dentist']);
+  });
+
+  it('counts what each type is carrying', () => {
+    const { entries } = base();
+    expect(typeUsage(entries, 'Skin')).toBe(1);
+    expect(typeUsage(entries, 'Dentist')).toBe(0);
+  });
+
+  it('compares type names case- and space-insensitively', () => {
+    expect(sameType(' SKIN ', 'skin')).toBe(true);
+    expect(sameType('Skin', 'Ear')).toBe(false);
+  });
+});
+
+describe('showsStatusBadge', () => {
+  it('badges only what is news', () => {
+    expect(showsStatusBadge(STATUS.TREATING)).toBe(true);
+    expect(showsStatusBadge(STATUS.RESOLVED)).toBe(true);
+    expect(showsStatusBadge(STATUS.NONE)).toBe(false);
+  });
+});
+
+describe('seeded types', () => {
+  it('seeds the speciality column in the order it was given', () => {
+    expect(seedDoctors().types)
+      .toEqual(['Gastroenterologist', 'Skin', 'Colorectal', 'Primary Physician', 'Dentist', 'Ear']);
+  });
+
+  it('puts the untyped complaints last, under their own heading', () => {
+    const groups = groupByType(seedDoctors());
+    expect(groups[groups.length - 1].type).toBe(NO_TYPE);
+    expect(groups[groups.length - 1].entries).toHaveLength(4);
+  });
+
+  it('files both skin records under the one Skin heading', () => {
+    const skin = groupByType(seedDoctors()).find((g) => g.type === 'Skin');
+    expect(skin.entries.map((e) => e.doctor)).toEqual(['Dr. Annemarie Uliasz, MD', 'Sochulak, Stephen']);
   });
 });
