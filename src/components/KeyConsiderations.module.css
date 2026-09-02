@@ -1,0 +1,185 @@
+.container {
+  padding: 1rem 0;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  max-width: 46ch;
+}
+
+.addBtn {
+  flex-shrink: 0;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 0.5rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.addBtn:hover { background: var(--color-accent-hover); }
+.addBtn:disabled { opacity: 0.55; cursor: default; }
+
+.empty {
+  margin: 0;
+  padding: 1.5rem 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+/* The two columns are equal because neither is the subordinate one — the whole
+   point of the tab is that a want without a plan is only half an entry. The
+   third track is the remove button. */
+.headRow,
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2rem;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.headRow {
+  padding: 0.55rem 0.7rem;
+  background: var(--color-surface-alt, #f1f5f9);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.headCell {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.row {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--color-border-light, var(--color-border));
+}
+.row:last-child { border-bottom: none; }
+
+/* Borderless until you touch it: a grid of outlined boxes reads as a form to
+   fill in, and this is a list you add to a line at a time. */
+.cell {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 2.6rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+.cell::placeholder { color: var(--color-text-muted); opacity: 0.75; }
+.cell:hover { border-color: var(--color-border); }
+.cell:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.readCell {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+
+/* A want with no plan beside it is the thing this tab exists to surface, so it
+   is marked rather than left as blank space you skim past. */
+.unanswered {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.removeBtn {
+  align-self: center;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.3rem;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.row:hover .removeBtn,
+.removeBtn:focus-visible { opacity: 1; }
+.removeBtn:hover {
+  color: var(--color-danger, #c0392b);
+  background: var(--color-surface-alt, #f1f5f9);
+}
+
+.field {
+  min-width: 0;
+}
+
+/* Off on desktop, where the column headings say this once for the whole table
+   instead of once per row. */
+.cellLabel {
+  display: none;
+}
+
+/* One column per line on a phone: two 1fr tracks in ~340px gives each sentence
+   about 20 characters, which is unreadable for both halves at once. Stacking
+   costs the column headings, so each cell grows its own label — without them a
+   filled row is two sentences with nothing saying which is the want and which
+   is the plan. */
+@media (max-width: 640px) {
+  .headRow { display: none; }
+  .row {
+    grid-template-columns: 1fr 2rem;
+    grid-template-areas: 'want remove' 'action remove';
+    row-gap: 0.5rem;
+    padding: 0.7rem;
+  }
+  .row > *:nth-child(1) { grid-area: want; }
+  .row > *:nth-child(2) { grid-area: action; }
+  .row > *:nth-child(3) { grid-area: remove; }
+  .removeBtn { opacity: 1; align-self: start; }
+  .cellLabel {
+    display: block;
+    padding-left: 0.5rem;
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-muted);
+  }
+}

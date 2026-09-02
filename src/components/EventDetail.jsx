@@ -25,6 +25,7 @@ import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
+import { KeyConsiderations } from './KeyConsiderations';
 import { EventExpenses } from './EventExpenses';
 import { BoatDay, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
 import { boatRosterUnion, dateKeyOf } from '../boatDays';
@@ -1601,6 +1602,7 @@ export function EventDetail() {
     { key: 'itinerary', label: 'Itinerary' },
     ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
+    { key: 'considerations', label: 'Key Considerations' },
     { key: 'notes', label: 'Notes' },
     { key: 'expenses', label: 'Expenses' },
     { key: 'chat', label: 'Chat' },
@@ -3647,6 +3649,15 @@ export function EventDetail() {
           viewerId={user?.uid}
           viewerName={event.members?.[user?.uid]?.name || user?.displayName || 'You'}
           isOwner={isOwner}
+        />
+      )}
+
+      {activeTab === 'considerations' && (
+        <KeyConsiderations
+          event={event}
+          currentUser={user}
+          canManageAll={isOwner || event.members?.[user?.uid]?.role === 'editor'}
+          onSave={async (data) => { await updateEvent(eventId, data); }}
         />
       )}
 
