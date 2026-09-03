@@ -47,6 +47,9 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
   const [editRangeLabel, setEditRangeLabel] = useState('');
   const [editRangeStart, setEditRangeStart] = useState('');
   const [editRangeEnd, setEditRangeEnd] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState(null); // dateOption whose note is being edited
+  const [noteDraft, setNoteDraft] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   // Get a valid access token, refreshing via refresh-token if expired
   async function getValidGoogleToken() {
@@ -336,6 +339,33 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
 
   async function handleDelete(optionId) {
     await deleteDoc(doc(db, entityType, entityId, 'dateOptions', optionId));
+  }
+
+  // Per-date notes, shown as a pill beside each date in Selected Dates. The
+  // person who suggested the date can annotate it, and organizers can annotate
+  // any of them.
+  function canEditNote(opt) {
+    return !!user && (canManage || opt.suggestedBy === user.uid);
+  }
+
+  function beginNoteEdit(opt) {
+    setEditingNoteId(opt.id);
+    setNoteDraft(opt.note || '');
+  }
+
+  function cancelNoteEdit() {
+    setEditingNoteId(null);
+    setNoteDraft('');
+  }
+
+  async function saveOptionNote(optionId) {
+    setSavingNote(true);
+    try {
+      await updateDoc(doc(db, entityType, entityId, 'dateOptions', optionId), { note: noteDraft.trim() });
+    } finally {
+      setSavingNote(false);
+      cancelNoteEdit();
+    }
   }
 
   async function handleTopPick(optionId) {
@@ -823,9 +853,41 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                     {isReference && opt.note && (
                       <div className={styles.refName}>{opt.note}</div>
                     )}
-                    {isRange
-                      ? <span className={styles.dateRange}>{format(start, 'MMM d')} – {format(end, 'MMM d, yyyy')} <span className={styles.dayCount}>{dayCount} days</span></span>
-                      : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
+                    <div className={styles.dateLine}>
+                      {isRange
+                        ? <span className={styles.dateRange}>{format(start, 'MMM d')} – {format(end, 'MMM d, yyyy')} <span className={styles.dayCount}>{dayCount} days</span></span>
+                        : <span className={styles.singleDate}>{format(start, 'EEEE, MMM d, yyyy')}</span>}
+                      {!isReference && (
+                        editingNoteId === opt.id ? (
+                          <span className={styles.notePillEdit}>
+                            <input
+                              className={styles.notePillInput}
+                              value={noteDraft}
+                              autoFocus
+                              placeholder="Add a note"
+                              onChange={e => setNoteDraft(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); saveOptionNote(opt.id); }
+                                if (e.key === 'Escape') cancelNoteEdit();
+                              }}
+                            />
+                            <button className={styles.notePillSave} onClick={() => saveOptionNote(opt.id)} disabled={savingNote} title="Save note">✓</button>
+                            <button className={styles.notePillCancel} onClick={cancelNoteEdit} title="Cancel">×</button>
+                          </span>
+                        ) : opt.note ? (
+                          <button
+                            className={styles.notePill}
+                            onClick={() => canEditNote(opt) && beginNoteEdit(opt)}
+                            disabled={!canEditNote(opt)}
+                            title={canEditNote(opt) ? 'Edit note' : opt.note}
+                          >
+                            <span className={styles.notePillIcon}>🏷</span>{opt.note}
+                          </button>
+                        ) : canEditNote(opt) ? (
+                          <button className={styles.notePillAdd} onClick={() => beginNoteEdit(opt)} title="Add a note">+ Note</button>
+                        ) : null
+                      )}
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                     {isFinalized && canManage && !isReference && onEditDate && (
@@ -853,7 +915,6 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                     )}
                   </div>
                 </div>
-                {!isReference && opt.note && <p className={styles.note}>{opt.note}</p>}
                 <p className={styles.suggestedBy}>{isReference ? 'Added' : 'Suggested'} by {opt.suggestedByName}</p>
 
                 {!isReference && (

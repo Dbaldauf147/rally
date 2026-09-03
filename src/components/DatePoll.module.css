@@ -146,7 +146,18 @@
 .singleDate { font-size: 1rem; font-weight: 600; color: var(--color-text); }
 .deleteBtn { background: none; border: none; color: var(--color-text-muted); font-size: 1.2rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; }
 .deleteBtn:hover { color: var(--color-danger); }
-.note { font-size: 0.82rem; color: var(--color-text-secondary); margin: 0.25rem 0; font-style: italic; }
+.dateLine { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.notePill { display: inline-flex; align-items: center; gap: 0.25rem; max-width: 100%; padding: 0.12rem 0.55rem; border-radius: var(--radius-full); border: 1px solid var(--color-border); background: var(--color-surface-alt); color: var(--color-text-secondary); font-size: 0.72rem; font-weight: 500; line-height: 1.5; font-family: inherit; text-align: left; cursor: pointer; transition: all 0.15s; }
+.notePill:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
+.notePill:disabled { cursor: default; }
+.notePillIcon { flex-shrink: 0; }
+.notePillAdd { composes: notePill; background: none; border-style: dashed; color: var(--color-text-muted); }
+.notePillEdit { display: inline-flex; align-items: center; gap: 0.15rem; }
+.notePillInput { min-width: 8rem; padding: 0.12rem 0.55rem; border: 1px solid var(--color-accent); border-radius: var(--radius-full); background: var(--color-surface); color: var(--color-text); font-size: 0.72rem; font-family: inherit; outline: none; }
+.notePillSave, .notePillCancel { border: none; background: none; padding: 0 0.15rem; font-size: 0.85rem; line-height: 1; font-family: inherit; cursor: pointer; }
+.notePillSave { color: var(--color-success); }
+.notePillSave:disabled { opacity: 0.5; cursor: default; }
+.notePillCancel { color: var(--color-text-muted); }
 .suggestedBy { font-size: 0.72rem; color: var(--color-text-muted); margin: 0 0 0.5rem; }
 
 .voteRow { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
