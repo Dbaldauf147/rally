@@ -24,6 +24,27 @@
   max-width: 46ch;
 }
 
+.headerActions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* Quiet by design: it answers "did that save?" without being a thing you have
+   to read on every keystroke. */
+.status {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.statusError {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-danger, #c0392b);
+  white-space: nowrap;
+}
+
 .addBtn {
   flex-shrink: 0;
   background: var(--color-accent);
