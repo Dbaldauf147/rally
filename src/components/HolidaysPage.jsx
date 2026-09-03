@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './HolidaysPage.module.css';
+import { DateField } from './DateField';
 
 const HOLIDAY_YEAR = 2026;
 
@@ -219,9 +220,8 @@ export function HolidaysPage() {
                   </td>
                   <td>
                     <div className={styles.dateCell}>
-                      <input
+                      <DateField
                         className={styles.dateInput}
-                        type="date"
                         value={h.date}
                         onChange={(e) => update(h.id, { date: e.target.value })}
                       />
@@ -263,9 +263,8 @@ export function HolidaysPage() {
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
             placeholder="Name"
           />
-          <input
+          <DateField
             className={styles.addDate}
-            type="date"
             value={draft.date}
             onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
           />

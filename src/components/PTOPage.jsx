@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { isGoogleCalendarConnected, connectGoogleCalendar, fetchGoogleCalendarEvents } from '../googleCalendar';
 import styles from './PTOPage.module.css';
+import { DateField } from './DateField';
 
 const STORAGE_KEY = 'rally.pto.v1';
 const COLS_KEY = 'rally.pto.cols.v1';
@@ -454,9 +455,9 @@ export function PTOPage() {
       case 'rallyName':
         return <td key="rallyName"><input className={styles.tdName} value={e.rallyName || ''} onChange={(ev) => updateEntry(e.id, { rallyName: ev.target.value })} placeholder="Rally name…" /></td>;
       case 'start':
-        return <td key="start" className={styles.colDate}><input className={styles.tdDate} type="date" value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} /></td>;
+        return <td key="start" className={styles.colDate}><DateField className={styles.tdDate} value={e.start} onChange={(ev) => updateEntry(e.id, { start: ev.target.value })} /></td>;
       case 'end':
-        return <td key="end" className={styles.colDate}><input className={styles.tdDate} type="date" value={e.end} onChange={(ev) => updateEntry(e.id, { end: ev.target.value })} /></td>;
+        return <td key="end" className={styles.colDate}><DateField className={styles.tdDate} value={e.end} onChange={(ev) => updateEntry(e.id, { end: ev.target.value })} /></td>;
       case 'days':
         return (
           <td key="days" className={styles.colDays}>
@@ -599,8 +600,8 @@ export function PTOPage() {
               <td className={styles.rowHead}>Window</td>
               {computed.map(({ y }) => (
                 <td key={y.year} className={styles.windowCell}>
-                  <input className={styles.windowInput} type="date" value={y.start} onChange={(e) => updateYear(y.year, { start: e.target.value })} />
-                  <input className={styles.windowInput} type="date" value={y.end} onChange={(e) => updateYear(y.year, { end: e.target.value })} />
+                  <DateField className={styles.windowInput} value={y.start} onChange={(e) => updateYear(y.year, { start: e.target.value })} />
+                  <DateField className={styles.windowInput} value={y.end} onChange={(e) => updateYear(y.year, { end: e.target.value })} />
                 </td>
               ))}
               <td />
@@ -640,9 +641,9 @@ export function PTOPage() {
           <option value="google">Google</option>
           <option value="manual">Manual</option>
         </select>
-        <input className={styles.filterDate} type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} title="From" />
+        <DateField className={styles.filterDate} value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} title="From" />
         <span className={styles.dash}>–</span>
-        <input className={styles.filterDate} type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} title="To" />
+        <DateField className={styles.filterDate} value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} title="To" />
         {filtersActive && (
           <button className={styles.clearFilters} onClick={() => setFilters({ q: '', year: 'all', source: 'all', from: '', to: '' })}>Clear</button>
         )}
@@ -724,11 +725,11 @@ export function PTOPage() {
           />
           <label className={styles.addField}>
             <span className={styles.addFieldLbl}>Start</span>
-            <input className={styles.addInput} type="date" value={draft.start} onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))} />
+            <DateField className={styles.addInput} value={draft.start} onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))} />
           </label>
           <label className={styles.addField}>
             <span className={styles.addFieldLbl}>End</span>
-            <input className={styles.addInput} type="date" value={draft.end} onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))} />
+            <DateField className={styles.addInput} value={draft.end} onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))} />
           </label>
           <label className={styles.addField}>
             <span className={styles.addFieldLbl}>Days{draft.days === '' && suggestedDays > 0 ? ` (≈${suggestedDays})` : ''}</span>

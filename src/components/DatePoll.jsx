@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { format, eachDayOfInterval, startOfMonth, endOfMonth, getDay, addMonths, subMonths, isSameDay } from 'date-fns';
 import { getHolidayMap } from '../holidays';
 import styles from './DatePoll.module.css';
+import { DateField } from './DateField';
 
 function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -1053,14 +1054,12 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                             className={styles.altRangeInput}
                           />
                           <div className={styles.altRangeFormRow}>
-                            <input
-                              type="date"
+                            <DateField
                               value={editRangeStart}
                               onChange={e => setEditRangeStart(e.target.value)}
                               className={styles.altRangeDateInput}
                             />
-                            <input
-                              type="date"
+                            <DateField
                               value={editRangeEnd}
                               min={editRangeStart}
                               onChange={e => setEditRangeEnd(e.target.value)}
@@ -1117,14 +1116,12 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
                   className={styles.altRangeInput}
                 />
                 <div className={styles.altRangeFormRow}>
-                  <input
-                    type="date"
+                  <DateField
                     value={newRangeStart}
                     onChange={e => setNewRangeStart(e.target.value)}
                     className={styles.altRangeDateInput}
                   />
-                  <input
-                    type="date"
+                  <DateField
                     value={newRangeEnd}
                     min={newRangeStart}
                     onChange={e => setNewRangeEnd(e.target.value)}

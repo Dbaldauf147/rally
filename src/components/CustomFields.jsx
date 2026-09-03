@@ -7,6 +7,7 @@
 
 import React, { useState } from 'react';
 import styles from './FriendsPage.module.css';
+import { DateField } from './DateField';
 import {
   CUSTOM_FIELD_TYPES, newFieldId, parseOptionList, optionListText,
   customFieldValues,
@@ -64,9 +65,8 @@ export function CustomFieldInput({ field, value, onChange }) {
     );
   } else if (field.type === 'date') {
     control = (
-      <input
+      <DateField
         className={styles.input}
-        type="date"
         value={value ?? ''}
         onChange={e => onChange(e.target.value)}
       />

@@ -8,6 +8,7 @@ import {
   eachDayOfInterval, addMonths, isSameMonth, isSameDay, parseISO, isBefore, differenceInCalendarDays,
 } from 'date-fns';
 import styles from './VotingPage.module.css';
+import { DateField } from './DateField';
 
 const STATES = [
   ['AL', 'Alabama'], ['AK', 'Alaska'], ['AZ', 'Arizona'], ['AR', 'Arkansas'], ['CA', 'California'],
@@ -335,7 +336,7 @@ export function VotingPage() {
           <div className={styles.sideCard}>
             <div className={styles.sideTitle}>Add a voting date</div>
             <div className={styles.addForm}>
-              <input className={styles.input} type="date" value={draft.date} onChange={e => setDraft(d => ({ ...d, date: e.target.value }))} />
+              <DateField className={styles.input} value={draft.date} onChange={e => setDraft(d => ({ ...d, date: e.target.value }))} />
               <select className={styles.input} value={draft.type} onChange={e => setDraft(d => ({ ...d, type: e.target.value }))}>
                 {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
               </select>

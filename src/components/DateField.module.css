@@ -1,0 +1,118 @@
+/* The closed field. Kept deliberately thin: every call site passes its own
+   class for width, padding and border, and this must not fight it. */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  box-sizing: border-box;
+  text-align: left;
+  font: inherit;
+  font-size: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  cursor: pointer;
+  min-width: 0;
+}
+.trigger:disabled { opacity: 0.55; cursor: default; }
+.trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.triggerValue { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.triggerPlaceholder { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.triggerIcon { flex-shrink: 0; font-size: 0.85em; line-height: 1; opacity: 0.75; }
+
+/* The popup itself — portalled to <body>, so it needs its own stacking. */
+.popup {
+  position: fixed;
+  z-index: 3000;
+  box-sizing: border-box;
+  /* Never taller than the screen — the placement maths trusts this. */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 0.6rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg, 0 10px 30px rgba(0, 0, 0, 0.18));
+  font-family: inherit;
+}
+
+.typeRow { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.5rem; }
+.typeLabel {
+  font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--color-text-muted);
+}
+.typeInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg, var(--color-surface));
+  color: var(--color-text);
+  font-size: 0.88rem;
+  font-family: inherit;
+  outline: none;
+}
+.typeInput:focus { border-color: var(--color-accent); }
+.typeInputBad { border-color: var(--color-danger); }
+.typeHint { font-size: 0.66rem; color: var(--color-text-muted); min-height: 0.95rem; }
+.typeHintBad { font-size: 0.66rem; color: var(--color-danger); min-height: 0.95rem; }
+
+.calHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.4rem; margin-bottom: 0.25rem; padding-top: 0.35rem;
+  border-top: 1px solid var(--color-border-light, var(--color-border));
+}
+.calMonth { font-size: 0.82rem; font-weight: 600; color: var(--color-text); }
+.calNav {
+  width: 26px; height: 26px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border); border-radius: 50%;
+  background: var(--color-surface); color: var(--color-text-secondary);
+  font-size: 0.95rem; font-family: inherit; cursor: pointer;
+}
+.calNav:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
+.calGrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.calDayLabel {
+  text-align: center; padding: 0.2rem 0;
+  font-size: 0.6rem; font-weight: 600; text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.calDay {
+  width: 100%; aspect-ratio: 1;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%;
+  background: none; color: var(--color-text);
+  font-size: 0.76rem; font-weight: 500; font-family: inherit;
+  cursor: pointer; transition: all 0.1s;
+}
+.calDay:hover:not(:disabled) { background: var(--color-accent-light); color: var(--color-accent); }
+.calDay:disabled { opacity: 0.3; cursor: default; }
+.calDayOther { color: var(--color-text-muted); opacity: 0.45; }
+.calDayToday { font-weight: 700; box-shadow: inset 0 0 0 2px var(--color-accent); color: var(--color-accent); }
+.calDayTyped { box-shadow: inset 0 0 0 2px var(--color-accent); }
+.calDaySelected {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+
+.popupFooter {
+  display: flex; align-items: center; gap: 0.4rem;
+  margin-top: 0.45rem; padding-top: 0.45rem;
+  border-top: 1px solid var(--color-border-light, var(--color-border));
+}
+.footerBtn, .footerBtnMuted {
+  padding: 0.28rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  font-size: 0.72rem; font-weight: 600; font-family: inherit;
+  cursor: pointer;
+}
+.footerBtn { color: var(--color-accent); }
+.footerBtn:hover:not(:disabled) { border-color: var(--color-accent); }
+.footerBtn:disabled { opacity: 0.4; cursor: default; }
+.footerBtnMuted { margin-left: auto; color: var(--color-text-muted); }
+.footerBtnMuted:hover { color: var(--color-danger); border-color: var(--color-danger); }

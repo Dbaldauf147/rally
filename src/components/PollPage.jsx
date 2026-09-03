@@ -9,6 +9,7 @@ import { WEB_ORIGIN } from '../native';
 import { format, eachDayOfInterval } from 'date-fns';
 import { formatWhen } from '../lib/eventTime';
 import styles from './PollPage.module.css';
+import { DateField } from './DateField';
 
 class PollPageErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -643,8 +644,7 @@ function PollPageInner() {
                       <div>
                         <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: '0.2rem' }}>Add dates</label>
                         <div style={{ display: 'flex', gap: '0.4rem' }}>
-                          <input
-                            type="date"
+                          <DateField
                             value={singlePickerValue}
                             onChange={e => setSinglePickerValue(e.target.value)}
                             style={{ flex: 1, padding: '0.5rem', border: '1px solid #e5e5e5', borderRadius: '8px', fontSize: '0.88rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
@@ -679,8 +679,7 @@ function PollPageInner() {
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <div style={{ flex: 1 }}>
                         <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: '0.2rem' }}>Start Date</label>
-                        <input
-                          type="date"
+                        <DateField
                           value={suggestStart}
                           onChange={e => setSuggestStart(e.target.value)}
                           style={{ width: '100%', padding: '0.5rem', border: '1px solid #e5e5e5', borderRadius: '8px', fontSize: '0.88rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
@@ -688,8 +687,7 @@ function PollPageInner() {
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: '0.2rem' }}>End Date</label>
-                        <input
-                          type="date"
+                        <DateField
                           value={suggestEnd}
                           min={suggestStart}
                           onChange={e => setSuggestEnd(e.target.value)}

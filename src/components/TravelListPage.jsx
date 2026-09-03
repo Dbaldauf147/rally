@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import { JetLagChecklist } from './JetLagChecklist';
 import styles from './TravelListPage.module.css';
+import { DateField } from './DateField';
 
 // Default master checklist. Editable copies are stored per-user in Firestore;
 // this only seeds a brand-new list (or a "Reset to defaults").
@@ -1062,18 +1063,16 @@ export function TravelListPage() {
         )}
         <label className={styles.metaField}>
           <span className={styles.metaLabel}>Leave date</span>
-          <input
+          <DateField
             className={styles.metaInput}
-            type="date"
             value={list.meta.leaveDate}
             onChange={(e) => setMeta({ leaveDate: e.target.value, eventId: '' })}
           />
         </label>
         <label className={styles.metaField}>
           <span className={styles.metaLabel}>Return date</span>
-          <input
+          <DateField
             className={styles.metaInput}
-            type="date"
             value={list.meta.returnDate}
             onChange={(e) => setMeta({ returnDate: e.target.value, eventId: '' })}
           />

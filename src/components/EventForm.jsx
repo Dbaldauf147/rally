@@ -9,6 +9,7 @@ import {
   recurrenceFromDate,
 } from '../lib/recurrence';
 import styles from './EventForm.module.css';
+import { DateField } from './DateField';
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -65,6 +66,10 @@ export function EventForm({ event, onSave, onCancel }) {
   });
   const togglePlanning = (key) => setPlanning(p => ({ ...p, [key]: !p[key] }));
 
+  // The date field is our own control, so there is no native "required" bubble
+  // to lean on. Submitting without a start date says so in the form instead.
+  const [dateMissing, setDateMissing] = useState(false);
+
   // --- Yearly repeat. The rule is seeded from whatever start date is in the
   // form and keeps tracking it until the user edits the rule themselves, so
   // picking a date first and ticking "repeats" second does the obvious thing.
@@ -82,6 +87,7 @@ export function EventForm({ event, onSave, onCancel }) {
 
   function handleStartDayChange(value) {
     setStartDay(value);
+    if (value) setDateMissing(false);
     // Untouched rules follow the start date; a hand-edited rule is left alone.
     if (ruleTouched) return;
     const d = combine(value, startTime);
@@ -129,7 +135,8 @@ export function EventForm({ event, onSave, onCancel }) {
     e.preventDefault();
     if (!title.trim()) return;
     const start = dateTBD ? null : startAsDate();
-    if (!dateTBD && !start) return;
+    if (!dateTBD && !start) { setDateMissing(true); return; }
+    setDateMissing(false);
     const data = {
       title: title.trim(),
       description: description.trim(),
@@ -180,14 +187,15 @@ export function EventForm({ event, onSave, onCancel }) {
           <label className={styles.label}>
             Start
             <div className={styles.dateTimePair}>
-              <input className={styles.input} type="date" value={startDay} onChange={e => handleStartDayChange(e.target.value)} required />
+              <DateField className={styles.input} value={startDay} onChange={e => handleStartDayChange(e.target.value)} required />
+              {dateMissing && <span className={styles.fieldError}>Pick a start date, or tick “to be determined” above.</span>}
               <input className={styles.inputTime} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} aria-label="Start time (optional)" />
             </div>
           </label>
           <label className={styles.label}>
             End (optional)
             <div className={styles.dateTimePair}>
-              <input className={styles.input} type="date" value={endDay} min={startDay || undefined} onChange={e => setEndDay(e.target.value)} />
+              <DateField className={styles.input} value={endDay} min={startDay || undefined} onChange={e => setEndDay(e.target.value)} />
               <input
                 className={styles.inputTime}
                 type="time"

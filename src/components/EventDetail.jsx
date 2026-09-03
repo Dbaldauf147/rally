@@ -42,6 +42,7 @@ import {
 } from '../googleCalendar';
 import { isPinned, togglePin, subscribePins } from '../pinnedTrips';
 import styles from './EventDetail.module.css';
+import { DateField } from './DateField';
 
 // Shared style for items inside the calendar-sync gear dropdown.
 const calMenuItemStyle = {
@@ -3812,12 +3813,12 @@ export function EventDetail() {
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem' }}>
               <label style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
                 Start Date
-                <input type="date" value={finalizeDate} onChange={e => setFinalizeDate(e.target.value)}
+                <DateField value={finalizeDate} onChange={e => setFinalizeDate(e.target.value)}
                   style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', fontFamily: 'inherit' }} />
               </label>
               <label style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
                 End Date
-                <input type="date" value={finalizeEndDate} onChange={e => setFinalizeEndDate(e.target.value)}
+                <DateField value={finalizeEndDate} onChange={e => setFinalizeEndDate(e.target.value)}
                   style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', fontFamily: 'inherit' }} />
               </label>
             </div>

@@ -30,3 +30,5 @@
 .saveBtn { flex: 1; padding: 0.7rem; border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font-size: 0.92rem; font-weight: 600; cursor: pointer; }
 .saveBtn:hover { background: var(--color-accent-hover); }
 .cancelBtn { padding: 0.7rem 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.92rem; cursor: pointer; }
+
+.fieldError { font-size: 0.72rem; font-weight: 500; color: var(--color-danger); text-transform: none; letter-spacing: 0; }

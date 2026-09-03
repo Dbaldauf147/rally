@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { WEB_ORIGIN } from '../native';
 import styles from './Itinerary.module.css';
+import { DateField } from './DateField';
 
 const TRAVEL_MODES = [
   { key: 'driving', icon: '🚗', label: 'Drive' },
@@ -4014,9 +4015,8 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary, onOpenDay }) 
             autoFocus
           />
           <div className={styles.row}>
-            <input
+            <DateField
               className={styles.input}
-              type="date"
               value={form.date}
               onChange={e => setForm({ ...form, date: e.target.value })}
             />
@@ -4075,7 +4075,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary, onOpenDay }) 
               </div>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
                 Arrival date (if it ends a later day)
-                <input className={styles.input} type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
+                <DateField className={styles.input} value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
               </label>
               <div className={styles.row}>
                 <input className={styles.input} type="text" placeholder="Trip ID" value={form.tripId} onChange={e => setForm({ ...form, tripId: e.target.value })} />
@@ -4098,7 +4098,7 @@ export function Itinerary({ event, onSave, canEdit, onTripSummary, onOpenDay }) 
               </div>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
                 Check-out date
-                <input className={styles.input} type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
+                <DateField className={styles.input} value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
               </label>
               <div className={styles.row}>
                 <input className={styles.input} type="text" placeholder="Number of guests" value={form.guests} onChange={e => setForm({ ...form, guests: e.target.value })} />

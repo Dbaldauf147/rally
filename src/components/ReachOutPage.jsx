@@ -7,6 +7,7 @@ import { REACH_OUT_SEED } from '../reachOutSeed';
 import { PUSH_STATUS_TEXT } from '../hooks/usePushRegistration';
 import { isNativeApp } from '../native';
 import styles from './ReachOutPage.module.css';
+import { DateField } from './DateField';
 
 const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -663,11 +664,11 @@ export function ReachOutPage() {
           <div className={styles.formRow}>
             <label className={styles.field}>
               <span>Last reached out</span>
-              <input className={styles.input} type="date" value={form.lastReachOut} onChange={e => setForm({ ...form, lastReachOut: e.target.value })} />
+              <DateField className={styles.input} value={form.lastReachOut} onChange={e => setForm({ ...form, lastReachOut: e.target.value })} />
             </label>
             <label className={styles.field}>
               <span>Birthday</span>
-              <input className={styles.input} type="date" value={form.birthday} onChange={e => setForm({ ...form, birthday: e.target.value })} />
+              <DateField className={styles.input} value={form.birthday} onChange={e => setForm({ ...form, birthday: e.target.value })} />
             </label>
           </div>
           <label className={styles.field}>
@@ -685,9 +686,8 @@ export function ReachOutPage() {
                   placeholder={f.placeholder}
                   aria-label="Whose date of birth"
                 />
-                <input
+                <DateField
                   className={styles.input}
-                  type="date"
                   value={form[f.dateKey]}
                   onChange={e => setForm({ ...form, [f.dateKey]: e.target.value })}
                   aria-label="Date of birth"
@@ -905,9 +905,8 @@ export function ReachOutPage() {
                         placeholder={f.placeholder}
                         aria-label="Whose date of birth"
                       />
-                      <input
+                      <DateField
                         className={styles.detailInput}
-                        type="date"
                         value={draft[f.dateKey]}
                         onChange={e => setField(f.dateKey, e.target.value)}
                         onBlur={() => saveDetailsDraft(draft)}

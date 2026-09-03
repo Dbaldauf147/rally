@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import styles from './SharePage.module.css';
+import { DateField } from './DateField';
 
 const INSTAGRAM_URL_RE = /https?:\/\/(?:www\.)?instagram\.com\/[^\s]+/i;
 
@@ -254,8 +255,7 @@ export function SharePage() {
               </select>
             ) : (
               <>
-                <input
-                  type="date"
+                <DateField
                   className={styles.input}
                   value={videoDate}
                   onChange={e => setVideoDate(e.target.value)}

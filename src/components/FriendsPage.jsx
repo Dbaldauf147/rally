@@ -23,6 +23,7 @@ import {
 import { parseVCards, headersFor } from '../lib/vcard';
 import { pickPhoneContacts, contactsSource, sourceLabel, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
 import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
+import { DateField } from './DateField';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -2269,7 +2270,7 @@ export function FriendsPage() {
               </label>
               <label className={styles.label}>
                 Date of Birth
-                <input className={styles.input} type="date" value={newDob} onChange={e => setNewDob(e.target.value)} />
+                <DateField className={styles.input} value={newDob} onChange={e => setNewDob(e.target.value)} />
               </label>
               <label className={styles.label}>
                 Tags
@@ -2307,7 +2308,7 @@ export function FriendsPage() {
               <label className={styles.label}>Guest<input className={styles.input} value={editFields.guest} onChange={e => editSet('guest', e.target.value)} /></label>
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
               <label className={styles.label}>Birthday<input className={styles.input} value={editFields.birthday || ''} onChange={e => editSet('birthday', e.target.value)} onBlur={e => editSet('birthday', fmtBirthday(e.target.value) || e.target.value)} placeholder="M/D — e.g. 7/30" /></label>
-              <label className={styles.label}>Date of Birth<input className={styles.input} type="date" value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
+              <label className={styles.label}>Date of Birth<DateField className={styles.input} value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
               <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
               <label className={styles.label}>
                 📝 Notes

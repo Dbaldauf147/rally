@@ -3,6 +3,7 @@ import { doc, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase';
 import { boatDays, normalizeDay, dateKeyOf, fmtDayLabel, defaultDay, orderKeyOf } from '../boatDays';
 import styles from './BoatDay.module.css';
+import { DateField } from './DateField';
 
 // The Kismet is the flagship; its capacity is exported for the owner card.
 export const BOAT_NAME = 'The Kismet';
@@ -487,15 +488,18 @@ export function BoatDay({ event, eventId, viewerId, viewerName, isOwner }) {
             </button>
           );
         })}
+        {/* Enter / Escape live on the add-day wrapper: the date field owns its
+            own popup, where Escape closes the calendar before it reaches here. */}
         {isOwner && (addingDay ? (
-          <span className={styles.dayAddWrap}>
-            <input
-              type="date"
+          <span
+            className={styles.dayAddWrap}
+            onKeyDown={e => { if (e.key === 'Enter') addDay(newDay); if (e.key === 'Escape') { setAddingDay(false); setNewDay(''); } }}
+          >
+            <DateField
               className={styles.dayInput}
               value={newDay}
               autoFocus
               onChange={e => setNewDay(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addDay(newDay); if (e.key === 'Escape') { setAddingDay(false); setNewDay(''); } }}
             />
             <button className={styles.addBtn} onClick={() => addDay(newDay)} disabled={!newDay}>Add</button>
             <button className={styles.dayGhostBtn} onClick={() => { setAddingDay(false); setNewDay(''); }}>Cancel</button>
