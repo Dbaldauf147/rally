@@ -108,6 +108,11 @@ export function EventDetail() {
   const [dragMemberUid, setDragMemberUid] = useState(null);
   const [dropTargetUid, setDropTargetUid] = useState(null);
   const [reminderSending, setReminderSending] = useState(false);
+  // Status-update email. Opens closed and defaults to sending only to you:
+  // this one goes to the guest list, so picking that has to be deliberate.
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusScope, setStatusScope] = useState('me');
+  const [statusSending, setStatusSending] = useState(false);
   const [friends, setFriends] = useState([]);
   const [dateOptionsVoters, setDateOptionsVoters] = useState({});
   const [showAddFriend, setShowAddFriend] = useState(false);
@@ -3316,6 +3321,11 @@ export function EventDetail() {
                   </button>
                 );
               })()}
+              <button
+                className={styles.editBtn}
+                onClick={() => setStatusOpen((v) => !v)}
+                style={{ background: '#EEF2FF', borderColor: '#6366F1', color: '#3730A3' }}
+              >📊 Email Status Update</button>
               <button className={styles.editBtn} onClick={() => setEditing(true)}>Edit Event</button>
               {event.cancelled ? (
                 <button
@@ -3333,6 +3343,74 @@ export function EventDetail() {
               <button className={styles.deleteBtn} onClick={handleDelete}>Delete Event</button>
             </div>
           )}
+
+          {/* Where the vote stands, mailed out. The summary itself is built
+              server-side from the event, so it always matches this page. */}
+          {statusOpen && (() => {
+            const withEmail = members.filter(([, m]) => m.email && !m.skipVote);
+            const mine = user?.email ? [{ name: user.displayName || 'You', email: user.email }] : [];
+            const recipients = statusScope === 'all'
+              ? withEmail.map(([, m]) => ({ name: m.name, email: m.email }))
+              : mine;
+            const radio = (value, label, hint) => (
+              <label key={value} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer', fontSize: '0.85rem' }}>
+                <input
+                  type="radio"
+                  name="status-scope"
+                  checked={statusScope === value}
+                  onChange={() => setStatusScope(value)}
+                  style={{ marginTop: '0.2rem' }}
+                />
+                <span>
+                  <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{label}</span>
+                  <span style={{ display: 'block', color: 'var(--color-text-muted)', fontSize: '0.78rem' }}>{hint}</span>
+                </span>
+              </label>
+            );
+            return (
+              <div style={{ margin: '0.75rem 0', padding: '0.9rem 1rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>
+                  Email a status update
+                </div>
+                <p style={{ margin: '0 0 0.7rem', fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>
+                  Every date on the table with its Works / Maybe / No tally, which one is leading, and who still owes a vote.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginBottom: '0.8rem' }}>
+                  {radio('me', 'Just me', user?.email ? `A copy to ${user.email}` : 'No email on your account')}
+                  {radio('all', `Everyone on the poll (${withEmail.length})`, withEmail.length === 0 ? 'Nobody here has an email address' : withEmail.map(([, m]) => m.name || m.email).join(', '))}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <button
+                    className={styles.editBtn}
+                    disabled={statusSending || recipients.length === 0}
+                    style={{ background: 'var(--color-accent)', borderColor: 'var(--color-accent)', color: '#fff', opacity: recipients.length === 0 ? 0.5 : 1 }}
+                    onClick={async () => {
+                      setStatusSending(true);
+                      try {
+                        const res = await fetch('/api/voting-status', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ eventId, recipients, fromName: user?.displayName || user?.email || '' }),
+                        });
+                        const data = await res.json();
+                        setResult(data.sent > 0
+                          ? { type: 'success', message: `Status update sent to ${data.sent} of ${data.total}.` }
+                          : { type: 'error', message: data.message || data.error || 'Could not send the update.' });
+                        if (data.sent > 0) setStatusOpen(false);
+                      } catch (err) {
+                        setResult({ type: 'error', message: err.message });
+                      }
+                      setStatusSending(false);
+                      setTimeout(() => setResult(null), 6000);
+                    }}
+                  >
+                    {statusSending ? 'Sending…' : `Send to ${recipients.length || 'no one'}`}
+                  </button>
+                  <button className={styles.editBtn} onClick={() => setStatusOpen(false)}>Cancel</button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Boat Day — owner only */}
           {isOwner && (() => {
