@@ -3,6 +3,53 @@
    into as many equal, stretch-to-fill columns as fit, and lists are packed into
    the shortest one. Fills the full width (no dead space on the right) and lets
    short lists sit tight instead of a row grid that pushes tall lists down. */
+/* "This trip only" — the scratch list above the master one.
+
+   Deliberately not styled as another section: it is a different KIND of thing,
+   and if it read as one more box in the checklist it would be tidied into the
+   master list by anyone reorganising. The dashed edge says temporary. */
+.tripBox {
+  margin-bottom: 1rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px dashed var(--color-accent);
+  border-radius: var(--radius-md, 12px);
+  background: var(--color-accent-light);
+}
+.tripHeader { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+.tripTitle {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--color-accent);
+}
+.tripCount { font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; }
+.tripClear {
+  margin-left: auto; padding: 0.15rem 0.5rem;
+  border: 1px solid transparent; border-radius: var(--radius-full, 999px);
+  background: none; color: var(--color-text-muted);
+  font-size: 0.72rem; font-family: inherit; cursor: pointer;
+}
+.tripClear:hover { color: var(--color-danger); border-color: var(--color-danger); }
+.tripEmpty { margin: 0 0 0.5rem; font-size: 0.8rem; color: var(--color-text-muted); }
+.tripList { list-style: none; margin: 0 0 0.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.tripItem { display: flex; align-items: center; gap: 0.5rem; }
+/* Borderless until touched, like the checklist items it sits above. */
+.tripText {
+  flex: 1; min-width: 0; padding: 0.25rem 0.4rem;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--color-text);
+  font: inherit; font-size: 0.88rem;
+}
+.tripText:hover { border-color: var(--color-border); background: var(--color-surface); }
+.tripText:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+.tripTextDone { text-decoration: line-through; color: var(--color-text-muted); }
+.tripAdd { display: flex; gap: 0.4rem; }
+.tripAddInput {
+  flex: 1; min-width: 0; padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); color: var(--color-text);
+  font: inherit; font-size: 0.85rem;
+}
+.tripAddInput:focus { outline: none; border-color: var(--color-accent); }
+
 .sectionsGrid { display: flex; align-items: flex-start; gap: 1rem; }
 .sectionsCol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
 .sectionsGrid .section { margin-bottom: 0; }
@@ -100,6 +147,11 @@
 .iconBtn:disabled { opacity: 0.35; cursor: default; }
 .iconBtnDanger:hover { color: var(--color-danger); background: var(--color-danger-light); border-color: var(--color-danger-light); }
 
+/* Leaves edit mode. A word rather than another icon: it is the way out of a
+   mode, and the row it sits in is already three glyphs deep. */
+.doneBtn { height: 28px; padding: 0 0.7rem; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); background: var(--color-accent); color: #fff; font-size: 0.75rem; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; }
+.doneBtn:hover { filter: brightness(1.05); }
+
 .addItemBtn { margin: 0.4rem 0.6rem 0; padding: 0.4rem 0.75rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font-size: 0.82rem; cursor: pointer; width: calc(100% - 1.2rem); }
 .addItemBtn:hover { background: var(--color-surface-alt); color: var(--color-text); border-color: var(--color-accent); }
 
@@ -122,6 +174,19 @@
   .metaField:last-child { flex: 0 0 4.5rem; } /* Days is short */
   .metaLabel { font-size: 0.6rem; letter-spacing: 0.02em; }
   .metaInput { padding: 0.3rem 0.4rem; font-size: 0.8rem; width: 100%; min-width: 0; box-sizing: border-box; }
+
+  /* Editing a whole list on a phone: the row of move/delete controls and the
+     text you are actually editing cannot share 390px — side by side leaves the
+     item about seven characters wide. Stack them, and let the controls sit
+     under the field they act on. */
+  .editRow { flex-direction: column; align-items: stretch; gap: 0.35rem; padding: 0.5rem; }
+  .editRowChild { margin-left: 0.75rem; }
+  .editActions { justify-content: flex-end; flex-wrap: wrap; gap: 0.3rem; }
+  .moveSelect { max-width: none; flex: 1 1 6rem; }
+  /* Same squeeze in the section header once Done and the move buttons appear. */
+  .sectionHeader { flex-wrap: wrap; row-gap: 0.4rem; }
+  .sectionNameInput { flex: 1 1 100%; }
+  .sectionActions { width: 100%; justify-content: flex-end; gap: 0.3rem; }
 }
 
 /* Group header: a collapsible named divider that buckets items beneath it. */

@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import { JetLagChecklist } from './JetLagChecklist';
 import styles from './TravelListPage.module.css';
+import { isOwnerEmail } from '../lib/pagePrivacy';
 import { DateField } from './DateField';
 
 // Default master checklist. Editable copies are stored per-user in Firestore;
@@ -315,7 +316,7 @@ function seedTravelList() {
   tagItemsBySection(sections);
   return {
     sections,
-    meta: { leaveDate: '', returnDate: '', eventId: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true, hiddenCats: [] },
+    meta: { leaveDate: '', returnDate: '', eventId: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true, hiddenCats: [], tripNotes: [] },
   };
 }
 
@@ -392,6 +393,13 @@ function normalizeList(raw) {
   const hiddenCats = Array.isArray(raw.meta?.hiddenCats)
     ? [...new Set(raw.meta.hiddenCats.filter((c) => typeof c === 'string' && c))]
     : [];
+  // Bullets for the current trip. Sanitised like everything else here: what
+  // comes back may predate the field, or be half-written by an older build.
+  const tripNotes = Array.isArray(raw.meta?.tripNotes)
+    ? raw.meta.tripNotes
+        .filter((n) => n && typeof n === 'object')
+        .map((n) => ({ id: String(n.id || uid()), text: String(n.text ?? ''), checked: !!n.checked }))
+    : [];
   return {
     sections,
     meta: {
@@ -408,6 +416,7 @@ function normalizeList(raw) {
       categories,
       categoriesMigrated,
       hiddenCats,
+      tripNotes,
     },
   };
 }
@@ -460,9 +469,18 @@ export function TravelListPage() {
     return seedTravelList();
   });
   const [loaded, setLoaded] = useState(false);
-  // The list is always directly editable now (no separate edit mode). Kept as a
-  // constant so the legacy edit-only branches simply never render.
-  const editMode = false;
+  // Which sections are in edit-all mode. Ticking items off is the common case,
+  // so a section stays in its normal checklist form until you ask to edit it —
+  // then every item in that box becomes editable at once, rather than one at a
+  // time. Per section rather than page-wide: you edit the list you are looking
+  // at, and the rest keep their checkboxes.
+  const [editingSections, setEditingSections] = useState(() => new Set());
+  const [newTripNote, setNewTripNote] = useState('');
+  const toggleSectionEdit = (id) => setEditingSections((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   // Which categories are switched off. Stored with the list rather than on the
   // device, so hiding a category on the phone hides it on the website too.
   const hiddenCats = new Set(list.meta?.hiddenCats || []);
@@ -700,7 +718,7 @@ export function TravelListPage() {
     return trip;
   }, [calendarTrips, list.meta.eventId, list.meta.leaveDate, list.meta.returnDate]);
 
-  if (user && user.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
+  if (user && !isOwnerEmail(user.email)) return <Navigate to="/" replace />;
   if (!user) return null;
 
   const setSectionOpen = (id) => setOpen((o) => ({ ...o, [id]: o[id] === false }));
@@ -745,6 +763,48 @@ export function TravelListPage() {
 
   function setMeta(patch) {
     updateList((l) => ({ ...l, meta: { ...l.meta, ...patch } }));
+  }
+
+  /* --- this trip only ---
+
+     The sections below are the master list: the things that are true of every
+     trip, and that survive this one. These bullets are the opposite — the visa
+     letter, the wedding gift, the thing you must not forget precisely once —
+     so they live in meta rather than in a section, sit above the master list,
+     and stay out of its packed tally. Clearing them is deliberate: nothing
+     wipes them on your behalf when the dates change, because "which trip is
+     this now" is not a question a checklist should answer by deleting things. */
+  const tripNotes = list.meta?.tripNotes || [];
+
+  function addTripNote(text) {
+    const t = (text || '').trim();
+    if (!t) return;
+    updateList((l) => ({
+      ...l,
+      meta: { ...l.meta, tripNotes: [...(l.meta?.tripNotes || []), { id: uid(), text: t, checked: false }] },
+    }));
+  }
+
+  function patchTripNote(id, patch) {
+    updateList((l) => ({
+      ...l,
+      meta: {
+        ...l.meta,
+        tripNotes: (l.meta?.tripNotes || []).map((n) => (n.id === id ? { ...n, ...patch } : n)),
+      },
+    }));
+  }
+
+  function removeTripNote(id) {
+    updateList((l) => ({
+      ...l,
+      meta: { ...l.meta, tripNotes: (l.meta?.tripNotes || []).filter((n) => n.id !== id) },
+    }));
+  }
+
+  function clearTripNotes() {
+    if (!confirm(`Clear all ${tripNotes.length} bullet${tripNotes.length === 1 ? '' : 's'} for this trip?`)) return;
+    updateList((l) => ({ ...l, meta: { ...l.meta, tripNotes: [] } }));
   }
 
   // --- categories ---
@@ -1130,6 +1190,66 @@ export function TravelListPage() {
         >+ Category</button>
       </div>
 
+      <div className={styles.tripBox}>
+        <div className={styles.tripHeader}>
+          <span className={styles.tripTitle}>This trip only</span>
+          {tripNotes.length > 0 && (
+            <>
+              <span className={styles.tripCount}>
+                {tripNotes.filter((n) => n.checked).length} / {tripNotes.length}
+              </span>
+              <button className={styles.tripClear} onClick={clearTripNotes}>Clear</button>
+            </>
+          )}
+        </div>
+
+        {tripNotes.length === 0 ? (
+          <p className={styles.tripEmpty}>
+            Bullets for this trip alone — they stay out of the master list below.
+          </p>
+        ) : (
+          <ul className={styles.tripList}>
+            {tripNotes.map((note) => (
+              <li key={note.id} className={styles.tripItem}>
+                <input
+                  type="checkbox"
+                  className={styles.checkbox}
+                  checked={!!note.checked}
+                  onChange={() => patchTripNote(note.id, { checked: !note.checked })}
+                  aria-label={`Done: ${note.text}`}
+                />
+                <input
+                  className={`${styles.tripText} ${note.checked ? styles.tripTextDone : ''}`}
+                  value={note.text}
+                  onChange={(e) => patchTripNote(note.id, { text: e.target.value })}
+                  aria-label="Bullet"
+                />
+                <button
+                  className={styles.itemDeleteBtn}
+                  onClick={() => removeTripNote(note.id)}
+                  title="Remove this bullet"
+                  aria-label={`Remove ${note.text}`}
+                >×</button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form
+          className={styles.tripAdd}
+          onSubmit={(e) => { e.preventDefault(); addTripNote(newTripNote); setNewTripNote(''); }}
+        >
+          <input
+            className={styles.tripAddInput}
+            value={newTripNote}
+            onChange={(e) => setNewTripNote(e.target.value)}
+            placeholder="Add a bullet for this trip"
+            aria-label="Add a bullet for this trip"
+          />
+          <button className={styles.btn} type="submit" disabled={!newTripNote.trim()}>Add</button>
+        </form>
+      </div>
+
       <div className={styles.sectionsGrid} ref={gridRef}>
       {sectionColumns.map((column, colIdx) => (
         <div className={styles.sectionsCol} key={colIdx}>
@@ -1144,6 +1264,7 @@ export function TravelListPage() {
         // toggle don't hold it back.
         const { total: leafTotal, done: leafDone } = countLeaves([{ ...section, items: visibleItems }]);
         const sectionOpen = isOpen(section.id);
+        const editMode = editingSections.has(section.id);
         const complete = leafTotal > 0 && leafDone === leafTotal; // every visible item checked → "Ready to Go!"
         // Group headers bucket the items beneath them: track which items a
         // collapsed header hides, and each header's leaf count for its badge.
@@ -1198,6 +1319,11 @@ export function TravelListPage() {
               </div>
               {editMode ? (
                 <div className={styles.sectionActions} onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className={styles.doneBtn}
+                    onClick={() => toggleSectionEdit(section.id)}
+                    title="Stop editing this list"
+                  >Done</button>
                   <button className={styles.iconBtn} disabled={sIdx === 0} onClick={() => moveSection(section.id, -1)} title="Move up" aria-label="Move section up">↑</button>
                   <button className={styles.iconBtn} disabled={sIdx === list.sections.length - 1} onClick={() => moveSection(section.id, 1)} title="Move down" aria-label="Move section down">↓</button>
                   <button className={styles.iconBtnDanger} onClick={() => deleteSection(section.id)} title="Delete section" aria-label="Delete section">🗑️</button>
@@ -1205,6 +1331,12 @@ export function TravelListPage() {
               ) : (
                 <div className={styles.sectionHeaderRight}>
                   <span className={styles.sectionCount}>{leafDone} / {leafTotal}</span>
+                  <button
+                    className={styles.iconBtn}
+                    onClick={(e) => { e.stopPropagation(); toggleSectionEdit(section.id); }}
+                    title="Edit every item in this list"
+                    aria-label={`Edit every item in ${section.name}`}
+                  >✏️</button>
                   <button
                     className={styles.iconBtnDanger}
                     onClick={(e) => { e.stopPropagation(); deleteSection(section.id); }}
