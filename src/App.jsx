@@ -9,6 +9,7 @@ import { Plans } from './components/Plans';
 import { InvitePage } from './components/InvitePage';
 import { PollPage } from './components/PollPage';
 import { BoatDayPage } from './components/BoatDayPage';
+import { FoodPage } from './components/FoodPage';
 import { FriendsPage } from './components/FriendsPage';
 import { SharePage } from './components/SharePage';
 import { WeddingPage } from './components/WeddingPage';
@@ -100,6 +101,7 @@ export default function App() {
         <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/poll/:eventId" element={<PollPage />} />
         <Route path="/boat/:eventId" element={<BoatDayPage />} />
+        <Route path="/food/:eventId" element={<FoodPage />} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/today" element={<Navigate to="/plans?view=today" replace />} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarView /></ProtectedRoute>} />

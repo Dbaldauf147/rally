@@ -177,6 +177,28 @@ export function EventDetail() {
   // held here until the debounce (or a blur) writes them. See foodCell below.
   const [foodDrafts, setFoodDrafts] = useState({});
   const foodTimers = useRef({});
+  // Whether the 🍽 Order column shows in the invited list. Remembered per event:
+  // once the orders are in and handed to the kitchen, the column is just width
+  // the date columns could be using.
+  const [foodColOn, setFoodColOn] = useState(true);
+  useEffect(() => {
+    try { setFoodColOn(localStorage.getItem(`rally.foodCol.${eventId}`) !== '0'); } catch { setFoodColOn(true); }
+  }, [eventId]);
+  // Open the shared text draft with a message and audience. The draft panel
+  // lives at the top of People & Poll, so anything opening it from further down
+  // the page has to bring the user to it — otherwise the click looks like it
+  // did nothing.
+  const openTextDraft = (message, audience) => {
+    setTextAllMessage(message);
+    setTextAllAudience(audience);
+    setShowTextAll(true);
+    setTimeout(() => document.getElementById('text-all-draft')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+  };
+  const toggleFoodCol = () => setFoodColOn(v => {
+    const next = !v;
+    try { localStorage.setItem(`rally.foodCol.${eventId}`, next ? '1' : '0'); } catch { /* private mode */ }
+    return next;
+  });
   const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
@@ -856,7 +878,7 @@ export function EventDetail() {
   // only way to record one is to open the guest's own poll link as them.
   const peopleFoodMenu = normalizeMenu(event.foodMenu);
   const foodOfferable = offerableOptions(peopleFoodMenu);
-  const showFoodCol = peopleFoodMenu.enabled;
+  const showFoodCol = peopleFoodMenu.enabled && foodColOn;
   // Their own order, else the one inherited from the host they are a +1 of.
   // Deliberately follows plusOneOf only — not the symmetric partnerOf the vote
   // cells use — so this column and the tally in the Food orders section never
@@ -1489,13 +1511,25 @@ export function EventDetail() {
   const pinnedPollUrl = (uid, m) =>
     `${WEB_ORIGIN}/poll/${eventId}?name=${encodeURIComponent(m?.name || 'Friend')}&vid=${encodeURIComponent(uid)}`;
 
-  // Swap whatever poll link is in a shared draft for this member's pinned one.
+  // The food order link, addressed the same way. Its own link rather than a
+  // block on the poll page: it goes out after the date is settled, when people
+  // actually know what they want.
+  const foodUrl = `${WEB_ORIGIN}/food/${eventId}?name=Friend`;
+  const pinnedFoodUrl = (uid, m) =>
+    `${WEB_ORIGIN}/food/${eventId}?name=${encodeURIComponent(m?.name || 'Friend')}&vid=${encodeURIComponent(uid)}`;
+
+  // Swap whatever guest link is in a shared draft for this member's pinned one.
+  // Covers both links a draft can carry — the poll and the food order.
   const personalizePollLink = (text, uid, m) => {
-    const base = `${WEB_ORIGIN}/poll/${eventId}`;
-    const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // The query string can't end on punctuation, so a hand-edited draft like
-    // "Vote here: <link>. Thanks!" keeps its period instead of eating it.
-    return text.replace(new RegExp(`${escaped}(\\?[^\\s]*[^\\s.,;:!?)\\]])?`, 'g'), pinnedPollUrl(uid, m));
+    const swap = (out, path, pinned) => {
+      const escaped = `${WEB_ORIGIN}/${path}/${eventId}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // The query string can't end on punctuation, so a hand-edited draft like
+      // "Vote here: <link>. Thanks!" keeps its period instead of eating it.
+      return out.replace(new RegExp(`${escaped}(\\?[^\\s]*[^\\s.,;:!?)\\]])?`, 'g'), pinned);
+    };
+    let out = swap(text, 'food', pinnedFoodUrl(uid, m));
+    out = swap(out, 'poll', pinnedPollUrl(uid, m));
+    return out;
   };
 
   const itineraryText = (() => {
@@ -2173,6 +2207,9 @@ export function EventDetail() {
         const inAudience = (uid, m) => {
           if (textAllAudience === 'missing') return !voteStats[uid]?.total && !m.skipVote;
           if (textAllAudience === 'going') return isGoingYes(uid, m);
+          // Nobody who already ordered — including a +1 riding on their host's
+          // order, who has nothing left to answer.
+          if (textAllAudience === 'noorder') return !m.skipVote && !foodEntry(uid, m)[0];
           return true;
         };
         const recipients = members.filter(([uid, m]) =>
@@ -2217,7 +2254,7 @@ export function EventDetail() {
           return isIOS ? `sms:/open?addresses=${c}&body=${body}` : `sms:${c}?body=${body}`;
         };
         return (
-          <div style={{
+          <div id="text-all-draft" style={{
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-md)',
             padding: '0.75rem',
@@ -2226,7 +2263,7 @@ export function EventDetail() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Edit text draft — {textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : 'sending to'} {recipients.length}
+                Edit text draft — {textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : textAllAudience === 'noorder' ? 'yet to order' : 'sending to'} {recipients.length}
               </span>
               <button
                 onClick={() => { if (!textAllSending) { setShowTextAll(false); setTextAllMessage(''); } }}
@@ -2446,6 +2483,15 @@ export function EventDetail() {
                         title="Show only people who voted Yes or Maybe (likely attendees). Hides Can't-go and no-shows."
                       >
                         {showYesMaybeOnly ? '✓ ' : ''}Yes / Maybe only ({yesMaybeCount})
+                      </button>
+                    )}
+                    {peopleFoodMenu.enabled && votedView !== 'cards' && (
+                      <button
+                        onClick={toggleFoodCol}
+                        style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: foodColOn ? 'var(--color-accent)' : 'var(--color-surface)', color: foodColOn ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+                        title="Show or hide the food order beside each person"
+                      >
+                        {foodColOn ? '✓ ' : ''}🍽 Orders
                       </button>
                     )}
                   </div>
@@ -3431,14 +3477,14 @@ export function EventDetail() {
                   {canManageMembers && (
                     <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
                       <input type="checkbox" checked={menu.enabled} onChange={(e) => saveMenu({ enabled: e.target.checked })} />
-                      Ask on the poll link
+                      Taking orders
                     </label>
                   )}
                 </div>
 
                 {!menu.enabled ? (
                   <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                    Turn this on to add a food question to the poll link you text people.
+                    Turn this on to set a menu and get an order link you can text once the date is settled.
                   </p>
                 ) : (
                   <>
@@ -3481,6 +3527,46 @@ export function EventDetail() {
                         </div>
                       </div>
                     )}
+
+                    {/* The order link. Its own link, sent after the date is
+                        settled — which is why it is here and not folded into
+                        the poll message: people know what they want to eat
+                        once they know they are coming. */}
+                    {canManageMembers && (() => {
+                      const dateStr = formatWhen(event, date, 'EEEE, MMMM d');
+                      const msg = event.dateTBD
+                        ? `Food for ${event.title} — what do you want? Order here: ${foodUrl}`
+                        : `We're on for ${event.title}${event.location ? ` at ${event.location}` : ''} on ${dateStr}. What do you want to eat?\n\nOrder here: ${foodUrl}`;
+                      const yetToOrder = members.filter(
+                        ([uid, m]) => uid !== user?.uid && m.phone && !m.skipVote && !foodEntry(uid, m)[0],
+                      ).length;
+                      const withPhones = members.filter(([uid, m]) => uid !== user?.uid && m.phone).length;
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>Order link</span>
+                          <code style={{ flex: '1 1 12rem', minWidth: 0, fontSize: '0.7rem', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foodUrl}</code>
+                          <button
+                            className={styles.editBtn}
+                            style={{ fontSize: '0.75rem' }}
+                            onClick={() => { navigator.clipboard?.writeText(foodUrl); setResult({ type: 'success', message: 'Order link copied.' }); setTimeout(() => setResult(null), 3000); }}
+                          >Copy link</button>
+                          {withPhones > 0 && (
+                            <button
+                              className={styles.editBtn}
+                              style={{ fontSize: '0.75rem' }}
+                              onClick={() => { openTextDraft(msg, 'all'); }}
+                            >💬 Text everyone ({withPhones})</button>
+                          )}
+                          {yetToOrder > 0 && yetToOrder < withPhones && (
+                            <button
+                              className={styles.editBtn}
+                              style={{ fontSize: '0.75rem' }}
+                              onClick={() => { openTextDraft(msg, 'noorder'); }}
+                            >💬 Text who hasn’t ordered ({yetToOrder})</button>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {tally && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', padding: '0.6rem 0.75rem', marginBottom: '0.6rem', background: 'var(--color-accent-light)', borderRadius: 'var(--radius-md)' }}>

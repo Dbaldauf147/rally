@@ -5,7 +5,6 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { addFriend, buildFriendIndex, matchFriend, sanitizeMemberKey } from '../lib/friends';
 import { findMemberKey, planMemberUpserts, normName } from '../lib/members';
-import { normalizeMenu, normalizeOrder, offerableOptions, OTHER } from '../lib/foodOrders';
 import { WEB_ORIGIN } from '../native';
 import { format, eachDayOfInterval } from 'date-fns';
 import { formatWhen } from '../lib/eventTime';
@@ -64,8 +63,6 @@ function PollPageInner() {
   const [dateOptions, setDateOptions] = useState([]);
   const [rsvp, setRsvp] = useState(null); // 'yes' | 'maybe' | 'no'
   const [saved, setSaved] = useState(false);
-  const [foodOrder, setFoodOrder] = useState({ choice: '', other: '', note: '' });
-  const foodInitedRef = useRef(null); // visitorId whose stored order has been loaded
   const [loading, setLoading] = useState(true);
   const [showSuggest, setShowSuggest] = useState(true);
   const [suggestMode, setSuggestMode] = useState(null); // null | 'single' | 'range'
@@ -161,16 +158,6 @@ function PollPageInner() {
     setTopPick(existingTop);
   }, [visitorId, dateOptions]);
 
-  // Their existing order, loaded once per person so a re-render mid-typing
-  // cannot overwrite what they are in the middle of writing.
-  useEffect(() => {
-    if (!visitorId || !event) return;
-    if (foodInitedRef.current === visitorId) return;
-    foodInitedRef.current = visitorId;
-    const stored = normalizeOrder(event.members?.[visitorId]?.foodOrder);
-    setFoodOrder(stored ? { choice: stored.choice, other: stored.other, note: stored.note } : { choice: '', other: '', note: '' });
-  }, [visitorId, event]);
-
   const stage = event?.stage || 'voting';
   const isFinalized = stage === 'finalized';
 
@@ -208,32 +195,9 @@ function PollPageInner() {
     return write;
   }
 
-  // --- food order ---------------------------------------------------------
-  // Saves as it is filled in, keyed to whoever the ?vid= link says this is, so
-  // the order lands on their member row with nothing to reconcile later. Text
-  // fields debounce and also flush on blur: an order half-typed and then
-  // abandoned is still worth having.
-  const foodMenu = normalizeMenu(event?.foodMenu);
-  const foodTimer = useRef(null);
-
-  function writeFoodOrder(next) {
-    if (!visitorId) return;
-    const clean = { choice: next.choice || '', other: (next.other || '').trim(), note: (next.note || '').trim(), at: new Date().toISOString() };
-    updateDoc(doc(db, 'events', eventId), {
-      ...memberWrite(visitorId, voterName),
-      [`members.${visitorId}.foodOrder`]: clean,
-    }).catch(() => {});
-  }
-
-  function setFood(patch, { immediate = false } = {}) {
-    setFoodOrder((prev) => {
-      const next = { ...prev, ...patch };
-      if (foodTimer.current) clearTimeout(foodTimer.current);
-      if (immediate) writeFoodOrder(next);
-      else foodTimer.current = setTimeout(() => writeFoodOrder(next), 600);
-      return next;
-    });
-  }
+  // Food orders live on their own link now — see FoodPage. The question came
+  // too early here: nobody knows what they want to eat on a night that has not
+  // been agreed to yet, and the answers went stale as the date moved.
 
   async function handleRsvp(response) {
     setRsvp(response);
@@ -648,68 +612,6 @@ function PollPageInner() {
                 </div>
               );
             })()}
-          </div>
-        )}
-
-        {/* Food order. Only once we know who this is — an order with no name
-            on it is worse than no order. */}
-        {nameConfirmed && visitorId && foodMenu.enabled && (
-          <div className={styles.section}>
-            <h3 className={styles.sectionTitle}>🍽 {foodMenu.prompt}</h3>
-            <p className={styles.sectionDesc}>Saved as you go — no need to submit.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.6rem' }}>
-              {offerableOptions(foodMenu).map((o) => (
-                <label
-                  key={o.id}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer',
-                    padding: '0.6rem 0.75rem', borderRadius: '10px', fontSize: '0.92rem',
-                    border: `2px solid ${foodOrder.choice === o.id ? '#4f46e5' : '#e5e5e5'}`,
-                    background: foodOrder.choice === o.id ? '#eef2ff' : '#fff',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="food-choice"
-                    checked={foodOrder.choice === o.id}
-                    onChange={() => setFood({ choice: o.id }, { immediate: true })}
-                  />
-                  <span>{o.label}</span>
-                </label>
-              ))}
-              <label
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer',
-                  padding: '0.6rem 0.75rem', borderRadius: '10px', fontSize: '0.92rem',
-                  border: `2px solid ${foodOrder.choice === OTHER ? '#4f46e5' : '#e5e5e5'}`,
-                  background: foodOrder.choice === OTHER ? '#eef2ff' : '#fff',
-                }}
-              >
-                <input
-                  type="radio"
-                  name="food-choice"
-                  checked={foodOrder.choice === OTHER}
-                  onChange={() => setFood({ choice: OTHER }, { immediate: true })}
-                />
-                <span style={{ whiteSpace: 'nowrap' }}>Something else:</span>
-                <input
-                  type="text"
-                  value={foodOrder.other}
-                  placeholder="What would you like?"
-                  onChange={(e) => setFood({ choice: OTHER, other: e.target.value })}
-                  onBlur={() => setFood({}, { immediate: true })}
-                  style={{ flex: 1, minWidth: 0, padding: '0.35rem 0.5rem', border: '1px solid #e5e5e5', borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'inherit' }}
-                />
-              </label>
-            </div>
-            <input
-              type="text"
-              value={foodOrder.note}
-              placeholder="Anything else? (allergies, no onion, …)"
-              onChange={(e) => setFood({ note: e.target.value })}
-              onBlur={() => setFood({}, { immediate: true })}
-              style={{ width: '100%', boxSizing: 'border-box', marginTop: '0.6rem', padding: '0.55rem 0.65rem', border: '1px solid #e5e5e5', borderRadius: '10px', fontSize: '0.9rem', fontFamily: 'inherit' }}
-            />
           </div>
         )}
 
