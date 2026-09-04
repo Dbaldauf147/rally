@@ -26,7 +26,7 @@ import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
 import { KeyConsiderations } from './KeyConsiderations';
-import { normalizeMenu, summarizeOrders, tallyText, newOptionId, DEFAULT_PROMPT } from '../lib/foodOrders';
+import { normalizeMenu, normalizeOrder, orderLabel, offerableOptions, summarizeOrders, tallyText, newOptionId, DEFAULT_PROMPT, OTHER } from '../lib/foodOrders';
 import { EventExpenses } from './EventExpenses';
 import { BoatDay, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
 import { boatRosterUnion, dateKeyOf } from '../boatDays';
@@ -173,6 +173,10 @@ export function EventDetail() {
     if (!voteColWidthsLoaded.current) { voteColWidthsLoaded.current = true; return; }
     try { localStorage.setItem(`rally.voteCols.${eventId}`, JSON.stringify(voteColWidths)); } catch {}
   }, [voteColWidths, eventId]);
+  // Food orders being typed into the invited list, uid → { choice, other, note },
+  // held here until the debounce (or a blur) writes them. See foodCell below.
+  const [foodDrafts, setFoodDrafts] = useState({});
+  const foodTimers = useRef({});
   const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
@@ -843,6 +847,148 @@ export function EventDetail() {
     }
     return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
   };
+
+  // ── Food orders, beside each person ───────────────────────────────────────
+  // The order someone left on the poll link, in the invited list next to their
+  // name rather than only in the Food orders section further down — that list
+  // is where you already sit reading down the names. And editable here, because
+  // most orders actually arrive by text or across the kitchen: without this the
+  // only way to record one is to open the guest's own poll link as them.
+  const peopleFoodMenu = normalizeMenu(event.foodMenu);
+  const foodOfferable = offerableOptions(peopleFoodMenu);
+  const showFoodCol = peopleFoodMenu.enabled;
+  // Their own order, else the one inherited from the host they are a +1 of.
+  // Deliberately follows plusOneOf only — not the symmetric partnerOf the vote
+  // cells use — so this column and the tally in the Food orders section never
+  // disagree about who has ordered.
+  const foodEntry = (uid, m) => {
+    const own = normalizeOrder(m?.foodOrder);
+    if (own) return [own, false];
+    const host = m?.plusOneOf ? normalizeOrder(event.members?.[m.plusOneOf]?.foodOrder) : null;
+    return [host, !!host];
+  };
+  // Typed orders are held locally first: bound straight to the Firestore
+  // snapshot, a keystroke can arrive back after the next one and eat it.
+  // Debounced, and flushed on blur.
+  const foodCurrent = (uid, m) => ({
+    ...(normalizeOrder(m?.foodOrder) || { choice: '', other: '', note: '' }),
+    ...(foodDrafts[uid] || {}),
+  });
+  const flushFood = (uid, next) => {
+    const clean = { choice: next.choice || '', other: (next.other || '').trim(), note: (next.note || '').trim() };
+    // A note with nothing ordered is not an order — clearing the pick clears
+    // the row, matching what normalizeOrder would make of it on the way back.
+    const empty = !clean.choice && !clean.other;
+    updateEvent(eventId, {
+      [`members.${uid}.foodOrder`]: empty ? deleteField() : { ...clean, at: new Date().toISOString() },
+    });
+  };
+  const editFood = (uid, m, patch, { immediate = false } = {}) => {
+    const next = { ...foodCurrent(uid, m), ...patch };
+    setFoodDrafts(prev => ({ ...prev, [uid]: next }));
+    clearTimeout(foodTimers.current[uid]);
+    if (immediate) flushFood(uid, next);
+    else foodTimers.current[uid] = setTimeout(() => flushFood(uid, next), 600);
+  };
+  // What the picker should read as. An option the organiser has since deleted
+  // from the menu still counts as "something else", so it shows as their own
+  // words instead of collapsing to a blank.
+  const foodIsCustom = (choice) => !!choice && (choice === OTHER || !peopleFoodMenu.options.some(o => o.id === choice));
+  const onFoodPick = (uid, m, value) => {
+    if (!value) return editFood(uid, m, { choice: '', other: '', note: '' }, { immediate: true });
+    if (value === OTHER) return editFood(uid, m, { choice: OTHER }, { immediate: true });
+    editFood(uid, m, { choice: value, other: '' }, { immediate: true });
+  };
+  const foodInput = { width: '100%', boxSizing: 'border-box', padding: '0.2rem 0.35rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.74rem', fontFamily: 'inherit', background: 'var(--color-surface)', color: 'var(--color-text)' };
+  // The full cell, for the wide table: pick, their own words when it isn't on
+  // the menu, and a note ("no onion").
+  const foodCell = (uid, m) => {
+    const [order, inherited] = foodEntry(uid, m);
+    if (!canManageMembers) {
+      const label = orderLabel(order, peopleFoodMenu);
+      return (
+        <span title={order?.note || ''} style={{ fontSize: '0.76rem', color: order ? 'var(--color-text)' : 'var(--color-text-muted)', fontStyle: inherited ? 'italic' : 'normal' }}>
+          {label || '—'}{order?.note ? ` · ${order.note}` : ''}
+        </span>
+      );
+    }
+    const cur = foodCurrent(uid, m);
+    const custom = foodIsCustom(cur.choice);
+    const hasOwn = !!(cur.choice || cur.other);
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+        <select
+          value={custom ? OTHER : (cur.choice || '')}
+          onChange={(e) => onFoodPick(uid, m, e.target.value)}
+          aria-label={`Food order for ${m.name || 'Guest'}`}
+          style={{ ...foodInput, fontWeight: hasOwn ? 600 : 400, color: hasOwn ? 'var(--color-text)' : 'var(--color-text-muted)' }}
+        >
+          <option value="">{inherited ? `↳ ${orderLabel(order, peopleFoodMenu)}` : '— no order'}</option>
+          {foodOfferable.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+          <option value={OTHER}>Something else…</option>
+        </select>
+        {custom && (
+          <input
+            value={cur.other}
+            placeholder="What they want"
+            onChange={(e) => editFood(uid, m, { other: e.target.value })}
+            onBlur={() => flushFood(uid, foodCurrent(uid, m))}
+            aria-label={`What ${m.name || 'Guest'} wants`}
+            style={foodInput}
+          />
+        )}
+        {hasOwn && (
+          <input
+            value={cur.note}
+            placeholder="Note"
+            onChange={(e) => editFood(uid, m, { note: e.target.value })}
+            onBlur={() => flushFood(uid, foodCurrent(uid, m))}
+            aria-label={`Note on ${m.name || 'Guest'}’s order`}
+            style={{ ...foodInput, color: 'var(--color-text-secondary)' }}
+          />
+        )}
+      </div>
+    );
+  };
+  // The compact version, for the two-column list, where every row is one line
+  // tall. Same picker; "Something else" asks for the words in a prompt rather
+  // than growing a second input and making that one row taller than the rest.
+  const foodChip = (uid, m) => {
+    const [order, inherited] = foodEntry(uid, m);
+    const label = orderLabel(order, peopleFoodMenu);
+    const tip = `${m.name || 'Guest'} — ${label || 'no order yet'}${order?.note ? ` (${order.note})` : ''}${inherited ? ' — same as their host' : ''}`;
+    const look = {
+      flex: '0 1 auto', minWidth: 0, maxWidth: isNarrow ? '4.5rem' : '7rem',
+      padding: '0.1rem 0.3rem', borderRadius: 'var(--radius-full)',
+      fontSize: '0.66rem', fontWeight: 600, fontFamily: 'inherit',
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      border: order && !inherited ? '1px solid transparent' : '1px dashed var(--color-border)',
+      background: order && !inherited ? 'var(--color-accent-light)' : 'transparent',
+      color: order ? 'var(--color-text)' : 'var(--color-text-muted)',
+    };
+    if (!canManageMembers) return <span title={tip} style={look}>🍽 {label || '–'}</span>;
+    const cur = foodCurrent(uid, m);
+    const custom = foodIsCustom(cur.choice);
+    return (
+      <select
+        value={custom ? OTHER : (cur.choice || '')}
+        title={`${tip}\nPick to set their order`}
+        aria-label={`Food order for ${m.name || 'Guest'}`}
+        onChange={(e) => {
+          if (e.target.value !== OTHER) return onFoodPick(uid, m, e.target.value);
+          const words = window.prompt(`What does ${m.name || 'this guest'} want?`, cur.other || '');
+          if (words === null) return;
+          editFood(uid, m, { choice: OTHER, other: words }, { immediate: true });
+        }}
+        style={{ ...look, cursor: 'pointer' }}
+      >
+        <option value="">{inherited ? `↳ ${label}` : '🍽 –'}</option>
+        {foodOfferable.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        <option value={OTHER}>{custom && cur.other ? cur.other : 'Something else…'}</option>
+      </select>
+    );
+  };
+
   // Keep linked (+1) members adjacent so connected people stay together.
   const clusterMembers = (rowMembers) => {
     const processed = new Set();
@@ -902,7 +1048,8 @@ export function EventDetail() {
     // table width. Fixed layout below makes the widths exact and draggable.
     const nameColW = voteColWidths.name || (isNarrow ? 120 : 200);
     const optColW = (id) => voteColWidths[id] || (isNarrow ? 76 : 100);
-    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0);
+    const foodColW = showFoodCol ? (voteColWidths.food || (isNarrow ? 120 : 170)) : 0;
+    const totalColW = nameColW + foodColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0);
     const resizeHandle = (key, width) => (
       <div
         onMouseDown={startColResize(key, width)}
@@ -925,12 +1072,14 @@ export function EventDetail() {
         {canManageMembers && (
           <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
             Tap a cell to set a vote: – → ✓ Works → ? Maybe → ✗ Can’t
+            {showFoodCol && ' · Pick in the 🍽 Order column to enter an order yourself.'}
           </div>
         )}
         <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: `${totalColW}px`, minWidth: '100%' }}>
           <colgroup>
             <col style={{ width: `${nameColW}px` }} />
+            {showFoodCol && <col style={{ width: `${foodColW}px` }} />}
             {visibleOptions.map(o => <col key={o.id} style={{ width: `${optColW(o.id)}px` }} />)}
             {/* Spacer absorbs any width beyond the sized columns so their
                 widths stay exact and draggable instead of stretching. */}
@@ -939,6 +1088,11 @@ export function EventDetail() {
           <thead>
             <tr>
               <th style={thName}>Person{resizeHandle('name', nameColW)}</th>
+              {showFoodCol && (
+                <th style={{ ...th, textAlign: 'left' }} title={peopleFoodMenu.prompt}>
+                  🍽 Order{resizeHandle('food', foodColW)}
+                </th>
+              )}
               {visibleOptions.map(o => {
                 const t = tallyFor(o, rowMembers);
                 const chosen = isChosenOption(o);
@@ -997,6 +1151,9 @@ export function EventDetail() {
                       </span>
                     )}
                   </td>
+                  {showFoodCol && (
+                    <td style={{ ...td, ...topBorder, textAlign: 'left' }}>{foodCell(uid, m)}</td>
+                  )}
                   {visibleOptions.map(o => {
                     const own = o.votes?.[uid]?.vote;
                     const ownActive = own && own !== 'none';
@@ -1150,6 +1307,7 @@ export function EventDetail() {
         {canManageMembers && (
           <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>
             Tap a date to mark it ✓ Works — tap it again to clear.
+            {showFoodCol && ' The 🍽 chip takes an order.'}
           </div>
         )}
         {cells.length === 0 ? (
@@ -1194,6 +1352,7 @@ export function EventDetail() {
                     {m.name || 'Guest'}
                     {target && <span style={{ color: 'var(--color-text-muted)', fontWeight: 500 }}> {mutual ? '⇄' : '↳'}</span>}
                   </span>
+                  {showFoodCol && foodChip(uid, m)}
                   {/* Shrinks and wraps internally only if the chips alone
                       outgrow the column — many dates on a narrow phone. */}
                   <span style={{ flex: '0 1 auto', minWidth: 0, display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '0.15rem' }}>
@@ -3317,6 +3476,9 @@ export function EventDetail() {
                         <span style={{ marginLeft: '0.6rem', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                           Guests can always write their own instead.
                         </span>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+                          Heard someone’s order by text? Type it into the 🍽 Order column up in the invited list — this table and the tally read the same thing.
+                        </div>
                       </div>
                     )}
 
