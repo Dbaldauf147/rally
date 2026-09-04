@@ -66,6 +66,17 @@ html.native [contenteditable="true"] {
   user-select: text;
 }
 
+/* iOS zooms the whole page in when you focus a field whose text is under 16px,
+   and it does not zoom back out afterwards — which is what makes parts of the
+   app look magnified once you have tapped something. Raising the floor to 16px
+   removes the trigger. Native shell only: on the web there is no auto-zoom, so
+   the denser type there is left alone. */
+html.native input:not([type="checkbox"]):not([type="radio"]),
+html.native textarea,
+html.native select {
+  font-size: max(16px, 1em);
+}
+
 /* Leave room for the fixed left sidebar on desktop when it's mounted. Kept
    here rather than in NavBar.module.css because CSS modules would hash the
    class name, and the body element is outside the component. */
