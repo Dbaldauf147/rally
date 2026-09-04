@@ -26,6 +26,7 @@ import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
 import { KeyConsiderations } from './KeyConsiderations';
+import { normalizeMenu, summarizeOrders, tallyText, newOptionId, DEFAULT_PROMPT } from '../lib/foodOrders';
 import { EventExpenses } from './EventExpenses';
 import { BoatDay, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
 import { boatRosterUnion, dateKeyOf } from '../boatDays';
@@ -3247,6 +3248,123 @@ export function EventDetail() {
               setShowFinalize(true);
             }}
           />
+
+          {/* Food orders. The menu you set, and what everyone picked off it.
+              Guests fill this in on the poll link you already text them, so
+              their order arrives already attached to their row. */}
+          {(() => {
+            const menu = normalizeMenu(event.foodMenu);
+            const summary = summarizeOrders(event, event.foodMenu);
+            const tally = tallyText(summary);
+            const saveMenu = (patch) => updateEvent(eventId, { foodMenu: { ...menu, ...patch } });
+            if (!menu.enabled && !canManageMembers) return null;
+            const th = { padding: '0.5rem 0.6rem', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', borderBottom: '2px solid var(--color-border)' };
+            const td = { padding: '0.5rem 0.6rem', fontSize: '0.85rem', borderBottom: '1px solid var(--color-border-light, var(--color-border))', verticalAlign: 'top' };
+            return (
+              <div style={{ marginTop: '1.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.6rem' }}>
+                  <h3 className={styles.sectionTitle} style={{ margin: 0 }}>🍽 Food orders</h3>
+                  {menu.enabled && summary.total > 0 && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                      {summary.orderedCount} / {summary.total} ordered
+                    </span>
+                  )}
+                  {canManageMembers && (
+                    <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                      <input type="checkbox" checked={menu.enabled} onChange={(e) => saveMenu({ enabled: e.target.checked })} />
+                      Ask on the poll link
+                    </label>
+                  )}
+                </div>
+
+                {!menu.enabled ? (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                    Turn this on to add a food question to the poll link you text people.
+                  </p>
+                ) : (
+                  <>
+                    {canManageMembers && (
+                      <div style={{ padding: '0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', marginBottom: '0.75rem' }}>
+                        <input
+                          value={menu.prompt === DEFAULT_PROMPT ? '' : menu.prompt}
+                          placeholder={DEFAULT_PROMPT}
+                          onChange={(e) => saveMenu({ prompt: e.target.value })}
+                          style={{ width: '100%', boxSizing: 'border-box', padding: '0.4rem 0.55rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem', fontWeight: 600, fontFamily: 'inherit', marginBottom: '0.5rem' }}
+                          aria-label="Question guests are asked"
+                        />
+                        {menu.options.map((o, i) => (
+                          <div key={o.id} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.35rem' }}>
+                            <input
+                              value={o.label}
+                              placeholder="Menu option"
+                              onChange={(e) => saveMenu({ options: menu.options.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })}
+                              style={{ flex: 1, minWidth: 0, padding: '0.35rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', fontFamily: 'inherit' }}
+                              aria-label={`Option ${i + 1}`}
+                            />
+                            <button
+                              className={styles.deleteBtn}
+                              onClick={() => saveMenu({ options: menu.options.filter((_, j) => j !== i) })}
+                              title="Remove this option"
+                              aria-label={`Remove ${o.label || 'option'}`}
+                            >×</button>
+                          </div>
+                        ))}
+                        <button
+                          className={styles.editBtn}
+                          onClick={() => saveMenu({ options: [...menu.options, { id: newOptionId(), label: '' }] })}
+                          style={{ fontSize: '0.8rem' }}
+                        >+ Add option</button>
+                        <span style={{ marginLeft: '0.6rem', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                          Guests can always write their own instead.
+                        </span>
+                      </div>
+                    )}
+
+                    {tally && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', padding: '0.6rem 0.75rem', marginBottom: '0.6rem', background: 'var(--color-accent-light)', borderRadius: 'var(--radius-md)' }}>
+                        <strong style={{ fontSize: '0.88rem', color: 'var(--color-text)' }}>{tally}</strong>
+                        <button
+                          className={styles.editBtn}
+                          style={{ marginLeft: 'auto', fontSize: '0.75rem' }}
+                          onClick={() => { navigator.clipboard?.writeText(tally); setResult({ type: 'success', message: 'Order copied.' }); setTimeout(() => setResult(null), 3000); }}
+                        >Copy</button>
+                      </div>
+                    )}
+
+                    {summary.rows.length === 0 ? (
+                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>No one on the guest list yet.</p>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr><th style={th}>Name</th><th style={th}>Order</th><th style={th}>Notes</th></tr>
+                          </thead>
+                          <tbody>
+                            {summary.rows.map((r) => (
+                              <tr key={r.key}>
+                                <td style={td}>{r.name}</td>
+                                <td style={{ ...td, color: r.order ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
+                                  {r.order ? r.label : '—'}
+                                  {r.inherited && <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}> (same as their host)</span>}
+                                </td>
+                                <td style={{ ...td, color: 'var(--color-text-secondary)' }}>{r.note || ''}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {summary.waiting.length > 0 && (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+                        Still waiting on: {summary.waiting.join(', ')}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {isOwner && (
             <div className={styles.ownerActions}>
