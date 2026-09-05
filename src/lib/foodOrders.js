@@ -9,15 +9,17 @@
 //   event.foodMenu = { enabled, prompt, options: [{ id, label }] }
 // and an order rides on the member row it belongs to, beside their rsvp and
 // their votes:
-//   members.<key>.foodOrder = { choice, at }
-// `choice` is an option id. Keeping it on the member row is what makes a texted
-// ?vid= link enough: the order lands on the right person with nothing to
-// reconcile afterwards.
+//   members.<key>.foodOrder = { choice, text, at }
+// `choice` is an option id; `text` is a meal written out in full. Keeping it on
+// the member row is what makes a texted ?vid= link enough: the order lands on
+// the right person with nothing to reconcile afterwards.
 //
-// An order is a menu pick and nothing else. There was briefly a "something
-// else" write-in and a per-person note; both are gone, so what comes back is
-// always one of the options you set — which is what makes the tally a thing you
-// can hand to whoever is cooking without reading it first.
+// The two fields exist because the two sides of this ask different questions.
+// A guest gets a list and picks one — that is what keeps the totals countable.
+// The organiser gets a box they can type anything into, because half the
+// orders arrive as "he says he'll have the salmon" and the menu was never
+// going to cover it. Typing a name that is on the menu resolves to that
+// option, so it still counts toward the same line.
 
 export const newOptionId = () =>
   (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `opt-${Math.random().toString(36).slice(2)}-${Date.now()}`);
@@ -45,23 +47,39 @@ export function normalizeMenu(raw) {
 export const offerableOptions = (menu) => menu.options.filter(o => o.label.trim());
 
 // One member's stored order, tidied. Returns null when they haven't ordered —
-// an empty pick is "not yet", not an order for nothing. Orders written under
-// the old write-in ("something else") carried no option id, so they read as not
-// having ordered and the person is asked again.
+// an empty pick is "not yet", not an order for nothing.
+//
+// `__`-prefixed choices are the old "something else" sentinel: they never named
+// a real option, so the words that went with them become the typed meal. That
+// keeps orders taken before the write-in moved to the organiser's side.
 export function normalizeOrder(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const choice = String(raw.choice ?? '').trim();
-  if (!choice || choice.startsWith('__')) return null;
-  return { choice, at: raw.at || null };
+  let choice = String(raw.choice ?? '').trim();
+  let text = String(raw.text ?? '').trim();
+  if (choice.startsWith('__')) {
+    if (!text) text = String(raw.other ?? '').trim();
+    choice = '';
+  }
+  if (!choice && !text) return null;
+  return { choice, text, at: raw.at || null };
 }
 
 // What to show in the table for one order. An option since deleted from the
-// menu leaves nothing to name, so it reads as no order rather than as a blank
-// row that looks like a bug.
+// menu falls back to whatever was typed, and failing that reads as no order
+// rather than a blank row that looks like a bug.
 export function orderLabel(order, menu) {
   if (!order) return '';
-  const opt = menu.options.find(o => o.id === order.choice);
-  return opt ? opt.label : '';
+  const opt = order.choice ? menu.options.find(o => o.id === order.choice) : null;
+  return opt ? opt.label : (order.text || '');
+}
+
+// The option a typed meal names, if it names one. Typing "cheeseburger" when
+// Cheeseburger is on the menu should count on that line rather than starting a
+// line of its own, so the totals don't split over capitalisation.
+export function matchOption(text, menu) {
+  const want = String(text || '').trim().toLowerCase();
+  if (!want) return null;
+  return menu.options.find(o => o.label.trim().toLowerCase() === want) || null;
 }
 
 // Per-person vote counts, built from the event's date options. Mirrors what
@@ -128,14 +146,32 @@ export function summarizeOrders(event = {}, menuRaw = undefined, voteStats = {})
   const ordered = rows.filter(r => r.order);
   const waiting = rows.filter(r => !r.order).map(r => r.name);
 
-  // Totals per menu option — a kitchen order reads "6 burgers, 3 salads".
-  const counts = menu.options.map(o => ({
+  // Totals per menu option first — a kitchen order reads "6 burgers, 3 salads"
+  // — then anything typed out in full, grouped so two people down for salmon
+  // read as one line of two rather than two lines of one.
+  const onMenu = menu.options.map(o => ({
     id: o.id,
     label: o.label,
     count: ordered.filter(r => r.order.choice === o.id).length,
   })).filter(c => c.count > 0);
 
-  return { menu, rows, orderedCount: ordered.length, total: rows.length, waiting, counts };
+  const typed = [];
+  for (const r of ordered) {
+    if (r.order.choice || !r.label) continue;
+    const key = r.label.toLowerCase();
+    const seen = typed.find(t => t.key === key);
+    if (seen) seen.count++;
+    else typed.push({ id: `typed:${key}`, key, label: r.label, count: 1 });
+  }
+
+  return {
+    menu,
+    rows,
+    orderedCount: ordered.length,
+    total: rows.length,
+    waiting,
+    counts: [...onMenu, ...typed.map(({ id, label, count }) => ({ id, label, count, typed: true }))],
+  };
 }
 
 // "6 × Cheeseburger, 3 × Caesar salad" — the line you read out to whoever is

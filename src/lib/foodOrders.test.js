@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeMenu, normalizeOrder, orderLabel, summarizeOrders, tallyText,
-  offerableOptions, buildVoteStats, isYesMaybe, DEFAULT_PROMPT,
+  offerableOptions, buildVoteStats, isYesMaybe, matchOption, DEFAULT_PROMPT,
 } from './foodOrders';
 
 const menu = {
@@ -48,22 +48,45 @@ describe('normalizeMenu', () => {
 
 describe('normalizeOrder', () => {
   it('reads a menu pick', () => {
-    expect(normalizeOrder({ choice: 'burger', at: 'now' })).toEqual({ choice: 'burger', at: 'now' });
+    expect(normalizeOrder({ choice: 'burger', at: 'now' })).toEqual({ choice: 'burger', text: '', at: 'now' });
+  });
+
+  it('reads a meal typed out in full', () => {
+    expect(normalizeOrder({ text: '  Grilled salmon ' })).toEqual({ choice: '', text: 'Grilled salmon', at: null });
   });
 
   it('treats nothing chosen as not having ordered', () => {
     expect(normalizeOrder(null)).toBe(null);
     expect(normalizeOrder({})).toBe(null);
-    expect(normalizeOrder({ choice: '' })).toBe(null);
+    expect(normalizeOrder({ choice: '', text: '  ' })).toBe(null);
   });
 
-  it('drops a note and a write-in, which are no longer collected', () => {
-    expect(normalizeOrder({ choice: 'burger', note: 'no onion', other: 'x' }))
-      .toEqual({ choice: 'burger', at: null });
+  it('drops a note, which is no longer collected', () => {
+    expect(normalizeOrder({ choice: 'burger', note: 'no onion' }))
+      .toEqual({ choice: 'burger', text: '', at: null });
   });
 
-  it('reads an old write-in order as not having ordered', () => {
-    expect(normalizeOrder({ choice: '__other__', other: 'Poke bowl' })).toBe(null);
+  it('carries an old write-in over as a typed meal', () => {
+    expect(normalizeOrder({ choice: '__other__', other: 'Poke bowl' }))
+      .toEqual({ choice: '', text: 'Poke bowl', at: null });
+  });
+
+  it('is not an order when the old write-in had no words with it', () => {
+    expect(normalizeOrder({ choice: '__other__', other: '' })).toBe(null);
+  });
+});
+
+describe('matchOption', () => {
+  const m = normalizeMenu(menu);
+
+  it('resolves a typed name to the option it names, whatever the case', () => {
+    expect(matchOption('cheeseburger', m).id).toBe('burger');
+    expect(matchOption('  Caesar Salad ', m).id).toBe('salad');
+  });
+
+  it('leaves anything else alone', () => {
+    expect(matchOption('Grilled salmon', m)).toBe(null);
+    expect(matchOption('', m)).toBe(null);
   });
 });
 
@@ -74,8 +97,13 @@ describe('orderLabel', () => {
     expect(orderLabel({ choice: 'salad' }, m)).toBe('Caesar salad');
   });
 
-  it('is empty once the option has been taken off the menu', () => {
-    expect(orderLabel({ choice: 'gone' }, m)).toBe('');
+  it('reads out a meal typed in full', () => {
+    expect(orderLabel({ choice: '', text: 'Grilled salmon' }, m)).toBe('Grilled salmon');
+  });
+
+  it('falls back to the words when the option has been taken off the menu', () => {
+    expect(orderLabel({ choice: 'gone', text: 'Grilled salmon' }, m)).toBe('Grilled salmon');
+    expect(orderLabel({ choice: 'gone', text: '' }, m)).toBe('');
   });
 
   it('is empty for someone who has not ordered', () => {
@@ -199,12 +227,25 @@ describe('summarizeOrders', () => {
     expect(s.rows.map(r => r.name)).toEqual(['Al']);
   });
 
-  it('ignores an order left over from the old write-in', () => {
+  it('counts typed meals after the menu ones, grouped by what was typed', () => {
+    const s = summarizeOrders(base({
+      a: { name: 'Al', foodOrder: { choice: 'burger' } },
+      b: { name: 'Bea', foodOrder: { text: 'Grilled salmon' } },
+      c: { name: 'Cy', foodOrder: { text: 'grilled salmon' } },
+    }), undefined, yesFor('a', 'b', 'c'));
+    expect(s.counts).toEqual([
+      { id: 'burger', label: 'Cheeseburger', count: 1 },
+      { id: 'typed:grilled salmon', label: 'Grilled salmon', count: 2, typed: true },
+    ]);
+    expect(tallyText(s)).toBe('1 × Cheeseburger, 2 × Grilled salmon');
+  });
+
+  it('still reads an order left over from the old write-in', () => {
     const s = summarizeOrders(base({
       a: { name: 'Al', foodOrder: { choice: '__other__', other: 'Poke bowl' } },
     }), undefined, yesFor('a'));
-    expect(s.orderedCount).toBe(0);
-    expect(s.waiting).toEqual(['Al']);
+    expect(s.orderedCount).toBe(1);
+    expect(s.rows[0].label).toBe('Poke bowl');
   });
 
   it('handles an event with no orders at all', () => {

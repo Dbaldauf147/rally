@@ -26,7 +26,7 @@ import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
 import { KeyConsiderations } from './KeyConsiderations';
-import { normalizeMenu, normalizeOrder, offerableOptions, summarizeOrders, tallyText, newOptionId, DEFAULT_PROMPT, isYesMaybe } from '../lib/foodOrders';
+import { normalizeMenu, normalizeOrder, offerableOptions, summarizeOrders, tallyText, newOptionId, DEFAULT_PROMPT, isYesMaybe, matchOption } from '../lib/foodOrders';
 import { EventExpenses } from './EventExpenses';
 import { BoatDay, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
 import { boatRosterUnion, dateKeyOf } from '../boatDays';
@@ -183,6 +183,9 @@ export function EventDetail() {
     setShowTextAll(true);
     setTimeout(() => document.getElementById('text-all-draft')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
   };
+  // Meals being typed into the Meals tab, uid → what is in the box, held
+  // until a blur or Enter writes it. See commitMeal below.
+  const [mealDrafts, setMealDrafts] = useState({}); // uid → what is being typed
   const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
@@ -871,13 +874,20 @@ export function EventDetail() {
     return [host, !!host];
   };
   // Orders mostly arrive by text or across the kitchen, so the organiser has to
-  // be able to set one without opening the guest's link as them. One pick, one
-  // write — there is no free text left to debounce.
-  const setMemberOrder = (uid, optionId) => updateEvent(eventId, {
-    [`members.${uid}.foodOrder`]: optionId
-      ? { choice: optionId, at: new Date().toISOString() }
-      : deleteField(),
-  });
+  // be able to set one without opening the guest's link as them — and to write
+  // in a meal the menu never covered ("he says he'll have the salmon"). Typing
+  // a name that is on the menu resolves to that option, so it still counts on
+  // the same line rather than starting one of its own.
+  const commitMeal = (uid, raw) => {
+    const text = String(raw || '').trim();
+    const opt = matchOption(text, mealMenu);
+    updateEvent(eventId, {
+      [`members.${uid}.foodOrder`]: !text
+        ? deleteField()
+        : { choice: opt ? opt.id : '', text: opt ? '' : text, at: new Date().toISOString() },
+    });
+    setMealDrafts(prev => { const n = { ...prev }; delete n[uid]; return n; });
+  };
 
   // Keep linked (+1) members adjacent so connected people stay together.
   const clusterMembers = (rowMembers) => {
@@ -3853,7 +3863,7 @@ export function EventDetail() {
                       style={{ fontSize: '0.8rem' }}
                     >+ Add option</button>
                     <span style={{ marginLeft: '0.6rem', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                      These are the only answers — people pick one.
+                      Guests pick one of these. You can type anything into the table below.
                     </span>
                   </div>
                 )}
@@ -3909,15 +3919,22 @@ export function EventDetail() {
                               <td style={{ ...td, fontWeight: 600 }}>{r.name}</td>
                               <td style={td}>
                                 {canManageMembers ? (
-                                  <select
-                                    value={r.inherited ? '' : (r.order?.choice || '')}
-                                    onChange={(e) => setMemberOrder(r.key, e.target.value)}
+                                  // Type-or-pick: the menu shows as suggestions,
+                                  // but the box takes anything. Held locally
+                                  // while it is being typed, written on blur or
+                                  // Enter — bound straight to the snapshot, a
+                                  // keystroke can land after the next one and
+                                  // eat it.
+                                  <input
+                                    list={`meal-options-${eventId}`}
+                                    value={mealDrafts[r.key] ?? (r.inherited ? '' : r.label)}
+                                    placeholder={r.inherited ? `↳ ${r.label} (same as their host)` : 'Type or pick a meal'}
+                                    onChange={(e) => setMealDrafts(prev => ({ ...prev, [r.key]: e.target.value }))}
+                                    onBlur={(e) => { if (mealDrafts[r.key] !== undefined) commitMeal(r.key, e.target.value); }}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                                     aria-label={`Meal for ${r.name}`}
-                                    style={{ width: '100%', maxWidth: '18rem', padding: '0.25rem 0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', fontFamily: 'inherit', background: 'var(--color-surface)', color: r.order ? 'var(--color-text)' : 'var(--color-text-muted)', fontWeight: r.order ? 600 : 400 }}
-                                  >
-                                    <option value="">{r.inherited ? `↳ ${r.label} (same as their host)` : '— not yet'}</option>
-                                    {mealOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                                  </select>
+                                    style={{ width: '100%', maxWidth: '18rem', boxSizing: 'border-box', padding: '0.3rem 0.45rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', fontFamily: 'inherit', background: 'var(--color-surface)', color: 'var(--color-text)', fontWeight: r.order && !r.inherited ? 600 : 400 }}
+                                  />
                                 ) : (
                                   <span style={{ color: r.order ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
                                     {r.label || '—'}
@@ -3929,6 +3946,9 @@ export function EventDetail() {
                           ))}
                         </tbody>
                       </table>
+                      <datalist id={`meal-options-${eventId}`}>
+                        {mealOptions.map(o => <option key={o.id} value={o.label} />)}
+                      </datalist>
                     </div>
 
                     {/* The totals, in bullets — the bit you read out or hand
