@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizeMenu, normalizeOrder, orderLabel, summarizeOrders, tallyText, offerableOptions, OTHER, DEFAULT_PROMPT,
+  normalizeMenu, normalizeOrder, orderLabel, summarizeOrders, tallyText,
+  offerableOptions, buildVoteStats, isYesMaybe, DEFAULT_PROMPT,
 } from './foodOrders';
 
 const menu = {
@@ -12,6 +13,10 @@ const menu = {
     { id: 'tacos', label: 'Fish tacos' },
   ],
 };
+
+// Everyone in these fixtures is a yes unless a test says otherwise — the
+// summary only lists people who are eating, so without votes it lists nobody.
+const yesFor = (...uids) => Object.fromEntries(uids.map(u => [u, { total: 1, yes: 1, maybe: 0, no: 0 }]));
 
 describe('normalizeMenu', () => {
   it('keeps the options it is given', () => {
@@ -43,27 +48,22 @@ describe('normalizeMenu', () => {
 
 describe('normalizeOrder', () => {
   it('reads a menu pick', () => {
-    expect(normalizeOrder({ choice: 'burger', note: 'no onion' }))
-      .toMatchObject({ choice: 'burger', note: 'no onion' });
-  });
-
-  it('reads a written-in order', () => {
-    expect(normalizeOrder({ choice: OTHER, other: 'Poke bowl' }))
-      .toMatchObject({ choice: OTHER, other: 'Poke bowl' });
+    expect(normalizeOrder({ choice: 'burger', at: 'now' })).toEqual({ choice: 'burger', at: 'now' });
   });
 
   it('treats nothing chosen as not having ordered', () => {
     expect(normalizeOrder(null)).toBe(null);
     expect(normalizeOrder({})).toBe(null);
-    expect(normalizeOrder({ choice: '', other: '' })).toBe(null);
+    expect(normalizeOrder({ choice: '' })).toBe(null);
   });
 
-  it('treats an empty "something else" as not having ordered', () => {
-    expect(normalizeOrder({ choice: OTHER, other: '   ' })).toBe(null);
+  it('drops a note and a write-in, which are no longer collected', () => {
+    expect(normalizeOrder({ choice: 'burger', note: 'no onion', other: 'x' }))
+      .toEqual({ choice: 'burger', at: null });
   });
 
-  it('does not count a note on its own as an order', () => {
-    expect(normalizeOrder({ note: 'allergic to shellfish' })).toBe(null);
+  it('reads an old write-in order as not having ordered', () => {
+    expect(normalizeOrder({ choice: '__other__', other: 'Poke bowl' })).toBe(null);
   });
 });
 
@@ -71,15 +71,11 @@ describe('orderLabel', () => {
   const m = normalizeMenu(menu);
 
   it('names the option they picked', () => {
-    expect(orderLabel({ choice: 'burger' }, m)).toBe('Cheeseburger');
+    expect(orderLabel({ choice: 'salad' }, m)).toBe('Caesar salad');
   });
 
-  it('uses their own words when they wrote their own', () => {
-    expect(orderLabel({ choice: OTHER, other: 'Poke bowl' }, m)).toBe('Poke bowl');
-  });
-
-  it('says so when the option has since been taken off the menu', () => {
-    expect(orderLabel({ choice: 'gone' }, m)).toBe('No longer on the menu');
+  it('is empty once the option has been taken off the menu', () => {
+    expect(orderLabel({ choice: 'gone' }, m)).toBe('');
   });
 
   it('is empty for someone who has not ordered', () => {
@@ -87,80 +83,133 @@ describe('orderLabel', () => {
   });
 });
 
-describe('summarizeOrders', () => {
-  const event = (members) => ({ foodMenu: menu, members });
-
-  it('lists everyone, ordered or not, by name', () => {
-    const s = summarizeOrders(event({
-      u2: { name: 'Ben', foodOrder: { choice: 'salad' } },
-      u1: { name: 'Ann', foodOrder: { choice: 'burger', note: 'no onion' } },
-      u3: { name: 'Cal' },
-    }));
-    expect(s.rows.map(r => r.name)).toEqual(['Ann', 'Ben', 'Cal']);
-    expect(s.orderedCount).toBe(2);
-    expect(s.total).toBe(3);
-    expect(s.waiting).toEqual(['Cal']);
+describe('buildVoteStats', () => {
+  it('counts each vote by person', () => {
+    const stats = buildVoteStats([
+      { votes: { amy: { vote: 'yes' }, ben: { vote: 'no' } } },
+      { votes: { amy: { vote: 'maybe' }, ben: { vote: 'no' } } },
+    ]);
+    expect(stats.amy).toEqual({ total: 2, yes: 1, maybe: 1, no: 0 });
+    expect(stats.ben).toEqual({ total: 2, yes: 0, maybe: 0, no: 2 });
   });
 
-  it('carries the note through to the table', () => {
-    const s = summarizeOrders(event({ u1: { name: 'Ann', foodOrder: { choice: 'burger', note: 'no onion' } } }));
-    expect(s.rows[0]).toMatchObject({ label: 'Cheeseburger', note: 'no onion' });
+  it('ignores closed, reference-only and empty votes', () => {
+    const stats = buildVoteStats([
+      { closed: true, votes: { amy: { vote: 'yes' } } },
+      { noVote: true, votes: { ben: { vote: 'yes' } } },
+      { votes: { cara: { vote: 'none' } } },
+    ]);
+    expect(stats).toEqual({});
+  });
+});
+
+describe('isYesMaybe', () => {
+  const members = { amy: { name: 'Amy' }, ben: { name: 'Ben' }, dan: { name: 'Dan', plusOneOf: 'amy' } };
+
+  it('counts a yes and a maybe, not a no', () => {
+    const stats = { amy: { yes: 1, maybe: 0 }, ben: { yes: 0, maybe: 1 }, cara: { yes: 0, maybe: 0, no: 2 } };
+    expect(isYesMaybe('amy', members.amy, members, stats)).toBe(true);
+    expect(isYesMaybe('ben', members.ben, members, stats)).toBe(true);
+    expect(isYesMaybe('cara', { name: 'Cara' }, members, stats)).toBe(false);
+  });
+
+  it('leaves out someone who has not voted at all', () => {
+    expect(isYesMaybe('amy', members.amy, members, {})).toBe(false);
+  });
+
+  it('lets a manual Going or Not going override the votes', () => {
+    const stats = { amy: { yes: 1, maybe: 0 } };
+    expect(isYesMaybe('amy', { ...members.amy, attendance: 'notgoing' }, members, stats)).toBe(false);
+    expect(isYesMaybe('cara', { name: 'Cara', attendance: 'going' }, members, {})).toBe(true);
+  });
+
+  it('carries a linked +1 in on their partner’s vote, both ways round', () => {
+    const stats = { amy: { yes: 1, maybe: 0 } };
+    expect(isYesMaybe('dan', members.dan, members, stats)).toBe(true);
+    // And the other way: Dan votes, Amy points at nobody but is pointed at.
+    expect(isYesMaybe('amy', members.amy, members, { dan: { yes: 1, maybe: 0 } })).toBe(true);
+  });
+
+  it('leaves skipVote members out', () => {
+    expect(isYesMaybe('amy', { ...members.amy, skipVote: true }, members, { amy: { yes: 1 } })).toBe(false);
+  });
+});
+
+describe('summarizeOrders', () => {
+  const base = (members) => ({ members, foodMenu: menu });
+
+  it('lists everyone who is eating, ordered or not, by name', () => {
+    const s = summarizeOrders(base({
+      b: { name: 'Bea', foodOrder: { choice: 'burger' } },
+      a: { name: 'Al' },
+    }), undefined, yesFor('a', 'b'));
+    expect(s.rows.map(r => r.name)).toEqual(['Al', 'Bea']);
+    expect(s.orderedCount).toBe(1);
+    expect(s.total).toBe(2);
+    expect(s.waiting).toEqual(['Al']);
+  });
+
+  it('leaves out anyone who is not a yes or a maybe', () => {
+    const s = summarizeOrders(base({
+      a: { name: 'Al', foodOrder: { choice: 'burger' } },
+      n: { name: 'Ned', foodOrder: { choice: 'salad' } },
+    }), undefined, yesFor('a'));
+    expect(s.rows.map(r => r.name)).toEqual(['Al']);
+    expect(tallyText(s)).toBe('1 × Cheeseburger');
   });
 
   it('totals the menu picks', () => {
-    const s = summarizeOrders(event({
-      u1: { name: 'Ann', foodOrder: { choice: 'burger' } },
-      u2: { name: 'Ben', foodOrder: { choice: 'burger' } },
-      u3: { name: 'Cal', foodOrder: { choice: 'salad' } },
-    }));
+    const s = summarizeOrders(base({
+      a: { name: 'Al', foodOrder: { choice: 'burger' } },
+      b: { name: 'Bea', foodOrder: { choice: 'burger' } },
+      c: { name: 'Cy', foodOrder: { choice: 'salad' } },
+    }), undefined, yesFor('a', 'b', 'c'));
     expect(s.counts).toEqual([
       { id: 'burger', label: 'Cheeseburger', count: 2 },
       { id: 'salad', label: 'Caesar salad', count: 1 },
     ]);
   });
 
-  it('lists written-in orders apart from the totals', () => {
-    const s = summarizeOrders(event({
-      u1: { name: 'Ann', foodOrder: { choice: 'burger' } },
-      u2: { name: 'Ben', foodOrder: { choice: OTHER, other: 'Poke bowl' } },
-    }));
-    expect(s.counts).toEqual([{ id: 'burger', label: 'Cheeseburger', count: 1 }]);
-    expect(s.others).toEqual(['Poke bowl']);
-  });
-
   it('lets a plus-one inherit the order of whoever they came with', () => {
-    const s = summarizeOrders(event({
-      u1: { name: 'Ann', foodOrder: { choice: 'burger' } },
-      u2: { name: 'Ann +1', plusOneOf: 'u1' },
-    }));
-    expect(s.waiting).toEqual([]);
-    expect(s.orderedCount).toBe(2);
-    expect(s.rows.find(r => r.name === 'Ann +1').inherited).toBe(true);
+    const s = summarizeOrders(base({
+      a: { name: 'Al', foodOrder: { choice: 'burger' } },
+      d: { name: 'Dee', plusOneOf: 'a' },
+    }), undefined, yesFor('a'));
+    const dee = s.rows.find(r => r.name === 'Dee');
+    expect(dee.inherited).toBe(true);
+    expect(dee.label).toBe('Cheeseburger');
+    expect(s.counts[0].count).toBe(2);
   });
 
   it('lets a plus-one order for themselves instead', () => {
-    const s = summarizeOrders(event({
-      u1: { name: 'Ann', foodOrder: { choice: 'burger' } },
-      u2: { name: 'Ann +1', plusOneOf: 'u1', foodOrder: { choice: 'salad' } },
-    }));
-    const plus = s.rows.find(r => r.name === 'Ann +1');
-    expect(plus.label).toBe('Caesar salad');
-    expect(plus.inherited).toBe(false);
+    const s = summarizeOrders(base({
+      a: { name: 'Al', foodOrder: { choice: 'burger' } },
+      d: { name: 'Dee', plusOneOf: 'a', foodOrder: { choice: 'tacos' } },
+    }), undefined, yesFor('a'));
+    const dee = s.rows.find(r => r.name === 'Dee');
+    expect(dee.inherited).toBe(false);
+    expect(dee.label).toBe('Fish tacos');
   });
 
   it('leaves skipVote members out entirely', () => {
-    const s = summarizeOrders(event({
-      u1: { name: 'Ann', foodOrder: { choice: 'burger' } },
-      u2: { name: 'Baby', skipVote: true },
-    }));
-    expect(s.total).toBe(1);
-    expect(s.waiting).toEqual([]);
+    const s = summarizeOrders(base({
+      a: { name: 'Al', foodOrder: { choice: 'burger' } },
+      s: { name: 'Sam', skipVote: true, foodOrder: { choice: 'salad' } },
+    }), undefined, yesFor('a', 's'));
+    expect(s.rows.map(r => r.name)).toEqual(['Al']);
+  });
+
+  it('ignores an order left over from the old write-in', () => {
+    const s = summarizeOrders(base({
+      a: { name: 'Al', foodOrder: { choice: '__other__', other: 'Poke bowl' } },
+    }), undefined, yesFor('a'));
+    expect(s.orderedCount).toBe(0);
+    expect(s.waiting).toEqual(['Al']);
   });
 
   it('handles an event with no orders at all', () => {
-    const s = summarizeOrders(event({ u1: { name: 'Ann' } }));
-    expect(s.orderedCount).toBe(0);
-    expect(s.counts).toEqual([]);
+    const s = summarizeOrders({ members: {}, foodMenu: menu }, undefined, {});
+    expect(s.rows).toEqual([]);
     expect(tallyText(s)).toBe('');
   });
 });
@@ -168,14 +217,13 @@ describe('summarizeOrders', () => {
 describe('tallyText', () => {
   it('reads out as an order you could hand over', () => {
     const s = summarizeOrders({
-      foodMenu: menu,
       members: {
-        u1: { name: 'Ann', foodOrder: { choice: 'burger' } },
-        u2: { name: 'Ben', foodOrder: { choice: 'burger' } },
-        u3: { name: 'Cal', foodOrder: { choice: 'salad' } },
-        u4: { name: 'Dee', foodOrder: { choice: OTHER, other: 'Poke bowl' } },
+        a: { name: 'Al', foodOrder: { choice: 'burger' } },
+        b: { name: 'Bea', foodOrder: { choice: 'burger' } },
+        c: { name: 'Cy', foodOrder: { choice: 'salad' } },
       },
-    });
-    expect(tallyText(s)).toBe('2 × Cheeseburger, 1 × Caesar salad, 1 × Poke bowl');
+      foodMenu: menu,
+    }, undefined, yesFor('a', 'b', 'c'));
+    expect(tallyText(s)).toBe('2 × Cheeseburger, 1 × Caesar salad');
   });
 });

@@ -26,7 +26,7 @@ import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
 import { Notes } from './Notes';
 import { KeyConsiderations } from './KeyConsiderations';
-import { normalizeMenu, normalizeOrder, orderLabel, offerableOptions, summarizeOrders, tallyText, newOptionId, DEFAULT_PROMPT, OTHER } from '../lib/foodOrders';
+import { normalizeMenu, normalizeOrder, offerableOptions, summarizeOrders, tallyText, newOptionId, DEFAULT_PROMPT, isYesMaybe } from '../lib/foodOrders';
 import { EventExpenses } from './EventExpenses';
 import { BoatDay, BOAT_NAME, buildBoatSuggestions } from './BoatDay';
 import { boatRosterUnion, dateKeyOf } from '../boatDays';
@@ -173,17 +173,6 @@ export function EventDetail() {
     if (!voteColWidthsLoaded.current) { voteColWidthsLoaded.current = true; return; }
     try { localStorage.setItem(`rally.voteCols.${eventId}`, JSON.stringify(voteColWidths)); } catch {}
   }, [voteColWidths, eventId]);
-  // Food orders being typed into the invited list, uid → { choice, other, note },
-  // held here until the debounce (or a blur) writes them. See foodCell below.
-  const [foodDrafts, setFoodDrafts] = useState({});
-  const foodTimers = useRef({});
-  // Whether the 🍽 Order column shows in the invited list. Remembered per event:
-  // once the orders are in and handed to the kitchen, the column is just width
-  // the date columns could be using.
-  const [foodColOn, setFoodColOn] = useState(true);
-  useEffect(() => {
-    try { setFoodColOn(localStorage.getItem(`rally.foodCol.${eventId}`) !== '0'); } catch { setFoodColOn(true); }
-  }, [eventId]);
   // Open the shared text draft with a message and audience. The draft panel
   // lives at the top of People & Poll, so anything opening it from further down
   // the page has to bring the user to it — otherwise the click looks like it
@@ -194,11 +183,6 @@ export function EventDetail() {
     setShowTextAll(true);
     setTimeout(() => document.getElementById('text-all-draft')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
   };
-  const toggleFoodCol = () => setFoodColOn(v => {
-    const next = !v;
-    try { localStorage.setItem(`rally.foodCol.${eventId}`, next ? '1' : '0'); } catch { /* private mode */ }
-    return next;
-  });
   const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
@@ -870,146 +854,30 @@ export function EventDetail() {
     return <span title={p[3]} style={{ ...base, background: p[1], color: p[2], fontWeight: 700 }}>{p[0]}</span>;
   };
 
-  // ── Food orders, beside each person ───────────────────────────────────────
-  // The order someone left on the poll link, in the invited list next to their
-  // name rather than only in the Food orders section further down — that list
-  // is where you already sit reading down the names. And editable here, because
-  // most orders actually arrive by text or across the kitchen: without this the
-  // only way to record one is to open the guest's own poll link as them.
-  const peopleFoodMenu = normalizeMenu(event.foodMenu);
-  const foodOfferable = offerableOptions(peopleFoodMenu);
-  const showFoodCol = peopleFoodMenu.enabled && foodColOn;
+  // ── Meals ─────────────────────────────────────────────────────────────────
+  // Everything about food lives on its own tab now. It reads the same member
+  // rows as the poll, but it is a different job at a different moment — the
+  // date is settled, and you are counting plates — so mixing it into the
+  // invited list only made both harder to read.
+  const mealMenu = normalizeMenu(event.foodMenu);
+  const mealOptions = offerableOptions(mealMenu);
   // Their own order, else the one inherited from the host they are a +1 of.
-  // Deliberately follows plusOneOf only — not the symmetric partnerOf the vote
-  // cells use — so this column and the tally in the Food orders section never
-  // disagree about who has ordered.
+  // Follows plusOneOf only — not the symmetric partnerOf the vote cells use —
+  // so this and the tally never disagree about who has ordered.
   const foodEntry = (uid, m) => {
     const own = normalizeOrder(m?.foodOrder);
     if (own) return [own, false];
     const host = m?.plusOneOf ? normalizeOrder(event.members?.[m.plusOneOf]?.foodOrder) : null;
     return [host, !!host];
   };
-  // Typed orders are held locally first: bound straight to the Firestore
-  // snapshot, a keystroke can arrive back after the next one and eat it.
-  // Debounced, and flushed on blur.
-  const foodCurrent = (uid, m) => ({
-    ...(normalizeOrder(m?.foodOrder) || { choice: '', other: '', note: '' }),
-    ...(foodDrafts[uid] || {}),
+  // Orders mostly arrive by text or across the kitchen, so the organiser has to
+  // be able to set one without opening the guest's link as them. One pick, one
+  // write — there is no free text left to debounce.
+  const setMemberOrder = (uid, optionId) => updateEvent(eventId, {
+    [`members.${uid}.foodOrder`]: optionId
+      ? { choice: optionId, at: new Date().toISOString() }
+      : deleteField(),
   });
-  const flushFood = (uid, next) => {
-    const clean = { choice: next.choice || '', other: (next.other || '').trim(), note: (next.note || '').trim() };
-    // A note with nothing ordered is not an order — clearing the pick clears
-    // the row, matching what normalizeOrder would make of it on the way back.
-    const empty = !clean.choice && !clean.other;
-    updateEvent(eventId, {
-      [`members.${uid}.foodOrder`]: empty ? deleteField() : { ...clean, at: new Date().toISOString() },
-    });
-  };
-  const editFood = (uid, m, patch, { immediate = false } = {}) => {
-    const next = { ...foodCurrent(uid, m), ...patch };
-    setFoodDrafts(prev => ({ ...prev, [uid]: next }));
-    clearTimeout(foodTimers.current[uid]);
-    if (immediate) flushFood(uid, next);
-    else foodTimers.current[uid] = setTimeout(() => flushFood(uid, next), 600);
-  };
-  // What the picker should read as. An option the organiser has since deleted
-  // from the menu still counts as "something else", so it shows as their own
-  // words instead of collapsing to a blank.
-  const foodIsCustom = (choice) => !!choice && (choice === OTHER || !peopleFoodMenu.options.some(o => o.id === choice));
-  const onFoodPick = (uid, m, value) => {
-    if (!value) return editFood(uid, m, { choice: '', other: '', note: '' }, { immediate: true });
-    if (value === OTHER) return editFood(uid, m, { choice: OTHER }, { immediate: true });
-    editFood(uid, m, { choice: value, other: '' }, { immediate: true });
-  };
-  const foodInput = { width: '100%', boxSizing: 'border-box', padding: '0.2rem 0.35rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.74rem', fontFamily: 'inherit', background: 'var(--color-surface)', color: 'var(--color-text)' };
-  // The full cell, for the wide table: pick, their own words when it isn't on
-  // the menu, and a note ("no onion").
-  const foodCell = (uid, m) => {
-    const [order, inherited] = foodEntry(uid, m);
-    if (!canManageMembers) {
-      const label = orderLabel(order, peopleFoodMenu);
-      return (
-        <span title={order?.note || ''} style={{ fontSize: '0.76rem', color: order ? 'var(--color-text)' : 'var(--color-text-muted)', fontStyle: inherited ? 'italic' : 'normal' }}>
-          {label || '—'}{order?.note ? ` · ${order.note}` : ''}
-        </span>
-      );
-    }
-    const cur = foodCurrent(uid, m);
-    const custom = foodIsCustom(cur.choice);
-    const hasOwn = !!(cur.choice || cur.other);
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-        <select
-          value={custom ? OTHER : (cur.choice || '')}
-          onChange={(e) => onFoodPick(uid, m, e.target.value)}
-          aria-label={`Food order for ${m.name || 'Guest'}`}
-          style={{ ...foodInput, fontWeight: hasOwn ? 600 : 400, color: hasOwn ? 'var(--color-text)' : 'var(--color-text-muted)' }}
-        >
-          <option value="">{inherited ? `↳ ${orderLabel(order, peopleFoodMenu)}` : '— no order'}</option>
-          {foodOfferable.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-          <option value={OTHER}>Something else…</option>
-        </select>
-        {custom && (
-          <input
-            value={cur.other}
-            placeholder="What they want"
-            onChange={(e) => editFood(uid, m, { other: e.target.value })}
-            onBlur={() => flushFood(uid, foodCurrent(uid, m))}
-            aria-label={`What ${m.name || 'Guest'} wants`}
-            style={foodInput}
-          />
-        )}
-        {hasOwn && (
-          <input
-            value={cur.note}
-            placeholder="Note"
-            onChange={(e) => editFood(uid, m, { note: e.target.value })}
-            onBlur={() => flushFood(uid, foodCurrent(uid, m))}
-            aria-label={`Note on ${m.name || 'Guest'}’s order`}
-            style={{ ...foodInput, color: 'var(--color-text-secondary)' }}
-          />
-        )}
-      </div>
-    );
-  };
-  // The compact version, for the two-column list, where every row is one line
-  // tall. Same picker; "Something else" asks for the words in a prompt rather
-  // than growing a second input and making that one row taller than the rest.
-  const foodChip = (uid, m) => {
-    const [order, inherited] = foodEntry(uid, m);
-    const label = orderLabel(order, peopleFoodMenu);
-    const tip = `${m.name || 'Guest'} — ${label || 'no order yet'}${order?.note ? ` (${order.note})` : ''}${inherited ? ' — same as their host' : ''}`;
-    const look = {
-      flex: '0 1 auto', minWidth: 0, maxWidth: isNarrow ? '4.5rem' : '7rem',
-      padding: '0.1rem 0.3rem', borderRadius: 'var(--radius-full)',
-      fontSize: '0.66rem', fontWeight: 600, fontFamily: 'inherit',
-      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      border: order && !inherited ? '1px solid transparent' : '1px dashed var(--color-border)',
-      background: order && !inherited ? 'var(--color-accent-light)' : 'transparent',
-      color: order ? 'var(--color-text)' : 'var(--color-text-muted)',
-    };
-    if (!canManageMembers) return <span title={tip} style={look}>🍽 {label || '–'}</span>;
-    const cur = foodCurrent(uid, m);
-    const custom = foodIsCustom(cur.choice);
-    return (
-      <select
-        value={custom ? OTHER : (cur.choice || '')}
-        title={`${tip}\nPick to set their order`}
-        aria-label={`Food order for ${m.name || 'Guest'}`}
-        onChange={(e) => {
-          if (e.target.value !== OTHER) return onFoodPick(uid, m, e.target.value);
-          const words = window.prompt(`What does ${m.name || 'this guest'} want?`, cur.other || '');
-          if (words === null) return;
-          editFood(uid, m, { choice: OTHER, other: words }, { immediate: true });
-        }}
-        style={{ ...look, cursor: 'pointer' }}
-      >
-        <option value="">{inherited ? `↳ ${label}` : '🍽 –'}</option>
-        {foodOfferable.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-        <option value={OTHER}>{custom && cur.other ? cur.other : 'Something else…'}</option>
-      </select>
-    );
-  };
 
   // Keep linked (+1) members adjacent so connected people stay together.
   const clusterMembers = (rowMembers) => {
@@ -1070,8 +938,7 @@ export function EventDetail() {
     // table width. Fixed layout below makes the widths exact and draggable.
     const nameColW = voteColWidths.name || (isNarrow ? 120 : 200);
     const optColW = (id) => voteColWidths[id] || (isNarrow ? 76 : 100);
-    const foodColW = showFoodCol ? (voteColWidths.food || (isNarrow ? 120 : 170)) : 0;
-    const totalColW = nameColW + foodColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0);
+    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0);
     const resizeHandle = (key, width) => (
       <div
         onMouseDown={startColResize(key, width)}
@@ -1094,14 +961,12 @@ export function EventDetail() {
         {canManageMembers && (
           <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
             Tap a cell to set a vote: – → ✓ Works → ? Maybe → ✗ Can’t
-            {showFoodCol && ' · Pick in the 🍽 Order column to enter an order yourself.'}
           </div>
         )}
         <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: `${totalColW}px`, minWidth: '100%' }}>
           <colgroup>
             <col style={{ width: `${nameColW}px` }} />
-            {showFoodCol && <col style={{ width: `${foodColW}px` }} />}
             {visibleOptions.map(o => <col key={o.id} style={{ width: `${optColW(o.id)}px` }} />)}
             {/* Spacer absorbs any width beyond the sized columns so their
                 widths stay exact and draggable instead of stretching. */}
@@ -1110,11 +975,6 @@ export function EventDetail() {
           <thead>
             <tr>
               <th style={thName}>Person{resizeHandle('name', nameColW)}</th>
-              {showFoodCol && (
-                <th style={{ ...th, textAlign: 'left' }} title={peopleFoodMenu.prompt}>
-                  🍽 Order{resizeHandle('food', foodColW)}
-                </th>
-              )}
               {visibleOptions.map(o => {
                 const t = tallyFor(o, rowMembers);
                 const chosen = isChosenOption(o);
@@ -1173,9 +1033,6 @@ export function EventDetail() {
                       </span>
                     )}
                   </td>
-                  {showFoodCol && (
-                    <td style={{ ...td, ...topBorder, textAlign: 'left' }}>{foodCell(uid, m)}</td>
-                  )}
                   {visibleOptions.map(o => {
                     const own = o.votes?.[uid]?.vote;
                     const ownActive = own && own !== 'none';
@@ -1329,7 +1186,6 @@ export function EventDetail() {
         {canManageMembers && (
           <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>
             Tap a date to mark it ✓ Works — tap it again to clear.
-            {showFoodCol && ' The 🍽 chip takes an order.'}
           </div>
         )}
         {cells.length === 0 ? (
@@ -1374,7 +1230,6 @@ export function EventDetail() {
                     {m.name || 'Guest'}
                     {target && <span style={{ color: 'var(--color-text-muted)', fontWeight: 500 }}> {mutual ? '⇄' : '↳'}</span>}
                   </span>
-                  {showFoodCol && foodChip(uid, m)}
                   {/* Shrinks and wraps internally only if the chips alone
                       outgrow the column — many dates on a narrow phone. */}
                   <span style={{ flex: '0 1 auto', minWidth: 0, display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '0.15rem' }}>
@@ -1802,6 +1657,7 @@ export function EventDetail() {
     { key: 'itinerary', label: 'Itinerary' },
     ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
+    { key: 'meals', label: '🍽 Meals' },
     { key: 'considerations', label: 'Key Considerations' },
     { key: 'notes', label: 'Notes' },
     { key: 'expenses', label: 'Expenses' },
@@ -2207,9 +2063,12 @@ export function EventDetail() {
         const inAudience = (uid, m) => {
           if (textAllAudience === 'missing') return !voteStats[uid]?.total && !m.skipVote;
           if (textAllAudience === 'going') return isGoingYes(uid, m);
-          // Nobody who already ordered — including a +1 riding on their host's
-          // order, who has nothing left to answer.
-          if (textAllAudience === 'noorder') return !m.skipVote && !foodEntry(uid, m)[0];
+          // Meals go only to the people who are actually eating — a yes or a
+          // maybe. 'noorder' narrows that to whoever still owes an answer,
+          // which excludes a +1 riding on their host's order.
+          const eating = () => isYesMaybe(uid, m, event.members || {}, voteStats);
+          if (textAllAudience === 'eating') return eating();
+          if (textAllAudience === 'noorder') return eating() && !foodEntry(uid, m)[0];
           return true;
         };
         const recipients = members.filter(([uid, m]) =>
@@ -2263,7 +2122,7 @@ export function EventDetail() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Edit text draft — {textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : textAllAudience === 'noorder' ? 'yet to order' : 'sending to'} {recipients.length}
+                Edit text draft — {textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : textAllAudience === 'noorder' ? 'yet to order' : textAllAudience === 'eating' ? 'everyone eating' : 'sending to'} {recipients.length}
               </span>
               <button
                 onClick={() => { if (!textAllSending) { setShowTextAll(false); setTextAllMessage(''); } }}
@@ -2483,15 +2342,6 @@ export function EventDetail() {
                         title="Show only people who voted Yes or Maybe (likely attendees). Hides Can't-go and no-shows."
                       >
                         {showYesMaybeOnly ? '✓ ' : ''}Yes / Maybe only ({yesMaybeCount})
-                      </button>
-                    )}
-                    {peopleFoodMenu.enabled && votedView !== 'cards' && (
-                      <button
-                        onClick={toggleFoodCol}
-                        style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: foodColOn ? 'var(--color-accent)' : 'var(--color-surface)', color: foodColOn ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
-                        title="Show or hide the food order beside each person"
-                      >
-                        {foodColOn ? '✓ ' : ''}🍽 Orders
                       </button>
                     )}
                   </div>
@@ -3454,166 +3304,6 @@ export function EventDetail() {
             }}
           />
 
-          {/* Food orders. The menu you set, and what everyone picked off it.
-              Guests fill this in on the poll link you already text them, so
-              their order arrives already attached to their row. */}
-          {(() => {
-            const menu = normalizeMenu(event.foodMenu);
-            const summary = summarizeOrders(event, event.foodMenu);
-            const tally = tallyText(summary);
-            const saveMenu = (patch) => updateEvent(eventId, { foodMenu: { ...menu, ...patch } });
-            if (!menu.enabled && !canManageMembers) return null;
-            const th = { padding: '0.5rem 0.6rem', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', borderBottom: '2px solid var(--color-border)' };
-            const td = { padding: '0.5rem 0.6rem', fontSize: '0.85rem', borderBottom: '1px solid var(--color-border-light, var(--color-border))', verticalAlign: 'top' };
-            return (
-              <div style={{ marginTop: '1.25rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.6rem' }}>
-                  <h3 className={styles.sectionTitle} style={{ margin: 0 }}>🍽 Food orders</h3>
-                  {menu.enabled && summary.total > 0 && (
-                    <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                      {summary.orderedCount} / {summary.total} ordered
-                    </span>
-                  )}
-                  {canManageMembers && (
-                    <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
-                      <input type="checkbox" checked={menu.enabled} onChange={(e) => saveMenu({ enabled: e.target.checked })} />
-                      Taking orders
-                    </label>
-                  )}
-                </div>
-
-                {!menu.enabled ? (
-                  <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                    Turn this on to set a menu and get an order link you can text once the date is settled.
-                  </p>
-                ) : (
-                  <>
-                    {canManageMembers && (
-                      <div style={{ padding: '0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', marginBottom: '0.75rem' }}>
-                        <input
-                          value={menu.prompt === DEFAULT_PROMPT ? '' : menu.prompt}
-                          placeholder={DEFAULT_PROMPT}
-                          onChange={(e) => saveMenu({ prompt: e.target.value })}
-                          style={{ width: '100%', boxSizing: 'border-box', padding: '0.4rem 0.55rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem', fontWeight: 600, fontFamily: 'inherit', marginBottom: '0.5rem' }}
-                          aria-label="Question guests are asked"
-                        />
-                        {menu.options.map((o, i) => (
-                          <div key={o.id} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.35rem' }}>
-                            <input
-                              value={o.label}
-                              placeholder="Menu option"
-                              onChange={(e) => saveMenu({ options: menu.options.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })}
-                              style={{ flex: 1, minWidth: 0, padding: '0.35rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', fontFamily: 'inherit' }}
-                              aria-label={`Option ${i + 1}`}
-                            />
-                            <button
-                              className={styles.deleteBtn}
-                              onClick={() => saveMenu({ options: menu.options.filter((_, j) => j !== i) })}
-                              title="Remove this option"
-                              aria-label={`Remove ${o.label || 'option'}`}
-                            >×</button>
-                          </div>
-                        ))}
-                        <button
-                          className={styles.editBtn}
-                          onClick={() => saveMenu({ options: [...menu.options, { id: newOptionId(), label: '' }] })}
-                          style={{ fontSize: '0.8rem' }}
-                        >+ Add option</button>
-                        <span style={{ marginLeft: '0.6rem', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                          Guests can always write their own instead.
-                        </span>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-                          Heard someone’s order by text? Type it into the 🍽 Order column up in the invited list — this table and the tally read the same thing.
-                        </div>
-                      </div>
-                    )}
-
-                    {/* The order link. Its own link, sent after the date is
-                        settled — which is why it is here and not folded into
-                        the poll message: people know what they want to eat
-                        once they know they are coming. */}
-                    {canManageMembers && (() => {
-                      const dateStr = formatWhen(event, date, 'EEEE, MMMM d');
-                      const msg = event.dateTBD
-                        ? `Food for ${event.title} — what do you want? Order here: ${foodUrl}`
-                        : `We're on for ${event.title}${event.location ? ` at ${event.location}` : ''} on ${dateStr}. What do you want to eat?\n\nOrder here: ${foodUrl}`;
-                      const yetToOrder = members.filter(
-                        ([uid, m]) => uid !== user?.uid && m.phone && !m.skipVote && !foodEntry(uid, m)[0],
-                      ).length;
-                      const withPhones = members.filter(([uid, m]) => uid !== user?.uid && m.phone).length;
-                      return (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
-                          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>Order link</span>
-                          <code style={{ flex: '1 1 12rem', minWidth: 0, fontSize: '0.7rem', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foodUrl}</code>
-                          <button
-                            className={styles.editBtn}
-                            style={{ fontSize: '0.75rem' }}
-                            onClick={() => { navigator.clipboard?.writeText(foodUrl); setResult({ type: 'success', message: 'Order link copied.' }); setTimeout(() => setResult(null), 3000); }}
-                          >Copy link</button>
-                          {withPhones > 0 && (
-                            <button
-                              className={styles.editBtn}
-                              style={{ fontSize: '0.75rem' }}
-                              onClick={() => { openTextDraft(msg, 'all'); }}
-                            >💬 Text everyone ({withPhones})</button>
-                          )}
-                          {yetToOrder > 0 && yetToOrder < withPhones && (
-                            <button
-                              className={styles.editBtn}
-                              style={{ fontSize: '0.75rem' }}
-                              onClick={() => { openTextDraft(msg, 'noorder'); }}
-                            >💬 Text who hasn’t ordered ({yetToOrder})</button>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {tally && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', padding: '0.6rem 0.75rem', marginBottom: '0.6rem', background: 'var(--color-accent-light)', borderRadius: 'var(--radius-md)' }}>
-                        <strong style={{ fontSize: '0.88rem', color: 'var(--color-text)' }}>{tally}</strong>
-                        <button
-                          className={styles.editBtn}
-                          style={{ marginLeft: 'auto', fontSize: '0.75rem' }}
-                          onClick={() => { navigator.clipboard?.writeText(tally); setResult({ type: 'success', message: 'Order copied.' }); setTimeout(() => setResult(null), 3000); }}
-                        >Copy</button>
-                      </div>
-                    )}
-
-                    {summary.rows.length === 0 ? (
-                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>No one on the guest list yet.</p>
-                    ) : (
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr><th style={th}>Name</th><th style={th}>Order</th><th style={th}>Notes</th></tr>
-                          </thead>
-                          <tbody>
-                            {summary.rows.map((r) => (
-                              <tr key={r.key}>
-                                <td style={td}>{r.name}</td>
-                                <td style={{ ...td, color: r.order ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
-                                  {r.order ? r.label : '—'}
-                                  {r.inherited && <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}> (same as their host)</span>}
-                                </td>
-                                <td style={{ ...td, color: 'var(--color-text-secondary)' }}>{r.note || ''}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-
-                    {summary.waiting.length > 0 && (
-                      <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-                        Still waiting on: {summary.waiting.join(', ')}
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })()}
-
           {isOwner && (
             <div className={styles.ownerActions}>
               <button className={styles.editBtn} onClick={toggleStage} style={{ background: stage === 'voting' ? 'var(--color-success-light)' : 'var(--color-warning-light)', borderColor: stage === 'voting' ? 'var(--color-success)' : 'var(--color-warning)', color: stage === 'voting' ? 'var(--color-success)' : 'var(--color-warning)' }}>
@@ -4096,6 +3786,187 @@ export function EventDetail() {
           isOwner={isOwner}
         />
       )}
+
+      {/* Meals. Everything about food in one place: the menu you set, the link
+          you send, a table of who is having what, and the totals in bullets —
+          which is the bit you actually read out to whoever is cooking. Only
+          people who are a yes or a maybe appear; you order for the people who
+          are coming, not for the list you started with. */}
+      {activeTab === 'meals' && (() => {
+        const summary = summarizeOrders(event, event.foodMenu, voteStats);
+        const saveMenu = (patch) => updateEvent(eventId, { foodMenu: { ...mealMenu, ...patch } });
+        const tally = tallyText(summary);
+        const th = { padding: '0.5rem 0.7rem', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', borderBottom: '2px solid var(--color-border)' };
+        const td = { padding: '0.45rem 0.7rem', fontSize: '0.88rem', borderBottom: '1px solid var(--color-border-light, var(--color-border))' };
+        return (
+          <div className={styles.content}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.85rem' }}>
+              <h3 className={styles.sectionTitle} style={{ margin: 0 }}>🍽 Meals</h3>
+              {mealMenu.enabled && summary.total > 0 && (
+                <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                  {summary.orderedCount} / {summary.total} ordered
+                </span>
+              )}
+              {canManageMembers && (
+                <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                  <input type="checkbox" checked={mealMenu.enabled} onChange={(e) => saveMenu({ enabled: e.target.checked })} />
+                  Taking orders
+                </label>
+              )}
+            </div>
+
+            {!mealMenu.enabled ? (
+              <p style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                Turn this on to set a menu and get an order link you can text once the date is settled.
+              </p>
+            ) : (
+              <>
+                {canManageMembers && (
+                  <div style={{ padding: '0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', marginBottom: '0.85rem' }}>
+                    <input
+                      value={mealMenu.prompt === DEFAULT_PROMPT ? '' : mealMenu.prompt}
+                      placeholder={DEFAULT_PROMPT}
+                      onChange={(e) => saveMenu({ prompt: e.target.value })}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '0.4rem 0.55rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem', fontWeight: 600, fontFamily: 'inherit', marginBottom: '0.5rem' }}
+                      aria-label="Question guests are asked"
+                    />
+                    {mealMenu.options.map((o, i) => (
+                      <div key={o.id} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <input
+                          value={o.label}
+                          placeholder="Menu option"
+                          onChange={(e) => saveMenu({ options: mealMenu.options.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })}
+                          style={{ flex: 1, minWidth: 0, padding: '0.35rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', fontFamily: 'inherit' }}
+                          aria-label={`Option ${i + 1}`}
+                        />
+                        <button
+                          className={styles.deleteBtn}
+                          onClick={() => saveMenu({ options: mealMenu.options.filter((_, j) => j !== i) })}
+                          title="Remove this option"
+                          aria-label={`Remove ${o.label || 'option'}`}
+                        >×</button>
+                      </div>
+                    ))}
+                    <button
+                      className={styles.editBtn}
+                      onClick={() => saveMenu({ options: [...mealMenu.options, { id: newOptionId(), label: '' }] })}
+                      style={{ fontSize: '0.8rem' }}
+                    >+ Add option</button>
+                    <span style={{ marginLeft: '0.6rem', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                      These are the only answers — people pick one.
+                    </span>
+                  </div>
+                )}
+
+                {canManageMembers && (() => {
+                  const dateStr = formatWhen(event, date, 'EEEE, MMMM d');
+                  const msg = event.dateTBD
+                    ? `Food for ${event.title} — what do you want? Order here: ${foodUrl}`
+                    : `We're on for ${event.title}${event.location ? ` at ${event.location}` : ''} on ${dateStr}. What do you want to eat?\n\nOrder here: ${foodUrl}`;
+                  const eatersWithPhone = members.filter(([uid, m]) => uid !== user?.uid && m.phone && summary.rows.some(r => r.key === uid));
+                  const yetToOrder = eatersWithPhone.filter(([uid, m]) => !foodEntry(uid, m)[0]).length;
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.85rem' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>Order link</span>
+                      <code style={{ flex: '1 1 12rem', minWidth: 0, fontSize: '0.7rem', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foodUrl}</code>
+                      <button
+                        className={styles.editBtn}
+                        style={{ fontSize: '0.75rem' }}
+                        onClick={() => { navigator.clipboard?.writeText(foodUrl); setResult({ type: 'success', message: 'Order link copied.' }); setTimeout(() => setResult(null), 3000); }}
+                      >Copy link</button>
+                      {eatersWithPhone.length > 0 && (
+                        <button
+                          className={styles.editBtn}
+                          style={{ fontSize: '0.75rem' }}
+                          onClick={() => { setActiveTab('details'); openTextDraft(msg, 'eating'); }}
+                        >💬 Text everyone eating ({eatersWithPhone.length})</button>
+                      )}
+                      {yetToOrder > 0 && yetToOrder < eatersWithPhone.length && (
+                        <button
+                          className={styles.editBtn}
+                          style={{ fontSize: '0.75rem' }}
+                          onClick={() => { setActiveTab('details'); openTextDraft(msg, 'noorder'); }}
+                        >💬 Text who hasn’t ordered ({yetToOrder})</button>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {summary.rows.length === 0 ? (
+                  <p style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
+                    Nobody is down for the date yet. Once people vote yes or maybe on the poll they show up here.
+                  </p>
+                ) : (
+                  <>
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr><th style={th}>Person</th><th style={th}>Meal</th></tr>
+                        </thead>
+                        <tbody>
+                          {summary.rows.map((r) => (
+                            <tr key={r.key}>
+                              <td style={{ ...td, fontWeight: 600 }}>{r.name}</td>
+                              <td style={td}>
+                                {canManageMembers ? (
+                                  <select
+                                    value={r.inherited ? '' : (r.order?.choice || '')}
+                                    onChange={(e) => setMemberOrder(r.key, e.target.value)}
+                                    aria-label={`Meal for ${r.name}`}
+                                    style={{ width: '100%', maxWidth: '18rem', padding: '0.25rem 0.4rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', fontFamily: 'inherit', background: 'var(--color-surface)', color: r.order ? 'var(--color-text)' : 'var(--color-text-muted)', fontWeight: r.order ? 600 : 400 }}
+                                  >
+                                    <option value="">{r.inherited ? `↳ ${r.label} (same as their host)` : '— not yet'}</option>
+                                    {mealOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                  </select>
+                                ) : (
+                                  <span style={{ color: r.order ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
+                                    {r.label || '—'}
+                                    {r.inherited && <span style={{ color: 'var(--color-text-muted)', fontSize: '0.78rem' }}> (same as their host)</span>}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* The totals, in bullets — the bit you read out or hand
+                        over. The comma-run version was one long line by the
+                        time a real guest list had ordered. */}
+                    <div style={{ marginTop: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>The order</h4>
+                        {tally && (
+                          <button
+                            className={styles.editBtn}
+                            style={{ fontSize: '0.75rem' }}
+                            onClick={() => { navigator.clipboard?.writeText(tally); setResult({ type: 'success', message: 'Order copied.' }); setTimeout(() => setResult(null), 3000); }}
+                          >Copy</button>
+                        )}
+                      </div>
+                      {summary.counts.length === 0 ? (
+                        <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: 0 }}>Nobody has ordered yet.</p>
+                      ) : (
+                        <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                          {summary.counts.map(c => (
+                            <li key={c.id}><strong>{c.count} ×</strong> {c.label}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {summary.waiting.length > 0 && (
+                        <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginTop: '0.6rem' }}>
+                          Still waiting on: {summary.waiting.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {activeTab === 'considerations' && (
         <KeyConsiderations

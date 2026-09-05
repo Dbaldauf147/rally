@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { doc, updateDoc, arrayUnion, onSnapshot } from 'firebase/firestore';
+import { doc, collection, updateDoc, arrayUnion, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { findMemberKey, normName } from '../lib/members';
-import { normalizeMenu, normalizeOrder, offerableOptions, OTHER } from '../lib/foodOrders';
+import { normalizeMenu, normalizeOrder, offerableOptions, buildVoteStats, isYesMaybe } from '../lib/foodOrders';
 import { formatWhen } from '../lib/eventTime';
 import styles from './PollPage.module.css';
 
@@ -65,12 +65,14 @@ function FoodPageInner() {
     || guestName.replace(/\s+/g, '_').toLowerCase();
 
   const [event, setEvent] = useState(null);
+  const [dateOptions, setDateOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
-  const [order, setOrder] = useState({ choice: '', other: '', note: '' });
+  // What they just tapped, held only until the snapshot catches up — so the
+  // radio moves the instant it is tapped rather than after the round trip.
+  // Cleared whenever the person changes, or it would follow them.
+  const [pendingChoice, setPendingChoice] = useState(null);
   const [savedAt, setSavedAt] = useState(null);
-  const initedRef = useRef(null); // visitorId whose stored order has been loaded
-  const timerRef = useRef(null);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'events', eventId), (snap) => {
@@ -81,18 +83,15 @@ function FoodPageInner() {
       setLoadError(err.code === 'permission-denied' ? 'permission' : 'error');
       setLoading(false);
     });
-    return () => unsub();
+    // The date votes decide who is eating — only a yes or a maybe is offered
+    // the menu, so the page needs them as well as the event.
+    const unsub2 = onSnapshot(
+      collection(db, 'events', eventId, 'dateOptions'),
+      (snap) => setDateOptions(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => {},
+    );
+    return () => { unsub(); unsub2(); };
   }, [eventId]);
-
-  // Their existing order, loaded once per person so a re-render mid-typing
-  // cannot overwrite what they are in the middle of writing.
-  useEffect(() => {
-    if (!visitorId || !event) return;
-    if (initedRef.current === visitorId) return;
-    initedRef.current = visitorId;
-    const stored = normalizeOrder(event.members?.[visitorId]?.foodOrder);
-    setOrder(stored ? { choice: stored.choice, other: stored.other, note: stored.note } : { choice: '', other: '', note: '' });
-  }, [visitorId, event]);
 
   // Record the guest on the event without flattening what's already there — a
   // path per field, so ordering never wipes the email, phone or +1 link the
@@ -106,30 +105,15 @@ function FoodPageInner() {
 
   const menu = normalizeMenu(event?.foodMenu);
 
-  // Saves as it is filled in. Text fields debounce and also flush on blur: an
-  // order half-typed and then abandoned is still worth having.
-  function writeOrder(next) {
+  // One tap, one write. An order is a menu pick and nothing else now, so there
+  // is nothing to debounce and nothing to submit.
+  function pick(optionId) {
+    setPendingChoice(optionId);
     if (!visitorId) return;
-    const clean = {
-      choice: next.choice || '',
-      other: (next.other || '').trim(),
-      note: (next.note || '').trim(),
-      at: new Date().toISOString(),
-    };
     updateDoc(doc(db, 'events', eventId), {
       ...memberWrite(visitorId, guestName),
-      [`members.${visitorId}.foodOrder`]: clean,
+      [`members.${visitorId}.foodOrder`]: { choice: optionId, at: new Date().toISOString() },
     }).then(() => setSavedAt(Date.now())).catch(() => {});
-  }
-
-  function setFood(patch, { immediate = false } = {}) {
-    setOrder((prev) => {
-      const next = { ...prev, ...patch };
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (immediate) writeOrder(next);
-      else timerRef.current = setTimeout(() => writeOrder(next), 600);
-      return next;
-    });
   }
 
   if (loading) return <div className={styles.page}><div className={styles.card}><p>Loading...</p></div></div>;
@@ -156,6 +140,14 @@ function FoodPageInner() {
   const whenStr = date && !isNaN(date.getTime()) && !event.dateTBD
     ? formatWhen(event, date, 'EEEE, MMMM d')
     : '';
+
+  // Only the people who are coming get a menu. The linked +1 rule and the
+  // manual Going / Not going override are the same ones the organiser's list
+  // uses, so the two never disagree about who is eating.
+  const voteStats = buildVoteStats(dateOptions);
+  const eating = isYesMaybe(visitorId, event.members?.[visitorId], event.members || {}, voteStats);
+  const storedChoice = normalizeOrder(event.members?.[visitorId]?.foodOrder)?.choice || '';
+  const choice = pendingChoice ?? storedChoice;
 
   const optionCard = (checked) => ({
     display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer',
@@ -200,6 +192,7 @@ function FoodPageInner() {
             }
             setEditedName(finalName);
             setSelectedMemberUid(id);
+            setPendingChoice(null);
             setNameConfirmed(true);
             updateDoc(doc(db, 'events', eventId), memberWrite(id, finalName)).catch(() => {});
           }
@@ -252,58 +245,49 @@ function FoodPageInner() {
               Ordering as <strong style={{ color: '#1a1a1a' }}>{guestName}</strong>
               {' · '}
               <button
-                onClick={() => { setNameConfirmed(false); setSelectedMemberUid(null); setEditedName(''); }}
+                onClick={() => { setNameConfirmed(false); setSelectedMemberUid(null); setEditedName(''); setPendingChoice(null); }}
                 style={{ background: 'none', border: 'none', color: '#4f46e5', fontSize: '0.82rem', cursor: 'pointer', padding: 0, fontFamily: 'inherit', textDecoration: 'underline' }}
               >
                 not you?
               </button>
             </p>
 
-            <div className={styles.section}>
-              <h3 className={styles.sectionTitle}>{menu.prompt}</h3>
-              <p className={styles.sectionDesc}>
-                Saved as you go — no need to submit.
-                {savedAt && <span style={{ color: '#16a34a', fontWeight: 600 }}> ✓ Saved</span>}
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.6rem' }}>
-                {offerableOptions(menu).map((o) => (
-                  <label key={o.id} style={optionCard(order.choice === o.id)}>
-                    <input
-                      type="radio"
-                      name="food-choice"
-                      checked={order.choice === o.id}
-                      onChange={() => setFood({ choice: o.id }, { immediate: true })}
-                    />
-                    <span>{o.label}</span>
-                  </label>
-                ))}
-                <label style={optionCard(order.choice === OTHER)}>
-                  <input
-                    type="radio"
-                    name="food-choice"
-                    checked={order.choice === OTHER}
-                    onChange={() => setFood({ choice: OTHER }, { immediate: true })}
-                  />
-                  <span style={{ whiteSpace: 'nowrap' }}>Something else:</span>
-                  <input
-                    type="text"
-                    value={order.other}
-                    placeholder="What would you like?"
-                    onChange={(e) => setFood({ choice: OTHER, other: e.target.value })}
-                    onBlur={() => setFood({}, { immediate: true })}
-                    style={{ flex: 1, minWidth: 0, padding: '0.35rem 0.5rem', border: '1px solid #e5e5e5', borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'inherit' }}
-                  />
-                </label>
+            {!eating ? (
+              // Meals are for the people who are coming. Someone who voted no,
+              // or has not voted at all, is told what to do about it rather
+              // than being handed a menu that would put them in the headcount.
+              <div className={styles.section}>
+                <h3 className={styles.sectionTitle}>Are you coming?</h3>
+                <p className={styles.sectionDesc}>
+                  Ordering opens once you’re a yes or a maybe on the date. Say you can make it on the
+                  invite link, then come back here.
+                </p>
               </div>
-              <input
-                type="text"
-                value={order.note}
-                placeholder="Anything else? (allergies, no onion, …)"
-                onChange={(e) => setFood({ note: e.target.value })}
-                onBlur={() => setFood({}, { immediate: true })}
-                style={{ width: '100%', boxSizing: 'border-box', marginTop: '0.6rem', padding: '0.55rem 0.65rem', border: '1px solid #e5e5e5', borderRadius: '10px', fontSize: '0.9rem', fontFamily: 'inherit' }}
-              />
-            </div>
+            ) : (
+              <div className={styles.section}>
+                <h3 className={styles.sectionTitle}>{menu.prompt}</h3>
+                <p className={styles.sectionDesc}>
+                  Tap one — saved straight away, no need to submit.
+                  {savedAt && <span style={{ color: '#16a34a', fontWeight: 600 }}> ✓ Saved</span>}
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.6rem' }}>
+                  {offerableOptions(menu).map((o) => (
+                    <label key={o.id} style={optionCard(choice === o.id)}>
+                      <input
+                        type="radio"
+                        name="food-choice"
+                        checked={choice === o.id}
+                        onChange={() => pick(o.id)}
+                      />
+                      <span>{o.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {offerableOptions(menu).length === 0 && (
+                  <p className={styles.sectionDesc}>Nothing on the menu yet — check back shortly.</p>
+                )}
+              </div>
+            )}
           </>
         )}
 
