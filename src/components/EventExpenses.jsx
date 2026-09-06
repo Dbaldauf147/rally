@@ -97,6 +97,24 @@ export function EventExpenses({ event }) {
   const shownRows = grid.rows.filter(r => r.cells.some(c => c.on));
   const sittingOut = grid.rows.filter(r => !r.cells.some(c => c.on));
 
+  /* One cell: is this person in on this one charge.
+
+     Writes back the narrowed participant list rather than the stored one, so
+     ticking anybody on a charge also drops whoever was on it but is no longer
+     coming — the same pruning a chip in the splitter does. No confirm here,
+     unlike the row × : this is one charge, and clicking the cell again undoes
+     it. */
+  const toggleCell = (row, col) => {
+    const expense = col.expense;
+    if (expense.paidBy === row.key) return; // whoever paid is always in on it
+    const current = participantsFor(expense);
+    const on = current.includes(row.key);
+    actions.setParticipants(
+      expense,
+      on ? current.filter(k => k !== row.key) : [...current, row.key],
+    );
+  };
+
   const [busyKey, setBusyKey] = useState(null);
   async function setOnEverything(person, on) {
     // Whoever paid a charge can't come off it — they are owed the money either
@@ -148,6 +166,11 @@ export function EventExpenses({ event }) {
       </div>
 
       {mine.length > 0 && gridPeople.length > 0 && (
+        <>
+        <p className={styles.gridHint}>
+          Click a cell to put someone in on that charge or take them out — the rest of it
+          re-divides. The × by a name takes them off the whole trip.
+        </p>
         <div className={styles.gridWrap}>
           <table className={styles.grid}>
             <thead>
@@ -186,23 +209,42 @@ export function EventExpenses({ event }) {
                       </button>
                     </span>
                   </th>
-                  {row.cells.map(cell => (
-                    <td
-                      key={cell.id}
-                      className={styles.gridCell}
-                      title={!cell.on ? 'Not in on this one'
-                        : cell.isPayer ? 'They paid this one'
-                          : cell.paid ? 'Paid up' : `${money(cell.remaining)} still owed`}
-                    >
-                      {!cell.on ? <span className={styles.gridOut}>–</span>
-                        : cell.isPayer ? <span className={styles.gridPayer}>paid</span>
-                          : (
-                            <span className={cell.paid ? styles.gridDone : undefined}>
-                              {money(cell.share)}
-                            </span>
-                          )}
-                    </td>
-                  ))}
+                  {row.cells.map((cell, i) => {
+                    const col = grid.columns[i];
+                    const state = !cell.on ? 'Not in on this one'
+                      : cell.isPayer ? 'They paid this one'
+                        : cell.paid ? 'Paid up' : `${money(cell.remaining)} still owed`;
+                    const face = !cell.on ? <span className={styles.gridOut}>–</span>
+                      : cell.isPayer ? <span className={styles.gridPayer}>paid</span>
+                        : (
+                          <span className={cell.paid ? styles.gridDone : undefined}>
+                            {money(cell.share)}
+                          </span>
+                        );
+                    // The payer's cell isn't a toggle — they can't come off
+                    // their own bill — so it stays plain text rather than a
+                    // button that does nothing when you press it.
+                    if (cell.isPayer) {
+                      return (
+                        <td key={cell.id} className={styles.gridCell} title={`${row.name} paid for ${col.description}`}>
+                          {face}
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={cell.id} className={styles.gridCellPad}>
+                        <button
+                          type="button"
+                          className={styles.gridCellBtn}
+                          aria-pressed={cell.on}
+                          title={`${row.name} · ${col.description} — ${state}\nClick to ${cell.on ? 'take them off' : 'put them in on'} it`}
+                          onClick={() => toggleCell(row, col)}
+                        >
+                          {face}
+                        </button>
+                      </td>
+                    );
+                  })}
                   <td className={styles.gridTotal}>{money(row.total)}</td>
                   <td className={row.outstanding > 0 ? styles.gridOwed : styles.gridTotal}>
                     {row.outstanding > 0 ? money(row.outstanding) : '—'}
@@ -232,6 +274,7 @@ export function EventExpenses({ event }) {
             </tfoot>
           </table>
         </div>
+        </>
       )}
 
       {mine.length > 0 && sittingOut.length > 0 && (
