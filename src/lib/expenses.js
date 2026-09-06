@@ -227,3 +227,70 @@ export function memberListFor(event) {
     .map(([key, m]) => ({ key, name: m?.name || m?.email || key, email: m?.email || null }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/* ── Everything, on one grid ─────────────────────────────────────────
+   A trip is rarely one charge. By the end there are eight, each split a
+   slightly different way, and the question you actually have is "what does
+   Katie owe me, and for which of these" — which the per-charge list can only
+   answer by opening all eight and adding up in your head.
+
+   So: people down the side, charges across the top, each cell what that person
+   is in for. The payer's own cell is marked rather than counted, because their
+   share of a bill they paid is their own money, not a debt — the same rule
+   `balances` uses, so the two can never disagree.
+
+   `participantsFor` decides who is on a charge, which is how the trip's tab
+   narrows every split to the people who said they are coming without touching
+   what is stored. */
+export function expenseMatrix(expenses, people, participantsFor) {
+  const columns = (expenses || []).map(expense => ({
+    id: expense.id,
+    expense,
+    description: expense.description || 'Untitled charge',
+    date: expense.date || '',
+    amount: Number(expense.amount) || 0,
+    paidBy: expense.paidBy || null,
+  }));
+
+  const shareByColumn = new Map();
+  for (const col of columns) {
+    const keys = participantsFor ? participantsFor(col.expense) : (col.expense.participants || []);
+    shareByColumn.set(col.id, resolveShares(col.expense, keys.filter(Boolean)));
+  }
+
+  const rows = (people || []).map(person => {
+    let total = 0;
+    let outstanding = 0;
+    const cells = columns.map(col => {
+      const share = shareByColumn.get(col.id)?.[person.key];
+      if (share == null) return { id: col.id, on: false, share: 0, remaining: 0, paid: false, isPayer: false };
+      const isPayer = col.paidBy === person.key;
+      const remaining = isPayer ? 0 : remainingFor(col.expense, person.key, share);
+      total = toDollars(toCents(total) + toCents(share));
+      outstanding = toDollars(toCents(outstanding) + toCents(remaining));
+      return { id: col.id, on: true, share, remaining, paid: !isPayer && remaining === 0, isPayer };
+    });
+    return { ...person, cells, total, outstanding };
+  });
+
+  // Column feet show what was actually divided up, which is not always the
+  // charge: a custom split that doesn't add up leaves a gap, and a grid that
+  // showed the charge instead would hide it.
+  const footers = columns.map(col => ({
+    id: col.id,
+    amount: col.amount,
+    split: sumShares(shareByColumn.get(col.id)),
+    outstanding: rows.reduce((acc, r) => {
+      const cell = r.cells.find(c => c.id === col.id);
+      return toDollars(toCents(acc) + toCents(cell?.remaining || 0));
+    }, 0),
+  }));
+
+  return {
+    columns,
+    rows,
+    footers,
+    grandTotal: footers.reduce((acc, f) => toDollars(toCents(acc) + toCents(f.amount)), 0),
+    grandOutstanding: rows.reduce((acc, r) => toDollars(toCents(acc) + toCents(r.outstanding)), 0),
+  };
+}

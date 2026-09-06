@@ -182,3 +182,26 @@
 .addNote { font-size: 0.78rem; color: var(--color-text-muted); }
 .addActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 0.9rem; }
 .addActions .addNote { margin-right: auto; }
+
+/* Everything on one grid: people down the side, charges across the top. Scrolls
+   sideways rather than squeezing — the name column is pinned so a row stays
+   readable however far across you are. */
+.gridWrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); margin-bottom: 1.25rem; }
+.grid { border-collapse: collapse; width: 100%; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.grid th, .grid td { padding: 0.45rem 0.7rem; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--color-border-light); }
+.gridCorner, .gridName { position: sticky; left: 0; z-index: 1; text-align: left; background: var(--color-surface); font-weight: 650; }
+.gridCorner { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-muted); border-bottom: 2px solid var(--color-border); }
+.gridCol, .gridTotalCol { border-bottom: 2px solid var(--color-border); font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); }
+.gridCol { max-width: 9rem; }
+.gridColName { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--color-text); font-size: 0.78rem; }
+.gridColAmount { display: block; font-weight: 600; color: var(--color-text-muted); }
+.gridTotalCol { letter-spacing: 0.04em; text-transform: uppercase; border-left: 1px solid var(--color-border); }
+.gridCell { color: var(--color-text); }
+.gridOut { color: var(--color-text-muted); opacity: 0.5; }
+.gridPayer { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-accent); }
+.gridDone { color: var(--color-text-muted); text-decoration: line-through; }
+.gridTotal { font-weight: 650; border-left: 1px solid var(--color-border); }
+.gridOwed { font-weight: 700; color: var(--color-accent); border-left: 1px solid var(--color-border); }
+.gridGap { font-weight: 650; color: var(--color-danger); border-left: 1px solid var(--color-border); }
+.grid tbody tr:hover th, .grid tbody tr:hover td { background: var(--color-bg); }
+.grid tfoot th, .grid tfoot td { border-top: 2px solid var(--color-border); border-bottom: none; font-weight: 700; }

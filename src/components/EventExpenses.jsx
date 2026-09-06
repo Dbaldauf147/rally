@@ -1,6 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { useExpenses } from '../hooks/useExpenses';
-import { expenseStatus, money, memberListFor } from '../lib/expenses';
+import { expenseStatus, expenseMatrix, money, memberListFor } from '../lib/expenses';
+import { buildVoteStats, isYesMaybe } from '../lib/attendance';
 import { ExpenseSplitter } from './ExpenseSplitter';
 import { AddExpense } from './AddExpense';
 import styles from './ExpensesPage.module.css';
@@ -9,12 +13,57 @@ import styles from './ExpensesPage.module.css';
 
    Same splitter as the Expenses page, scoped to this event's charges — plus
    the ones not yet on any event, so a charge tagged on the phone can be pulled
-   onto the trip you're already looking at without going and finding it. */
+   onto the trip you're already looking at without going and finding it.
+
+   Two things make this different from the standalone page. Only people who are
+   a yes or a maybe are in on anything: an invite list of twenty-seven divided a
+   $45 pizza into $1.67 shares owed by people who were never coming, which is
+   both wrong and unusable. And the charges are shown as a grid — people down
+   the side, charges across the top — because by the end of a trip the question
+   is "what does Katie owe me, across all of it", which a list of charges can
+   only answer by opening every one and adding up. */
 export function EventExpenses({ event }) {
+  const { user } = useAuth() || {};
   const { expenses, loading, ...actions } = useExpenses();
   const [openId, setOpenId] = useState(null);
+  const [dateOptions, setDateOptions] = useState([]);
 
-  const memberOptions = useMemo(() => memberListFor(event), [event]);
+  // The date votes are what say who is coming, so the tab needs them.
+  useEffect(() => {
+    if (!event?.id) return undefined;
+    const unsub = onSnapshot(
+      collection(db, 'events', event.id, 'dateOptions'),
+      (snap) => setDateOptions(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => {},
+    );
+    return () => unsub();
+  }, [event?.id]);
+
+  // Whoever is coming, by the same rule the Meals tab uses — a manual Going or
+  // Not going wins, else a yes or maybe on any open date, else a linked +1
+  // rides in on their partner.
+  //
+  // Plus you, always. Organisers routinely never vote on their own dates, and
+  // being filtered off your own trip means you cannot be picked as the one who
+  // paid — which is most of what this tab is for.
+  const memberOptions = useMemo(() => {
+    const members = event?.members || {};
+    const voteStats = buildVoteStats(dateOptions);
+    return memberListFor(event).filter(m =>
+      m.key === user?.uid || isYesMaybe(m.key, members[m.key], members, voteStats));
+  }, [event, dateOptions, user?.uid]);
+  const eligibleKeys = useMemo(() => memberOptions.map(m => m.key), [memberOptions]);
+  const nameFor = (key) => memberOptions.find(m => m.key === key)?.name
+    || event?.members?.[key]?.name || key;
+
+  // Who a charge is split between, here: whoever is on it and still coming.
+  // Whoever paid stays regardless — they are owed the money either way.
+  const participantsFor = useMemo(() => {
+    const allowed = new Set(eligibleKeys);
+    return (expense) => (expense.participants || [])
+      .filter(Boolean)
+      .filter(k => allowed.has(k) || k === expense.paidBy);
+  }, [eligibleKeys]);
 
   const mine = useMemo(
     () => expenses.filter(e => e.eventId === event.id),
@@ -22,10 +71,27 @@ export function EventExpenses({ event }) {
   );
   const loose = useMemo(() => expenses.filter(e => !e.eventId), [expenses]);
 
-  const outstanding = mine.reduce(
-    (sum, e) => sum + expenseStatus(e, e.participants || []).outstanding,
-    0,
+  // Rows are the people who are coming, plus anyone who paid for something —
+  // otherwise a charge fronted by someone who has since dropped out shows in
+  // the column total with no row accounting for it, and the grid stops adding
+  // up.
+  const gridPeople = useMemo(() => {
+    const shown = new Set(memberOptions.map(m => m.key));
+    const extra = [];
+    for (const e of mine) {
+      if (!e.paidBy || shown.has(e.paidBy)) continue;
+      shown.add(e.paidBy);
+      extra.push({ key: e.paidBy, name: event?.members?.[e.paidBy]?.name || e.paidBy });
+    }
+    return [...memberOptions, ...extra];
+  }, [memberOptions, mine, event]);
+
+  const grid = useMemo(
+    () => expenseMatrix(mine, gridPeople, participantsFor),
+    [mine, gridPeople, participantsFor],
   );
+
+  const outstanding = grid.grandOutstanding;
 
   if (loading) return <p className={styles.muted}>Loading expenses…</p>;
 
@@ -36,9 +102,93 @@ export function EventExpenses({ event }) {
         {outstanding > 0 && <div className={styles.headline}>{money(outstanding)} owed to you</div>}
       </header>
 
-      <div style={{ marginBottom: '1rem' }}>
-        <AddExpense events={[event]} fixedEventId={event.id} onCreate={actions.create} />
+      <p className={styles.subtitle}>
+        Split between the {memberOptions.length} {memberOptions.length === 1 ? 'person' : 'people'}
+        {memberOptions.length === 1 ? ' who is' : ' who are'} a yes or a maybe on the dates.
+        Anyone who said no, or hasn’t said, is left out.
+      </p>
+
+      <div style={{ margin: '0 0 1rem' }}>
+        <AddExpense
+          events={[event]}
+          fixedEventId={event.id}
+          people={memberOptions}
+          onCreate={actions.create}
+        />
       </div>
+
+      {mine.length > 0 && gridPeople.length > 0 && (
+        <div className={styles.gridWrap}>
+          <table className={styles.grid}>
+            <thead>
+              <tr>
+                <th scope="col" className={styles.gridCorner}>Person</th>
+                {grid.columns.map(col => (
+                  <th
+                    key={col.id}
+                    scope="col"
+                    className={styles.gridCol}
+                    title={`${col.description} · ${col.date || 'no date'} · paid by ${nameFor(col.paidBy)}`}
+                  >
+                    <span className={styles.gridColName}>{col.description}</span>
+                    <span className={styles.gridColAmount}>{money(col.amount)}</span>
+                  </th>
+                ))}
+                <th scope="col" className={styles.gridTotalCol}>Their total</th>
+                <th scope="col" className={styles.gridTotalCol}>Still owes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {grid.rows.map(row => (
+                <tr key={row.key}>
+                  <th scope="row" className={styles.gridName}>{row.name}</th>
+                  {row.cells.map(cell => (
+                    <td
+                      key={cell.id}
+                      className={styles.gridCell}
+                      title={!cell.on ? 'Not in on this one'
+                        : cell.isPayer ? 'They paid this one'
+                          : cell.paid ? 'Paid up' : `${money(cell.remaining)} still owed`}
+                    >
+                      {!cell.on ? <span className={styles.gridOut}>–</span>
+                        : cell.isPayer ? <span className={styles.gridPayer}>paid</span>
+                          : (
+                            <span className={cell.paid ? styles.gridDone : undefined}>
+                              {money(cell.share)}
+                            </span>
+                          )}
+                    </td>
+                  ))}
+                  <td className={styles.gridTotal}>{money(row.total)}</td>
+                  <td className={row.outstanding > 0 ? styles.gridOwed : styles.gridTotal}>
+                    {row.outstanding > 0 ? money(row.outstanding) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row" className={styles.gridName}>Split up</th>
+                {grid.footers.map(f => (
+                  <td
+                    key={f.id}
+                    className={f.split !== f.amount ? styles.gridGap : styles.gridTotal}
+                    title={f.split !== f.amount
+                      ? `${money(f.amount)} charged, ${money(f.split)} split up — ${money(f.amount - f.split)} unassigned`
+                      : undefined}
+                  >
+                    {money(f.split)}
+                  </td>
+                ))}
+                <td className={styles.gridTotal}>{money(grid.grandTotal)}</td>
+                <td className={grid.grandOutstanding > 0 ? styles.gridOwed : styles.gridTotal}>
+                  {grid.grandOutstanding > 0 ? money(grid.grandOutstanding) : '—'}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
 
       {mine.length === 0 ? (
         <p className={styles.hint}>
@@ -49,7 +199,7 @@ export function EventExpenses({ event }) {
       ) : (
         <ul className={styles.list}>
           {mine.map((expense) => {
-            const status = expenseStatus(expense, expense.participants || []);
+            const status = expenseStatus(expense, participantsFor(expense));
             const open = openId === expense.id;
             return (
               <li key={expense.id} className={styles.item}>
@@ -76,6 +226,7 @@ export function EventExpenses({ event }) {
                     expense={expense}
                     events={[event]}
                     memberOptions={memberOptions}
+                    eligibleKeys={eligibleKeys}
                     actions={actions}
                     onDone={() => setOpenId(null)}
                   />
@@ -103,7 +254,7 @@ export function EventExpenses({ event }) {
                   <button
                     type="button"
                     className={styles.secondaryBtn}
-                    onClick={() => actions.assignEvent(expense, event.id, Object.keys(event.members || {}))}
+                    onClick={() => actions.assignEvent(expense, event.id, eligibleKeys)}
                   >
                     Add to this event
                   </button>

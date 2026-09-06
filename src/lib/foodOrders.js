@@ -21,6 +21,9 @@
 // going to cover it. Typing a name that is on the menu resolves to that
 // option, so it still counts toward the same line.
 
+export { buildVoteStats, isYesMaybe } from './attendance';
+import { isYesMaybe } from './attendance';
+
 export const newOptionId = () =>
   (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `opt-${Math.random().toString(36).slice(2)}-${Date.now()}`);
 
@@ -80,42 +83,6 @@ export function matchOption(text, menu) {
   const want = String(text || '').trim().toLowerCase();
   if (!want) return null;
   return menu.options.find(o => o.label.trim().toLowerCase() === want) || null;
-}
-
-// Per-person vote counts, built from the event's date options. Mirrors what
-// EventDetail keeps in state, extracted so the guest-facing meal link can work
-// out the same answer without duplicating the rule.
-export function buildVoteStats(options = []) {
-  const stats = {};
-  for (const o of options) {
-    if (!o || o.closed || o.noVote) continue;
-    for (const [voterId, v] of Object.entries(o.votes || {})) {
-      if (!v?.vote || v.vote === 'none') continue;
-      if (!stats[voterId]) stats[voterId] = { total: 0, yes: 0, maybe: 0, no: 0 };
-      stats[voterId].total++;
-      if (v.vote === 'yes') stats[voterId].yes++;
-      else if (v.vote === 'maybe') stats[voterId].maybe++;
-      else if (v.vote === 'no') stats[voterId].no++;
-    }
-  }
-  return stats;
-}
-
-// Is this person eating? Only a yes or a maybe is, which is the whole point of
-// asking after the vote: you order for the people who are coming, not for the
-// list you started with. A manual Going / Not going always wins; failing that a
-// yes or maybe on any open date counts, including one inherited from a linked
-// +1 partner, so half a couple isn't left out of dinner.
-export function isYesMaybe(uid, m, members = {}, voteStats = {}) {
-  if (!m || m.skipVote) return false;
-  if (m.attendance === 'going') return true;
-  if (m.attendance === 'notgoing') return false;
-  const vs = voteStats[uid];
-  if (vs && (vs.yes > 0 || vs.maybe > 0)) return true;
-  const partnerUid = m.plusOneOf
-    || Object.entries(members).find(([, mm]) => mm && typeof mm === 'object' && mm.plusOneOf === uid)?.[0];
-  const pv = partnerUid ? voteStats[partnerUid] : null;
-  return !!pv && (pv.yes > 0 || pv.maybe > 0);
 }
 
 // Everyone who is eating, what they picked, and the totals.

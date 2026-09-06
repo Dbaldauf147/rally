@@ -21,7 +21,7 @@ import styles from './ExpensesPage.module.css';
    `events` decides whether the event picker appears: hand it one event (the
    trip's own tab) and the charge lands there silently; hand it the list (the
    Trip Expenses page) and the charge needs somewhere to go. */
-export function AddExpense({ events = [], fixedEventId = null, onCreate }) {
+export function AddExpense({ events = [], fixedEventId = null, people = null, onCreate }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -30,7 +30,10 @@ export function AddExpense({ events = [], fixedEventId = null, onCreate }) {
 
   const eventId = fixedEventId || draft.eventId;
   const event = useMemo(() => events.find(e => e.id === eventId) || null, [events, eventId]);
-  const members = useMemo(() => memberListFor(event), [event]);
+  // `people` narrows who can be on a charge — the trip's tab passes the ones
+  // who are a yes or a maybe, so a bill isn't divided between people who
+  // aren't coming.
+  const members = useMemo(() => (people || memberListFor(event)), [people, event]);
 
   // Default to whoever is signed in — they are the one entering it, and the
   // overwhelming case is that they are also the one out of pocket.
@@ -43,7 +46,10 @@ export function AddExpense({ events = [], fixedEventId = null, onCreate }) {
   const paidBy = draft.paidBy || mine?.key || members[0]?.key || user?.uid || '';
 
   const set = (patch) => setDraft(prev => ({ ...prev, ...patch }));
-  const close = () => { setOpen(false); setDraft(blank(fixedEventId)); setError(''); };
+  // `busy` has to be cleared here too, not just on the error path: leaving it
+  // set after a save that worked meant the second charge you added found the
+  // button already reading "Saving…" and disabled.
+  const close = () => { setOpen(false); setBusy(false); setDraft(blank(fixedEventId)); setError(''); };
 
   async function save() {
     const problem = expenseDraftError(draft);
@@ -154,7 +160,7 @@ export function AddExpense({ events = [], fixedEventId = null, onCreate }) {
       <div className={styles.addActions}>
         <span className={styles.addNote}>
           {eventId
-            ? `Splits evenly across everyone on the event — change that after saving.`
+            ? `Splits evenly between the ${members.length} shown — change that after saving.`
             : `Saved without an event. Put it on one to split it.`}
         </span>
         <button type="button" className={styles.linkBtn} onClick={close} disabled={busy}>Cancel</button>

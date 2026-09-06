@@ -11,7 +11,13 @@ import styles from './ExpensesPage.module.css';
 
    Shared by the Expenses page and the tab on an event, because the same
    decisions apply whichever screen you arrived from. */
-export function ExpenseSplitter({ expense, events, memberOptions, actions, onDone }) {
+/* `eligibleKeys`, when given, is who may be in on a charge here — the trip's
+   tab passes the people who are a yes or a maybe. Anyone stored on the charge
+   who isn't on that list is dropped from the split shown, so a bill entered
+   before half the guest list dropped out divides between the people actually
+   coming. Nothing is rewritten until you touch a chip: the next edit writes
+   back the narrowed list, which is also how the stale names finally go. */
+export function ExpenseSplitter({ expense, events, memberOptions, actions, onDone, eligibleKeys = null }) {
   const {
     assignEvent, setParticipants, setSplit, setPaidBy,
     addPayment, removePayment, payRemaining, archive,
@@ -25,10 +31,12 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
   // without crashing on the destructure — reminders simply aren't offered.
   const { user } = useAuth() || {};
 
-  const participants = useMemo(
-    () => (expense.participants || []).filter(Boolean),
-    [expense.participants],
-  );
+  const participants = useMemo(() => {
+    const stored = (expense.participants || []).filter(Boolean);
+    if (!eligibleKeys) return stored;
+    const allowed = new Set([...eligibleKeys, expense.paidBy].filter(Boolean));
+    return stored.filter(k => allowed.has(k));
+  }, [expense.participants, expense.paidBy, eligibleKeys]);
 
   const status = useMemo(() => expenseStatus(expense, participants), [expense, participants]);
 

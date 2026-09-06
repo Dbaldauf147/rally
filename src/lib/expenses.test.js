@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   evenShares, sumShares, resolveShares, unassigned, balances, expenseStatus,
   amountPaid, remainingFor, isSettled, paymentsFor, toCents, toDollars,
-  newExpense, expenseDraftError, memberListFor,
+  newExpense, expenseDraftError, memberListFor, expenseMatrix,
 } from './expenses';
 
 const expense = (over = {}) => ({
@@ -253,5 +253,74 @@ describe('memberListFor', () => {
 
   it('handles no event at all', () => {
     expect(memberListFor(null)).toEqual([]);
+  });
+});
+
+describe('expenseMatrix', () => {
+  const people = [{ key: 'dan', name: 'Dan' }, { key: 'amy', name: 'Amy' }, { key: 'ben', name: 'Ben' }];
+  const pizza = { id: 'p', description: 'Pizza', date: '2026-09-06', amount: 45, paidBy: 'dan', splitMode: 'even', participants: ['dan', 'amy', 'ben'] };
+  const beer = { id: 'b', description: 'Beer', date: '2026-09-07', amount: 20, paidBy: 'amy', splitMode: 'even', participants: ['dan', 'amy'] };
+  const build = (exp = [pizza, beer], who) => expenseMatrix(exp, people, who || (e => e.participants));
+
+  it('puts a column on every charge and a row on every person', () => {
+    const m = build();
+    expect(m.columns.map(c => c.description)).toEqual(['Pizza', 'Beer']);
+    expect(m.rows.map(r => r.name)).toEqual(['Dan', 'Amy', 'Ben']);
+  });
+
+  it('leaves a blank cell where somebody is not in on a charge', () => {
+    const m = build();
+    const ben = m.rows.find(r => r.key === 'ben');
+    expect(ben.cells.map(c => c.on)).toEqual([true, false]);
+    expect(ben.total).toBe(15);
+  });
+
+  it('marks the payer rather than billing them for their own charge', () => {
+    const m = build();
+    const dan = m.rows.find(r => r.key === 'dan');
+    expect(dan.cells[0]).toMatchObject({ isPayer: true, share: 15, remaining: 0 });
+    // Still $10 of Amy's beer to pay back, and none of his own pizza.
+    expect(dan.outstanding).toBe(10);
+  });
+
+  it('counts what someone still owes across the whole trip', () => {
+    const m = build();
+    const amy = m.rows.find(r => r.key === 'amy');
+    expect(amy.total).toBe(25);        // $15 pizza + $10 beer
+    expect(amy.outstanding).toBe(15);  // owes the pizza, paid the beer herself
+  });
+
+  it('drops a share once it has been paid', () => {
+    const paid = { ...pizza, payments: [{ id: '1', key: 'amy', amount: 15 }] };
+    const m = build([paid]);
+    const amy = m.rows.find(r => r.key === 'amy');
+    expect(amy.cells[0]).toMatchObject({ share: 15, remaining: 0, paid: true });
+    expect(amy.outstanding).toBe(0);
+  });
+
+  it('foots each column with what was divided up, not just the charge', () => {
+    const lopsided = { ...pizza, splitMode: 'custom', shares: { dan: 15, amy: 10, ben: 10 } };
+    const m = build([lopsided]);
+    expect(m.footers[0]).toMatchObject({ amount: 45, split: 35, outstanding: 20 });
+  });
+
+  it('narrows a split to whoever is passed in, leaving the stored list alone', () => {
+    const m = build([pizza], () => ['dan', 'amy']);
+    expect(m.rows.find(r => r.key === 'ben').cells[0].on).toBe(false);
+    expect(m.rows.find(r => r.key === 'amy').cells[0].share).toBe(22.5);
+    expect(pizza.participants).toEqual(['dan', 'amy', 'ben']);
+  });
+
+  it('totals the trip', () => {
+    const m = build();
+    expect(m.grandTotal).toBe(65);
+    expect(m.grandOutstanding).toBe(40); // pizza: Amy 15 + Ben 15; beer: Dan 10
+  });
+
+  it('handles a trip with nothing on it', () => {
+    const m = expenseMatrix([], people, e => e.participants);
+    expect(m.columns).toEqual([]);
+    expect(m.rows.every(r => r.total === 0 && r.cells.length === 0)).toBe(true);
+    expect(m.grandTotal).toBe(0);
   });
 });
