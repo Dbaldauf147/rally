@@ -162,3 +162,68 @@ export function expenseStatus(expense, participantKeys) {
     unsplit: people === 0,
   };
 }
+
+/* ── Entering a charge by hand ───────────────────────────────────────
+   Charges arrive from the bank feed, but not all of them: cash for the boat
+   fuel, a deposit paid months ago, the friend who fronted the house and needs
+   paying back. Those never touch a card that Wealth Architect can see, so
+   there has to be a way to write one down.
+
+   A hand-entered charge is the same document the ingest writes, so everything
+   downstream — splitting, settling, the balances — cannot tell the difference.
+   `source` says where it came from and `externalId` stays null, which is also
+   what keeps it out of the ingest's de-duplication: that only ever looks up a
+   non-empty id, so a manual charge can never be mistaken for a bank one and
+   overwritten by the next push. */
+export function newExpense(input = {}) {
+  const now = input.now || new Date().toISOString();
+  const paidBy = String(input.paidBy || '').trim();
+  const participants = [...new Set([paidBy, ...(input.participants || [])].filter(Boolean))];
+  return {
+    source: 'manual',
+    externalId: null,
+    description: String(input.description || '').trim().slice(0, 200) || 'Untitled charge',
+    fullDescription: '',
+    amount: toDollars(toCents(input.amount)),
+    // The list is ordered by date in the query, and Firestore drops documents
+    // that have no value for the field it orders on — so a charge saved
+    // without a date would vanish from the page it was entered on.
+    date: String(input.date || '').trim() || now.slice(0, 10),
+    account: '',
+    category: '',
+    subcategory: '',
+    note: String(input.note || '').trim().slice(0, 500),
+    ownerUid: input.ownerUid || null,
+    ownerEmail: input.ownerEmail || '',
+    eventId: input.eventId || null,
+    paidBy: paidBy || null,
+    splitMode: 'even',
+    shares: {},
+    participants,
+    settled: {},
+    payments: [],
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/* Why a draft can't be saved yet, in words, or '' when it can. Description and
+   a positive amount are the two things nothing downstream can work without:
+   a blank row is unidentifiable, and a zero splits into nothing. */
+export function expenseDraftError(draft = {}) {
+  if (!String(draft.description || '').trim()) return 'Give the charge a description.';
+  const amount = Number(draft.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return 'Enter an amount above zero.';
+  if (toCents(amount) > 100000000) return 'That amount looks wrong — check it over.';
+  return '';
+}
+
+/* The people on an event, shaped for the pickers. Sorted by name so the list
+   reads the same everywhere it appears. */
+export function memberListFor(event) {
+  if (!event) return [];
+  return Object.entries(event.members || {})
+    .map(([key, m]) => ({ key, name: m?.name || m?.email || key, email: m?.email || null }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}

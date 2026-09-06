@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   evenShares, sumShares, resolveShares, unassigned, balances, expenseStatus,
   amountPaid, remainingFor, isSettled, paymentsFor, toCents, toDollars,
+  newExpense, expenseDraftError, memberListFor,
 } from './expenses';
 
 const expense = (over = {}) => ({
@@ -178,5 +179,79 @@ describe('cent conversion', () => {
     expect(toCents(0.1 + 0.2)).toBe(30);
     expect(toDollars(toCents(19.99))).toBe(19.99);
     expect(toCents(1.005)).toBe(101);
+  });
+});
+
+describe('newExpense', () => {
+  const at = '2026-09-06T12:00:00.000Z';
+
+  it('writes the same document shape the bank feed does', () => {
+    const e = newExpense({ description: 'Boat fuel', amount: '120.50', paidBy: 'dan', eventId: 'ev1', participants: ['dan', 'amy'], now: at });
+    expect(e).toMatchObject({
+      source: 'manual', externalId: null, description: 'Boat fuel', amount: 120.5,
+      eventId: 'ev1', paidBy: 'dan', splitMode: 'even', shares: {}, settled: {},
+      archived: false, createdAt: at, updatedAt: at,
+    });
+    expect(e.participants).toEqual(['dan', 'amy']);
+  });
+
+  it('always has a date, because the list is ordered by one', () => {
+    expect(newExpense({ now: at }).date).toBe('2026-09-06');
+    expect(newExpense({ date: '2026-07-04', now: at }).date).toBe('2026-07-04');
+  });
+
+  it('puts whoever paid on the charge even if they were not ticked', () => {
+    expect(newExpense({ paidBy: 'dan', participants: ['amy'] }).participants).toEqual(['dan', 'amy']);
+  });
+
+  it('does not list anyone twice', () => {
+    expect(newExpense({ paidBy: 'dan', participants: ['dan', 'amy', 'dan'] }).participants).toEqual(['dan', 'amy']);
+  });
+
+  it('rounds the amount to whole cents', () => {
+    expect(newExpense({ amount: 10.005 }).amount).toBe(10.01);
+    expect(newExpense({ amount: '  42 ' }).amount).toBe(42);
+  });
+
+  it('falls back to a description rather than saving a blank one', () => {
+    expect(newExpense({ description: '   ' }).description).toBe('Untitled charge');
+  });
+});
+
+describe('expenseDraftError', () => {
+  it('passes a filled-in draft', () => {
+    expect(expenseDraftError({ description: 'Boat fuel', amount: '120.50' })).toBe('');
+  });
+
+  it('needs a description', () => {
+    expect(expenseDraftError({ description: '  ', amount: '10' })).toMatch(/description/i);
+  });
+
+  it('needs an amount above zero', () => {
+    expect(expenseDraftError({ description: 'x', amount: '' })).toMatch(/above zero/i);
+    expect(expenseDraftError({ description: 'x', amount: '0' })).toMatch(/above zero/i);
+    expect(expenseDraftError({ description: 'x', amount: '-5' })).toMatch(/above zero/i);
+    expect(expenseDraftError({ description: 'x', amount: 'abc' })).toMatch(/above zero/i);
+  });
+
+  it('catches an amount with an obvious extra digit', () => {
+    expect(expenseDraftError({ description: 'x', amount: '99999999' })).toMatch(/looks wrong/i);
+  });
+});
+
+describe('memberListFor', () => {
+  it('reads names off an event, sorted', () => {
+    const list = memberListFor({ members: { b: { name: 'Zoe' }, a: { name: 'Al', email: 'al@x.com' } } });
+    expect(list.map(m => m.name)).toEqual(['Al', 'Zoe']);
+    expect(list[0]).toEqual({ key: 'a', name: 'Al', email: 'al@x.com' });
+  });
+
+  it('falls back to the email, then the key', () => {
+    const list = memberListFor({ members: { a: { email: 'al@x.com' }, zz: {} } });
+    expect(list.map(m => m.name)).toEqual(['al@x.com', 'zz']);
+  });
+
+  it('handles no event at all', () => {
+    expect(memberListFor(null)).toEqual([]);
   });
 });

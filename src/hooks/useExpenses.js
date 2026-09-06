@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
+import { newExpense } from '../lib/expenses';
 import { useAuth } from '../contexts/AuthContext';
 
 // Stable identity so a signed-out render doesn't hand consumers a new array
@@ -42,6 +43,14 @@ export function useExpenses() {
   const error = user ? state.error : null;
 
   const patch = useCallback((id, fields) => updateDoc(doc(db, 'expenses', id), fields), []);
+
+  /* Write a charge down by hand. Stamped with whoever is signed in, matching
+     what the ingest records, so the balances read the same either way. */
+  const create = useCallback((draft) => addDoc(collection(db, 'expenses'), newExpense({
+    ...draft,
+    ownerUid: user?.uid || null,
+    ownerEmail: user?.email || '',
+  })), [user]);
 
   const assignEvent = useCallback((expense, eventId, memberKeys) => patch(expense.id, {
     eventId: eventId || null,
@@ -134,7 +143,7 @@ export function useExpenses() {
 
   return {
     expenses, loading, error,
-    assignEvent, setParticipants, setSplit, setPaidBy,
+    create, assignEvent, setParticipants, setSplit, setPaidBy,
     addPayment, removePayment, payRemaining, archive, remove,
   };
 }

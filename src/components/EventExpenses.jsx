@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useExpenses } from '../hooks/useExpenses';
-import { expenseStatus, money } from '../lib/expenses';
+import { expenseStatus, money, memberListFor } from '../lib/expenses';
 import { ExpenseSplitter } from './ExpenseSplitter';
+import { AddExpense } from './AddExpense';
 import styles from './ExpensesPage.module.css';
 
 /* The Expenses tab on one event.
@@ -13,9 +14,7 @@ export function EventExpenses({ event }) {
   const { expenses, loading, ...actions } = useExpenses();
   const [openId, setOpenId] = useState(null);
 
-  const memberOptions = useMemo(() => Object.entries(event?.members || {})
-    .map(([key, m]) => ({ key, name: m?.name || m?.email || key, email: m?.email || null }))
-    .sort((a, b) => a.name.localeCompare(b.name)), [event]);
+  const memberOptions = useMemo(() => memberListFor(event), [event]);
 
   const mine = useMemo(
     () => expenses.filter(e => e.eventId === event.id),
@@ -37,10 +36,15 @@ export function EventExpenses({ event }) {
         {outstanding > 0 && <div className={styles.headline}>{money(outstanding)} owed to you</div>}
       </header>
 
+      <div style={{ marginBottom: '1rem' }}>
+        <AddExpense events={[event]} fixedEventId={event.id} onCreate={actions.create} />
+      </div>
+
       {mine.length === 0 ? (
         <p className={styles.hint}>
-          No charges on this event yet. Tag one to split in the Wealth Architect categorizer,
-          then put it on this event — either here or from the Trip Expenses page.
+          No charges on this event yet. Add one above, or tag one to split in the Wealth
+          Architect categorizer and put it on this event — either here or from the Trip
+          Expenses page.
         </p>
       ) : (
         <ul className={styles.list}>

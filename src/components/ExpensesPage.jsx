@@ -1,8 +1,9 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useExpenses } from '../hooks/useExpenses';
 import { useEvents } from '../hooks/useEvents';
-import { balances, expenseStatus, money, remainingFor } from '../lib/expenses';
+import { balances, expenseStatus, money, remainingFor, memberListFor } from '../lib/expenses';
 import { ExpenseSplitter } from './ExpenseSplitter';
+import { AddExpense } from './AddExpense';
 import styles from './ExpensesPage.module.css';
 
 /* Everything somebody owes you.
@@ -54,13 +55,6 @@ function SortHeader({ id, label, className, sort, onSort }) {
       </button>
     </th>
   );
-}
-
-function memberListFor(event) {
-  if (!event) return [];
-  return Object.entries(event.members || {})
-    .map(([key, m]) => ({ key, name: m?.name || m?.email || key, email: m?.email || null }))
-    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function ExpensesPage() {
@@ -235,9 +229,13 @@ export function ExpensesPage() {
         )}
       </header>
       <p className={styles.subtitle}>
-        Charges you tagged to split in Wealth Architect. Put one on an event, pick who's in,
-        and tick people off as they pay you back.
+        Charges you tagged to split in Wealth Architect, plus any you wrote down yourself.
+        Put one on an event, pick who's in, and tick people off as they pay you back.
       </p>
+
+      <div style={{ margin: '0 0 1.25rem' }}>
+        <AddExpense events={events} onCreate={actions.create} />
+      </div>
 
       {error && <div className={styles.error}>Couldn’t load expenses: {error}</div>}
 
