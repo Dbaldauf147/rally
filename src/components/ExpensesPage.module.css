@@ -205,3 +205,16 @@
 .gridGap { font-weight: 650; color: var(--color-danger); border-left: 1px solid var(--color-border); }
 .grid tbody tr:hover th, .grid tbody tr:hover td { background: var(--color-bg); }
 .grid tfoot th, .grid tfoot td { border-top: 2px solid var(--color-border); border-bottom: none; font-weight: 700; }
+
+/* Taking someone off the whole trip, from the row that names them. The × only
+   surfaces on hover or keyboard focus — one per row, permanently visible, and
+   the name column reads as a column of crosses. */
+.gridNameRow { display: flex; align-items: center; gap: 0.4rem; }
+.gridNameText { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gridDrop { flex: none; width: 1.15rem; height: 1.15rem; padding: 0; border: none; border-radius: 999px; background: none; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.grid tbody tr:hover .gridDrop, .gridDrop:focus-visible { opacity: 1; }
+.gridDrop:hover { background: var(--color-danger); color: #fff; }
+.gridDrop:disabled { opacity: 0.4; cursor: default; }
+/* Touch has no hover, so there the × simply stays put. */
+@media (hover: none) { .gridDrop { opacity: 1; } }
+.sittingOut { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: -0.75rem 0 1.25rem; }

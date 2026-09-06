@@ -91,6 +91,36 @@ export function EventExpenses({ event }) {
     [mine, gridPeople, participantsFor],
   );
 
+  // Somebody in on nothing drops off the grid rather than sitting there as a
+  // row of dashes — but they have to be gettable back, so they line up
+  // underneath it instead of disappearing from the tab.
+  const shownRows = grid.rows.filter(r => r.cells.some(c => c.on));
+  const sittingOut = grid.rows.filter(r => !r.cells.some(c => c.on));
+
+  const [busyKey, setBusyKey] = useState(null);
+  async function setOnEverything(person, on) {
+    // Whoever paid a charge can't come off it — they are owed the money either
+    // way — so say what will actually happen before doing it.
+    const stuck = on ? [] : mine.filter(e => e.paidBy === person.key);
+    if (!on) {
+      const n = mine.length - stuck.length;
+      if (n === 0) return;
+      const tail = stuck.length
+        ? `\n\nThey stay on the ${stuck.length} they paid for — you can't take the payer off their own bill.`
+        : '';
+      if (!window.confirm(
+        `Take ${person.name} off ${n} charge${n === 1 ? '' : 's'} on this trip?`
+        + `\n\nWhat they were in for gets divided between everyone else.${tail}`,
+      )) return;
+    }
+    setBusyKey(person.key);
+    try {
+      await actions.setParticipantEverywhere(mine, person.key, on);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   const outstanding = grid.grandOutstanding;
 
   if (loading) return <p className={styles.muted}>Loading expenses…</p>;
@@ -139,9 +169,23 @@ export function EventExpenses({ event }) {
               </tr>
             </thead>
             <tbody>
-              {grid.rows.map(row => (
+              {shownRows.map(row => (
                 <tr key={row.key}>
-                  <th scope="row" className={styles.gridName}>{row.name}</th>
+                  <th scope="row" className={styles.gridName}>
+                    <span className={styles.gridNameRow}>
+                      <span className={styles.gridNameText}>{row.name}</span>
+                      <button
+                        type="button"
+                        className={styles.gridDrop}
+                        disabled={busyKey === row.key}
+                        title={`Take ${row.name} off everything on this trip`}
+                        aria-label={`Take ${row.name} off everything on this trip`}
+                        onClick={() => setOnEverything(row, false)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </th>
                   {row.cells.map(cell => (
                     <td
                       key={cell.id}
@@ -187,6 +231,24 @@ export function EventExpenses({ event }) {
               </tr>
             </tfoot>
           </table>
+        </div>
+      )}
+
+      {mine.length > 0 && sittingOut.length > 0 && (
+        <div className={styles.sittingOut}>
+          <span className={styles.addNote}>In on nothing:</span>
+          {sittingOut.map(row => (
+            <button
+              key={row.key}
+              type="button"
+              className={styles.chip}
+              disabled={busyKey === row.key}
+              title={`Put ${row.name} back on every charge`}
+              onClick={() => setOnEverything(row, true)}
+            >
+              {row.name} <span aria-hidden="true">+</span>
+            </button>
+          ))}
         </div>
       )}
 

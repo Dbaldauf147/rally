@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, writeBatch, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { newExpense } from '../lib/expenses';
 import { useAuth } from '../contexts/AuthContext';
@@ -8,12 +8,14 @@ import { useAuth } from '../contexts/AuthContext';
 // every time.
 const EMPTY = [];
 
-/* Charges that need splitting, pushed in from Wealth Architect.
+/* Charges that need splitting.
 
-   Nothing here creates an expense — they only arrive through
-   /api/split-expenses. What this hook offers is everything you do to one
-   afterwards: put it on an event, choose who is in on it, set the shares, and
-   tick people off as they pay you back. */
+   Most arrive through /api/split-expenses, tagged in Wealth Architect. The rest
+   you write down yourself — cash for the fuel, a deposit paid months ago —
+   because those never touch a card the feed can see. Both land as the same
+   document, so everything else here works on either: put one on an event,
+   choose who is in on it, set the shares, and tick people off as they pay you
+   back. */
 export function useExpenses() {
   const { user } = useAuth();
   const [state, setState] = useState({ expenses: EMPTY, loading: true, error: null });
@@ -63,6 +65,34 @@ export function useExpenses() {
     settled: {},
     updatedAt: new Date().toISOString(),
   }), [patch]);
+
+  /* Put someone on, or take them off, every charge at once.
+
+     One batch, so "Katie isn't in on any of this" can't half-apply and leave
+     her owing three of the five bills. Whoever paid a charge is skipped on the
+     way out — they are owed the money either way, and taking them off their own
+     bill would mean nobody is.
+
+     Returns how many charges actually changed, which is what the caller needs
+     to say whether anything happened. */
+  const setParticipantEverywhere = useCallback(async (list, key, on) => {
+    if (!key) return 0;
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    let touched = 0;
+    for (const expense of list || []) {
+      const current = (expense.participants || []).filter(Boolean);
+      if (current.includes(key) === on) continue;
+      if (!on && expense.paidBy === key) continue;
+      batch.update(doc(db, 'expenses', expense.id), {
+        participants: on ? [...current, key] : current.filter(k => k !== key),
+        updatedAt: now,
+      });
+      touched += 1;
+    }
+    if (touched) await batch.commit();
+    return touched;
+  }, []);
 
   const setParticipants = useCallback((expense, keys) => patch(expense.id, {
     participants: [...new Set(keys.filter(Boolean))],
@@ -143,7 +173,7 @@ export function useExpenses() {
 
   return {
     expenses, loading, error,
-    create, assignEvent, setParticipants, setSplit, setPaidBy,
+    create, assignEvent, setParticipants, setParticipantEverywhere, setSplit, setPaidBy,
     addPayment, removePayment, payRemaining, archive, remove,
   };
 }
