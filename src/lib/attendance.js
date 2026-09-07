@@ -39,6 +39,11 @@ export function isYesMaybe(uid, m, members = {}, voteStats = {}) {
   if (m.attendance === 'notgoing') return false;
   const vs = voteStats[uid];
   if (vs && (vs.yes > 0 || vs.maybe > 0)) return true;
+  // Somebody who voted has answered, and their answer stands. Only a blank is
+  // filled in from the person they come with — otherwise a partner's yes
+  // overrode an explicit no, and someone who said they can't make it was
+  // counted as coming, fed a menu, and put on the bill.
+  if (vs && vs.total > 0) return false;
   const partnerUid = m.plusOneOf
     || Object.entries(members).find(([, mm]) => mm && typeof mm === 'object' && mm.plusOneOf === uid)?.[0];
   const pv = partnerUid ? voteStats[partnerUid] : null;

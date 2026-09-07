@@ -673,6 +673,10 @@ export function EventDetail() {
     if (att.overridden && att.status === 'notgoing') return false;
     const vs = voteStats[uid];
     if (vs && (vs.yes > 0 || vs.maybe > 0)) return true;
+    // An actual vote always beats one assumed by way of a linked partner. Only
+    // somebody who hasn't voted at all rides in on theirs — otherwise a "can't
+    // make it" was quietly turned into a yes because their other half said yes.
+    if (vs && vs.total > 0) return false;
     const partnerUid = m?.plusOneOf || members.find(([, mm]) => mm?.plusOneOf === uid)?.[0];
     const pv = partnerUid ? voteStats[partnerUid] : null;
     return !!pv && (pv.yes > 0 || pv.maybe > 0);
@@ -913,14 +917,25 @@ export function EventDetail() {
     }
     return clusters;
   };
+  /* The counts under each date. These include votes assumed by way of a linked
+     partner, which is why they read higher than the ones on the date card down
+     the page: that card counts only the people who actually voted. The assumed
+     tally is kept alongside so the header can say which is which — two numbers
+     disagreeing with no explanation looks like a bug. */
   const tallyFor = (o, rowMembers) => {
-    let yes = 0, maybe = 0, no = 0;
+    const t = { yes: 0, maybe: 0, no: 0, assumed: 0, voted: 0 };
     for (const [uid] of rowMembers) {
-      const v = dayVoteOf(uid, o);
-      if (v === 'yes') yes++; else if (v === 'maybe') maybe++; else if (v === 'no') no++;
+      const [v, inherited] = dayVoteEntry(uid, o);
+      if (v !== 'yes' && v !== 'maybe' && v !== 'no') continue;
+      t[v] += 1;
+      if (inherited) t.assumed += 1; else t.voted += 1;
     }
-    return { yes, maybe, no };
+    return t;
   };
+  const tallyTitle = (t) => (t.assumed
+    ? `${t.voted} voted, ${t.assumed} assumed from a linked partner (shown dashed).`
+      + ' The date card below counts only the votes people actually cast.'
+    : `${t.voted} voted.`);
   // Restore chips for dates hidden out of either people view.
   const renderHiddenDayChips = () => (hiddenOpts.length === 0 ? null : (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center', marginBottom: '0.4rem' }}>
@@ -992,10 +1007,13 @@ export function EventDetail() {
                   <th key={o.id} style={chosen ? { ...th, background: 'linear-gradient(135deg, var(--color-surface) 0%, var(--color-success-light) 100%)', borderBottom: '2px solid var(--color-success)', color: 'var(--color-success)' } : th}>
                     {chosen && <div style={{ fontSize: '0.58rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-success)', marginBottom: '0.1rem' }}>✓ Chosen</div>}
                     <div style={chosen ? { fontWeight: 800, color: 'var(--color-text)' } : undefined}>{fmtOpt(o)}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '0.3rem', fontSize: '0.62rem', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}>
+                    <div title={tallyTitle(t)} style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '0.3rem', fontSize: '0.62rem', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}>
                       <span style={{ color: '#16A34A' }}>Going {t.yes}</span>
                       <span style={{ color: '#D97706' }}>TBD {t.maybe}</span>
                       <span style={{ color: '#DC2626' }}>Not going {t.no}</span>
+                      {t.assumed > 0 && (
+                        <span style={{ color: 'var(--color-text-muted)', fontWeight: 600 }}>{t.assumed} assumed</span>
+                      )}
                     </div>
                     <div style={{ display: 'flex', gap: '0.2rem', justifyContent: 'center', alignItems: 'center', marginTop: '0.3rem' }}>
                       <button
