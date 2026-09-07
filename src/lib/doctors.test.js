@@ -9,6 +9,7 @@ import {
   BUILTIN_COLUMNS, resolveColumns, visibleColumns, renameColumn, setColumnHidden, moveColumn,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
+  isCheckInEntry, isIssueEntry, laneCounts, inLane,
 } from './doctors';
 
 const entry = (o) => normalizeEntry(o);
@@ -826,5 +827,65 @@ describe('nextVisit', () => {
   it('needs a year on the last visit — 3/20 could be any of them', () => {
     expect(nextVisit('3/20', 'every 6 months')).toBeNull();
     expect(nextVisit('3/20/2026', 'every 6 months').iso).toBe('2026-09-20');
+  });
+});
+
+describe('check-ins and issues', () => {
+  const dentist = { id: '1', doctor: 'Dentist', issue: 'Angular Cheilitis', status: 'resolved', cadence: 'Every 6 months' };
+  const physical = { id: '2', doctor: 'Mount Sinai', cadence: 'Every 2 year(s)' };
+  const sprain = { id: '3', issue: 'Neck sprain', status: 'resolved' };
+  const treating = { id: '4', issue: 'Plantar fasciitis', status: 'treating' };
+  const contact = { id: '5', doctor: 'Gastroenterologist' };
+
+  it('calls a scheduled visit a check-in', () => {
+    expect(isCheckInEntry(physical)).toBe(true);
+    expect(isIssueEntry(physical)).toBe(false);
+  });
+
+  it('calls a complaint an issue', () => {
+    expect(isIssueEntry(sprain)).toBe(true);
+    expect(isIssueEntry(treating)).toBe(true);
+    expect(isCheckInEntry(sprain)).toBe(false);
+  });
+
+  // The dentist is seen twice a year AND is where something got sorted out.
+  // Hiding them from either tab would be wrong whichever one you picked.
+  it('puts a record that is both under both', () => {
+    expect(isCheckInEntry(dentist)).toBe(true);
+    expect(isIssueEntry(dentist)).toBe(true);
+  });
+
+  it('keeps a bare contact somewhere rather than nowhere', () => {
+    expect(isCheckInEntry(contact)).toBe(true);
+    expect(isIssueEntry(contact)).toBe(false);
+  });
+
+  it('counts a cadence it cannot parse as an arrangement all the same', () => {
+    expect(isCheckInEntry({ id: '6', issue: 'Back', status: 'treating', cadence: 'when it flares up' })).toBe(true);
+  });
+
+  it('reads a status as an issue even with the field left blank', () => {
+    expect(isIssueEntry({ id: '7', doctor: 'Someone', status: 'treating' })).toBe(true);
+  });
+
+  it('counts each lane, and says so even when they overlap', () => {
+    const list = { types: [], entries: [dentist, physical, sprain, treating, contact] };
+    expect(laneCounts(list)).toEqual({ all: 5, checkins: 3, issues: 3 });
+  });
+
+  it('filters the grouped list down to one lane', () => {
+    const list = { types: [], entries: [physical, sprain] };
+    const names = (lane) => groupByType(list, { lane }).flatMap((g) => g.entries.map((e) => e.id));
+    expect(names('checkins')).toEqual(['2']);
+    expect(names('issues')).toEqual(['3']);
+    expect(names('all').sort()).toEqual(['2', '3']);
+  });
+
+  it('still honours the search and status filters inside a lane', () => {
+    const list = { types: [], entries: [sprain, treating] };
+    expect(groupByType(list, { lane: 'issues', query: 'plantar' }).flatMap((g) => g.entries.map((e) => e.id)))
+      .toEqual(['4']);
+    expect(groupByType(list, { lane: 'issues', status: 'treating' }).flatMap((g) => g.entries.map((e) => e.id)))
+      .toEqual(['4']);
   });
 });

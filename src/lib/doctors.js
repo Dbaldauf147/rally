@@ -350,14 +350,60 @@ export function matchesQuery(entry, query, fields = []) {
   return q.split(/\s+/).every((term) => hay.includes(term));
 }
 
+/* ── Check-ins and issues ────────────────────────────────────────────
+   Two things live in this list, answering different questions. "Who am I due
+   to see?" is about a schedule — the dentist every six months, the annual
+   physical. "What is wrong with me, or was?" is about a complaint — the neck
+   sprain, the plantar fasciitis.
+
+   A record can be both, and the dentist usually is: seen twice a year, and
+   also where the angular cheilitis got sorted out. So the two lanes are NOT
+   exclusive. A record with a cadence and an issue shows under both, because it
+   genuinely is both, and dropping it from one of them would be wrong whichever
+   one you picked.
+
+   A record with neither — a specialist whose number you keep and nothing
+   currently wrong — sits under check-ins, so nothing falls out of the list. */
+export const LANES = [
+  { key: 'checkins', label: 'Check-ins' },
+  { key: 'issues', label: 'Issues' },
+];
+
+// A complaint: something written in the issue field, or a status that only
+// means anything when there is one.
+export const isIssueEntry = (e) => !!String(e?.issue || '').trim()
+  || e?.status === STATUS.TREATING || e?.status === STATUS.RESOLVED;
+
+// Somebody you see on a schedule. Any cadence text counts, not only one that
+// parses: "when it flares up" is still you saying this is an ongoing
+// arrangement, even though no date can be worked out from it.
+export const isCheckInEntry = (e) => !!String(e?.cadence || '').trim() || !isIssueEntry(e);
+
+export function inLane(entry, lane) {
+  if (lane === 'issues') return isIssueEntry(entry);
+  if (lane === 'checkins') return isCheckInEntry(entry);
+  return true;
+}
+
+// For the numbers on the tabs. They add up to more than the list when a record
+// is in both, which is the honest total for a tab that says what it holds.
+export function laneCounts(list) {
+  const { entries } = normalizeList(list);
+  return {
+    all: entries.length,
+    checkins: entries.filter(isCheckInEntry).length,
+    issues: entries.filter(isIssueEntry).length,
+  };
+}
+
 /* The visible list, grouped under the type headings in the owner's order.
 
    Untyped rows come last under their own heading, and a group with nothing in
    it doesn't render at all rather than leaving a bare heading behind. */
-export function groupByType(list, { query = '', status = 'all' } = {}) {
+export function groupByType(list, { query = '', status = 'all', lane = 'all' } = {}) {
   const { types, fields, entries } = normalizeList(list);
   const visible = entries.filter((e) =>
-    (status === 'all' || e.status === status) && matchesQuery(e, query, fields));
+    (status === 'all' || e.status === status) && inLane(e, lane) && matchesQuery(e, query, fields));
 
   const groups = types.map((type) => ({
     type,

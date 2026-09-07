@@ -7,6 +7,7 @@ import {
   FIELDS, STATUS, STATUS_ORDER, NO_TYPE, statusLabel, typeHeading,
   normalizeEntry, normalizeList, entryTitle, entrySubtitle,
   groupByType, countByStatus, issueCell, typeUsage,
+  LANES, laneCounts,
   addEntry, updateEntry, removeEntry, isBlank,
   addType, renameType, removeType, moveType,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
@@ -714,6 +715,15 @@ export function DoctorsPage() {
   const { list, loaded, update } = useDoctorList(user?.uid);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
+  // Which subtab is showing. Remembered, because whichever of the two you came
+  // for is almost certainly the one you want again next time.
+  const [lane, setLane] = useState(() => {
+    try { return localStorage.getItem('rally.doctorsLane') || 'all'; } catch { return 'all'; }
+  });
+  const pickLane = (key) => {
+    setLane(key);
+    try { localStorage.setItem('rally.doctorsLane', key); } catch { /* private mode */ }
+  };
   const [managingTypes, setManagingTypes] = useState(false);
   const [managingColumns, setManagingColumns] = useState(false);
   // Which single cell is open for editing: { id, col }. One at a time, so
@@ -723,7 +733,11 @@ export function DoctorsPage() {
   const safeList = useMemo(() => list || { types: [], fields: [], entries: [] }, [list]);
   const entries = safeList.entries;
   const counts = useMemo(() => countByStatus(entries), [entries]);
-  const groups = useMemo(() => groupByType(safeList, { query, status }), [safeList, query, status]);
+  const groups = useMemo(
+    () => groupByType(safeList, { query, status, lane }),
+    [safeList, query, status, lane],
+  );
+  const lanes = useMemo(() => laneCounts(safeList), [safeList]);
   // Every column, for the manager; the showing ones, for the table.
   const allColumns = useMemo(() => resolveColumns(safeList), [safeList]);
   const shownColumns = useMemo(() => allColumns.filter((c) => !c.hidden), [allColumns]);
@@ -765,6 +779,28 @@ export function DoctorsPage() {
       <p className={styles.subtitle}>
         Who was seen for what, and how to reach them again. Click any cell to edit it.
         Only you can see this page.
+      </p>
+
+      <div className={styles.lanes} role="tablist" aria-label="Which records to show">
+        {[{ key: 'all', label: 'Everything' }, ...LANES].map((l) => (
+          <button
+            key={l.key}
+            type="button"
+            role="tab"
+            aria-selected={lane === l.key}
+            className={lane === l.key ? styles.laneOn : styles.lane}
+            onClick={() => pickLane(l.key)}
+          >
+            {l.label} <span className={styles.laneCount}>{lanes[l.key]}</span>
+          </button>
+        ))}
+      </div>
+      <p className={styles.laneHint}>
+        {lane === 'checkins'
+          ? 'Whoever you see on a schedule, and anyone you just keep the number for.'
+          : lane === 'issues'
+            ? 'What was wrong, and who sorted it. A doctor you also see regularly shows in both tabs.'
+            : 'Every record, check-ins and issues together.'}
       </p>
 
       <div className={styles.toolbar}>

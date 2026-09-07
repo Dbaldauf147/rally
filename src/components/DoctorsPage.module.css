@@ -163,3 +163,13 @@
 /* Keeps a built-in column's row aligned with the added ones, which carry a
    delete button where this sits. */
 .iconSpacer { width: 28px; flex-shrink: 0; }
+
+/* Check-ins vs issues. Above the toolbar, because it is the bigger division —
+   the status pills filter within whichever tab is showing. */
+.lanes { display: flex; gap: 0.25rem; margin: 0 0 0.35rem; border-bottom: 1px solid var(--color-border); }
+.lane, .laneOn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.9rem; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--color-text-muted); font-family: inherit; font-size: 0.92rem; font-weight: 650; cursor: pointer; }
+.lane:hover { color: var(--color-text); }
+.laneOn { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+.laneCount { padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--color-bg); color: var(--color-text-muted); font-size: 0.72rem; font-weight: 700; }
+.laneOn .laneCount { background: var(--color-accent); color: #fff; }
+.laneHint { margin: 0 0 0.75rem; font-size: 0.8rem; color: var(--color-text-muted); }
