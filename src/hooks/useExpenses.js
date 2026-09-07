@@ -94,6 +94,16 @@ export function useExpenses() {
     return touched;
   }, []);
 
+  /* Remember that a charge has been pushed to Splitwise, so the button can
+     say so and you don't send the same pizza twice. Push-only: nothing reads
+     back from Splitwise, so this is a receipt, not a sync marker. */
+  const markSplitwise = useCallback((expense, { id, groupId }) => patch(expense.id, {
+    splitwiseId: id,
+    splitwiseGroupId: groupId ?? null,
+    splitwiseSentAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }), [patch]);
+
   const setParticipants = useCallback((expense, keys) => patch(expense.id, {
     participants: [...new Set(keys.filter(Boolean))],
     updatedAt: new Date().toISOString(),
@@ -174,6 +184,7 @@ export function useExpenses() {
   return {
     expenses, loading, error,
     create, assignEvent, setParticipants, setParticipantEverywhere, setSplit, setPaidBy,
+    markSplitwise,
     addPayment, removePayment, payRemaining, archive, remove,
   };
 }

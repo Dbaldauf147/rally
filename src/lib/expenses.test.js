@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   evenShares, sumShares, resolveShares, unassigned, balances, expenseStatus,
   amountPaid, remainingFor, isSettled, paymentsFor, toCents, toDollars,
-  newExpense, expenseDraftError, memberListFor, expenseMatrix,
+  newExpense, expenseDraftError, memberListFor, expenseMatrix, personStatement,
 } from './expenses';
 
 const expense = (over = {}) => ({
@@ -323,5 +323,72 @@ describe('expenseMatrix', () => {
     expect(m.columns).toEqual([]);
     expect(m.rows.every(r => r.total === 0 && r.cells.length === 0)).toBe(true);
     expect(m.grandTotal).toBe(0);
+  });
+});
+
+describe('personStatement', () => {
+  const pizza = { id: 'p', description: 'Pizza', date: '2026-09-06', amount: 45, paidBy: 'dan', splitMode: 'even', participants: ['dan', 'amy', 'ben'] };
+  const beer = { id: 'b', description: 'Beer', date: '2026-09-07', amount: 20, paidBy: 'amy', splitMode: 'even', participants: ['dan', 'amy'] };
+  const cab = { id: 'c', description: 'Cab', date: '2026-09-07', amount: 30, paidBy: 'dan', splitMode: 'even', participants: ['dan', 'amy'] };
+  const of = (key, exp = [pizza, beer, cab], who) => personStatement(exp, key, who || (e => e.participants));
+
+  it('lists only the charges that person is in on', () => {
+    expect(of('ben').lines.map(l => l.description)).toEqual(['Pizza']);
+    expect(of('amy').lines.map(l => l.description)).toEqual(['Pizza', 'Beer', 'Cab']);
+  });
+
+  it('adds up what they still owe, ignoring their share of what they paid', () => {
+    const amy = of('amy');
+    expect(amy.share).toBe(40);        // 15 pizza + 10 beer + 15 cab
+    expect(amy.outstanding).toBe(30);  // the beer is her own money
+  });
+
+  it('says who the money is owed to, not just how much', () => {
+    expect(of('amy').owedTo).toEqual([{ key: 'dan', amount: 30, count: 2 }]);
+    // Dan fronted two of the three, so all he owes is his share of the beer.
+    expect(of('dan').owedTo).toEqual([{ key: 'amy', amount: 10, count: 1 }]);
+  });
+
+  it('splits what is left between several people who fronted things', () => {
+    const cash = { id: 'x', description: 'Cash', amount: 12, paidBy: 'ben', splitMode: 'even', participants: ['ben', 'amy'] };
+    expect(of('amy', [pizza, cash]).owedTo).toEqual([
+      { key: 'dan', amount: 15, count: 1 },
+      { key: 'ben', amount: 6, count: 1 },
+    ]);
+  });
+
+  it('keeps a charge they paid for on the statement, marked as theirs', () => {
+    const dan = of('dan');
+    expect(dan.lines.find(l => l.id === 'p')).toMatchObject({ isPayer: true, share: 15, remaining: 0 });
+    expect(dan.fronted).toBe(75);      // the whole pizza and the whole cab
+    expect(dan.share).toBe(40);        // his own thirds and halves of them
+    expect(dan.outstanding).toBe(10);  // only the beer Amy bought
+  });
+
+  it('counts a part payment against what is left', () => {
+    const part = { ...pizza, payments: [{ id: '1', key: 'amy', amount: 5 }] };
+    const amy = of('amy', [part]);
+    expect(amy.lines[0]).toMatchObject({ share: 15, paid: 5, remaining: 10, settled: false });
+    expect(amy.paid).toBe(5);
+    expect(amy.outstanding).toBe(10);
+  });
+
+  it('marks a line settled once it is paid off, and drops it from owedTo', () => {
+    const done = { ...pizza, payments: [{ id: '1', key: 'ben', amount: 15 }] };
+    const ben = of('ben', [done]);
+    expect(ben.lines[0]).toMatchObject({ remaining: 0, settled: true });
+    expect(ben.outstanding).toBe(0);
+    expect(ben.owedTo).toEqual([]);
+  });
+
+  it('narrows a split to whoever is passed in, as the trip tab does', () => {
+    const amy = of('amy', [pizza], () => ['dan', 'amy']);
+    expect(amy.lines[0].share).toBe(22.5);
+    expect(amy.outstanding).toBe(22.5);
+  });
+
+  it('gives somebody in on nothing an empty statement rather than nothing', () => {
+    const nobody = of('zoe');
+    expect(nobody).toMatchObject({ key: 'zoe', lines: [], share: 0, outstanding: 0, owedTo: [] });
   });
 });

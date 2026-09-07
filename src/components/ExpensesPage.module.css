@@ -192,9 +192,20 @@
 .gridCorner, .gridName { position: sticky; left: 0; z-index: 1; text-align: left; background: var(--color-surface); font-weight: 650; }
 .gridCorner { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-muted); border-bottom: 2px solid var(--color-border); }
 .gridCol, .gridTotalCol { border-bottom: 2px solid var(--color-border); font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); }
-.gridCol { max-width: 9rem; }
-.gridColName { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--color-text); font-size: 0.78rem; }
-.gridColAmount { display: block; font-weight: 600; color: var(--color-text-muted); }
+/* Charge names wrap onto as many lines as they need rather than being cut off
+   at one. "Dinner at the Crab Shack" truncated to "Dinner at th…" names nothing
+   anyone can recognise, and on a phone — where the grid scrolls sideways and
+   only two or three columns are on screen at once — this header is the only
+   place the charge is named. Wrapping narrows the columns too, so more of them
+   fit before you have to scroll.
+
+   The width sits on the inner block, not the cell: under auto table layout a
+   max-width on a <th> is not reliably honoured, but the content box inside it
+   is what the column sizes itself to. Headers hang off the bottom, so a
+   two-line name still lines its amount up with its neighbours'. */
+.gridCol { vertical-align: bottom; }
+.gridColName { display: block; min-width: 4.5rem; max-width: 9rem; margin-left: auto; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; color: var(--color-text); font-size: 0.78rem; }
+.gridColAmount { display: block; margin-top: 0.15rem; font-weight: 600; color: var(--color-text-muted); }
 .gridTotalCol { letter-spacing: 0.04em; text-transform: uppercase; border-left: 1px solid var(--color-border); }
 .gridCell { color: var(--color-text); }
 .gridOut { color: var(--color-text-muted); opacity: 0.5; }
@@ -238,3 +249,6 @@
 .gridVenmo::placeholder { color: var(--color-text-muted); opacity: 0.6; }
 .gridVenmo:hover { border-color: var(--color-border); }
 .gridVenmo:focus { outline: none; border-color: var(--color-accent); background: var(--color-bg); }
+
+/* The Splitwise bar: which group this trip's charges go to. */
+.swBar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding: 0.6rem 0.75rem; margin-bottom: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }

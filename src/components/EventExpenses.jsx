@@ -6,7 +6,9 @@ import { useExpenses } from '../hooks/useExpenses';
 import { expenseStatus, expenseMatrix, money, memberListFor } from '../lib/expenses';
 import { buildVoteStats, isYesMaybe } from '../lib/attendance';
 import { normalizeHandle, displayHandle, venmoUrl, chargeNote } from '../lib/venmo';
+import { matchGroupMembers, buildExpense } from '../lib/splitwise';
 import { ExpenseSplitter } from './ExpenseSplitter';
+import { PersonExpenses } from './PersonExpenses';
 import { AddExpense } from './AddExpense';
 import styles from './ExpensesPage.module.css';
 
@@ -131,6 +133,82 @@ export function EventExpenses({ event }) {
     }).catch(() => {});
   };
 
+  /* ── Splitwise ──────────────────────────────────────────────────────
+     Push-only. Rally decides the split; Splitwise is where the people who
+     live in Splitwise see what they owe. The key is a personal one held on
+     the server, so everything here goes through /api/splitwise rather than
+     talking to Splitwise from the browser. */
+  const [sw, setSw] = useState({ loading: true, configured: false, groups: [], me: null, error: '' });
+  useEffect(() => {
+    if (!user) return undefined;
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/splitwise', {
+          headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!live) return;
+        if (!res.ok) setSw({ loading: false, configured: false, groups: [], me: null, error: data.error || `Failed (${res.status})` });
+        else setSw({ loading: false, configured: !!data.configured, groups: data.groups || [], me: data.me || null, error: '' });
+      } catch (err) {
+        // A deployment without the route at all (or offline) is not worth
+        // shouting about — the section simply doesn't appear.
+        if (live) setSw({ loading: false, configured: false, groups: [], me: null, error: err.message });
+      }
+    })();
+    return () => { live = false; };
+  }, [user]);
+
+  const swGroupId = event?.splitwiseGroupId || '';
+  const swGroup = sw.groups.find(g => String(g.id) === String(swGroupId)) || null;
+  const setSwGroup = (id) => updateDoc(doc(db, 'events', event.id), {
+    splitwiseGroupId: id ? Number(id) : deleteField(),
+  }).catch(() => {});
+
+  /* Send one charge across, with the shares exactly as Rally has them.
+
+     Anyone with a share who isn't in the group is named rather than quietly
+     left out: dropping them would make the shares stop adding up to the cost,
+     and Splitwise would refuse it with an arithmetic complaint that says
+     nothing about the real problem. */
+  const sendToSplitwise = async (expense, shares) => {
+    if (!swGroup) throw new Error('Pick a Splitwise group first.');
+    // You are the account the key belongs to, so you match by that rather
+    // than by email — an organiser's own row rarely carries one.
+    const { matched } = matchGroupMembers(memberOptions, swGroup.members,
+      sw.me?.id != null && user?.uid ? { key: user.uid, splitwiseId: sw.me.id } : null);
+    const missing = Object.entries(shares || {})
+      .filter(([key, value]) => Number(value) > 0 && !matched.has(key))
+      .map(([key]) => nameFor(key));
+    if (missing.length) {
+      throw new Error(
+        `No Splitwise match for ${missing.join(', ')} — they need the same email on both sides.`,
+      );
+    }
+    const body = buildExpense({
+      description: expense.description,
+      amount: expense.amount,
+      date: expense.date,
+      groupId: swGroup.id,
+      shares,
+      payerKey: expense.paidBy,
+      matched,
+    });
+    const res = await fetch('/api/splitwise', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ expense: body }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.id) throw new Error(data.error || `Splitwise refused it (${res.status})`);
+    await actions.markSplitwise(expense, { id: data.id, groupId: swGroup.id });
+    return `Sent to ${swGroup.name}`;
+  };
+
   const [busyKey, setBusyKey] = useState(null);
   async function setOnEverything(person, on) {
     // Whoever paid a charge can't come off it — they are owed the money either
@@ -155,6 +233,29 @@ export function EventExpenses({ event }) {
     }
   }
 
+  /* Which of the two views the tab is showing.
+
+     The grid is the collector's tool — it edits every split on the trip. Most
+     people on a trip aren't collecting anything; they opened this tab to find
+     out what they were charged for, and handing them a spreadsheet of everyone
+     else's shares to read their own row out of is the wrong answer, especially
+     on a phone. So whoever fronted something opens on the grid and everybody
+     else opens on their own statement, and the switch is right there either way.
+
+     `view` stays null until somebody picks, so the default is re-derived rather
+     than frozen at a moment when the charges hadn't loaded — and the one edit
+     that could flip it, adding a charge you paid for, is only reachable from
+     the grid, which sets `view` on the way in. */
+  const [view, setView] = useState(null);
+  const mode = view ?? (mine.some(e => e.paidBy === user?.uid) ? 'grid' : 'person');
+
+  // Whose statement is on screen. Falls back to you, then to whoever is first,
+  // and re-picks if the person showing drops off the trip.
+  const [personKey, setPersonKey] = useState(null);
+  const shownPerson = personKey && gridPeople.some(p => p.key === personKey)
+    ? personKey
+    : (gridPeople.find(p => p.key === user?.uid)?.key || gridPeople[0]?.key || null);
+
   const outstanding = grid.grandOutstanding;
   // What a Venmo charge is for. A row's total spans the whole trip, so naming
   // one charge only reads right when there is only one.
@@ -168,8 +269,31 @@ export function EventExpenses({ event }) {
     <div className={`${styles.page} ${styles.embedded}`}>
       <header className={styles.header}>
         <h2 className={styles.title}>Trip Expenses</h2>
-        {outstanding > 0 && <div className={styles.headline}>{money(outstanding)} owed to you</div>}
+        {mode === 'grid' && outstanding > 0 && (
+          <div className={styles.headline}>{money(outstanding)} owed to you</div>
+        )}
       </header>
+
+      {mine.length > 0 && gridPeople.length > 0 && (
+        <div className={styles.viewSwitch} role="group" aria-label="How to show the expenses">
+          <button
+            type="button"
+            className={mode === 'person' ? styles.toggleOn : styles.toggleOff}
+            aria-pressed={mode === 'person'}
+            onClick={() => setView('person')}
+          >
+            One person
+          </button>
+          <button
+            type="button"
+            className={mode === 'grid' ? styles.toggleOn : styles.toggleOff}
+            aria-pressed={mode === 'grid'}
+            onClick={() => setView('grid')}
+          >
+            Everyone
+          </button>
+        </div>
+      )}
 
       <p className={styles.subtitle}>
         Split between the {memberOptions.length} {memberOptions.length === 1 ? 'person' : 'people'}
@@ -177,6 +301,24 @@ export function EventExpenses({ event }) {
         Anyone who said no, or hasn’t said, is left out.
       </p>
 
+      {/* One person's statement, or everybody's grid. The statement is read
+          only, so everything that writes — adding a charge, the splitter, the
+          loose charges waiting to be pulled onto the trip — belongs to the
+          grid side and isn't rendered at all on the other. Not disabled:
+          hidden, because a column of greyed-out buttons is worse than no
+          buttons when none of them were ever yours to press. */}
+      {mode === 'person' && mine.length > 0 && gridPeople.length > 0 ? (
+        <PersonExpenses
+          expenses={mine}
+          people={gridPeople}
+          participantsFor={participantsFor}
+          event={event}
+          personKey={shownPerson}
+          onPickPerson={setPersonKey}
+          selfKey={user?.uid}
+        />
+      ) : (
+      <>
       <div style={{ margin: '0 0 1rem' }}>
         <AddExpense
           events={[event]}
@@ -340,6 +482,27 @@ export function EventExpenses({ event }) {
         </>
       )}
 
+      {sw.configured && (
+        <div className={styles.swBar}>
+          <span className={styles.addNote}>Splitwise</span>
+          <select
+            className={styles.select}
+            style={{ flex: '0 1 16rem' }}
+            value={swGroupId}
+            aria-label="Splitwise group for this trip"
+            onChange={(e) => setSwGroup(e.target.value)}
+          >
+            <option value="">Not sending to Splitwise</option>
+            {sw.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+          <span className={styles.addNote}>
+            {swGroup
+              ? 'Open a charge below and send it across. Rally stays the source of truth — nothing reads back.'
+              : 'Pick a group to send this trip’s charges to.'}
+          </span>
+        </div>
+      )}
+
       {mine.length > 0 && sittingOut.length > 0 && (
         <div className={styles.sittingOut}>
           <span className={styles.addNote}>In on nothing:</span>
@@ -396,6 +559,7 @@ export function EventExpenses({ event }) {
                     memberOptions={memberOptions}
                     eligibleKeys={eligibleKeys}
                     actions={actions}
+                    splitwise={swGroup ? { groupName: swGroup.name, send: sendToSplitwise } : null}
                     onDone={() => setOpenId(null)}
                   />
                 )}
@@ -431,6 +595,8 @@ export function EventExpenses({ event }) {
             ))}
           </ul>
         </>
+      )}
+      </>
       )}
     </div>
   );

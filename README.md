@@ -40,6 +40,35 @@ lists every charge with per-person balances, and each event has an Expenses
 tab scoped to its own — plus the unassigned ones, so a charge tagged on a phone
 can be pulled onto the trip you're already looking at.
 
+### Getting paid
+
+Two ways out, both one-directional, because neither service will tell us when
+somebody actually pays.
+
+**Venmo** has no consumer API worth having — it was shut to new developers
+years ago and nothing can read your transactions. What still works is a link
+that opens the app with the request filled in, so what somebody owes doubles
+as a charge button and the reminder email carries the same link. Handles live
+on the member row (`members.<key>.venmo`), beside their phone and email.
+
+**Splitwise** does have a real API, and a trip's charges can be pushed into a
+Splitwise group with Rally's exact per-person shares. Push only: pulling
+settlements back would mean a stored mapping, a cron, and a rule for who wins
+when both sides change the same number — a lot of machinery for a second copy
+of a ledger that already lives here.
+
+    SPLITWISE_API_KEY   personal key from https://secure.splitwise.com/apps
+
+The key is personal, so every write lands as whoever owns it — which is why
+`/api/splitwise` is a server route and not a fetch from the browser. Without
+the variable the route answers `{ configured: false }` and the section simply
+doesn't appear. People are matched to a Splitwise group by email, except you:
+the key's owner is matched by account, since an organiser's own member row
+rarely carries an email. Anyone who can't be matched is named rather than
+dropped — dropping them would make the shares stop adding up, and Splitwise
+answers a bad split with HTTP 200 and an `errors` array, so every response is
+read for that rather than trusted on status.
+
 ---
 
 # React + Vite

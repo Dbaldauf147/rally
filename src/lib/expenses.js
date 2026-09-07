@@ -299,3 +299,77 @@ export function expenseMatrix(expenses, people, participantsFor) {
     grandOutstanding: rows.reduce((acc, r) => toDollars(toCents(acc) + toCents(r.outstanding)), 0),
   };
 }
+
+/* ── One person's statement ──────────────────────────────────────────
+   The grid answers the organiser's question: what does everybody owe me. This
+   answers the other one, which is everybody else's — what was I charged for,
+   and what do I still owe.
+
+   Same numbers, read down instead of across, and with the payer named on every
+   line. Debts on a trip aren't owed to a pot: three people front different
+   things, and "you owe $84" is unactionable until it says $60 to Dan and $24
+   to Katie. So `owedTo` groups what is left by whoever is out of pocket, which
+   is also what lets each one carry its own Venmo link.
+
+   A charge this person paid for stays on the statement — it is money they
+   spent, and leaving it off would make their own trip look cheaper than it was
+   — but their share of it is not a debt, so it counts into `share` and never
+   into `outstanding`. That is the rule `balances` and `expenseMatrix` already
+   use; all three would disagree about the same trip if this one bent it. */
+export function personStatement(expenses, personKey, participantsFor) {
+  const lines = [];
+  const byPayer = new Map();
+  let share = 0;
+  let paid = 0;
+  let outstanding = 0;
+  let fronted = 0;
+
+  for (const expense of expenses || []) {
+    const keys = participantsFor ? participantsFor(expense) : (expense.participants || []);
+    const shares = resolveShares(expense, keys.filter(Boolean));
+    const mine = shares[personKey];
+    const isPayer = expense.paidBy === personKey;
+    if (isPayer) fronted = toDollars(toCents(fronted) + toCents(expense.amount));
+    if (mine == null) continue;
+
+    const remaining = isPayer ? 0 : remainingFor(expense, personKey, mine);
+    const settledAmount = isPayer ? 0 : toDollars(toCents(mine) - toCents(remaining));
+    share = toDollars(toCents(share) + toCents(mine));
+    paid = toDollars(toCents(paid) + toCents(settledAmount));
+    outstanding = toDollars(toCents(outstanding) + toCents(remaining));
+
+    lines.push({
+      id: expense.id,
+      expense,
+      description: expense.description || 'Untitled charge',
+      date: expense.date || '',
+      amount: Number(expense.amount) || 0,
+      paidBy: expense.paidBy || null,
+      people: Object.keys(shares).length,
+      share: mine,
+      paid: settledAmount,
+      remaining,
+      isPayer,
+      // Only meaningful for a line somebody else paid: a payer's own share is
+      // never outstanding, which would otherwise read as "settled".
+      settled: !isPayer && remaining === 0,
+    });
+
+    if (!isPayer && remaining > 0 && expense.paidBy) {
+      const to = byPayer.get(expense.paidBy) || { key: expense.paidBy, amount: 0, count: 0 };
+      to.amount = toDollars(toCents(to.amount) + toCents(remaining));
+      to.count += 1;
+      byPayer.set(expense.paidBy, to);
+    }
+  }
+
+  return {
+    key: personKey,
+    lines,
+    share,
+    paid,
+    outstanding,
+    fronted,
+    owedTo: [...byPayer.values()].sort((a, b) => b.amount - a.amount),
+  };
+}

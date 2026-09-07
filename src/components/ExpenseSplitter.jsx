@@ -18,7 +18,10 @@ import styles from './ExpensesPage.module.css';
    before half the guest list dropped out divides between the people actually
    coming. Nothing is rewritten until you touch a chip: the next edit writes
    back the narrowed list, which is also how the stale names finally go. */
-export function ExpenseSplitter({ expense, events, memberOptions, actions, onDone, eligibleKeys = null }) {
+/* `splitwise`, when given, is { groupName, send } — the trip's tab passes it
+   once a Splitwise group is chosen. Push-only: sending hands the split across
+   and records that it went, and nothing ever reads back. */
+export function ExpenseSplitter({ expense, events, memberOptions, actions, onDone, eligibleKeys = null, splitwise = null }) {
   const {
     assignEvent, setParticipants, setSplit, setPaidBy,
     addPayment, removePayment, payRemaining, archive,
@@ -28,6 +31,8 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
   const [paying, setPaying] = useState(null);
   const [reminding, setReminding] = useState(false);
   const [remindResult, setRemindResult] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState(null);
   // Defaults to {} so this component can be rendered outside an AuthProvider
   // without crashing on the destructure — reminders simply aren't offered.
   const { user } = useAuth() || {};
@@ -366,6 +371,11 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
             </div>
           )}
 
+          {sendResult && (
+            <div className={sendResult.ok ? styles.remindOk : styles.remindWarn}>
+              {sendResult.message}
+            </div>
+          )}
           {remindResult && (
             <div className={remindResult.ok ? styles.remindOk : styles.remindWarn}>
               {remindResult.message}
@@ -384,6 +394,38 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
               {custom && <span className={styles.checkSum}> · shares total {money(sumShares(shownShares))}</span>}
             </div>
             <div className={styles.footerActions}>
+              {splitwise && (
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  disabled={sending}
+                  title={expense.splitwiseId
+                    ? `Already sent to ${splitwise.groupName}. Sending again makes a second expense there.`
+                    : `Create this in ${splitwise.groupName} with these exact shares`}
+                  onClick={async () => {
+                    // Splitwise has no idea it has seen this charge before, so
+                    // a second press would make a second expense. Ask rather
+                    // than disable: re-sending after fixing a split is a real
+                    // thing to want.
+                    if (expense.splitwiseId && !window.confirm(
+                      `This was already sent to ${splitwise.groupName}.
+
+Send it again? Splitwise will end up with two of it — you would need to delete the old one there.`,
+                    )) return;
+                    setSending(true);
+                    setSendResult(null);
+                    try {
+                      setSendResult({ ok: true, message: await splitwise.send(expense, shownShares) });
+                    } catch (err) {
+                      setSendResult({ ok: false, message: err.message });
+                    } finally {
+                      setSending(false);
+                    }
+                  }}
+                >
+                  {sending ? 'Sending…' : expense.splitwiseId ? '✓ In Splitwise — send again' : 'Send to Splitwise'}
+                </button>
+              )}
               {status.outstanding > 0 && (
                 <button
                   type="button"
