@@ -11,7 +11,7 @@ import {
   addType, renameType, removeType, moveType,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
-  dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel,
+  dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, nextVisit,
   telHref, mailHref, mapHref, safeLink, linkLabel, makeId, seedDoctors,
 } from '../lib/doctors';
 import {
@@ -560,6 +560,24 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
             className={styles.cellDays}
             title={counted ? `${daysFrom.label}: ${formatCustomValue(daysFrom, since)}` : undefined}
           >{counted || null}</td>
+        );
+      }
+      /* Also counted: the last visit plus the cadence beside it. Empty unless
+         both are there and both are readable, so a doctor with no cadence
+         recorded reads as unscheduled rather than as never due. Overdue is
+         marked, because a date that has quietly gone past is the one thing
+         this column exists to catch. */
+      case 'nextVisit': {
+        const since = daysFrom ? customValueOf(entry, daysFrom) : '';
+        const next = nextVisit(since, entry.cadence);
+        if (!next) return <td key="nextVisit" className={styles.cellNext} />;
+        return (
+          <td
+            key="nextVisit"
+            className={next.overdue ? styles.cellNextOverdue : styles.cellNext}
+            title={`${entry.cadence} after ${daysFrom.label} ${formatCustomValue(daysFrom, since)}`
+              + (next.overdue ? ` — ${-next.daysAway} days ago` : next.due ? ' — today' : ` — in ${next.daysAway} days`)}
+          >{next.label}</td>
         );
       }
       // Status is a fixed set, so its cell is the select itself rather than a

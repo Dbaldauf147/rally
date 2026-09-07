@@ -51,6 +51,11 @@
    is what lets one row's count be compared with the one below it. */
 .cellDays { width: 6%; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text); }
 .table thead th.cellDays { text-align: right; }
+/* The date the counter is counting towards. Tabular like its neighbour so the
+   two read as one pair, and coloured only once it has gone past — a column
+   where every cell is red is a column nobody looks at. */
+.cellNext { width: 8%; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+.cellNextOverdue { composes: cellNext; color: var(--color-danger); font-weight: 650; }
 .cellStatus { width: 8%; white-space: nowrap; }
 .cellEdit { width: 1%; text-align: right; white-space: nowrap; }
 

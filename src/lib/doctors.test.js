@@ -3,6 +3,7 @@ import {
   STATUS, NO_TYPE, parseStatus, normalizeEntry, normalizeList, hasContent, entryTitle,
   entrySubtitle, matchesQuery, groupByType, countByStatus, issueCell, typeUsage,
   daysSince, daysSinceLabel, dateColumns, daysSinceField, setDaysSinceSource,
+  parseCadence, nextVisit,
   addEntry, updateEntry, removeEntry, isBlank,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   BUILTIN_COLUMNS, resolveColumns, visibleColumns, renameColumn, setColumnHidden, moveColumn,
@@ -652,12 +653,12 @@ describe('the columns, built-in and added alike', () => {
 
   it('starts with the built-in columns, in their built order', () => {
     expect(keys(base())).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
-    expect(labels(base())).toEqual(['Doctor', 'Issue', 'Meds', 'Contact', 'Cadence', 'Days since', 'Status']);
+    expect(labels(base())).toEqual(['Doctor', 'Issue', 'Meds', 'Contact', 'Cadence', 'Days since', 'Next visit', 'Status']);
   });
 
   it('puts an added column on the end without any bookkeeping', () => {
     const l = addCol(base());
-    expect(keys(l)).toHaveLength(8);
+    expect(keys(l)).toHaveLength(9);
     expect(labels(l).at(-1)).toBe('Copay');
     expect(resolveColumns(l).at(-1).kind).toBe('custom');
   });
@@ -698,7 +699,7 @@ describe('the columns, built-in and added alike', () => {
   it('unhiding brings it back where it was', () => {
     const hidden = setColumnHidden(base(), 'contact', true);
     expect(keys(setColumnHidden(hidden, 'contact', false))).toEqual(keys(base()));
-    expect(visibleColumns(setColumnHidden(hidden, 'contact', false))).toHaveLength(7);
+    expect(visibleColumns(setColumnHidden(hidden, 'contact', false))).toHaveLength(8);
   });
 
   it('hiding twice does not stack up', () => {
@@ -716,8 +717,8 @@ describe('the columns, built-in and added alike', () => {
   it('lets an added column sit between two built-in ones', () => {
     let l = addCol(base());
     const id = lastId(l);
-    l = moveColumn(l, id, -6);
-    expect(keys(l)).toEqual(['name', id, 'issue', 'meds', 'contact', 'cadence', 'daysSince', 'status']);
+    l = moveColumn(l, id, -7);
+    expect(keys(l)).toEqual(['name', id, 'issue', 'meds', 'contact', 'cadence', 'daysSince', 'nextVisit', 'status']);
   });
 
   it('does nothing at either end', () => {
@@ -728,19 +729,102 @@ describe('the columns, built-in and added alike', () => {
   it('a stored order survives a column being deleted since', () => {
     const l0 = addCol(base());
     const id = lastId(l0);
-    const ordered = moveColumn(l0, id, -7);
+    const ordered = moveColumn(l0, id, -8);
     const l = removeField(ordered, id);
     expect(keys(l)).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
   });
 
   it('a stored order missing a column still shows it, on the end', () => {
     const l = normalizeList({ entries: [], columnOrder: ['status', 'name'] });
-    expect(keys(l)).toEqual(['status', 'name', 'issue', 'meds', 'contact', 'cadence', 'daysSince']);
+    expect(keys(l)).toEqual(['status', 'name', 'issue', 'meds', 'contact', 'cadence', 'daysSince', 'nextVisit']);
   });
 
   it('survives a document whose column settings are malformed', () => {
     const l = normalizeList({ entries: [], columnOrder: 'nope', columnLabels: 'nope', hiddenColumns: 7 });
     expect(keys(l)).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
-    expect(visibleColumns(l)).toHaveLength(7);
+    expect(visibleColumns(l)).toHaveLength(8);
+  });
+});
+
+describe('parseCadence', () => {
+  it('reads the shape the spreadsheet wrote, "(s)" and all', () => {
+    expect(parseCadence('Every 6 months')).toEqual({ months: 6 });
+    expect(parseCadence('Every 2 year(s)')).toEqual({ months: 24 });
+    expect(parseCadence('Every 1 year(s)')).toEqual({ months: 12 });
+  });
+
+  it('reads it without the "every", and without the number', () => {
+    expect(parseCadence('6 months')).toEqual({ months: 6 });
+    expect(parseCadence('every month')).toEqual({ months: 1 });
+    expect(parseCadence('every week')).toEqual({ days: 7 });
+  });
+
+  it('keeps months as months and days as days', () => {
+    // 6 months is not 180 days — see the January 31st case below.
+    expect(parseCadence('every 90 days')).toEqual({ days: 90 });
+    expect(parseCadence('every 4 weeks')).toEqual({ days: 28 });
+  });
+
+  it('reads the words for it', () => {
+    expect(parseCadence('Annually')).toEqual({ months: 12 });
+    expect(parseCadence('quarterly')).toEqual({ months: 3 });
+    expect(parseCadence('every other year')).toEqual({ months: 24 });
+    expect(parseCadence('every other week')).toEqual({ days: 14 });
+  });
+
+  it('refuses the two words that mean two different things', () => {
+    // "biannual" is read as both twice-a-year and every-two-years, and getting
+    // it wrong puts a follow-up eighteen months out of place.
+    expect(parseCadence('biannual')).toBeNull();
+    expect(parseCadence('biennially')).toBeNull();
+  });
+
+  it('says nothing rather than guessing', () => {
+    for (const v of ['', '-', 'as needed', 'when it flares up', null, undefined]) {
+      expect(parseCadence(v)).toBeNull();
+    }
+  });
+});
+
+describe('nextVisit', () => {
+  const on = (d) => new Date(`${d}T12:00:00`);
+
+  it('counts the cadence forward from the last visit', () => {
+    expect(nextVisit('2026-03-20', 'Every 6 months', on('2026-09-07')))
+      .toMatchObject({ iso: '2026-09-20', label: '9/20/2026', daysAway: 13, overdue: false });
+  });
+
+  it('lands on the end of a short month rather than rolling into the next', () => {
+    // Six months after 31 January is the last day of July; one month after it
+    // is the last day of February, not the 3rd of March.
+    expect(nextVisit('2026-01-31', 'every month', on('2026-01-31')).iso).toBe('2026-02-28');
+    expect(nextVisit('2028-01-31', 'every month', on('2028-01-31')).iso).toBe('2028-02-29');
+  });
+
+  it('counts days as days', () => {
+    expect(nextVisit('2026-03-20', 'every 90 days', on('2026-03-20')).iso).toBe('2026-06-18');
+  });
+
+  it('marks one that has gone past, and says how long ago', () => {
+    const v = nextVisit('2024-01-10', 'Every 1 year(s)', on('2026-09-07'));
+    expect(v).toMatchObject({ iso: '2025-01-10', overdue: true });
+    expect(v.daysAway).toBe(-605);
+  });
+
+  it('marks the day itself as due, not overdue', () => {
+    expect(nextVisit('2026-03-07', 'every 6 months', on('2026-09-07')))
+      .toMatchObject({ daysAway: 0, overdue: false, due: true });
+  });
+
+  it('says nothing without both halves', () => {
+    expect(nextVisit('', 'Every 6 months')).toBeNull();      // never been
+    expect(nextVisit('2026-03-20', '')).toBeNull();          // no cadence recorded
+    expect(nextVisit('2026-03-20', 'as needed')).toBeNull(); // one that isn't a schedule
+    expect(nextVisit('sometime in March', 'every month')).toBeNull();
+  });
+
+  it('needs a year on the last visit — 3/20 could be any of them', () => {
+    expect(nextVisit('3/20', 'every 6 months')).toBeNull();
+    expect(nextVisit('3/20/2026', 'every 6 months').iso).toBe('2026-09-20');
   });
 });

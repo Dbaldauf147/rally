@@ -439,10 +439,21 @@ function standingsTable(table, teamId) {
     </table>`;
 }
 
+// Two blocks side by side. A table is the only side-by-side layout email
+// clients agree on; the `stack` class lets the ones that honour media queries
+// drop it back to a single column on narrow screens.
+function twoColumn(left, right) {
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+      <tr>
+        <td class="stack" width="50%" valign="top" style="padding-right:14px;">${left}</td>
+        <td class="stack" width="50%" valign="top" style="padding-left:14px;">${right}</td>
+      </tr>
+    </table>`;
+}
+
 // Division on the left, the whole league on the right, so the team's place in
-// its own race sits next to its place in the league. The two-column row is a
-// table (the only side-by-side email clients agree on); the `stack` class lets
-// clients that honour media queries drop it to one column on narrow screens.
+// its own race sits next to its place in the league.
 function standingsBlock(tables, teamId) {
   const panels = [
     tables.division && { caption: tables.division.group, table: tables.division },
@@ -452,19 +463,11 @@ function standingsBlock(tables, teamId) {
     `<div style="font-size:0.72rem;font-weight:700;color:#374151;margin:0 0 4px;">${text}</div>`;
   const legend = `<div style="color:#9ca3af;font-size:0.7rem;margin-top:6px;">GB = games behind the leader of that table.</div>`;
 
+  const panel = (p) => `${caption(p.caption)}${standingsTable(p.table, teamId)}`;
   if (panels.length === 1) {
-    return `${caption(panels[0].caption)}${standingsTable(panels[0].table, teamId)}${legend}`;
+    return `${panel(panels[0])}${legend}`;
   }
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
-      <tr>
-        ${panels.map((p, i) => `
-        <td class="stack" width="50%" valign="top" style="${i === 0 ? 'padding-right:10px;' : 'padding-left:10px;'}">
-          ${caption(p.caption)}${standingsTable(p.table, teamId)}
-        </td>`).join('')}
-      </tr>
-    </table>
-    ${legend}`;
+  return `${twoColumn(panel(panels[0]), panel(panels[1]))}${legend}`;
 }
 
 const sectionLabel = (text, first) =>
@@ -702,18 +705,18 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams,
         const parts = [t.record, t.standing].filter(Boolean).join(' · ');
         blocks.push(`${sectionLabel('Record &amp; standing', blocks.length === 0)}<div style="margin:2px 0;color:#1f2937;font-weight:600;">${parts}</div>`);
       }
-      if (topics.scores) {
-        const html = t.results.length
-          ? resultsTable(t.results, tz)
-          : '<div style="color:#9ca3af;">No games in the last few days.</div>';
-        blocks.push(`${sectionLabel('Recent scores', blocks.length === 0)}${html}`);
-      }
-      if (topics.upcoming) {
-        const html = t.upcoming.length
-          ? upcomingTable(t.upcoming, tz)
-          : '<div style="color:#9ca3af;">No upcoming games scheduled.</div>';
-        blocks.push(`${sectionLabel('Upcoming', blocks.length === 0)}${html}`);
-      }
+      // Scores and schedule are both narrow lists, so they ride side by side —
+      // that's most of the width buying back height. Either one alone spans the
+      // block, and phones stack them again.
+      const first = blocks.length === 0;
+      const scores = topics.scores && `${sectionLabel('Recent scores', first)}${t.results.length
+        ? resultsTable(t.results, tz)
+        : '<div style="color:#9ca3af;">No games in the last few days.</div>'}`;
+      const upcoming = topics.upcoming && `${sectionLabel('Upcoming', first)}${t.upcoming.length
+        ? upcomingTable(t.upcoming, tz)
+        : '<div style="color:#9ca3af;">No upcoming games scheduled.</div>'}`;
+      if (scores && upcoming) blocks.push(twoColumn(scores, upcoming));
+      else if (scores || upcoming) blocks.push(scores || upcoming);
       return `
         <div style="background:#f5f3ef;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
           <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">${t.name}</h2>
@@ -722,16 +725,17 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams,
     })
     .join('');
 
-  // Wider than the usual 560px so the two standings tables sit side by side
-  // without squeezing team names; the media query stacks them on phones in the
-  // clients that support it (the rest just scale the whole email down).
+  // Wide enough to run two tables side by side — standings next to standings,
+  // scores next to the schedule — which is what keeps the digest from scrolling
+  // on forever. The media query stacks the pairs on phones in the clients that
+  // support it (the rest just scale the whole email down).
   return `
     <style>
-      @media only screen and (max-width:600px) {
+      @media only screen and (max-width:700px) {
         td.stack { display:block !important; width:100% !important; padding:0 0 12px !important; }
       }
     </style>
-    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:680px;margin:0 auto;padding:2rem;">
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:900px;margin:0 auto;padding:2rem;">
       <h1 style="font-size:1.5rem;color:#4f46e5;margin:0 0 0.25rem;">Rally Sports</h1>
       <p style="color:#525252;margin:0 0 1.25rem;">Your daily rundown 🏟️</p>
       ${bannerBlock}

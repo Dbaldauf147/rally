@@ -20,7 +20,7 @@ import {
   normalizeFieldDefs, newFieldId, coerceCustomValue, formatCustomValue,
 } from './customFields';
 
-import { parseLooseDate, validParts } from './looseDate';
+import { parseLooseDate, validParts, pad2 } from './looseDate';
 
 export const STATUS = { TREATING: 'treating', RESOLVED: 'resolved', NONE: 'none' };
 
@@ -121,6 +121,125 @@ export function daysSinceLabel(value, today = new Date()) {
   if (days === 0) return 'Today';
   if (days < 0) return `in ${-days}`;
   return String(days);
+}
+
+// --- when they're next due --------------------------------------------------
+//
+// The other half of the counter: the last visit says how long it has been, the
+// cadence says how often it should be, and together they say when to book. Both
+// are already on the record — the date in the Date column the counter reads,
+// the cadence as the text it was written in — so nothing new is stored.
+//
+// This is the shape ReachOut already uses (last reach-out + cadence = next
+// one), except the cadence here is prose rather than a number of days, because
+// a doctor's is "Every 6 months" and nobody thinks of it as 182.
+
+/* How often, read off the text as written.
+
+   Returns whole months or whole days, never one converted to the other: six
+   months after the 31st of January is the last day of February, which no
+   number of days gets right.
+
+   Null when the text says nothing countable — "as needed", a blank, a "-".
+   The column then stays empty, which is the honest answer.
+
+   Deliberately absent: "biannual" and "biennial". They differ by one letter
+   and mean six months and two years, and are so widely swapped that neither
+   reading can be trusted. A blank cell says "you'll have to look"; a date
+   eighteen months wrong on a medical follow-up does not. */
+const CADENCE_WORDS = {
+  daily: { days: 1 },
+  weekly: { days: 7 },
+  fortnightly: { days: 14 },
+  monthly: { months: 1 },
+  bimonthly: { months: 2 },
+  quarterly: { months: 3 },
+  semiannual: { months: 6 },
+  semiannually: { months: 6 },
+  annual: { months: 12 },
+  annually: { months: 12 },
+  yearly: { months: 12 },
+};
+
+const UNIT_MONTHS = { month: 1, year: 12 };
+const UNIT_DAYS = { day: 1, week: 7 };
+
+export function parseCadence(text) {
+  const s = String(text ?? '').trim().toLowerCase();
+  if (!s) return null;
+
+  // "every other year", the one English way of saying two without a number.
+  let m = /\bevery\s+other\s+(day|week|month|year)\b/.exec(s);
+  if (m) {
+    const u = m[1];
+    return UNIT_MONTHS[u] ? { months: UNIT_MONTHS[u] * 2 } : { days: UNIT_DAYS[u] * 2 };
+  }
+
+  /* "Every 6 months", "2 year(s)", "every 90 days". The "(s)" is the
+     spreadsheet's, which wrote every cadence that way and would otherwise take
+     the whole column with it. A bare "every month" counts as one. */
+  m = /(?:\bevery\s+)?(\d+)?\s*(day|week|month|year)(?:s|\(s\))?\b/.exec(s);
+  if (m) {
+    const n = m[1] ? Number(m[1]) : (/\bevery\b/.test(s) ? 1 : 0);
+    if (n > 0) {
+      const u = m[2];
+      return UNIT_MONTHS[u] ? { months: UNIT_MONTHS[u] * n } : { days: UNIT_DAYS[u] * n };
+    }
+  }
+
+  for (const [word, every] of Object.entries(CADENCE_WORDS)) {
+    if (new RegExp(`\\b${word}\\b`).test(s)) return { ...every };
+  }
+  return null;
+}
+
+/* Add whole months to a date, clamped to the end of the month it lands in.
+
+   31 January plus one month is 28 February, not 3 March. Rolling over would
+   drift the appointment further every time it was counted forward. */
+function addMonths({ year, month, day }, n) {
+  const total = year * 12 + (month - 1) + n;
+  const y = Math.floor(total / 12);
+  const mo = (total % 12) + 1;
+  const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  return { year: y, month: mo, day: Math.min(day, lastDay) };
+}
+
+/* When they're next due, from a last-visit date and a cadence.
+
+   Null unless both are there and both are readable — a visit with no cadence
+   recorded is not overdue, it is unscheduled, and guessing one would put a
+   date on every row in the list.
+
+   `daysAway` counts calendar days from today, negative once it's past, so the
+   column can mark the ones that have come and gone. Both ends are pinned to
+   UTC midnight before subtracting, the same as daysSince, so the count can't
+   slip by one when the clocks change in between. */
+export function nextVisit(lastValue, cadence, today = new Date()) {
+  const p = parseLooseDate(lastValue);
+  if (!validParts(p) || !p.year) return null;
+  const every = parseCadence(cadence);
+  if (!every) return null;
+
+  const due = every.months
+    ? addMonths(p, every.months)
+    : (() => {
+      const t = new Date(Date.UTC(p.year, p.month - 1, p.day) + every.days * 86400000);
+      return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
+    })();
+
+  const then = Date.UTC(due.year, due.month - 1, due.day);
+  const now = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const daysAway = Math.round((then - now) / 86400000);
+
+  return {
+    iso: `${due.year}-${pad2(due.month)}-${pad2(due.day)}`,
+    // The same M/D/YYYY a Date column prints, so the two read as one row.
+    label: `${due.month}/${due.day}/${due.year}`,
+    daysAway,
+    overdue: daysAway < 0,
+    due: daysAway === 0,
+  };
 }
 
 /* One record, with every field present as a string.
@@ -492,6 +611,9 @@ export const BUILTIN_COLUMNS = [
   { key: 'cadence', label: 'Cadence' },
   // Computed, not stored: it counts from a Date column of the owner's own.
   { key: 'daysSince', label: 'Days since' },
+  // Also computed, from that same date and the cadence beside it. It sits next
+  // to the counter because they are the two halves of one question.
+  { key: 'nextVisit', label: 'Next visit' },
   { key: 'status', label: 'Status' },
 ];
 
