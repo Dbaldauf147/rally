@@ -252,3 +252,57 @@
 
 /* The Splitwise bar: which group this trip's charges go to. */
 .swBar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding: 0.6rem 0.75rem; margin-bottom: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+
+/* ── One person's statement ──────────────────────────────────────────
+   The read-only side of the tab: one person, their charges down the page. Sized
+   for a phone first — this is the view somebody opens on their phone to find
+   out what they owe, and the grid is the one you open on a laptop to collect
+   it. */
+.viewSwitch { display: inline-flex; padding: 2px; margin-bottom: 0.9rem; border-radius: 999px; background: var(--color-surface-alt); }
+.statement { margin-bottom: 1.25rem; }
+.personPick { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.9rem; }
+
+.statementHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.9rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.statementRight { text-align: right; }
+.statementWho { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+.statementTotal { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.statementOwed { font-size: 1.4rem; font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; }
+.statementClear { font-size: 1.05rem; font-weight: 650; color: var(--color-text-muted); }
+
+/* Who the money goes to, one line per person who fronted something. */
+.owedTo { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.owedToRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.55rem 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); font-size: 0.88rem; }
+.owedToAmount { font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; }
+.owedToCount { color: var(--color-text-muted); font-size: 0.8rem; }
+.payLink { flex: none; padding: 0.3rem 0.7rem; border-radius: 999px; background: var(--color-accent); color: #fff; font-size: 0.8rem; font-weight: 650; text-decoration: none; white-space: nowrap; }
+.payLink:hover, .payLink:focus-visible { filter: brightness(1.08); }
+
+/* The lines. Charge names wrap here for the same reason they do in the grid
+   header — a name cut off at one line names nothing you can recognise — and
+   here there is a whole column's width to wrap into. */
+.statementWrap { margin-top: 0.9rem; overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.statementTable { width: 100%; border-collapse: collapse; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+.statementTable th, .statementTable td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--color-border-light); vertical-align: top; }
+.statementTable thead th { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); text-align: left; white-space: normal; border-bottom: 2px solid var(--color-border); }
+.stAmount, .stShare, .stOwed { text-align: right; }
+/* `.statementTable thead th` sets text-align:left and outranks a bare column
+   class, so the money headers have to say it at the same specificity to line up
+   with the figures under them. */
+.statementTable thead th.stAmount, .statementTable thead th.stShare, .statementTable thead th.stOwed { text-align: right; }
+.statementTable tfoot th, .statementTable tfoot td { border-top: 2px solid var(--color-border); border-bottom: none; font-weight: 700; }
+.stDesc { text-align: left; font-weight: 600; }
+.stDescName { display: block; overflow-wrap: anywhere; line-height: 1.3; }
+.stDescMeta { display: block; margin-top: 0.15rem; font-size: 0.74rem; font-weight: 500; color: var(--color-text-muted); line-height: 1.35; }
+.stAmount { color: var(--color-text-muted); white-space: nowrap; }
+.stShare { font-weight: 650; white-space: nowrap; }
+.stOwed { white-space: nowrap; }
+.stOwedAmount { font-weight: 700; color: var(--color-accent); }
+.stPaid { font-size: 0.78rem; font-weight: 650; color: var(--color-text-muted); }
+.stNa { color: var(--color-text-muted); opacity: 0.5; }
+
+/* On a phone the whole-charge column is the one to lose: what you were charged
+   is your share, and the total is context you can get from the grid. */
+@media (max-width: 640px) {
+  .statementTable .stAmount, .statementTable thead th.stAmount { display: none; }
+  .statementTotal, .statementOwed { font-size: 1.2rem; }
+}

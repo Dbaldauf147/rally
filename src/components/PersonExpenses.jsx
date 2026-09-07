@@ -57,7 +57,7 @@ export function PersonExpenses({ expenses, people, participantsFor, event, perso
 
       <div className={styles.statementHead}>
         <div>
-          <div className={styles.statementWho}>{whose} share of this trip</div>
+          <div className={styles.statementWho}>{whose} share</div>
           <div className={styles.statementTotal}>{money(statement.share)}</div>
         </div>
         <div className={styles.statementRight}>
@@ -119,9 +119,12 @@ export function PersonExpenses({ expenses, people, participantsFor, event, perso
             <thead>
               <tr>
                 <th scope="col">Charge</th>
-                <th scope="col" className={styles.stNum}>Whole charge</th>
-                <th scope="col" className={styles.stNum}>{whose} share</th>
-                <th scope="col" className={styles.stNum}>Still owed</th>
+                <th scope="col" className={styles.stAmount}>Whole charge</th>
+                {/* Just "Share". The card above already says whose it is, and a
+                    full name in the possessive wraps a column head to three
+                    lines on a phone to repeat what was said two inches up. */}
+                <th scope="col" className={styles.stShare}>Share</th>
+                <th scope="col" className={styles.stOwed}>Still owed</th>
               </tr>
             </thead>
             <tbody>
