@@ -156,3 +156,12 @@
 }
 .subtab:hover { color: var(--color-text); }
 .subtabActive { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+
+/* Send-to is a list: a wedding has two people planning it. Rows stack under the
+   one label rather than repeating "Send to" down the column. */
+.digestEmails { display: flex; flex-direction: column; gap: 0.35rem; }
+.digestEmailRow { display: flex; align-items: center; gap: 0.3rem; }
+.digestEmailDrop { flex: none; width: 1.4rem; height: 1.4rem; padding: 0; border: none; border-radius: 999px; background: none; color: var(--color-text-muted); font-size: 1rem; line-height: 1; cursor: pointer; }
+.digestEmailDrop:hover { background: var(--color-danger); color: #fff; }
+.digestAddEmail { align-self: flex-start; padding: 0.2rem 0; border: none; background: none; color: var(--color-accent); font-family: inherit; font-size: 0.78rem; font-weight: 700; text-transform: none; letter-spacing: normal; cursor: pointer; }
+.digestAddEmail:hover { text-decoration: underline; }

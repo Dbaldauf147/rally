@@ -319,7 +319,13 @@ function GuestList() {
         const wd = data.weddingDigest && typeof data.weddingDigest === 'object' ? data.weddingDigest : {};
         setDigestCfg({
           enabled: !!wd.enabled,
-          email: wd.email || data.email || user.email || '',
+          // A list now: a wedding has two people planning it, and the one who
+          // wants the “still missing an address” line is often not the one who
+          // set this up. An older config holding a single `email` opens as a
+          // one-item list, so it reads the same until you add to it.
+          emails: (Array.isArray(wd.emails) && wd.emails.length
+            ? wd.emails
+            : [wd.email || data.email || user.email || '']).filter((v, i) => i === 0 || v),
           sendWeekday: typeof wd.sendWeekday === 'number' ? wd.sendWeekday : 0,
           timezone: wd.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
         });
@@ -397,6 +403,19 @@ function GuestList() {
     }
   };
 
+  /* The list of addresses, edited in place. Saving writes `email: ''` alongside
+     it: the digest still reads that field for configs saved before the list
+     existed, so leaving it set would resurrect an address you'd just removed. */
+  const saveDigestEmails = (emails) => saveDigest({
+    emails: emails.map((e) => e.trim()).filter(Boolean),
+    email: '',
+  });
+
+  const setDigestEmail = (i, value) => setDigestCfg({
+    ...digestCfg,
+    emails: digestCfg.emails.map((e, j) => (j === i ? value : e)),
+  });
+
   const sendDigestTest = async () => {
     if (!user || digestBusy) return;
     setDigestBusy(true);
@@ -417,7 +436,7 @@ function GuestList() {
         // reporting a success that never left the building.
         setDigestMsg({ type: 'error', text: data.reason });
       } else {
-        setDigestMsg({ type: 'ok', text: `Sent to ${digestCfg.email}.` });
+        setDigestMsg({ type: 'ok', text: `Sent to ${(data.sentTo || digestCfg.emails).join(', ')}.` });
       }
     } catch (err) {
       setDigestMsg({ type: 'error', text: err.message });
@@ -957,16 +976,40 @@ function GuestList() {
 
               {digestCfg.enabled && (
                 <div className={styles.digestFields}>
-                  <label className={styles.digestField}>
+                  <div className={styles.digestField}>
                     <span>Send to</span>
-                    <input
-                      type="email"
-                      value={digestCfg.email}
-                      placeholder="you@example.com"
-                      onChange={(e) => setDigestCfg({ ...digestCfg, email: e.target.value })}
-                      onBlur={(e) => saveDigest({ email: e.target.value.trim() })}
-                    />
-                  </label>
+                    <div className={styles.digestEmails}>
+                      {digestCfg.emails.map((addr, i) => (
+                        <div key={i} className={styles.digestEmailRow}>
+                          <input
+                            type="email"
+                            value={addr}
+                            placeholder="you@example.com"
+                            aria-label={`Address ${i + 1} for the weekly summary`}
+                            onChange={(e) => setDigestEmail(i, e.target.value)}
+                            onBlur={() => saveDigestEmails(digestCfg.emails)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                          />
+                          {digestCfg.emails.length > 1 && (
+                            <button
+                              type="button"
+                              className={styles.digestEmailDrop}
+                              title="Stop sending to this address"
+                              aria-label={`Stop sending to ${addr || 'this address'}`}
+                              onClick={() => saveDigestEmails(digestCfg.emails.filter((_, j) => j !== i))}
+                            >×</button>
+                          )}
+                        </div>
+                      ))}
+                      {digestCfg.emails.length < 10 && (
+                        <button
+                          type="button"
+                          className={styles.digestAddEmail}
+                          onClick={() => setDigestCfg({ ...digestCfg, emails: [...digestCfg.emails, ''] })}
+                        >+ Add another address</button>
+                      )}
+                    </div>
+                  </div>
                   <label className={styles.digestField}>
                     <span>Every</span>
                     <select
@@ -984,7 +1027,7 @@ function GuestList() {
                   type="button"
                   className={styles.digestTest}
                   onClick={sendDigestTest}
-                  disabled={digestBusy || !digestCfg.email}
+                  disabled={digestBusy || !digestCfg.emails.some((e) => e.trim())}
                 >
                   {digestBusy ? 'Sending…' : 'Send one now'}
                 </button>

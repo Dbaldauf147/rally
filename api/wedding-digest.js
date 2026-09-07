@@ -21,6 +21,10 @@ if (!getApps().length) {
 // it is summarising.
 const MAX_NAMES = 15;
 
+// A shared summary, not a mailing list. The cap is here so a pasted column of
+// addresses can’t quietly turn the digest into one.
+const MAX_RECIPIENTS = 10;
+
 // These two mirror api/sports-digest.js. Kept local rather than shared because
 // that file is a Vercel function and importing across api/ routes both.
 function localDateKey(date, tz) {
@@ -168,10 +172,39 @@ export function buildEmailHtml(stats, delta, tz, now) {
 
 /* Build a user's digest without sending it, so the page can preview exactly
    what would arrive. Returns { skipped } when there's nothing worth sending. */
+/* Who the weekly summary goes to.
+ *
+ * One address was enough while this was your own list, but a wedding has two
+ * people planning it, and the one who wants the "still missing an address"
+ * line is often not the one who set the digest up.
+ *
+ * `emails` is the list. `email` is what single-recipient configs stored, and is
+ * folded in so an existing setup keeps working without being re-saved —
+ * de-duplicated case-insensitively, since for a while a config will hold the
+ * same address in both fields. Falls back to the account's own address only
+ * when the config names nobody, which is what makes switching the digest on a
+ * one-click decision.
+ */
+export function digestRecipients(cfg = {}, fallback = '') {
+  const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const out = [];
+  const seen = new Set();
+  for (const raw of [...(Array.isArray(cfg.emails) ? cfg.emails : []), cfg.email]) {
+    const value = String(raw ?? '').trim();
+    if (!isEmail(value) || seen.has(value.toLowerCase())) continue;
+    seen.add(value.toLowerCase());
+    out.push(value);
+  }
+  if (out.length) return out.slice(0, MAX_RECIPIENTS);
+  const own = String(fallback ?? '').trim();
+  return isEmail(own) ? [own] : [];
+}
+
 export function buildDigestForUser(userData, now = new Date()) {
   const cfg = userData?.weddingDigest || {};
-  const email = cfg.email || userData?.email;
-  if (!email) return { skipped: 'no email' };
+  const emails = digestRecipients(cfg, userData?.email);
+  if (emails.length === 0) return { skipped: 'no email' };
+  const email = emails[0];
 
   const contacts = Array.isArray(userData?.weddingContacts) ? userData.weddingContacts : [];
   if (contacts.length === 0) return { skipped: 'no contacts on the wedding list' };
@@ -183,7 +216,7 @@ export function buildDigestForUser(userData, now = new Date()) {
   const subject = stats.missingAddress > 0
     ? `💍 Wedding list — ${stats.mailable}/${stats.households} households ready, ${stats.missingAddress} missing an address`
     : `💍 Wedding list — all ${stats.households} households ready to mail`;
-  return { html, subject, email, stats, snapshot: snapshotOf(stats) };
+  return { html, subject, email, emails, stats, snapshot: snapshotOf(stats) };
 }
 
 async function sendDigestForUser(resendKey, uid, userData, now) {
@@ -195,7 +228,7 @@ async function sendDigestForUser(resendKey, uid, userData, now) {
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'Rally Wedding <noreply@resend.dev>',
-      to: [built.email],
+      to: built.emails,
       subject: built.subject,
       html: built.html,
     }),
@@ -204,7 +237,7 @@ async function sendDigestForUser(resendKey, uid, userData, now) {
     const err = await response.json().catch(() => ({}));
     return { uid, success: false, error: err.message || `HTTP ${response.status}` };
   }
-  return { uid, success: true, guests: built.stats.guests, snapshot: built.snapshot };
+  return { uid, success: true, guests: built.stats.guests, sentTo: built.emails, snapshot: built.snapshot };
 }
 
 export default async function handler(req, res) {
