@@ -1,24 +1,31 @@
-// Wedding digest: a weekly email on where the guest list stands.
+// Wedding digest: a weekly email of the wedding checklist.
 //
-// The Wedding page holds one row per person, with no RSVP or task fields, so
-// "status" here means list readiness — how many households you could actually
-// post an invitation to, and who is still missing an address. Three entry
-// points, matching api/sports-digest.js:
+// The checklist is the job — sixty-odd tasks counting backward from the date —
+// so the checklist is what the email is. The guest list used to be the whole
+// message; it is one column of that job, and now rides along as a closing
+// footnote.
+//
+// The list and the ticks are read out of the same user document the Wedding
+// page writes, through the same module the page renders from, so the email can
+// never disagree with the screen about what is done. Three entry points,
+// matching api/sports-digest.js:
 //   • GET  (Vercel Cron) — runs daily, sends to each enabled user on their
 //     chosen weekday, deduped once per day.
 //   • POST { uid, preview: true } — returns the HTML without sending.
 //   • POST { uid } — "send test now", straight to the account's own address.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { weddingStats, statsDelta, snapshotOf } from '../lib/weddingStats.js';
+import { weddingStats, snapshotOf } from '../lib/weddingStats.js';
+import { checklistSummary, checklistSnapshot, checklistDelta } from '../lib/weddingChecklistDigest.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   if (sa.project_id) initializeApp({ credential: cert(sa) });
 }
 
-// Long lists get truncated rather than turning the email into the spreadsheet
-// it is summarising.
+// Long lists get truncated rather than turning the email into the page it is
+// summarising. Applies to the week's ticked-off tasks; the checklist proper is
+// printed in full, because printing only some of a checklist is not one.
 const MAX_NAMES = 15;
 
 // A shared summary, not a mailing list. The cap is here so a pasted column of
@@ -61,108 +68,155 @@ function fmtWeekOf(date, tz) {
   }
 }
 
-// Escaped everywhere a guest's own text reaches the HTML — names and groups are
-// typed by hand and pasted from spreadsheets, and an apostrophe or an ampersand
-// in "Bill & Laurie O'Neill" shouldn't break the markup.
+// Escaped everywhere the owner's own text reaches the HTML. Task wording is
+// editable on the page and guest names are pasted from spreadsheets, so an
+// apostrophe or an ampersand in "Bill & Laurie O'Neill" — or in a task someone
+// retyped — shouldn't break the markup.
 const esc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-// "+3" / "−1" / "" — the arrow reads at a glance in a mail client that may not
-// render colour the way it looks here.
-function deltaChip(n, { goodWhenUp = true } = {}) {
+// "+3" — the sign reads at a glance in a mail client that may not render colour
+// the way it looks here.
+function deltaChip(n) {
   if (!n) return '';
   const up = n > 0;
-  const good = up === goodWhenUp;
-  const colour = good ? '#15803d' : '#b45309';
-  const sign = up ? '+' : '−';
-  return `<span style="margin-left:0.4rem;font-size:0.8rem;font-weight:700;color:${colour};">${sign}${Math.abs(n)}</span>`;
+  const colour = up ? '#15803d' : '#b45309';
+  return `<span style="margin-left:0.4rem;font-size:0.9rem;font-weight:700;color:${colour};">${up ? '+' : '−'}${Math.abs(n)}</span>`;
 }
 
-function statCard(label, value, chip) {
-  return `<td style="padding:0.75rem 1rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
-    <div style="font-size:1.5rem;font-weight:700;color:#111827;line-height:1.1;">${value}${chip || ''}</div>
-    <div style="font-size:0.75rem;color:#6b7280;margin-top:0.15rem;text-transform:uppercase;letter-spacing:0.04em;">${esc(label)}</div>
-  </td>`;
+/* One task line.
+
+   A finished task is struck through and greyed rather than dropped: half the
+   point of a checklist is the sight of what is already behind you. Its note
+   goes, though — the guidance was for doing it, and it is dead weight once the
+   thing is done. */
+function taskRow(task) {
+  const colour = task.done ? '#9ca3af' : '#111827';
+  const strike = task.done ? 'text-decoration:line-through;' : '';
+  const flag = task.milestone && !task.done
+    ? '<span style="margin-left:0.4rem;font-size:0.68rem;font-weight:700;color:#b45309;text-transform:uppercase;letter-spacing:0.04em;">milestone</span>'
+    : '';
+  const note = task.note && !task.done
+    ? `<div style="font-size:0.78rem;color:#6b7280;line-height:1.45;margin:0.15rem 0 0;">${esc(task.note)}</div>`
+    : '';
+  /* Two cells rather than two inline spans, so a task too long for one line
+     hangs under its own text instead of wrapping back under the tick — and so
+     it survives the mail clients that still lay out on tables and nothing
+     else. The tick cell is top-aligned to stay level with the first line of a
+     task that runs to three. */
+  return `<table style="width:100%;border-collapse:collapse;margin:0 0 0.35rem;">
+    <tr>
+      <td style="width:1.1rem;vertical-align:top;padding:0;font-size:0.9rem;line-height:1.45;color:${task.done ? '#16a34a' : '#d1d5db'};font-weight:700;">${task.done ? '&#10003;' : '&#9744;'}</td>
+      <td style="vertical-align:top;padding:0 0 0 0.5rem;">
+        <div style="font-size:0.9rem;color:${colour};${strike}line-height:1.45;">${esc(task.text)}${flag}</div>${note}
+      </td>
+    </tr>
+  </table>`;
 }
 
-function tallyBlock(title, rows, total) {
-  if (!rows || rows.length === 0) return '';
-  const body = rows.map((r) => {
-    const pct = total > 0 ? Math.round((r.count / total) * 100) : 0;
-    return `<tr>
-      <td style="padding:0.3rem 0;font-size:0.88rem;color:#374151;">${esc(r.label)}</td>
-      <td style="padding:0.3rem 0;font-size:0.88rem;color:#111827;font-weight:600;text-align:right;white-space:nowrap;">${r.count}<span style="color:#9ca3af;font-weight:400;"> · ${pct}%</span></td>
-    </tr>`;
-  }).join('');
-  return `<div style="margin:0 0 1.25rem;">
-    <h3 style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:0 0 0.4rem;">${esc(title)}</h3>
-    <table style="width:100%;border-collapse:collapse;">${body}</table>
+/* One phase.
+
+   A phase with everything ticked collapses to a single line. By the month of
+   the wedding most of the list is behind you, and an email that prints forty
+   struck-through tasks before reaching anything you can act on is an email
+   nobody scrolls to the end of. */
+function phaseBlock(section) {
+  const when = section.when
+    ? `<span style="color:#9ca3af;font-weight:400;"> · ${esc(section.when)}</span>`
+    : '';
+  if (section.total === 0) return '';
+  if (section.finished) {
+    return `<div style="margin:0 0 0.6rem;padding:0.5rem 0.75rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:0.85rem;color:#166534;">
+      <strong>&#10003; ${esc(section.title)}</strong>${when} — all ${section.total} done
+    </div>`;
+  }
+  return `<div style="margin:0 0 1.1rem;">
+    <table style="width:100%;border-collapse:collapse;margin:0 0 0.5rem;">
+      <tr>
+        <td style="font-size:0.8rem;font-weight:700;color:#111827;padding:0 0 0.3rem;border-bottom:1px solid #e5e7eb;">${esc(section.title)}${when}</td>
+        <td style="font-size:0.8rem;font-weight:600;color:#6b7280;text-align:right;padding:0 0 0.3rem;border-bottom:1px solid #e5e7eb;white-space:nowrap;">${section.complete}/${section.total}</td>
+      </tr>
+    </table>
+    ${section.tasks.map(taskRow).join('')}
+  </div>`;
+}
+
+/* The guest list, demoted to one line.
+
+   It was the entire email once. It is one column of the job, and this is the
+   width it deserves beside the rest of it. Absent altogether when nobody has
+   been typed in yet, rather than printing a row of zeroes. */
+function guestFootnote(stats) {
+  if (!stats || stats.households === 0) return '';
+  const ready = stats.missingAddress === 0
+    ? 'every address is in'
+    : `${stats.missingAddress} still without a mailable address`;
+  return `<div style="margin:1.5rem 0 0;padding:0.7rem 1rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;font-size:0.85rem;color:#374151;line-height:1.6;">
+    <strong>Guest list</strong> · ${stats.guests} guest${stats.guests === 1 ? '' : 's'} in ${stats.households} household${stats.households === 1 ? '' : 's'} · ${stats.mailable}/${stats.households} ready to mail, ${esc(ready)}
   </div>`;
 }
 
 // Exported for tests: the handler is the default export, so named exports here
 // are invisible to Vercel's function routing.
-export function buildEmailHtml(stats, delta, tz, now) {
-  const pctReady = stats.households > 0 ? Math.round((stats.mailable / stats.households) * 100) : 0;
-
-  const shown = stats.missingAddressNames.slice(0, MAX_NAMES);
-  const rest = stats.missingAddressNames.length - shown.length;
-  const missingBlock = stats.missingAddress > 0
-    ? `<div style="margin:0 0 1.25rem;padding:0.85rem 1rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;">
-        <h3 style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#92400e;margin:0 0 0.5rem;">
-          ${stats.missingAddress} household${stats.missingAddress === 1 ? '' : 's'} without a mailable address
-        </h3>
-        <div style="font-size:0.88rem;color:#78350f;line-height:1.7;">
-          ${shown.map((n) => esc(n)).join('<br>')}
-          ${rest > 0 ? `<br><span style="color:#a16207;">+${rest} more</span>` : ''}
-        </div>
-      </div>`
-    : `<div style="margin:0 0 1.25rem;padding:0.85rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;font-size:0.9rem;color:#166534;font-weight:600;">
-        Every household has a full mailing address. The list is ready to post.
-      </div>`;
+export function buildEmailHtml(list, delta, tz, now, stats) {
+  const sum = checklistSummary(list);
 
   const movement = delta
     ? (delta.any
-      ? `<p style="color:#525252;margin:0 0 1.25rem;font-size:0.9rem;">
-           Since last week: ${[
-    delta.guests ? `${delta.guests > 0 ? '+' : '−'}${Math.abs(delta.guests)} guest${Math.abs(delta.guests) === 1 ? '' : 's'}` : '',
-    delta.mailable ? `${delta.mailable > 0 ? '+' : '−'}${Math.abs(delta.mailable)} ready to mail` : '',
-    delta.missingAddress ? `${delta.missingAddress > 0 ? '+' : '−'}${Math.abs(delta.missingAddress)} missing an address` : '',
-  ].filter(Boolean).join(' · ')}
-         </p>`
-      : '<p style="color:#9ca3af;margin:0 0 1.25rem;font-size:0.9rem;">No change since last week.</p>')
-    : '<p style="color:#9ca3af;margin:0 0 1.25rem;font-size:0.9rem;">First digest — next week will show what changed.</p>';
+      ? `<div style="margin:0 0 1.25rem;padding:0.85rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;">
+          <h3 style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#166534;margin:0 0 0.5rem;">Done this week</h3>
+          <div style="font-size:0.88rem;color:#14532d;line-height:1.7;">
+            ${delta.ticked.slice(0, MAX_NAMES).map((t) => `&#10003; ${esc(t.text)}`).join('<br>')}
+            ${delta.ticked.length > MAX_NAMES ? `<br><span style="color:#4d7c0f;">+${delta.ticked.length - MAX_NAMES} more</span>` : ''}
+            ${delta.unticked > 0 ? `<br><span style="color:#a16207;">${delta.unticked} reopened</span>` : ''}
+          </div>
+        </div>`
+      : '<p style="color:#9ca3af;margin:0 0 1.25rem;font-size:0.9rem;">Nothing ticked off since last week.</p>')
+    : '<p style="color:#9ca3af;margin:0 0 1.25rem;font-size:0.9rem;">First digest — next week will show what you got done.</p>';
+
+  const nextUpBlock = sum.next
+    ? `<div style="margin:0 0 1.25rem;padding:0.85rem 1rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
+        <h3 style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#1e40af;margin:0 0 0.3rem;">Next up</h3>
+        <div style="font-size:1rem;font-weight:650;color:#1e3a8a;line-height:1.4;">${esc(sum.next.text)}</div>
+        <div style="font-size:0.78rem;color:#3b82f6;margin-top:0.15rem;">${esc(sum.next.phaseTitle)}</div>
+        ${sum.next.note ? `<div style="font-size:0.8rem;color:#1d4ed8;margin-top:0.4rem;line-height:1.5;">${esc(sum.next.note)}</div>` : ''}
+      </div>`
+    : `<div style="margin:0 0 1.25rem;padding:0.85rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;font-size:0.95rem;color:#166534;font-weight:650;">
+        Every task on the checklist is done.
+      </div>`;
+
+  const milestones = sum.milestonesLeft.length > 0
+    ? `<div style="margin:0 0 1.25rem;padding:0.85rem 1rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;">
+        <h3 style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#92400e;margin:0 0 0.4rem;">Milestones still ahead</h3>
+        <div style="font-size:0.88rem;color:#78350f;line-height:1.7;">
+          ${sum.milestonesLeft.map((t) => esc(t.text)).join('<br>')}
+        </div>
+      </div>`
+    : '';
 
   return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:1.5rem;color:#111827;">
-    <h2 style="margin:0 0 0.15rem;font-size:1.35rem;">💍 Wedding guest list</h2>
+    <h2 style="margin:0 0 0.15rem;font-size:1.35rem;">&#128141; Wedding checklist</h2>
     <p style="color:#6b7280;margin:0 0 1rem;font-size:0.9rem;">Week of ${esc(fmtWeekOf(now, tz))}</p>
-    ${movement}
-
-    <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:0 0 1.25rem;">
-      <tr>
-        ${statCard('Guests', stats.guests, deltaChip(delta?.guests))}
-        ${statCard('Households', stats.households, deltaChip(delta?.households))}
-        ${statCard('Ready to mail', `${stats.mailable}<span style="font-size:0.9rem;color:#9ca3af;font-weight:400;">/${stats.households}</span>`, '')}
-      </tr>
-    </table>
 
     <div style="margin:0 0 1.25rem;">
-      <div style="height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;">
-        <div style="height:8px;width:${pctReady}%;background:#16a34a;"></div>
+      <div style="font-size:1.5rem;font-weight:700;color:#111827;line-height:1.1;">
+        ${sum.complete} of ${sum.total} done${deltaChip(delta ? delta.ticked.length : 0)}
       </div>
-      <div style="font-size:0.78rem;color:#6b7280;margin-top:0.3rem;">${pctReady}% of households ready to mail</div>
+      <div style="height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin-top:0.5rem;">
+        <div style="height:8px;width:${sum.pct}%;background:#16a34a;"></div>
+      </div>
+      <div style="font-size:0.78rem;color:#6b7280;margin-top:0.3rem;">${sum.pct}% of the checklist complete</div>
     </div>
 
-    ${missingBlock}
+    ${nextUpBlock}
+    ${movement}
+    ${milestones}
 
-    <div style="margin:0 0 1.25rem;padding:0.75rem 1rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;font-size:0.88rem;color:#374151;">
-      <strong>${stats.missingEmail}</strong> guest${stats.missingEmail === 1 ? '' : 's'} with no email ·
-      <strong>${stats.missingPhone}</strong> with no phone
-    </div>
+    <h3 style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:1.5rem 0 0.75rem;">The whole list</h3>
+    ${sum.sections.map(phaseBlock).join('')}
 
-    ${tallyBlock('By group', stats.byGroup, stats.guests)}
-    ${tallyBlock('By category', stats.byCategory, stats.guests)}
+    ${guestFootnote(stats)}
 
     <p style="color:#9ca3af;font-size:0.75rem;margin-top:1.5rem;">
       From your Rally Wedding page. You're getting this because you turned on the weekly wedding digest.
@@ -170,8 +224,6 @@ export function buildEmailHtml(stats, delta, tz, now) {
   </div>`;
 }
 
-/* Build a user's digest without sending it, so the page can preview exactly
-   what would arrive. Returns { skipped } when there's nothing worth sending. */
 /* Who the weekly summary goes to.
  *
  * One address was enough while this was your own list, but a wedding has two
@@ -200,23 +252,52 @@ export function digestRecipients(cfg = {}, fallback = '') {
   return isEmail(own) ? [own] : [];
 }
 
+/* Build a user's digest without sending it, so the page can preview exactly
+   what would arrive. Returns { skipped } when there's nothing worth sending. */
 export function buildDigestForUser(userData, now = new Date()) {
   const cfg = userData?.weddingDigest || {};
   const emails = digestRecipients(cfg, userData?.email);
   if (emails.length === 0) return { skipped: 'no email' };
   const email = emails[0];
 
-  const contacts = Array.isArray(userData?.weddingContacts) ? userData.weddingContacts : [];
-  if (contacts.length === 0) return { skipped: 'no contacts on the wedding list' };
+  /* The checklist is the email, so the checklist is what decides there is
+     something to send. This used to turn on the guest list, which meant a
+     couple who hadn't typed a single guest in got nothing — while having the
+     whole sixty-task list ahead of them, which is exactly when the weekly
+     nudge is worth most. An empty checklist is a deliberately emptied one and
+     still skips. */
+  const list = userData?.weddingChecklist;
+  const sum = checklistSummary(list);
+  if (sum.total === 0) return { skipped: 'nothing on the wedding checklist' };
 
   const tz = cfg.timezone || 'America/New_York';
-  const stats = weddingStats(contacts);
-  const delta = statsDelta(stats, cfg.lastSnapshot);
-  const html = buildEmailHtml(stats, delta, tz, now);
-  const subject = stats.missingAddress > 0
-    ? `💍 Wedding list — ${stats.mailable}/${stats.households} households ready, ${stats.missingAddress} missing an address`
-    : `💍 Wedding list — all ${stats.households} households ready to mail`;
-  return { html, subject, email, emails, stats, snapshot: snapshotOf(stats) };
+  // Still computed, for the footnote. Null rather than a row of zeroes when
+  // nobody is on the list yet — an empty guest list is a real state, and not
+  // one worth a paragraph.
+  const contacts = Array.isArray(userData?.weddingContacts) ? userData.weddingContacts : [];
+  const stats = contacts.length > 0 ? weddingStats(contacts) : null;
+
+  const delta = checklistDelta(list, cfg.lastSnapshot?.checklist);
+  const html = buildEmailHtml(list, delta, tz, now, stats);
+
+  const subject = sum.finished
+    ? '💍 Wedding checklist — everything is done'
+    : `💍 Wedding checklist — ${sum.complete}/${sum.total} done${sum.next ? `, next: ${sum.next.text}` : ''}`;
+
+  return {
+    html,
+    subject,
+    email,
+    emails,
+    stats,
+    sum,
+    // Nested, so the checklist's snapshot and the guest list's both live in the
+    // one field existing configs already carry.
+    snapshot: {
+      ...(stats ? snapshotOf(stats) : {}),
+      checklist: checklistSnapshot(list),
+    },
+  };
 }
 
 async function sendDigestForUser(resendKey, uid, userData, now) {
@@ -237,7 +318,14 @@ async function sendDigestForUser(resendKey, uid, userData, now) {
     const err = await response.json().catch(() => ({}));
     return { uid, success: false, error: err.message || `HTTP ${response.status}` };
   }
-  return { uid, success: true, guests: built.stats.guests, sentTo: built.emails, snapshot: built.snapshot };
+  return {
+    uid,
+    success: true,
+    done: built.sum.complete,
+    total: built.sum.total,
+    sentTo: built.emails,
+    snapshot: built.snapshot,
+  };
 }
 
 export default async function handler(req, res) {
@@ -308,7 +396,7 @@ export default async function handler(req, res) {
       if (cfg.lastSentDate === todayKey) continue;
       const result = await sendDigestForUser(resendKey, userDoc.id, data, now);
       if (result.success) {
-        // Snapshot saved only on a real send, so next week's "since last week"
+        // Snapshot saved only on a real send, so next week's "done this week"
         // is measured against the last email that actually went out.
         await db.collection('users').doc(userDoc.id).set(
           { weddingDigest: { lastSentDate: todayKey, lastSnapshot: result.snapshot } },

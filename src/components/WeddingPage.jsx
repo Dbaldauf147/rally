@@ -962,8 +962,8 @@ function GuestList() {
           {digestOpen && (
             <div className={styles.digestBody}>
               <p className={styles.digestHint}>
-                A summary of where the guest list stands: how many households have a full mailing
-                address, who&apos;s still missing one, and what changed since last week.
+                The checklist, mailed to you: what you&apos;ve ticked off, what you got done since
+                last week, and the next thing to do. The guest list rides along at the bottom.
               </p>
               <label className={styles.digestCheck}>
                 <input
