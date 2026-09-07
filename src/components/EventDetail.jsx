@@ -19,7 +19,7 @@ import { format } from 'date-fns';
 import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
 import { isRecurring, describeRecurrence } from '../lib/recurrence';
-import { formatWhen } from '../lib/eventTime';
+import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
@@ -186,6 +186,9 @@ export function EventDetail() {
   // Meals being typed into the Meals tab, uid → what is in the box, held
   // until a blur or Enter writes it. See commitMeal below.
   const [mealDrafts, setMealDrafts] = useState({}); // uid → what is being typed
+  // The start-time editor on the hero: whether it is open, and what is typed.
+  const [editingTime, setEditingTime] = useState(false);
+  const [timeDraft, setTimeDraft] = useState(null);
   const [editingOptionId, setEditingOptionId] = useState(null);
   const [textAllMessage, setTextAllMessage] = useState('');
   const [textAllSending, setTextAllSending] = useState(false);
@@ -713,6 +716,32 @@ export function EventDetail() {
   // rest of the page's permission model (see canEdit/canManageAll below).
   const canManageMembers = isOwner || event.members?.[user?.uid]?.role === 'editor';
   const myRsvp = event.members?.[user?.uid]?.rsvp || 'pending';
+  // Whoever may edit the event may set its time.
+  const canEditTime = canManageMembers;
+
+  /* Setting the time of day, from the hero.
+
+     Finalizing a date writes it at noon and never asks the hour, so a
+     settled event carries a 12:00 PM nobody chose — and the hero printed the
+     day only, so there was nowhere to see it, let alone fix it. The Edit
+     Event form has a time field, but opening the whole event to move dinner
+     to seven is more form than the job needs.
+
+     Only the start. An end time is a range question and belongs in the form
+     with the end date; this is the clock everything else prints — the texts,
+     the calendar invite, the meal link. */
+  const openTimeEditor = () => {
+    setTimeDraft(timeInputValue(event, date));
+    setEditingTime(true);
+  };
+  const saveTime = async (hhmm) => {
+    const next = withTimeOfDay(date, hhmm);
+    setEditingTime(false);
+    if (!next) return;
+    // allDay is written either way: clearing the time is what makes it an
+    // all-day event again, and setting one has to clear the flag.
+    await updateEvent(eventId, { date: next, allDay: !hhmm });
+  };
 
   // Detect possible duplicates by phone, email, or first name
   function getDuplicateReason(uid) {
@@ -1948,6 +1977,48 @@ export function EventDetail() {
                     ? `${format(date, 'MMM d')} – ${format(endDate, 'MMM d, yyyy')}`
                     : `${format(date, 'MMM d, yyyy')} – ${format(endDate, 'MMM d, yyyy')}`)
                 : format(date, 'EEEE, MMMM d, yyyy')}
+            {/* The time rides on the end of the date line for a single day, and
+                after the range for a trip — in both cases the start time, which
+                is the clock everything else prints. */}
+            {!event.dateTBD && !isAllDay(event) && !editingTime && (
+              <span> · {format(date, 'h:mm a')}</span>
+            )}
+            {!event.dateTBD && canEditTime && !editingTime && (
+              <button
+                type="button"
+                className={styles.timeEditBtn}
+                onClick={openTimeEditor}
+                title={isAllDay(event) ? 'Set a start time' : 'Change the start time'}
+              >
+                {isAllDay(event) ? '+ Add a time' : 'Change'}
+              </button>
+            )}
+            {!event.dateTBD && canEditTime && editingTime && (
+              <span className={styles.timeEditRow}>
+                <input
+                  type="time"
+                  className={styles.timeEditInput}
+                  value={timeDraft ?? ''}
+                  autoFocus
+                  aria-label="Start time"
+                  onChange={(e) => setTimeDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveTime(timeDraft);
+                    if (e.key === 'Escape') setEditingTime(false);
+                  }}
+                />
+                <button type="button" className={styles.timeEditSave} onClick={() => saveTime(timeDraft)}>Save</button>
+                {!isAllDay(event) && (
+                  <button
+                    type="button"
+                    className={styles.timeEditClear}
+                    title="No set time — show the day only"
+                    onClick={() => saveTime('')}
+                  >All day</button>
+                )}
+                <button type="button" className={styles.timeEditClear} onClick={() => setEditingTime(false)}>Cancel</button>
+              </span>
+            )}
             {activeTab === 'itinerary' && tripSummary?.days && (
               <span style={{ color: 'var(--color-text-muted)' }}> · {tripSummary.days} day{tripSummary.days === 1 ? '' : 's'}</span>
             )}
