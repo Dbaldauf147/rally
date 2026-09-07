@@ -239,19 +239,45 @@ export function ExpensesPage() {
 
       {error && <div className={styles.error}>Couldn’t load expenses: {error}</div>}
 
+      {/* Who owes what. A table rather than a grid of cards: this is one
+          number per person read down a column and compared, and thirty cards
+          wrapping across the page makes that a hunt. Same table furniture as
+          the charges below, so the two read as one page. */}
       {people.length > 0 && (
-        <section className={styles.balances}>
-          {people.map(p => (
-            <div key={p.key} className={styles.balanceCard}>
-              <div className={styles.balanceName}>{nameFor(p.key)}</div>
-              <div className={p.outstanding > 0 ? styles.balanceOwed : styles.balanceClear}>
-                {p.outstanding > 0 ? money(p.outstanding) : 'all square'}
-              </div>
-              <div className={styles.balanceMeta}>
-                across {p.count} charge{p.count === 1 ? '' : 's'}
-              </div>
-            </div>
-          ))}
+        <section className={`${styles.tableWrap} ${styles.balancesWrap}`}>
+          <table className={styles.balanceTable}>
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th className={styles.colNum}>Owed</th>
+                <th className={styles.colNum}>Charges</th>
+              </tr>
+            </thead>
+            <tbody>
+              {people.map(p => (
+                <tr key={p.key}>
+                  <td className={styles.balanceName}>{nameFor(p.key)}</td>
+                  <td className={styles.colNum}>
+                    {p.outstanding > 0
+                      ? <span className={styles.balanceOwed}>{money(p.outstanding)}</span>
+                      : <span className={styles.balanceClear}>all square</span>}
+                  </td>
+                  <td className={styles.colNum}>{p.count}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className={styles.footLabel}>{people.length} {people.length === 1 ? 'person' : 'people'}</td>
+                <td className={styles.colNum}>
+                  {totalOutstanding > 0
+                    ? <span className={styles.balanceOwed}>{money(totalOutstanding)}</span>
+                    : 'all square'}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
         </section>
       )}
 

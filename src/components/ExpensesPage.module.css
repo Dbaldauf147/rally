@@ -8,13 +8,19 @@
 .muted { color: var(--color-text-muted); font-size: 0.9rem; }
 .error { padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: var(--radius-lg); background: rgba(220, 38, 38, 0.08); color: var(--color-danger); font-size: 0.88rem; }
 
-/* Who owes what, across every charge. */
-.balances { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
-.balanceCard { padding: 0.85rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
-.balanceName { font-size: 0.88rem; font-weight: 600; margin-bottom: 0.2rem; }
-.balanceOwed { font-size: 1.15rem; font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; }
-.balanceClear { font-size: 1rem; font-weight: 600; color: var(--color-text-muted); }
-.balanceMeta { margin-top: 0.15rem; font-size: 0.75rem; color: var(--color-text-muted); }
+/* Who owes what. Shares the .tableWrap shell and the .table furniture with the
+   charges table below, so the page reads as two tables rather than a wall of
+   cards followed by a table. No min-width here: three columns fit any phone,
+   unlike the charges table, which needs to scroll sideways. */
+.balancesWrap { margin-bottom: 1.5rem; }
+.balanceTable { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-bottom: 0; }
+.balanceTable th { padding: 0.55rem 0.6rem; text-align: left; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-muted); background: var(--color-surface-alt); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.balanceTable td { padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--color-border-light); }
+.balanceTable th.colNum, .balanceTable td.colNum { text-align: right; font-variant-numeric: tabular-nums; }
+.balanceTable tfoot td { border-bottom: none; border-top: 1px solid var(--color-border); background: var(--color-surface-alt); font-weight: 700; }
+.balanceName { font-weight: 600; }
+.balanceOwed { font-weight: 700; color: var(--color-accent); font-variant-numeric: tabular-nums; }
+.balanceClear { color: var(--color-text-muted); }
 
 .filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
 .filter, .filterOn { padding: 0.4rem 0.85rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-secondary); }
