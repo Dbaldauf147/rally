@@ -494,6 +494,55 @@ export function standingsHeldUntil(season) {
   return nextCountingPhase(season) || { name: 'The regular season', startDate: null };
 }
 
+const isDraftPhase = (phase) => /draft/i.test(phase?.name || '');
+
+/* When this league's season proper begins.
+ *
+ * The first phase that plays games that count — the regular season, in every
+ * league here. Exhibitions don't open a season and neither does the draft,
+ * which ESPN hands back merged into the phase list and sorted by date, so it
+ * sits ahead of the regular season and would otherwise be picked as the start.
+ *
+ * Leagues ESPN has no phases for fall back to the season window itself, which
+ * is the only start date there is for them.
+ */
+function seasonOpener(season) {
+  const counting = (season?.phases || []).find((p) =>
+    p?.startDate && !isPreseasonPhase(p) && !isOffSeasonPhase(p) && !isDraftPhase(p));
+  if (counting) return counting;
+  return season?.startDate ? { name: 'Season', startDate: season.startDate } : null;
+}
+
+// How far back a digest has to look to be sure it mentions an opener at all.
+// A weekly reader who only ever sees Sundays would miss a Thursday kickoff
+// announced with a one-day memory, so the window is the send cadence plus a
+// day of slack.
+const OPENER_LOOKBACK_DAYS = { daily: 2, weekly: 8, monthly: 31 };
+
+/* Leagues whose season is about to start, or just has.
+ *
+ * The banner this feeds is the one thing in the email that should interrupt
+ * you: everything else is a status you scan, and a season opening is a date
+ * you act on. So it appears in a window around the start rather than for the
+ * whole run-up — a countdown that shows every week for two months stops being
+ * news long before the season does.
+ *
+ * Exported for tests, which is also the honest way to check a banner that
+ * depends on what day it is.
+ */
+export function seasonOpeners(leagues, { now = Date.now(), lookaheadDays = 7, lookbackDays = 8 } = {}) {
+  const out = [];
+  for (const { label, season } of leagues || []) {
+    const opener = seasonOpener(season);
+    const at = opener ? new Date(opener.startDate).getTime() : NaN;
+    if (!Number.isFinite(at)) continue;
+    const days = Math.round((at - now) / 86400000);
+    if (days > lookaheadDays || days < -lookbackDays) continue;
+    out.push({ label, name: opener.name, startDate: opener.startDate, days, started: at <= now });
+  }
+  return out.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+}
+
 // The next phase that plays games that count, for a league ESPN currently has
 // in its exhibition window. Phases arrive sorted by start date, so the first
 // future one that's neither an exhibition nor the offseason is what the league
@@ -502,6 +551,36 @@ function nextCountingPhase(season) {
   const now = Date.now();
   return (season?.phases || []).find((p) =>
     new Date(p.startDate).getTime() > now && !isPreseasonPhase(p) && !isOffSeasonPhase(p)) || null;
+}
+
+/* The banner: a league's season is starting, or just did.
+ *
+ * Sits above everything, in the one colour the rest of the email doesn't use,
+ * because it is the only part that is news rather than status. Kept to a line
+ * per league — the detail is in the Season status block right underneath, and
+ * a banner that repeats it is just a taller banner.
+ */
+export function buildSeasonBanner(openers, tz) {
+  if (!openers || openers.length === 0) return '';
+  const rows = openers.map((o) => {
+    const date = fmtSeasonDate(o.startDate, tz);
+    const when = o.started
+      ? (o.days === 0 ? 'started today' : `started ${date}`)
+      : (o.days === 0 ? 'starts today' : o.days === 1 ? 'starts tomorrow' : `starts ${date}`);
+    return `
+      <tr>
+        <td style="padding:3px 0;color:#78350f;font-weight:700;white-space:nowrap;padding-right:12px;">${o.label}</td>
+        <td style="padding:3px 0;color:#92400e;">${o.name} <span style="font-weight:600;">${when}</span></td>
+      </tr>`;
+  }).join('');
+  const heading = openers.length === 1
+    ? (openers[0].started ? 'A new season has started' : 'A new season starts')
+    : 'New seasons';
+  return `
+    <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:12px;padding:0.9rem 1.25rem;margin:0 0 1rem;">
+      <h2 style="font-size:1.05rem;margin:0 0 0.4rem;color:#78350f;">🏁 ${heading}</h2>
+      ${TABLE_OPEN.replace('font-size:0.85rem;', 'font-size:0.9rem;')}${rows}</table>
+    </div>`;
 }
 
 // Where each in-season league stands today — one row per league. The full
@@ -601,7 +680,10 @@ function buildOffSeasonBlock(offSeason, tz) {
     </div>`;
 }
 
-function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams) {
+function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams, openers) {
+  // The banner rides with the season calendars: both answer "where is this
+  // league in its year", so turning that topic off turns off both.
+  const bannerBlock = topics.seasons ? buildSeasonBanner(openers, tz) : '';
   const seasonBlock = topics.seasons ? buildSeasonBlock(seasons, tz) : '';
   const draftBlock = topics.draft ? buildDraftBlock(draftTeams) : '';
   const sections = teamDigests
@@ -652,6 +734,7 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams)
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:680px;margin:0 auto;padding:2rem;">
       <h1 style="font-size:1.5rem;color:#4f46e5;margin:0 0 0.25rem;">Rally Sports</h1>
       <p style="color:#525252;margin:0 0 1.25rem;">Your daily rundown 🏟️</p>
+      ${bannerBlock}
       ${seasonBlock}
       ${sections || (offSeason?.length ? '<p style="color:#6b7280;margin:0 0 1rem;">None of your leagues are in season right now.</p>' : '')}
       ${draftBlock}
@@ -745,7 +828,14 @@ async function buildDigestForUser(userData) {
     draftTeams = perLeague.flat();
   }
 
-  const html = buildEmailHtml(digests, tz, topics, seasons, offSeason, draftTeams);
+  // Openers are read off every followed league, not just the in-season ones:
+  // a league whose regular season starts on Thursday is still out of season
+  // today, which is exactly when the banner has something to say.
+  const openers = seasonOpeners(leagues, {
+    lookbackDays: OPENER_LOOKBACK_DAYS[cfg.frequency || 'daily'] ?? 8,
+  });
+
+  const html = buildEmailHtml(digests, tz, topics, seasons, offSeason, draftTeams, openers);
   const subject = inSeasonTeams.length
     ? `🏟️ Your Sports digest — ${inSeasonTeams.length} team${inSeasonTeams.length === 1 ? '' : 's'} in season`
     : '🏟️ Your Sports digest — all your leagues are out of season';
