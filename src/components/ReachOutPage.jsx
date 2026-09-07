@@ -8,6 +8,7 @@ import { PUSH_STATUS_TEXT } from '../hooks/usePushRegistration';
 import { isNativeApp } from '../native';
 import styles from './ReachOutPage.module.css';
 import { DateField } from './DateField';
+import { annualDateInfo, formatAnnualDate } from '../lib/looseDate';
 
 const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -70,6 +71,13 @@ function addDays(d, n) {
 
 const fmtMDY = (d) => d ? `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}` : '';
 
+// 1st, 2nd, 3rd, 11th — for "their 11th anniversary".
+function ordinal(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
+}
+
 // True when a yyyy-mm-dd key falls on today's month/day (any year).
 function isMonthDayToday(key, today) {
   const d = parseKey(key);
@@ -105,8 +113,10 @@ function dobSummary(c) {
   }).filter(Boolean).join(' · ');
 }
 
-// Derive the schedule fields for a contact relative to today.
-function decorate(c, today) {
+// Derive the schedule fields for a contact relative to today. Anniversaries
+// are kept on the Friends record rather than here, so one only reaches a row
+// through the friend it's linked to — `anniversary` is that friend's, raw.
+function decorate(c, today, anniversary) {
   const last = parseKey(c.lastReachOut);
   const cadence = (typeof c.cadenceDays === 'number' && c.cadenceDays > 0) ? c.cadenceDays : null;
   const bday = parseKey(c.birthday);
@@ -133,7 +143,16 @@ function decorate(c, today) {
     const until = daysBetween(today, next);
     bdaySoon = until >= 0 && until <= 14;
   }
-  return { ...c, _last: last, _bday: bday, _bdaySoon: bdaySoon, _bdayToday: bdayToday, _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince, _hasCadence: hasCadence, _status: status, _retired: retired, _due: due };
+  // The same two questions the birthday above asks — today? within a
+  // fortnight? — answered by the shared helper.
+  const anniv = annualDateInfo(anniversary, today);
+  return {
+    ...c, _last: last, _bday: bday, _bdaySoon: bdaySoon, _bdayToday: bdayToday,
+    _anniv: anniv, _annivText: anniv ? formatAnnualDate(anniversary) : '',
+    _annivToday: !!anniv?.isToday, _annivSoon: !!anniv && anniv.daysUntil <= 14,
+    _reachDay: reachDay, _overdue: overdue, _daysSince: daysSince,
+    _hasCadence: hasCadence, _status: status, _retired: retired, _due: due,
+  };
 }
 
 // The comparable value for a contact under a given sort column. Returns null
@@ -148,6 +167,7 @@ function sortValue(c, key) {
     case 'overdue': return c._overdue ?? null;
     case 'days': return c._hasCadence ? c.cadenceDays : null;
     case 'birthday': return c._bday ? c._bday.getMonth() * 100 + c._bday.getDate() : null;
+    case 'anniversary': return c._anniv ? c._anniv.month * 100 + c._anniv.day : null;
     case 'status': return c._status || 'active';
     // Sort by the first extra DOB's month/day, matching how Birthday sorts.
     case 'dobs': {
@@ -189,6 +209,7 @@ const COLUMNS = [
   { key: 'overdue', label: 'Overdue' },
   { key: 'days', label: 'Days' },
   { key: 'birthday', label: 'Birthday' },
+  { key: 'anniversary', label: 'Anniversary' },
   { key: 'dobs', label: 'Other DOBs', off: true },
   { key: 'workNote', label: 'Work', off: true },
   { key: 'healthNote', label: 'Health', off: true },
@@ -310,7 +331,7 @@ export function ReachOutPage() {
     } else {
       setSortKey(key);
       // Numeric/date columns feel natural starting high→low; text starts A→Z.
-      setSortDir(['overdue', 'days', 'lastReachOut', 'birthday', 'dobs', 'check'].includes(key) ? 'desc' : 'asc');
+      setSortDir(['overdue', 'days', 'lastReachOut', 'birthday', 'anniversary', 'dobs', 'check'].includes(key) ? 'desc' : 'asc');
     }
   }
   const sortArrow = (key) => (sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
@@ -339,7 +360,9 @@ export function ReachOutPage() {
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(collection(db, 'users', user.uid, 'friends'), (snap) => {
-      setFriendsList(snap.docs.map(d => ({ id: d.id, name: d.data().name || '' })).sort((a, b) => a.name.localeCompare(b.name)));
+      setFriendsList(snap.docs
+        .map(d => ({ id: d.id, name: d.data().name || '', anniversary: d.data().anniversary || '' }))
+        .sort((a, b) => a.name.localeCompare(b.name)));
     }, () => setFriendsList([]));
     return unsub;
   }, [user]);
@@ -492,7 +515,14 @@ export function ReachOutPage() {
     await persist(next);
   }
 
-  const decorated = useMemo(() => (contacts || []).map(c => decorate(c, today)), [contacts, today]);
+  const annivByFriend = useMemo(
+    () => new Map(friendsList.filter(f => f.anniversary).map(f => [f.id, f.anniversary])),
+    [friendsList],
+  );
+  const decorated = useMemo(
+    () => (contacts || []).map(c => decorate(c, today, annivByFriend.get(c.friendId) || '')),
+    [contacts, today, annivByFriend],
+  );
   const categories = useMemo(() => {
     const set = new Set(decorated.map(c => c.category).filter(Boolean));
     return [...set].sort();
@@ -517,6 +547,22 @@ export function ReachOutPage() {
     () => decorated.filter(c => c._bdayToday && !c._retired),
     [decorated],
   );
+
+  // Every friend whose anniversary lands today, paired with the reach-out row
+  // they're linked to when there is one. Read off the Friends list rather than
+  // the contacts: an anniversary is worth knowing about for someone who was
+  // never added to the rotation, and that person has no row to hang it on.
+  const anniversariesToday = useMemo(() => {
+    const rowByFriend = new Map();
+    for (const c of decorated) {
+      if (c.friendId && !rowByFriend.has(c.friendId)) rowByFriend.set(c.friendId, c);
+    }
+    return friendsList
+      .map(f => ({ friend: f, info: annualDateInfo(f.anniversary, today), contact: rowByFriend.get(f.id) || null }))
+      // A retired row means "stop nudging me about this person", and that
+      // covers their anniversary as much as their cadence.
+      .filter(x => x.info?.isToday && !x.contact?._retired);
+  }, [friendsList, decorated, today]);
 
   // Fuzzy-predicted Friends match for each unlinked person (id -> friend).
   const predictions = useMemo(() => {
@@ -594,6 +640,44 @@ export function ReachOutPage() {
                     <button className={styles.bdayBtn} onClick={() => setConfirmReach(c)}>Reach out now</button>
                   )}
                   <button className={styles.bdayBtnGhost} onClick={() => openDetails(c)}>Details</button>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
+
+      {/* Anniversaries come off the Friends list, so this card shows on every
+          layout — a friend with no reach-out row has nowhere else to appear. */}
+      {anniversariesToday.length > 0 && (
+        <section className={`${styles.bdayHero} ${styles.annivHero}`} aria-label="Anniversaries today">
+          <div className={styles.bdayHeroTop}>
+            <span className={styles.bdayHeroCake} aria-hidden="true">💍</span>
+            <span className={styles.bdayHeroKicker}>
+              {anniversariesToday.length === 1 ? "It's their anniversary today" : `${anniversariesToday.length} anniversaries today`}
+            </span>
+          </div>
+          {anniversariesToday.map(({ friend, info, contact }) => {
+            const reachedAlready = contact?.lastReachOut === todayK;
+            const meta = [
+              formatAnnualDate(friend.anniversary),
+              info.years ? `${ordinal(info.years)} anniversary` : null,
+              contact?.method ? `${contact.method} them` : null,
+            ].filter(Boolean).join(' · ');
+            return (
+              <div key={friend.id} className={styles.bdayCard}>
+                {contact
+                  ? <button className={styles.bdayName} onClick={() => openDetails(contact)}>{friend.name}</button>
+                  : <Link className={styles.bdayName} to={`/friends?open=${friend.id}`}>{friend.name}</Link>}
+                {meta && <p className={styles.bdayMeta}>{meta}</p>}
+                {contact?.note && <p className={styles.bdayNote}>{contact.note}</p>}
+                <div className={styles.bdayActions}>
+                  {contact && (reachedAlready
+                    ? <span className={styles.bdayDone}>✅ Reached out today</span>
+                    : <button className={styles.bdayBtn} onClick={() => setConfirmReach(contact)}>Reach out now</button>)}
+                  {contact
+                    ? <button className={styles.bdayBtnGhost} onClick={() => openDetails(contact)}>Details</button>
+                    : <Link className={styles.bdayBtnGhost} to={`/friends?open=${friend.id}`}>Open in Contacts</Link>}
                 </div>
               </div>
             );
@@ -747,6 +831,8 @@ export function ReachOutPage() {
           <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swDone}`} />Reached out this cycle</span>
           <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swRetired}`} />Retired</span>
           <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swBdaySoon}`} />Birthday within 2 weeks</span>
+          <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swAnniv}`} />Anniversary today</span>
+          <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swAnnivSoon}`} />Anniversary within 2 weeks</span>
           <span className={styles.legendItem}><b className={styles.over}>+N</b> Overdue</span>
           <span className={styles.legendItem}><b className={styles.overToday}>0</b> Due today</span>
         </div>
@@ -765,6 +851,7 @@ export function ReachOutPage() {
               {!isMobile && colVis.overdue !== false && <th className={styles.thSort} onClick={() => onSort('overdue')}>Overdue{sortArrow('overdue')}</th>}
               {!isMobile && colVis.days !== false && <th className={styles.thSort} onClick={() => onSort('days')}>Days{sortArrow('days')}</th>}
               {!isMobile && colVis.birthday !== false && <th className={styles.thSort} onClick={() => onSort('birthday')}>Birthday{sortArrow('birthday')}</th>}
+              {!isMobile && colVis.anniversary !== false && <th className={styles.thSort} onClick={() => onSort('anniversary')}>Anniversary{sortArrow('anniversary')}</th>}
               {!isMobile && colVis.dobs !== false && <th className={styles.thSort} onClick={() => onSort('dobs')}>Other DOBs{sortArrow('dobs')}</th>}
               {!isMobile && DETAIL_NOTES.map(f => colVis[f.key] !== false && (
                 <th key={f.key} className={styles.thSort} onClick={() => onSort(f.key)}>{f.label}{sortArrow(f.key)}</th>
@@ -780,7 +867,9 @@ export function ReachOutPage() {
                 : c._overdue > 0 ? styles.over
                 : c._overdue === 0 ? styles.overToday
                 : styles.under;
-              const rowClass = c._bdayToday ? styles.trBday : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
+              const rowClass = c._bdayToday ? styles.trBday
+                : c._annivToday ? styles.trAnniv
+                : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
                 <tr key={c.id} className={rowClass} onClick={isMobile ? undefined : () => startEdit(c)} title={isMobile ? undefined : 'Click to edit'}>
                   {isMobile && <PersonCell name={c._bdayToday ? `🎂 ${c.name}` : c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => openDetails(c)} />}
@@ -798,6 +887,11 @@ export function ReachOutPage() {
                   {!isMobile && colVis.birthday !== false && (
                     <td className={c._bdayToday ? '' : (c._bdaySoon ? styles.bdaySoon : '')}>
                       {c._bdayToday && c._bday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}
+                    </td>
+                  )}
+                  {!isMobile && colVis.anniversary !== false && (
+                    <td className={c._annivToday ? '' : (c._annivSoon ? styles.annivSoon : '')}>
+                      {c._annivToday ? `💍 ${c._annivText}` : c._annivText}
                     </td>
                   )}
                   {!isMobile && colVis.dobs !== false && <td>{dobSummary(c)}</td>}
@@ -888,6 +982,13 @@ export function ReachOutPage() {
                 <dt>Every</dt><dd>{c._hasCadence ? `${c.cadenceDays} days` : '—'}</dd>
                 {c.method && (<><dt>Method</dt><dd>{c.method}</dd></>)}
                 {c._bday && (<><dt>Birthday</dt><dd>{c._bdayToday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}</dd></>)}
+                {c._anniv && (
+                  <><dt>Anniversary</dt><dd>
+                    {c._annivToday
+                      ? `💍 ${c._annivText}${c._anniv.years ? ` · their ${ordinal(c._anniv.years)}` : ''}`
+                      : c._annivText}
+                  </dd></>
+                )}
                 <dt>Status</dt><dd>{c._status === 'retired' ? 'Retired' : 'Active'}</dd>
                 {friendName && (<><dt>Friend</dt><dd>{friendName}</dd></>)}
               </dl>

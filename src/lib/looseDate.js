@@ -30,3 +30,42 @@ export function parseLooseDate(input) {
   return null;
 }
 export const validParts = (p) => !!p && p.month >= 1 && p.month <= 12 && p.day >= 1 && p.day <= 31;
+
+// ── Dates that come round every year ──────────────────────────────────────
+// An anniversary is a birthday's cousin: the month and day are the part that
+// recurs, and the year — when it's known — is what turns the date into "their
+// 10th". One stored field carries both cases: YYYY-MM-DD with a year,
+// MM-DD without, since a half-remembered 6/2 is still worth keeping.
+export function normalizeAnnualDate(input) {
+  const p = parseLooseDate(input);
+  if (!validParts(p)) return '';
+  return p.year ? `${p.year}-${pad2(p.month)}-${pad2(p.day)}` : `${pad2(p.month)}-${pad2(p.day)}`;
+}
+
+// 6/2/2015, or 6/2 when the year was never recorded.
+export function formatAnnualDate(value) {
+  const p = parseLooseDate(value);
+  if (!validParts(p)) return '';
+  return p.year ? `${p.month}/${p.day}/${p.year}` : `${p.month}/${p.day}`;
+}
+
+// Where a yearly date sits relative to today: whether it lands today, how many
+// days until the next one comes round, and which anniversary that next one is.
+// `years` is null without a start year — the date still recurs, there's just no
+// number to put on it. Null for anything that isn't a date.
+export function annualDateInfo(value, today = new Date()) {
+  const p = parseLooseDate(value);
+  if (!validParts(p)) return null;
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const isToday = p.month === start.getMonth() + 1 && p.day === start.getDate();
+  let next = new Date(start.getFullYear(), p.month - 1, p.day);
+  if (next < start) next = new Date(start.getFullYear() + 1, p.month - 1, p.day);
+  return {
+    month: p.month,
+    day: p.day,
+    year: p.year,
+    isToday,
+    daysUntil: Math.round((next - start) / 86400000),
+    years: p.year ? next.getFullYear() - p.year : null,
+  };
+}

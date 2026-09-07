@@ -12,8 +12,8 @@ import { db } from '../firebase';
 // The loose-date parsing lives in looseDate.js now (customFields.js needs it
 // without Firestore in tow). Re-exported here so the callers that have always
 // reached for it through friends.js still can.
-export { pad2, parseLooseDate, validParts } from './looseDate';
-import { parseLooseDate, validParts, pad2 } from './looseDate';
+export { pad2, parseLooseDate, validParts, normalizeAnnualDate, formatAnnualDate, annualDateInfo } from './looseDate';
+import { parseLooseDate, validParts, pad2, normalizeAnnualDate } from './looseDate';
 
 
 // Storage normalizers — anything unparseable becomes '' rather than corrupting
@@ -63,6 +63,10 @@ export async function addFriend(uid, data) {
     instagram: (data.instagram || '').trim(),
     birthday: normalizeBirthday(data.birthday),
     dob: normalizeDob(data.dob),
+    // Anniversaries keep their year when there is one — it's what lets the
+    // reach-out card say "their 10th" — so unlike a birthday they aren't
+    // flattened to month and day.
+    anniversary: normalizeAnnualDate(data.anniversary),
     custom: cleanCustomValues(data.custom),
     createdAt: new Date().toISOString(),
   });

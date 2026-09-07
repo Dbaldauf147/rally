@@ -37,6 +37,8 @@
 .swDone { background: #eef9f0; border: 1px solid #cdeccf; }
 .swRetired { background: var(--color-surface); border: 1px solid var(--color-border); opacity: 0.55; }
 .swBdaySoon { background: #fee2e2; border: 1px solid #fca5a5; }
+.swAnniv { background: #fdf2f8; border: 1px solid #f9a8d4; }
+.swAnnivSoon { background: #fce7f3; border: 1px solid #f9a8d4; }
 .legend .over, .legend .overToday { font-variant-numeric: tabular-nums; }
 
 .btn, .btnPrimary {
@@ -100,6 +102,10 @@
 /* Today is this person's birthday — golden row. */
 .trBday td { background: #fff4cc; box-shadow: inset 0 0 0 1px #f1c232; font-weight: 600; }
 .trBday:hover td { background: #ffedab; }
+/* An anniversary today — the same treatment a rose shade over, so the two read
+   as the same kind of "don't let this one slide" row. */
+.trAnniv td { background: #fdf2f8; box-shadow: inset 0 0 0 1px #f9a8d4; font-weight: 600; }
+.trAnniv:hover td { background: #fce7f3; }
 /* Retired contacts — muted, sorted to the bottom. */
 .trRetired { opacity: 0.6; }
 
@@ -138,6 +144,7 @@
 .overToday { color: #b45309; font-weight: 700; }
 .under { color: var(--color-text-muted); }
 .bdaySoon { background: #fee2e2; color: #b91c1c; font-weight: 600; }
+.annivSoon { background: #fce7f3; color: #9d174d; font-weight: 600; }
 
 .reachBtnSm { appearance: none; font-family: inherit; cursor: pointer; font-size: 0.8rem; font-weight: 700; line-height: 1; padding: 0.2rem 0.4rem; margin-right: 0.15rem; border-radius: var(--radius-sm); border: 1px solid var(--color-success, #16a34a); background: var(--color-success-light, #dcfce7); color: var(--color-success, #15803d); }
 .reachBtnSm:hover { filter: brightness(0.97); }
@@ -222,4 +229,21 @@
   padding: 0.6rem 0.9rem; border-radius: var(--radius-md);
   background: #dcfce7; border: 1px solid #86efac; color: #166534;
   font-size: 0.9rem; font-weight: 700;
+}
+
+/* The anniversary card reuses the birthday card's markup and shape — same
+   layout, one colour over — so today's two reasons to call look like siblings
+   rather than two unrelated banners. */
+.annivHero {
+  background: linear-gradient(135deg, #fdf2f8 0%, #fbcfe8 100%);
+  border-color: #ec4899;
+  box-shadow: 0 6px 18px rgba(236, 72, 153, 0.32);
+}
+.annivHero .bdayHeroKicker, .annivHero .bdayMeta, .annivHero .bdayNote { color: #9d174d; }
+.annivHero .bdayName { color: #831843; text-decoration: none; }
+.annivHero .bdayCard + .bdayCard { border-top-color: #ec4899; }
+.annivHero .bdayBtn { background: #be185d; border-color: #be185d; }
+.annivHero .bdayBtnGhost {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-color: #ec4899; color: #9d174d; text-decoration: none;
 }

@@ -9,7 +9,7 @@ import styles from './FriendsPage.module.css';
 // Friend writes and the loose-date parsing live in the shared lib so the poll
 // page can add a friend through exactly the same path this page uses.
 import {
-  pad2, parseLooseDate, validParts, normalizeBirthday, normalizeDob,
+  pad2, parseLooseDate, validParts, normalizeBirthday, normalizeDob, normalizeAnnualDate, formatAnnualDate,
   addFriend as writeFriend, cleanCustomValues,
 } from '../lib/friends';
 // User-defined fields: definitions on the user doc, values in each friend's
@@ -65,6 +65,7 @@ const PASTE_FIELD_DETECTORS = [
   { key: 'instagram', match: k => k === 'instagram' || k === 'ig' || k.includes('insta') },
   { key: 'birthday', match: k => k.includes('birthday') || k === 'bday' },
   { key: 'dob', match: k => k === 'dob' || k.includes('date of birth') || k.includes('birth date') || k.includes('birthdate') },
+  { key: 'anniversary', match: k => k.includes('anniversary') || k === 'wedding' || k.includes('wedding date') },
 ];
 
 // Custom fields join the auto-detect on an exact label match — they're named by
@@ -908,6 +909,7 @@ export function FriendsPage() {
   const [newWorkEmail, setNewWorkEmail] = useState('');
   const [newInstagram, setNewInstagram] = useState('');
   const [newBirthday, setNewBirthday] = useState('');
+  const [newAnniversary, setNewAnniversary] = useState('');
   const [newDob, setNewDob] = useState('');
   const [newCustom, setNewCustom] = useState({});
   // User-defined fields, ordered as the user arranged them.
@@ -1003,6 +1005,7 @@ export function FriendsPage() {
       // Shown in the friendly short form; normalized back on save.
       birthday: fmtBirthday(friend.birthday),
       dob: normalizeDob(friend.dob),
+      anniversary: formatAnnualDate(friend.anniversary),
       notes: friend.notes || '',
       linkedTo: friend.linkedTo || '',
       giftIdeas: Array.isArray(friend.giftIdeas) ? friend.giftIdeas : [],
@@ -1030,6 +1033,7 @@ export function FriendsPage() {
       workEmail: (editFields.workEmail || '').trim().toLowerCase(),
       birthday: normalizeBirthday(editFields.birthday),
       dob: normalizeDob(editFields.dob),
+      anniversary: normalizeAnnualDate(editFields.anniversary),
       addresses: cleanedAddresses,
       address: cleanedAddresses[0]?.value || '',
       notes: (editFields.notes || '').trim(),
@@ -1221,8 +1225,8 @@ export function FriendsPage() {
 
   async function handleAddSingle(e) {
     e.preventDefault();
-    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, custom: coerceCustomMap(customFields, newCustom) });
-    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob(''); setNewCustom({});
+    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, anniversary: newAnniversary, custom: coerceCustomMap(customFields, newCustom) });
+    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob(''); setNewAnniversary(''); setNewCustom({});
     setShowAdd(false);
     setResult({ type: 'success', message: 'Contact added!' });
     setTimeout(() => setResult(null), 3000);
@@ -1383,10 +1387,10 @@ export function FriendsPage() {
     // the built-in columns; their cells come back blank for the user to fill.
     const customHeaders = customFields.map(f => f.label);
     const ws = XLSX.utils.aoa_to_sheet([
-      ['Name', 'Email', 'Work Email', 'Phone', 'Address', 'Group', 'Guest', 'Tag', 'Instagram', 'Birthday', 'Date of Birth', ...customHeaders],
-      ['John Smith', 'john@email.com', 'john.smith@acme.com', '555-1234', '123 Main St, Denver CO 80202', 'College Friends', 'Sarah Smith', 'VIP', '@johnsmith', '7/30', '7/30/1985'],
-      ['Jane Doe', 'jane@email.com', '', '555-5678', '456 Oak Ave, Austin TX 78701', 'Family', '', 'Close Friend', '@janedoe', '3/14', ''],
-      ['Mike Johnson', 'mike@email.com', 'mike@bigcorp.com', '', '', 'Work', 'Lisa Johnson', 'Outdoors; Foodie', '', '', '11/2/1990'],
+      ['Name', 'Email', 'Work Email', 'Phone', 'Address', 'Group', 'Guest', 'Tag', 'Instagram', 'Birthday', 'Date of Birth', 'Anniversary', ...customHeaders],
+      ['John Smith', 'john@email.com', 'john.smith@acme.com', '555-1234', '123 Main St, Denver CO 80202', 'College Friends', 'Sarah Smith', 'VIP', '@johnsmith', '7/30', '7/30/1985', '6/2/2015'],
+      ['Jane Doe', 'jane@email.com', '', '555-5678', '456 Oak Ave, Austin TX 78701', 'Family', '', 'Close Friend', '@janedoe', '3/14', '', ''],
+      ['Mike Johnson', 'mike@email.com', 'mike@bigcorp.com', '', '', 'Work', 'Lisa Johnson', 'Outdoors; Foodie', '', '', '11/2/1990', '9/12'],
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Contacts');
@@ -1413,7 +1417,7 @@ export function FriendsPage() {
     // record rather than the current view.
     const headers = [
       'Name', 'Email', 'Work Email', 'Phone', 'Instagram',
-      'Birthday', 'Date of Birth', 'Age',
+      'Birthday', 'Date of Birth', 'Age', 'Anniversary',
       'Group', 'Guest', 'Tags', 'Linked To', 'Addresses', 'Created',
       ...customFields.map(f => f.label),
     ];
@@ -1435,6 +1439,7 @@ export function FriendsPage() {
         fmtBirthday(effectiveBirthday(f)),
         fmtDob(f.dob),
         ageFromDob(f.dob) ?? '',
+        formatAnnualDate(f.anniversary),
         f.group || '',
         f.guest || '',
         tags,
@@ -1462,6 +1467,7 @@ export function FriendsPage() {
       { wch: 10 }, // Birthday
       { wch: 14 }, // Date of Birth
       { wch: 6 },  // Age
+      { wch: 12 }, // Anniversary
       { wch: 18 }, // Group
       { wch: 18 }, // Guest
       { wch: 22 }, // Tags
@@ -1517,6 +1523,7 @@ export function FriendsPage() {
     const withAddress = data.filter(f => getFriendAddresses(f).length > 0).length;
     const withBirthday = data.filter(f => effectiveBirthday(f)).length;
     const withDob = data.filter(f => normalizeDob(f.dob)).length;
+    const withAnniversary = data.filter(f => normalizeAnnualDate(f.anniversary)).length;
 
     const summaryAoa = [
       ['Rally — Contacts Export'],
@@ -1528,6 +1535,7 @@ export function FriendsPage() {
       [`With address: ${withAddress}`],
       [`With birthday: ${withBirthday}`],
       [`With date of birth: ${withDob}`],
+      [`With anniversary: ${withAnniversary}`],
       [],
       ['Group', 'Count'],
       ...Object.entries(groupCounts).sort(sortByCountDesc),
@@ -1687,6 +1695,12 @@ export function FriendsPage() {
         return validParts(p) ? pad2(p.month) + pad2(p.day) : '';
       }
       case 'dob': return normalizeDob(f.dob);
+      // Anniversaries read as a calendar too — the year they started is beside
+      // the point when you're scanning for what's coming up.
+      case 'anniversary': {
+        const p = parseLooseDate(f.anniversary);
+        return validParts(p) ? pad2(p.month) + pad2(p.day) : '';
+      }
       default: return (f.name || '').toLowerCase();
     }
   };
@@ -2035,6 +2049,7 @@ export function FriendsPage() {
                 <th className={styles.th} onClick={() => onSort('tags')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by tags">Tags{sortArrow('tags')}</th>
                 <th className={styles.th} onClick={() => onSort('birthday')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by birthday">Birthday{sortArrow('birthday')}</th>
                 <th className={styles.th} onClick={() => onSort('dob')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by date of birth">Date of Birth{sortArrow('dob')}</th>
+                <th className={styles.th} onClick={() => onSort('anniversary')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by anniversary">Anniversary{sortArrow('anniversary')}</th>
                 <th className={styles.th}>Linked</th>
                 {tableCustomFields.map(cf => (
                   <th
@@ -2088,6 +2103,7 @@ export function FriendsPage() {
                         ? <>{fmtDob(f.dob)}{age != null && <span className={styles.tdMuted}> · {age}</span>}</>
                         : <span className={styles.tdMuted}>—</span>}
                     </td>
+                    <td className={styles.td}>{formatAnnualDate(f.anniversary) || <span className={styles.tdMuted}>—</span>}</td>
                     <td className={styles.td}>
                       {linked ? <span className={styles.linkedChip}>↔ {linked.name}</span> : <span className={styles.tdMuted}>—</span>}
                     </td>
@@ -2273,6 +2289,16 @@ export function FriendsPage() {
                 <DateField className={styles.input} value={newDob} onChange={e => setNewDob(e.target.value)} />
               </label>
               <label className={styles.label}>
+                Anniversary
+                <input
+                  className={styles.input}
+                  value={newAnniversary}
+                  onChange={e => setNewAnniversary(e.target.value)}
+                  onBlur={e => setNewAnniversary(formatAnnualDate(e.target.value) || e.target.value)}
+                  placeholder="M/D/YYYY — e.g. 6/2/2015"
+                />
+              </label>
+              <label className={styles.label}>
                 Tags
                 <TagPicker value={newTag} onChange={setNewTag} options={allTags} />
               </label>
@@ -2309,6 +2335,7 @@ export function FriendsPage() {
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
               <label className={styles.label}>Birthday<input className={styles.input} value={editFields.birthday || ''} onChange={e => editSet('birthday', e.target.value)} onBlur={e => editSet('birthday', fmtBirthday(e.target.value) || e.target.value)} placeholder="M/D — e.g. 7/30" /></label>
               <label className={styles.label}>Date of Birth<DateField className={styles.input} value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
+              <label className={styles.label}>Anniversary<input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
               <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
               <label className={styles.label}>
                 📝 Notes
@@ -2454,6 +2481,7 @@ export function FriendsPage() {
           { key: 'instagram', label: 'Instagram' },
           { key: 'birthday', label: 'Birthday' },
           { key: 'dob', label: 'Date of Birth' },
+          { key: 'anniversary', label: 'Anniversary' },
           ...customFields.map(f => ({ key: `custom:${f.id}`, label: f.label })),
         ];
         const preview = applyMapping();
