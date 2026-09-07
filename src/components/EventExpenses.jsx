@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useExpenses } from '../hooks/useExpenses';
 import { expenseStatus, expenseMatrix, money, memberListFor } from '../lib/expenses';
 import { buildVoteStats, isYesMaybe } from '../lib/attendance';
+import { normalizeHandle, displayHandle, venmoUrl, chargeNote } from '../lib/venmo';
 import { ExpenseSplitter } from './ExpenseSplitter';
 import { AddExpense } from './AddExpense';
 import styles from './ExpensesPage.module.css';
@@ -115,6 +116,21 @@ export function EventExpenses({ event }) {
     );
   };
 
+  /* Venmo handles, stored on the member row beside their phone and email so
+     they carry across every charge on the trip. Held in a draft while typed and
+     written on blur, and normalized on the way in — people paste "@dan" or a
+     whole profile URL off the share sheet, and either should just work. */
+  const [venmoDrafts, setVenmoDrafts] = useState({});
+  const saveVenmo = async (key, raw) => {
+    const handle = normalizeHandle(raw);
+    const stored = normalizeHandle(event?.members?.[key]?.venmo);
+    setVenmoDrafts(prev => { const n = { ...prev }; delete n[key]; return n; });
+    if (handle === stored) return;
+    await updateDoc(doc(db, 'events', event.id), {
+      [`members.${key}.venmo`]: handle || deleteField(),
+    }).catch(() => {});
+  };
+
   const [busyKey, setBusyKey] = useState(null);
   async function setOnEverything(person, on) {
     // Whoever paid a charge can't come off it — they are owed the money either
@@ -140,6 +156,11 @@ export function EventExpenses({ event }) {
   }
 
   const outstanding = grid.grandOutstanding;
+  // What a Venmo charge is for. A row's total spans the whole trip, so naming
+  // one charge only reads right when there is only one.
+  const tripNote = mine.length === 1
+    ? (mine[0].description || '')
+    : `${mine.length} charges`;
 
   if (loading) return <p className={styles.muted}>Loading expenses…</p>;
 
@@ -189,6 +210,7 @@ export function EventExpenses({ event }) {
                 ))}
                 <th scope="col" className={styles.gridTotalCol}>Their total</th>
                 <th scope="col" className={styles.gridTotalCol}>Still owes</th>
+                <th scope="col" className={styles.gridTotalCol}>Venmo</th>
               </tr>
             </thead>
             <tbody>
@@ -246,8 +268,48 @@ export function EventExpenses({ event }) {
                     );
                   })}
                   <td className={styles.gridTotal}>{money(row.total)}</td>
-                  <td className={row.outstanding > 0 ? styles.gridOwed : styles.gridTotal}>
-                    {row.outstanding > 0 ? money(row.outstanding) : '—'}
+                  {(() => {
+                    // What they owe doubles as the charge button: the amount is
+                    // already the thing you want to ask them for, so clicking it
+                    // opens Venmo with exactly that filled in. Venmo can't tell
+                    // us when they pay, so recording it stays a separate step.
+                    const handle = normalizeHandle(event?.members?.[row.key]?.venmo);
+                    const url = venmoUrl({
+                      handle,
+                      amount: row.outstanding,
+                      note: chargeNote(event?.title, tripNote),
+                    });
+                    if (!url) {
+                      return (
+                        <td className={row.outstanding > 0 ? styles.gridOwed : styles.gridTotal}>
+                          {row.outstanding > 0 ? money(row.outstanding) : '—'}
+                        </td>
+                      );
+                    }
+                    return (
+                      <td className={styles.gridCellPad}>
+                        <a
+                          className={styles.gridCharge}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Charge ${displayHandle(handle)} ${money(row.outstanding)} on Venmo`}
+                        >
+                          {money(row.outstanding)}<span className={styles.gridChargeMark} aria-hidden="true"> ⇗</span>
+                        </a>
+                      </td>
+                    );
+                  })()}
+                  <td className={styles.gridCellPad}>
+                    <input
+                      className={styles.gridVenmo}
+                      value={venmoDrafts[row.key] ?? displayHandle(event?.members?.[row.key]?.venmo)}
+                      placeholder="@handle"
+                      aria-label={`Venmo handle for ${row.name}`}
+                      onChange={(e) => setVenmoDrafts(prev => ({ ...prev, [row.key]: e.target.value }))}
+                      onBlur={(e) => { if (venmoDrafts[row.key] !== undefined) saveVenmo(row.key, e.target.value); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    />
                   </td>
                 </tr>
               ))}
@@ -270,6 +332,7 @@ export function EventExpenses({ event }) {
                 <td className={grid.grandOutstanding > 0 ? styles.gridOwed : styles.gridTotal}>
                   {grid.grandOutstanding > 0 ? money(grid.grandOutstanding) : '—'}
                 </td>
+                <td className={styles.gridTotal} />
               </tr>
             </tfoot>
           </table>

@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { venmoUrl, chargeNote } from '../lib/venmo';
 import {
   evenShares, sumShares, unassigned, money, expenseStatus, toCents, toDollars,
   remainingFor, amountPaid, paymentsFor,
@@ -100,12 +101,20 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
       const recipients = keys.map(key => {
         const share = shownShares[key] || 0;
         const person = memberOptions.find(m => m.key === key);
+        const owed = remainingFor(expense, key, share);
         return {
           key,
           name: person?.name || key,
           email: person?.email || null,
-          amount: remainingFor(expense, key, share),
+          amount: owed,
           paid: amountPaid(expense, key, share),
+          // The same link the grid's charge button opens, so the email and the
+          // button can never ask them for different amounts.
+          venmoUrl: venmoUrl({
+            handle: person?.venmo,
+            amount: owed,
+            note: chargeNote(events.find(e => e.id === expense.eventId)?.title, expense.description),
+          }) || undefined,
         };
       }).filter(r => r.amount > 0);
 

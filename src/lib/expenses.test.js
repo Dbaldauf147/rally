@@ -241,9 +241,10 @@ describe('expenseDraftError', () => {
 
 describe('memberListFor', () => {
   it('reads names off an event, sorted', () => {
-    const list = memberListFor({ members: { b: { name: 'Zoe' }, a: { name: 'Al', email: 'al@x.com' } } });
+    const list = memberListFor({ members: { b: { name: 'Zoe' }, a: { name: 'Al', email: 'al@x.com', venmo: 'al' } } });
     expect(list.map(m => m.name)).toEqual(['Al', 'Zoe']);
-    expect(list[0]).toEqual({ key: 'a', name: 'Al', email: 'al@x.com' });
+    expect(list[0]).toEqual({ key: 'a', name: 'Al', email: 'al@x.com', venmo: 'al' });
+    expect(list[1]).toMatchObject({ key: 'b', email: null, venmo: null });
   });
 
   it('falls back to the email, then the key', () => {

@@ -34,6 +34,20 @@ const esc = (v) => String(v == null ? '' : v)
 const usd = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
   .format(Number(n) || 0);
 
+/* The "Pay on Venmo" button, when there is a handle on file for them.
+
+   Built in Rally and passed through rather than assembled here, so the link in
+   the email and the one the grid's charge button opens can never ask for
+   different amounts. Only an https://venmo.com/… URL is let through: the body
+   is HTML, and a link that arrived over the wire is not something to
+   interpolate into an href on trust. */
+const venmoBtn = (url) => {
+  if (typeof url !== 'string' || !/^https:\/\/venmo\.com\/[^"'<>\s]*$/.test(url)) return '';
+  return `<p style="margin: 1.25rem 0;">
+                <a href="${esc(url)}" style="display: inline-block; padding: 0.75rem 1.5rem; border-radius: 10px; background: #008CFF; color: #ffffff; font-weight: 700; text-decoration: none;">Pay on Venmo</a>
+              </p>`;
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -93,6 +107,7 @@ export default async function handler(req, res) {
                 <div style="font-size: 2rem; font-weight: 700; color: #1a1a1a;">${usd(amount)}</div>
                 ${r.paid > 0 ? `<div style="color: #525252; margin-top: 0.5rem;">${usd(r.paid)} already received — thank you!</div>` : ''}
               </div>
+              ${venmoBtn(r.venmoUrl)}
               ${note ? `<p style="color: #525252;">${esc(note)}</p>` : ''}
               <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">Sent from Rally because ${from} split an expense with you.</p>
             </div>

@@ -224,7 +224,12 @@ export function expenseDraftError(draft = {}) {
 export function memberListFor(event) {
   if (!event) return [];
   return Object.entries(event.members || {})
-    .map(([key, m]) => ({ key, name: m?.name || m?.email || key, email: m?.email || null }))
+    .map(([key, m]) => ({
+      key,
+      name: m?.name || m?.email || key,
+      email: m?.email || null,
+      venmo: m?.venmo || null,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
