@@ -837,8 +837,29 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
     }
   };
 
+  /* Two things a row says about itself before you read a word of it.
+
+     Resolved goes grey and italic: it is history, and the list is long enough
+     that the eye needs somewhere not to stop. It is not hidden — what cleared
+     up the angular cheilitis is exactly what you want three years later — just
+     visibly done with.
+
+     A booked appointment goes green. Not a cadence that says you are due, but
+     an actual date on the calendar, which is the difference between "I should
+     sort this out" and "it is sorted". That is what `booked` distinguishes, and
+     it is worth being the loudest thing on the row.
+
+     Both can be true at once, and there the booking wins: an issue that
+     resolved but has a follow-up on the calendar is a live thing, not history,
+     so it comes back to full strength on a green row rather than staying grey
+     and italic underneath it. */
+  const resolved = entry.status === STATUS.RESOLVED;
+  const booked = !!upcomingVisit(entry, daysFrom ? customValueOf(entry, daysFrom) : '')?.booked;
+  const rowClass = [styles.row, resolved && styles.rowResolved, booked && styles.rowBooked]
+    .filter(Boolean).join(' ');
+
   return (
-    <tr className={styles.row}>
+    <tr className={rowClass}>
       {columns.map((col) => (
         col.kind === 'custom' ? (
           <CustomCell

@@ -239,3 +239,41 @@
   .apptPick, .apptActions { flex: 1 1 100%; }
   .apptSelect { max-width: none; width: 100%; }
 }
+
+/* ── What a row says before you read it ──────────────────────────────
+   Two states worth seeing at a glance down a long list. They are independent:
+   an issue that resolved but has a follow-up booked is both at once, which is
+   what it is.
+
+   Both tint the cells rather than the <tr>. A background on a row is painted
+   underneath the cells' own and vanishes the moment anything sets one — which
+   the hover rule does, so a coloured <tr> would flicker back to plain on hover.
+   ExpensesPage.module.css learned the same lesson on .rowOn. */
+
+/* Resolved: history, not news. Greyed and italic so the eye can skip it,
+   never hidden — what cleared the thing up is the point of keeping it. The
+   status cell keeps its own colour, because a grey italic "Resolved" badge is
+   the one place the word still needs to read plainly. */
+.rowResolved td, .rowResolved th { color: var(--color-text-muted); font-style: italic; }
+.rowResolved:hover td, .rowResolved:hover th { color: var(--color-text-secondary); }
+.rowResolved .cellStatus, .rowResolved .cellNext { font-style: normal; }
+/* The name too. It sets its own colour, so the rule on the cell around it does
+   not reach it, and a dark bold name on an otherwise grey row does not read as
+   greyed out — it reads as a row that failed to load. */
+.rowResolved .name { color: var(--color-text-muted); }
+
+/* Booked: an actual date on the calendar, not a cadence saying you are due.
+   The tint is deliberately faint — a whole row of solid green would shout over
+   the numbers it is meant to be framing — and the left edge carries the signal
+   so it still reads on a row that is also greyed out. */
+.rowBooked td, .rowBooked th { background: #f0fdf4; }
+/* --color-success-light IS #dcfce7, so using the token for the resting state
+   would leave a booked row with no hover feedback at all. The faint tint is
+   where it rests; the token is what it brightens to. */
+.rowBooked:hover td, .rowBooked:hover th { background: var(--color-success-light); }
+.rowBooked td:first-child, .rowBooked th:first-child { box-shadow: inset 3px 0 0 var(--color-success, #16a34a); }
+/* Green wins over grey on a row that is both: the follow-up is the live fact. */
+.rowBooked td, .rowBooked th { font-style: normal; }
+/* And back to full strength on a row that is also booked: a resolved issue
+   with a follow-up on the calendar is a live thing, not history. */
+.rowBooked .cellName, .rowBooked .name { color: var(--color-text); }
