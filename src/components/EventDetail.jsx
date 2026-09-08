@@ -1876,7 +1876,7 @@ export function EventDetail() {
                 )}
               </div>
             )}
-            {(true /* TEMPGATE */ || user?.email === 'baldaufdan@gmail.com') && (
+            {user?.email === 'baldaufdan@gmail.com' && (
               <>
                 <button className={styles.shareBtn} onClick={() => setShowInvite(true)}>
                   ✉ Share invite
