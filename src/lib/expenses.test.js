@@ -3,6 +3,7 @@ import {
   evenShares, sumShares, resolveShares, unassigned, balances, expenseStatus,
   amountPaid, remainingFor, isSettled, paymentsFor, toCents, toDollars,
   newExpense, expenseDraftError, memberListFor, expenseMatrix, personStatement,
+  remainderKeyFor,
 } from './expenses';
 
 const expense = (over = {}) => ({
@@ -390,5 +391,72 @@ describe('personStatement', () => {
   it('gives somebody in on nothing an empty statement rather than nothing', () => {
     const nobody = of('zoe');
     expect(nobody).toMatchObject({ key: 'zoe', lines: [], share: 0, outstanding: 0, owedTo: [] });
+  });
+});
+
+describe('the odd cents', () => {
+  // The bug this rule exists for: eleven people in on the same four charges,
+  // shown eleven slightly different totals because the participant list is
+  // sorted by name and the leftover cent always went to the front of it.
+  const PEOPLE = ['amanda', 'christina', 'dan', 'hannah', 'jake', 'jenna',
+    'joanne', 'kyle', 'pheobe', 'sohee', 'sungchea', 'tomasz'];
+
+  it('gives every leftover cent to the owner of the charge', () => {
+    const e = { amount: 175, splitMode: 'even', ownerUid: 'dan' };
+    const shares = resolveShares(e, PEOPLE);
+    expect(shares.dan).toBe(14.62);
+    // 175 / 12 is 14.5833…, so eleven people pay 14.58 and Dan takes the 4 over.
+    for (const k of PEOPLE.filter((p) => p !== 'dan')) expect(shares[k]).toBe(14.58);
+    expect(sumShares(shares)).toBe(175);
+  });
+
+  it('leaves everybody else on exactly the same number', () => {
+    const charges = [175, 45, 111.81, 196.61];
+    const totals = {};
+    for (const amount of charges) {
+      const shares = resolveShares({ amount, splitMode: 'even', ownerUid: 'dan' }, PEOPLE);
+      expect(sumShares(shares)).toBe(amount);
+      for (const k of PEOPLE) totals[k] = toDollars(toCents(totals[k] || 0) + toCents(shares[k]));
+    }
+    const others = PEOPLE.filter((p) => p !== 'dan').map((k) => totals[k]);
+    expect(new Set(others).size).toBe(1);   // one number, not four
+    expect(others[0]).toBe(44.02);
+    expect(totals.dan).toBe(44.20);
+  });
+
+  it('finds the owner however the member is keyed', () => {
+    const by = (expense) => resolveShares({ amount: 10, splitMode: 'even', ...expense }, ['a', 'b', 'c']);
+    // 10 / 3 leaves one cent over, so whoever takes it is the one on 3.34.
+    expect(by({ ownerUid: 'b' }).b).toBe(3.34);
+    expect(by({ ownerEmail: 'B@x.com' }).b).toBe(3.33);        // no key called that
+    expect(remainderKeyFor({ ownerUid: 'b' }, ['a', 'b'])).toBe('b');
+    expect(remainderKeyFor({ ownerEmail: 'Me@X.com' }, ['a', 'me@x.com'])).toBe('me@x.com');
+    expect(remainderKeyFor({ ownerEmail: 'me@x.com' }, ['a', 'me_x_com'])).toBe('me_x_com');
+  });
+
+  it('falls back to spreading it when the owner is not in on the charge', () => {
+    const shares = resolveShares({ amount: 10, splitMode: 'even', ownerUid: 'zoe' }, ['a', 'b', 'c']);
+    expect(shares).toEqual({ a: 3.34, b: 3.33, c: 3.33 });
+    expect(sumShares(shares)).toBe(10);
+  });
+
+  it('is a no-op on a charge that divides evenly anyway', () => {
+    expect(resolveShares({ amount: 30, splitMode: 'even', ownerUid: 'a' }, ['a', 'b', 'c']))
+      .toEqual({ a: 10, b: 10, c: 10 });
+  });
+
+  it('never loses or invents a cent, whoever absorbs it', () => {
+    for (const amount of [0.01, 0.07, 1.11, 33.33, 175, 196.61, 421.37]) {
+      for (const n of [1, 2, 3, 7, 11, 12]) {
+        const keys = Array.from({ length: n }, (_, i) => `p${i}`);
+        const shares = resolveShares({ amount, splitMode: 'even', ownerUid: 'p0' }, keys);
+        expect(sumShares(shares)).toBe(amount);
+      }
+    }
+  });
+
+  it('leaves a custom split alone — those cents were typed, not divided', () => {
+    const e = { amount: 100, splitMode: 'custom', shares: { a: 60, b: 40 }, ownerUid: 'a' };
+    expect(resolveShares(e, ['a', 'b'])).toEqual({ a: 60, b: 40 });
   });
 });

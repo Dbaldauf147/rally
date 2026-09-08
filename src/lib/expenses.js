@@ -5,8 +5,14 @@
 // gives three shares of 3.3333… that add up to $9.999…, and the missing
 // fraction turns into a balance that can never be settled — someone is
 // forever owed a hundredth of a cent. Rounding to cents and handing the
-// remainder to the first few people keeps the shares summing to exactly the
-// charge, which is the property that makes "all settled" reachable.
+// remainder to somebody keeps the shares summing to exactly the charge, which
+// is the property that makes "all settled" reachable.
+//
+// Who that somebody is matters more than it sounds. The remainder used to go to
+// whoever came first in the participant list, and that list is sorted by name —
+// so over a trip of eight charges the front of the alphabet paid an extra cent
+// every time and the back of it never did. The owner of the charge takes the
+// whole remainder now instead; see remainderKeyFor.
 //
 // Pure: no React, no Firestore, no DOM.
 
@@ -25,18 +31,66 @@ export const money = (dollars) => new Intl.NumberFormat('en-US', {
 
 /* Divide an amount evenly, in cents, with the remainder spread one cent at a
    time so the parts always add back up to the whole. */
-export function evenShares(amount, keys) {
+export function evenShares(amount, keys, remainderTo = null) {
   const people = [...new Set((keys || []).filter(Boolean))];
   if (!people.length) return {};
   const total = toCents(amount);
   const base = Math.floor(total / people.length);
   let extra = total - base * people.length;
   const out = {};
+
+  /* One person takes every leftover cent, so that everybody else divides
+     exactly.
+
+     That is the point of it: a grid where eleven people were in on the same
+     four charges ought to show eleven identical totals, and it did not — it
+     showed a four-cent spread, because the odd cent always went to the front
+     of a list sorted by name and the same people were always at the front.
+     Giving the lot to one person makes every other share the same number.
+
+     Ten cents in one place is a bigger single hit than one cent in ten, and
+     deliberately so: it lands on whoever is running the tab, who is usually
+     also the person owed the money. */
+  if (remainderTo && people.includes(remainderTo)) {
+    for (const key of people) out[key] = toDollars(base + (key === remainderTo ? extra : 0));
+    return out;
+  }
+
+  // Nobody to give it to — spread it a cent at a time, which at least keeps
+  // every share within a penny of every other.
   for (const key of people) {
     out[key] = toDollars(base + (extra > 0 ? 1 : 0));
     if (extra > 0) extra -= 1;
   }
   return out;
+}
+
+// Member keys come as a uid, a raw email, or an email slugged for Firestore
+// field paths (which cannot hold a dot or an @), so all three get tried.
+const emailSlug = (email) => String(email || '')
+  .replace(/[.@#$/[\]]/g, '_').replace(/\s+/g, '_').toLowerCase();
+
+/* Whose share the cents that will not divide are added to: the owner of the
+   charge — the account whose feed it came off, or who wrote it down by hand.
+
+   Read off the expense rather than passed in as an argument, and that is the
+   important part. The grid, the splitter, the reminder email, the Venmo link
+   and the Splitwise push all recompute this split independently; anything
+   threaded through as a parameter could be supplied on one path and forgotten
+   on another, and two screens quoting different amounts for the same charge is
+   very much worse than a stray cent.
+
+   Null when the owner is not in on this one, which leaves the even spread
+   above to deal with it. */
+export function remainderKeyFor(expense, keys) {
+  const people = new Set((keys || []).filter(Boolean));
+  const uid = expense?.ownerUid;
+  if (uid && people.has(uid)) return uid;
+  const email = String(expense?.ownerEmail || '').trim().toLowerCase();
+  if (!email) return null;
+  if (people.has(email)) return email;
+  const slug = emailSlug(email);
+  return people.has(slug) ? slug : null;
 }
 
 /* The share map actually in force for an expense.
@@ -56,7 +110,7 @@ export function resolveShares(expense, participantKeys) {
     }
     return out;
   }
-  return evenShares(expense?.amount, keys);
+  return evenShares(expense?.amount, keys, remainderKeyFor(expense, keys));
 }
 
 export const sumShares = (shares) => toDollars(

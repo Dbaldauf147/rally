@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { venmoUrl, chargeNote } from '../lib/venmo';
 import {
-  evenShares, sumShares, unassigned, money, expenseStatus, toCents, toDollars,
+  evenShares, remainderKeyFor, sumShares, unassigned, money, expenseStatus, toCents, toDollars,
   remainingFor, amountPaid, paymentsFor,
 } from '../lib/expenses';
 import styles from './ExpensesPage.module.css';
@@ -67,7 +67,7 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
   function startCustom() {
     // Seed the custom split from the even one, so the first edit is a nudge
     // rather than a blank form that has to be filled from scratch.
-    const seed = evenShares(expense.amount, participants);
+    const seed = evenShares(expense.amount, participants, remainderKeyFor(expense, participants));
     setDraft({ forId: expense.id, forMode: 'custom', shares: seed });
     setSplit(expense, { splitMode: 'custom', shares: seed });
   }
