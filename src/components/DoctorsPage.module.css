@@ -56,6 +56,9 @@
    where every cell is red is a column nobody looks at. */
 .cellNext { width: 8%; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
 .cellNextOverdue { composes: cellNext; color: var(--color-danger); font-weight: 650; }
+/* Booked on the calendar rather than worked out from the cadence — the one
+   date in this column that isn't arithmetic. */
+.cellNextBooked { composes: cellNext; color: var(--color-accent); font-weight: 650; }
 .cellStatus { width: 8%; white-space: nowrap; }
 .cellEdit { width: 1%; text-align: right; white-space: nowrap; }
 
@@ -173,3 +176,66 @@
 .laneCount { padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--color-bg); color: var(--color-text-muted); font-size: 0.72rem; font-weight: 700; }
 .laneOn .laneCount { background: var(--color-accent); color: #fff; }
 .laneHint { margin: 0 0 0.75rem; font-size: 0.8rem; color: var(--color-text-muted); }
+
+/* --- the calendar strip above the check-ins ------------------------------- */
+/* Set apart from the table below it: this is a queue of decisions, not part of
+   the list, and it empties as they're made. */
+.appts {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+}
+.apptHead { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.apptLead { font-size: 0.82rem; font-weight: 600; color: var(--color-text-secondary); }
+.apptCal, .apptSelect {
+  font-family: inherit; font-size: 0.85rem; padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); color: var(--color-text); max-width: 15rem;
+}
+.apptConnect, .apptRefresh, .apptFile, .apptSkip, .apptToggle {
+  appearance: none; font-family: inherit; cursor: pointer;
+  font-size: 0.8rem; font-weight: 600; padding: 0.25rem 0.55rem;
+  border-radius: var(--radius-sm); border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text);
+}
+.apptConnect { border-color: var(--color-accent); color: var(--color-accent); }
+.apptFile { border-color: var(--color-accent); background: var(--color-accent); color: #fff; }
+.apptFile:disabled { opacity: 0.45; cursor: not-allowed; }
+.apptRefresh:disabled { opacity: 0.6; cursor: default; }
+.apptConnect:hover, .apptRefresh:hover:enabled, .apptSkip:hover, .apptToggle:hover { background: var(--color-surface-alt); }
+.apptFile:hover:enabled { filter: brightness(1.06); }
+.apptCount {
+  margin-left: auto; font-size: 0.75rem; font-weight: 700;
+  padding: 0.1rem 0.45rem; border-radius: 999px;
+  background: var(--color-accent); color: #fff;
+}
+.apptHint { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--color-text-secondary); }
+.apptError { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--color-danger); }
+
+.apptList { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.apptRow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.apptWhen {
+  flex: 0 0 5.5rem; font-size: 0.8rem; font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary); white-space: nowrap;
+}
+.apptWhat { flex: 1 1 12rem; min-width: 0; }
+.apptTitle { font-size: 0.87rem; font-weight: 600; overflow-wrap: anywhere; }
+.apptWhere { font-size: 0.75rem; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.apptPick { display: flex; flex-direction: column; gap: 0.15rem; }
+.apptWhy { font-size: 0.7rem; color: var(--color-text-secondary); font-style: italic; }
+.apptActions { display: flex; gap: 0.35rem; }
+.apptWaved { margin-top: 0.6rem; }
+
+@media (max-width: 640px) {
+  .apptWhen { flex-basis: 100%; }
+  .apptPick, .apptActions { flex: 1 1 100%; }
+  .apptSelect { max-width: none; width: 100%; }
+}

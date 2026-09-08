@@ -211,7 +211,10 @@ async function callCalendar(method, path, body) {
   return res.json();
 }
 
-export async function listGoogleCalendars() {
+// `writableOnly` is what a sync target needs — somewhere to create events.
+// Reading appointments off a calendar needs no such thing, and the useful ones
+// are often subscriptions you can't write to at all.
+export async function listGoogleCalendars({ writableOnly = true } = {}) {
   const token = await getValidToken();
   if (!token) {
     const err = new Error('Not connected to Google Calendar');
@@ -228,6 +231,7 @@ export async function listGoogleCalendars() {
     throw err;
   }
   if (!data.calendars) throw new Error(data.error || 'Failed to list calendars');
+  if (!writableOnly) return data.calendars;
   // Only calendars the user can write to are valid sync targets.
   return data.calendars.filter(c => c.accessRole === 'owner' || c.accessRole === 'writer');
 }

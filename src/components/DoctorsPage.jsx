@@ -12,12 +12,17 @@ import {
   addType, renameType, removeType, moveType,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
-  dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, nextVisit,
+  dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
+  isCheckInEntry, setDoctorCalendar, pendingAppointments,
+  linkAppointment, ignoreAppointment, unignoreAppointment,
   telHref, mailHref, mapHref, safeLink, linkLabel, makeId, seedDoctors,
 } from '../lib/doctors';
 import {
   CUSTOM_FIELD_TYPES, formatCustomValue, parseOptionList, optionListText, linkHref,
 } from '../lib/customFields';
+import {
+  isGoogleCalendarConnected, connectGoogleCalendar, listGoogleCalendars, fetchGoogleCalendarEvents,
+} from '../googleCalendar';
 import styles from './DoctorsPage.module.css';
 
 /* The owner's doctor list: who was seen for what, and how to reach them again.
@@ -476,6 +481,235 @@ function ColumnManager({ list, columns, onChange, onClose }) {
    left literally empty and picked up by a dash in CSS, which keeps a sparse
    row — most of this list — from reading as a broken one. */
 // Headers that need their column’s own alignment or width, keyed by column.
+// An appointment's day, written the way the Date column writes one.
+function fmtApptDay(iso) {
+  const p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  return p ? `${Number(p[2])}/${Number(p[3])}/${p[1]}` : '';
+}
+
+/* The calendar strip above the check-ins.
+
+   One nominated Google Calendar is read a year either side of today, and every
+   appointment on it that hasn't been filed yet is offered here with the record
+   it looks like it belongs to. Filing one writes the visit into the Date column
+   the counter reads and, when it's still to come, takes over the Next visit
+   column from the cadence.
+
+   Nothing is filed automatically. A calendar is full of appointments that are
+   nobody's check-up — the guess is worth showing, but it's a guess, and a wrong
+   one silently rewriting a last-visit date is exactly the kind of thing this
+   page can't afford. */
+function AppointmentsPanel({ list, update, daysFrom }) {
+  const calendar = list.calendar;
+  const [connected, setConnected] = useState(() => isGoogleCalendarConnected());
+  const [calendars, setCalendars] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [state, setState] = useState('idle'); // idle | loading | ready | error
+  const [error, setError] = useState('');
+  // Which record each pending appointment is pointed at, once the owner has
+  // moved the select off the suggestion.
+  const [choice, setChoice] = useState({});
+  const [showWaved, setShowWaved] = useState(false);
+
+  useEffect(() => {
+    if (!connected) return;
+    let live = true;
+    // Read-only calendars count here: a practice's shared calendar is one you
+    // subscribe to, and it's appointments we want off it, not room to write.
+    listGoogleCalendars({ writableOnly: false })
+      .then((cals) => { if (live) setCalendars(cals); })
+      .catch(() => { if (live) setCalendars([]); });
+    return () => { live = false; };
+  }, [connected]);
+
+  const load = useCallback(async () => {
+    if (!connected || !calendar.id) { setEvents([]); setState('idle'); return; }
+    setState('loading');
+    setError('');
+    try {
+      // A year back covers the last of an annual check-up; a year forward
+      // covers whatever has already been booked at the end of the last one.
+      const now = new Date();
+      const from = new Date(now); from.setFullYear(from.getFullYear() - 1);
+      const to = new Date(now); to.setFullYear(to.getFullYear() + 1);
+      const found = await fetchGoogleCalendarEvents({
+        calendarId: calendar.id,
+        timeMin: from.toISOString(),
+        timeMax: to.toISOString(),
+      });
+      setEvents(found);
+      setState('ready');
+    } catch (err) {
+      if (err.code === 'NOT_CONNECTED') setConnected(false);
+      setError(err.message || 'Could not read that calendar');
+      setState('error');
+    }
+  }, [connected, calendar.id]);
+
+  // Deferred a tick rather than run in the effect body: the read sets state as
+  // it goes, and React would rather that didn't happen mid-render.
+  useEffect(() => {
+    const id = setTimeout(load, 0);
+    return () => clearTimeout(id);
+  }, [load]);
+
+  const pending = useMemo(() => pendingAppointments(list, events), [list, events]);
+  const checkIns = useMemo(() => list.entries.filter(isCheckInEntry), [list.entries]);
+  const waved = useMemo(
+    () => events.filter((e) => list.ignoredEvents.includes(e.id)),
+    [events, list.ignoredEvents],
+  );
+
+  async function connect() {
+    try {
+      await connectGoogleCalendar();
+      setConnected(true);
+      setError('');
+    } catch (err) {
+      setError(err.message || 'Google sign-in failed');
+    }
+  }
+
+  function pickCalendar(id) {
+    const name = calendars.find((c) => c.id === id)?.name || '';
+    update((l) => setDoctorCalendar(l, id, name));
+  }
+
+  const fileIt = (appt, entryId) => {
+    if (!entryId) return;
+    update((l) => linkAppointment(l, entryId, appt, { dateFieldId: daysFrom?.id || '' }));
+  };
+
+  const WHY = { name: 'the name matches', place: 'the place matches', type: 'the type matches' };
+
+  return (
+    <section className={styles.appts} aria-label="Appointments from your calendar">
+      <div className={styles.apptHead}>
+        <span className={styles.apptLead}>Appointments from</span>
+        {connected ? (
+          <select
+            className={styles.apptCal}
+            value={calendar.id}
+            aria-label="Which calendar the appointments come from"
+            onChange={(e) => pickCalendar(e.target.value)}
+          >
+            <option value="">— pick a calendar —</option>
+            {calendars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {/* A calendar chosen before and since unshared still names itself */}
+            {calendar.id && !calendars.some((c) => c.id === calendar.id) && (
+              <option value={calendar.id}>{calendar.name || calendar.id}</option>
+            )}
+          </select>
+        ) : (
+          <button type="button" className={styles.apptConnect} onClick={connect}>
+            Connect Google Calendar
+          </button>
+        )}
+        {connected && calendar.id && (
+          <button type="button" className={styles.apptRefresh} onClick={load} disabled={state === 'loading'}>
+            {state === 'loading' ? 'Reading…' : 'Refresh'}
+          </button>
+        )}
+        {pending.length > 0 && (
+          <span className={styles.apptCount}>{pending.length} to file</span>
+        )}
+      </div>
+
+      {error && <p className={styles.apptError}>{error}</p>}
+
+      {connected && !calendar.id && !error && (
+        <p className={styles.apptHint}>
+          Pick the calendar your appointments land on and they’ll show up here, each with the
+          record it looks like it belongs to.
+        </p>
+      )}
+
+      {connected && calendar.id && !daysFrom && (
+        <p className={styles.apptHint}>
+          Add a Date column and a filed appointment will keep it up to date. Until then, filing
+          one only records that it belongs to that doctor.
+        </p>
+      )}
+
+      {state === 'ready' && pending.length === 0 && calendar.id && (
+        <p className={styles.apptHint}>Nothing new — every appointment on {calendar.name || 'that calendar'} is filed.</p>
+      )}
+
+      {pending.length > 0 && (
+        <ul className={styles.apptList}>
+          {pending.map((a) => {
+            const chosen = choice[a.eventId] ?? (a.suggestion?.entryId || '');
+            const why = a.suggestion ? WHY[a.suggestion.reason] : '';
+            return (
+              <li key={a.eventId} className={styles.apptRow}>
+                <div className={styles.apptWhen}>{fmtApptDay(a.date)}</div>
+                <div className={styles.apptWhat}>
+                  <div className={styles.apptTitle}>{a.title || '(No title)'}</div>
+                  {a.location ? <div className={styles.apptWhere}>{a.location}</div> : null}
+                </div>
+                <div className={styles.apptPick}>
+                  <select
+                    className={styles.apptSelect}
+                    value={chosen}
+                    aria-label={`Which record ${a.title || 'this appointment'} belongs to`}
+                    onChange={(e) => setChoice((c) => ({ ...c, [a.eventId]: e.target.value }))}
+                  >
+                    <option value="">Choose a record…</option>
+                    {checkIns.map((e) => (
+                      <option key={e.id} value={e.id}>{entryTitle(e)}</option>
+                    ))}
+                  </select>
+                  {why && chosen === a.suggestion.entryId && (
+                    <span className={styles.apptWhy}>suggested — {why}</span>
+                  )}
+                </div>
+                <div className={styles.apptActions}>
+                  <button
+                    type="button"
+                    className={styles.apptFile}
+                    disabled={!chosen}
+                    onClick={() => fileIt(a, chosen)}
+                  >File</button>
+                  <button
+                    type="button"
+                    className={styles.apptSkip}
+                    onClick={() => update((l) => ignoreAppointment(l, a.eventId))}
+                  >Not a visit</button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {waved.length > 0 && (
+        <div className={styles.apptWaved}>
+          <button type="button" className={styles.apptToggle} onClick={() => setShowWaved((v) => !v)}>
+            {showWaved ? 'Hide' : 'Show'} {waved.length} waved off
+          </button>
+          {showWaved && (
+            <ul className={styles.apptList}>
+              {waved.map((e) => (
+                <li key={e.id} className={styles.apptRow}>
+                  <div className={styles.apptWhen}>{fmtApptDay(String(e.start).slice(0, 10))}</div>
+                  <div className={styles.apptWhat}><div className={styles.apptTitle}>{e.title}</div></div>
+                  <div className={styles.apptActions}>
+                    <button
+                      type="button"
+                      className={styles.apptSkip}
+                      onClick={() => update((l) => unignoreAppointment(l, e.id))}
+                    >Put back</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
 
 function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete }) {
@@ -570,15 +804,19 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
          this column exists to catch. */
       case 'nextVisit': {
         const since = daysFrom ? customValueOf(entry, daysFrom) : '';
-        const next = nextVisit(since, entry.cadence);
+        const next = upcomingVisit(entry, since);
         if (!next) return <td key="nextVisit" className={styles.cellNext} />;
+        const when = next.overdue ? ` — ${-next.daysAway} days ago`
+          : next.due ? ' — today'
+          : ` — in ${next.daysAway} days`;
         return (
           <td
             key="nextVisit"
-            className={next.overdue ? styles.cellNextOverdue : styles.cellNext}
-            title={`${entry.cadence} after ${daysFrom.label} ${formatCustomValue(daysFrom, since)}`
-              + (next.overdue ? ` — ${-next.daysAway} days ago` : next.due ? ' — today' : ` — in ${next.daysAway} days`)}
-          >{next.label}</td>
+            className={next.booked ? styles.cellNextBooked : next.overdue ? styles.cellNextOverdue : styles.cellNext}
+            title={(next.booked
+              ? `Booked: ${next.title || 'on your calendar'}`
+              : `${entry.cadence} after ${daysFrom.label} ${formatCustomValue(daysFrom, since)}`) + when}
+          >{next.booked ? `${next.label} 📅` : next.label}</td>
         );
       }
       // Status is a fixed set, so its cell is the select itself rather than a
@@ -802,6 +1040,10 @@ export function DoctorsPage() {
             ? 'What was wrong, and who sorted it. A doctor you also see regularly shows in both tabs.'
             : 'Every record, check-ins and issues together.'}
       </p>
+
+      {lane === 'checkins' && (
+        <AppointmentsPanel list={safeList} update={update} daysFrom={daysFrom} />
+      )}
 
       <div className={styles.toolbar}>
         <input
