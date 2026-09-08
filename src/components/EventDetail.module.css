@@ -13,8 +13,16 @@
 .rsvpSection { display: flex; align-items: center; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--color-border-light); border-bottom: 1px solid var(--color-border-light); margin-bottom: 1rem; flex-wrap: wrap; }
 .shareBtn { background: none; border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.4rem 1rem; font-size: 0.82rem; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; transition: all 0.15s; }
 .shareBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
-.tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; }
-.tab, .tabActive { padding: 0.5rem 1rem; border: none; border-radius: var(--radius-md); font-size: 0.88rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; background: none; color: var(--color-text-muted); }
+/* The tab strip scrolls sideways rather than widening the page.
+   Eight tabs do not fit a phone, and a flex row whose children cannot shrink
+   pushes the document out to their full width — 716px inside a 390px viewport.
+   Nothing looks wrong at 100%, because you only ever see the left edge. Zoom
+   out and the whole page is revealed at 716, with every block that sized itself
+   to the viewport — the expenses grid especially — stranded in the left half.
+   Scrolling the strip keeps the document the width of the screen. */
+.tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab, .tabActive { flex: 0 0 auto; white-space: nowrap; padding: 0.5rem 1rem; border: none; border-radius: var(--radius-md); font-size: 0.88rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; background: none; color: var(--color-text-muted); }
 .tab:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .tabActive { background: var(--color-accent-light); color: var(--color-accent); font-weight: 600; }
 .content { }
@@ -31,7 +39,8 @@
 .rsvp_maybe { background: var(--color-warning-light); color: var(--color-warning); }
 .rsvp_no { background: var(--color-danger-light); color: var(--color-danger); }
 .rsvp_pending { background: var(--color-surface-alt); color: var(--color-text-muted); }
-.ownerActions { display: flex; gap: 0.75rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-border-light); }
+/* Wraps, for the same reason: five buttons in a row are wider than a phone. */
+.ownerActions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-border-light); }
 .editBtn { padding: 0.5rem 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; font-weight: 500; color: var(--color-text-secondary); cursor: pointer; }
 .deleteBtn { padding: 0.5rem 1.25rem; border: 1px solid var(--color-danger-light); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; font-weight: 500; color: var(--color-danger); cursor: pointer; }
 .modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
