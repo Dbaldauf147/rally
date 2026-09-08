@@ -1,8 +1,11 @@
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo, useCallback, Fragment } from 'react';
+import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useExpenses } from '../hooks/useExpenses';
 import { useEvents } from '../hooks/useEvents';
 import { balances, expenseStatus, money, remainingFor, memberListFor } from '../lib/expenses';
 import { ExpenseSplitter } from './ExpenseSplitter';
+import { useSplitwise } from '../hooks/useSplitwise';
 import { AddExpense } from './AddExpense';
 import styles from './ExpensesPage.module.css';
 
@@ -60,6 +63,7 @@ function SortHeader({ id, label, className, sort, onSort }) {
 export function ExpensesPage() {
   const { expenses, loading, error, ...actions } = useExpenses();
   const { events } = useEvents();
+  const sw = useSplitwise();
   const [filter, setFilter] = useState('open');
   const [openId, setOpenId] = useState(null);
   // Newest first, matching the order the charges arrive in.
@@ -202,6 +206,39 @@ export function ExpensesPage() {
     )) return;
     runBulk(rows, 'remove', ({ expense }) => actions.archive(expense));
   }
+
+  /* Splitwise, per charge.
+
+     Unlike a trip's own tab, a charge here can belong to any event or to
+     none, so the group is looked up from whichever event the charge is on.
+     Setting it writes to that event, so mapping a trip from this page and
+     mapping it from the trip are the same act.
+
+     A charge with no event has nobody to split between, so there is nothing
+     to send and no picker is offered. */
+  const swGroupFor = useCallback((event) => {
+    const id = event?.splitwiseGroupId;
+    return id ? sw.groups.find((g) => String(g.id) === String(id)) || null : null;
+  }, [sw.groups]);
+
+  const splitwiseFor = useCallback((expense, event) => {
+    if (!sw.configured || !event) return null;
+    const group = swGroupFor(event);
+    const people = memberListFor(event);
+    const nameFor = (key) => people.find((m) => m.key === key)?.name || key;
+    return {
+      groupName: group?.name || '',
+      groups: sw.groups,
+      groupId: event.splitwiseGroupId || '',
+      eventTitle: event.title || 'this event',
+      onPickGroup: (id) => updateDoc(doc(db, 'events', event.id), {
+        splitwiseGroupId: id ? Number(id) : deleteField(),
+      }).catch(() => {}),
+      send: group
+        ? (exp, shares) => sw.send({ group, people, expense: exp, shares, actions, nameFor })
+        : null,
+    };
+  }, [sw, swGroupFor, actions]);
 
   const people = useMemo(() => balances(expenses, participantsFor), [expenses, participantsFor]);
   const totalOutstanding = people.reduce((sum, p) => sum + p.outstanding, 0);
@@ -450,6 +487,7 @@ export function ExpensesPage() {
                           events={events}
                           memberOptions={memberListFor(event)}
                           actions={actions}
+                          splitwise={splitwiseFor(expense, event)}
                           onDone={() => setOpenId(null)}
                         />
                       </td>

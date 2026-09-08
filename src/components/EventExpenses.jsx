@@ -6,7 +6,7 @@ import { useExpenses } from '../hooks/useExpenses';
 import { expenseStatus, expenseMatrix, money, memberListFor } from '../lib/expenses';
 import { buildVoteStats, isYesMaybe } from '../lib/attendance';
 import { normalizeHandle, displayHandle, venmoUrl, chargeNote } from '../lib/venmo';
-import { matchGroupMembers, buildExpense } from '../lib/splitwise';
+import { useSplitwise } from '../hooks/useSplitwise';
 import { ExpenseSplitter } from './ExpenseSplitter';
 import { PersonExpenses } from './PersonExpenses';
 import { AddExpense } from './AddExpense';
@@ -218,81 +218,18 @@ export function EventExpenses({ event }) {
   };
 
   /* ── Splitwise ──────────────────────────────────────────────────────
-     Push-only. Rally decides the split; Splitwise is where the people who
-     live in Splitwise see what they owe. The key is a personal one held on
-     the server, so everything here goes through /api/splitwise rather than
-     talking to Splitwise from the browser. */
-  const [sw, setSw] = useState({ loading: true, configured: false, groups: [], me: null, error: '' });
-  useEffect(() => {
-    if (!user) return undefined;
-    let live = true;
-    (async () => {
-      try {
-        const res = await fetch('/api/splitwise', {
-          headers: { Authorization: `Bearer ${await user.getIdToken()}` },
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!live) return;
-        if (!res.ok) setSw({ loading: false, configured: false, groups: [], me: null, error: data.error || `Failed (${res.status})` });
-        else setSw({ loading: false, configured: !!data.configured, groups: data.groups || [], me: data.me || null, error: '' });
-      } catch (err) {
-        // A deployment without the route at all (or offline) is not worth
-        // shouting about — the section simply doesn't appear.
-        if (live) setSw({ loading: false, configured: false, groups: [], me: null, error: err.message });
-      }
-    })();
-    return () => { live = false; };
-  }, [user]);
-
+     Push-only, and the same code the Trip Expenses page uses — the shares
+     are money, and two copies of this would be two answers to what Amy
+     owes. Which group a trip maps to is stored on the event. */
+  const sw = useSplitwise();
   const swGroupId = event?.splitwiseGroupId || '';
-  const swGroup = sw.groups.find(g => String(g.id) === String(swGroupId)) || null;
+  const swGroup = sw.groups.find((g) => String(g.id) === String(swGroupId)) || null;
   const setSwGroup = (id) => updateDoc(doc(db, 'events', event.id), {
     splitwiseGroupId: id ? Number(id) : deleteField(),
   }).catch(() => {});
-
-  /* Send one charge across, with the shares exactly as Rally has them.
-
-     Anyone with a share who isn't in the group is named rather than quietly
-     left out: dropping them would make the shares stop adding up to the cost,
-     and Splitwise would refuse it with an arithmetic complaint that says
-     nothing about the real problem. */
-  const sendToSplitwise = async (expense, shares) => {
-    if (!swGroup) throw new Error('Pick a Splitwise group first.');
-    // You are the account the key belongs to, so you match by that rather
-    // than by email — an organiser's own row rarely carries one.
-    const { matched } = matchGroupMembers(memberOptions, swGroup.members,
-      sw.me?.id != null && user?.uid ? { key: user.uid, splitwiseId: sw.me.id } : null);
-    const missing = Object.entries(shares || {})
-      .filter(([key, value]) => Number(value) > 0 && !matched.has(key))
-      .map(([key]) => nameFor(key));
-    if (missing.length) {
-      throw new Error(
-        `No Splitwise match for ${missing.join(', ')} — they need the same email on both sides.`,
-      );
-    }
-    const body = buildExpense({
-      description: expense.description,
-      amount: expense.amount,
-      date: expense.date,
-      groupId: swGroup.id,
-      shares,
-      payerKey: expense.paidBy,
-      matched,
-    });
-    const res = await fetch('/api/splitwise', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${await user.getIdToken()}`,
-      },
-      body: JSON.stringify({ expense: body }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.id) throw new Error(data.error || `Splitwise refused it (${res.status})`);
-    await actions.markSplitwise(expense, { id: data.id, groupId: swGroup.id });
-    return `Sent to ${swGroup.name}`;
-  };
-
+  const sendToSplitwise = (expense, shares) => sw.send({
+    group: swGroup, people: memberOptions, expense, shares, actions, nameFor,
+  });
   const [busyKey, setBusyKey] = useState(null);
   async function setOnEverything(person, on) {
     // Whoever paid a charge can't come off it — they are owed the money either

@@ -328,3 +328,9 @@
 .zoomPct { min-width: 2.6rem; text-align: center; font-size: 0.78rem; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
 .zoomFit { padding: 0.35rem 0.7rem; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); color: var(--color-text-secondary); font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer; }
 .zoomFit:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
+/* Choosing the Splitwise group from a charge, on the page where charges belong
+   to different trips. The trip's own tab has a bar for this instead. */
+.swPick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; width: 100%; margin-bottom: 0.5rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+.swPick .select { flex: 0 1 15rem; }
+.swPickNote { font-size: 0.75rem; font-weight: 400; letter-spacing: normal; text-transform: none; color: var(--color-text-muted); }

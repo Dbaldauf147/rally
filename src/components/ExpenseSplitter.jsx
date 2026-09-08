@@ -18,9 +18,17 @@ import styles from './ExpensesPage.module.css';
    before half the guest list dropped out divides between the people actually
    coming. Nothing is rewritten until you touch a chip: the next edit writes
    back the narrowed list, which is also how the stale names finally go. */
-/* `splitwise`, when given, is { groupName, send } — the trip's tab passes it
-   once a Splitwise group is chosen. Push-only: sending hands the split across
-   and records that it went, and nothing ever reads back. */
+/* `splitwise`, when given, is what this charge can do with Splitwise:
+   { groupName, send } to send it, and optionally { groups, groupId, eventTitle,
+   onPickGroup } to choose which group the charge's event maps to.
+
+   The trip's own tab picks the group in a bar above the list and passes only
+   the send. The Trip Expenses page has no such bar — a charge there can belong
+   to any trip — so it passes the picker too, and the choice it writes is the
+   same one stored on the event either way.
+
+   `send` is null when no group is chosen yet: there is a picker to offer, but
+   nothing to send. Push-only throughout — nothing ever reads back. */
 export function ExpenseSplitter({ expense, events, memberOptions, actions, onDone, eligibleKeys = null, splitwise = null }) {
   const {
     assignEvent, setParticipants, setSplit, setPaidBy,
@@ -394,7 +402,28 @@ export function ExpenseSplitter({ expense, events, memberOptions, actions, onDon
               {custom && <span className={styles.checkSum}> · shares total {money(sumShares(shownShares))}</span>}
             </div>
             <div className={styles.footerActions}>
-              {splitwise && (
+              {splitwise?.onPickGroup && (
+                <label className={styles.swPick}>
+                  <span>Splitwise</span>
+                  <select
+                    className={styles.select}
+                    value={splitwise.groupId || ''}
+                    aria-label={`Splitwise group for ${splitwise.eventTitle}`}
+                    onChange={(e) => { setSendResult(null); splitwise.onPickGroup(e.target.value); }}
+                  >
+                    <option value="">Not sending to Splitwise</option>
+                    {(splitwise.groups || []).map((g) => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                  <span className={styles.swPickNote}>
+                    {splitwise.groupId
+                      ? `Set for ${splitwise.eventTitle} — every charge on it sends here.`
+                      : `Pick where ${splitwise.eventTitle} sends to.`}
+                  </span>
+                </label>
+              )}
+              {splitwise?.send && (
                 <button
                   type="button"
                   className={styles.secondaryBtn}
