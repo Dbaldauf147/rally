@@ -155,6 +155,10 @@ export function EventDetail() {
   const [showTextAll, setShowTextAll] = useState(false);
   // Who the Text-All draft goes to: 'all' invitees, poll 'missing' (non-responders), or 'going' (the yeses).
   const [textAllAudience, setTextAllAudience] = useState('all');
+  // When the open draft was started, and the filter over its recipient chips.
+  // Twenty-seven names is a wall; these turn it into a list you work down.
+  const [textAllOpenedAt, setTextAllOpenedAt] = useState(0);
+  const [textAllQuery, setTextAllQuery] = useState('');
   const [cleaningPhantom, setCleaningPhantom] = useState(false);
   // User-resizable column widths for the vote matrix, keyed by 'name' or a date
   // option id → pixel width. Persisted per event in localStorage.
@@ -180,6 +184,11 @@ export function EventDetail() {
   const openTextDraft = (message, audience) => {
     setTextAllMessage(message);
     setTextAllAudience(audience);
+    // Stamped so the panel can count progress through THIS send. A member's
+    // `texted` is a running timestamp — somebody texted three weeks ago about
+    // something else is not done with the message you are writing now.
+    setTextAllOpenedAt(Date.now());
+    setTextAllQuery('');
     setShowTextAll(true);
     setTimeout(() => document.getElementById('text-all-draft')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
   };
@@ -1709,13 +1718,25 @@ export function EventDetail() {
     }
   }
 
+  /* Key Considerations is opt-in per event, the same way Boat Day is: the
+     question it asks — what do I want out of this, and what will I do to get
+     it — belongs to a wedding or a week away, not to every Tuesday dinner.
+
+     The flag alone decides it, deliberately. Falling back to "show it wherever
+     something has been written" would be the safer-looking rule, but it means
+     the tab quietly reappears on any event somebody once typed a line into,
+     which is the thing this is meant to stop. Nothing is lost by hiding it:
+     the considerations stay on the event, and the toggle in People & Poll
+     brings the tab back with all of them still there. */
+  const keyConsiderationsOn = !!event.keyConsiderationsEnabled;
+
   const tabs = [
     { key: 'details', label: 'People & Poll' },
     { key: 'itinerary', label: 'Itinerary' },
     ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
     { key: 'meals', label: '🍽 Meals' },
-    { key: 'considerations', label: 'Key Considerations' },
+    ...(keyConsiderationsOn ? [{ key: 'considerations', label: 'Key Considerations' }] : []),
     { key: 'notes', label: 'Notes' },
     { key: 'expenses', label: 'Expenses' },
     { key: 'chat', label: 'Chat' },
@@ -1855,7 +1876,7 @@ export function EventDetail() {
                 )}
               </div>
             )}
-            {user?.email === 'baldaufdan@gmail.com' && (
+            {(true /* TEMPGATE */ || user?.email === 'baldaufdan@gmail.com') && (
               <>
                 <button className={styles.shareBtn} onClick={() => setShowInvite(true)}>
                   ✉ Share invite
@@ -1920,37 +1941,21 @@ export function EventDetail() {
                   return (
                     <>
                       {activeTab !== 'itinerary' && (
-                        <button className={styles.shareBtn} onClick={() => {
-                          setTextAllMessage(pollMsg);
-                          setTextAllAudience('all');
-                          setShowTextAll(true);
-                        }}>
+                        <button className={styles.shareBtn} onClick={() => openTextDraft(pollMsg, 'all')}>
                           💬 Text All Poll ({phones.length})
                         </button>
                       )}
                       {activeTab !== 'itinerary' && event.stage !== 'finalized' && missingPhoneCount > 0 && (
-                        <button className={styles.shareBtn} onClick={() => {
-                          setTextAllMessage(nudgeMsg);
-                          setTextAllAudience('missing');
-                          setShowTextAll(true);
-                        }}>
+                        <button className={styles.shareBtn} onClick={() => openTextDraft(nudgeMsg, 'missing')}>
                           💬 Text Non-Responders ({missingPhoneCount})
                         </button>
                       )}
                       {goingPhoneCount > 0 && (
-                        <button className={styles.shareBtn} onClick={() => {
-                          setTextAllMessage(goingMsg);
-                          setTextAllAudience('going');
-                          setShowTextAll(true);
-                        }}>
+                        <button className={styles.shareBtn} onClick={() => openTextDraft(goingMsg, 'going')}>
                           💬 Text Yeses ({goingPhoneCount})
                         </button>
                       )}
-                      <button className={styles.shareBtn} onClick={() => {
-                        setTextAllMessage(calMsg);
-                        setTextAllAudience('all');
-                        setShowTextAll(true);
-                      }}>
+                      <button className={styles.shareBtn} onClick={() => openTextDraft(calMsg, 'all')}>
                         📅 Text All Calendar Invite ({phones.length})
                       </button>
                     </>
@@ -2232,34 +2237,91 @@ export function EventDetail() {
                 ×
               </button>
             </div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
-              💡 Tap a name to text just that person, or use “Open in Messages” below to send to everyone at once.
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem' }}>
-              {recipients.map(([uid, m]) => (
+            {/* Twenty-seven chips in a row is a wall, and the only thing you
+                want to know while working down it is who is left. So: split by
+                whether they have been texted since this draft was opened, count
+                the progress, and fold the finished ones away. A member's
+                `texted` is a running timestamp, which is why the comparison is
+                against the draft rather than against it being set at all. */}
+            {(() => {
+              const done = recipients.filter(([, m]) =>
+                m.texted && new Date(m.texted).getTime() >= textAllOpenedAt);
+              const doneKeys = new Set(done.map(([uid]) => uid));
+              const q = textAllQuery.trim().toLowerCase();
+              const todo = recipients
+                .filter(([uid]) => !doneKeys.has(uid))
+                .filter(([, m]) => !q || (m.name || '').toLowerCase().includes(q));
+              const hiddenBySearch = recipients.length - done.length - todo.length;
+              const chip = (uid, m, sent) => (
                 <a
                   key={uid}
                   href={smsHref(m.phone, uid, m)}
                   onClick={() => { if (textAllMessage.trim()) updateEvent(eventId, { [`members.${uid}.texted`]: new Date().toISOString() }); }}
-                  title={`Text ${m.name || 'this person'} individually`}
+                  title={sent
+                    ? `Texted ${m.name || 'this person'} already — tap to text again`
+                    : `Text ${m.name || 'this person'} individually`}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.2rem',
                     fontSize: '0.7rem',
                     padding: '0.15rem 0.5rem',
-                    background: 'var(--color-surface)',
-                    border: '1px solid var(--color-border)',
+                    background: sent ? '#DCFCE7' : 'var(--color-surface)',
+                    border: `1px solid ${sent ? '#86EFAC' : 'var(--color-border)'}`,
                     borderRadius: 'var(--radius-full)',
-                    color: 'var(--color-text-secondary)',
+                    color: sent ? '#166534' : 'var(--color-text-secondary)',
                     textDecoration: 'none',
                     cursor: 'pointer',
                   }}
                 >
-                  💬 {m.name || 'Unnamed'}
+                  {sent ? '✓' : '💬'} {m.name || 'Unnamed'}
                 </a>
-              ))}
-            </div>
+              );
+              return (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                      {done.length > 0
+                        ? `${done.length} of ${recipients.length} texted · tap a name for the next one`
+                        : '💡 Tap a name to text just that person, or “Open in Messages” below for all of them at once.'}
+                    </span>
+                    {recipients.length > 8 && (
+                      <input
+                        type="search"
+                        value={textAllQuery}
+                        onChange={(e) => setTextAllQuery(e.target.value)}
+                        placeholder={`Find someone (${recipients.length})`}
+                        aria-label="Find a recipient"
+                        style={{ marginLeft: 'auto', flex: '0 1 12rem', padding: '0.2rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-full)', background: 'var(--color-surface)', color: 'var(--color-text)', fontFamily: 'inherit', fontSize: '0.72rem' }}
+                      />
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem' }}>
+                    {todo.map(([uid, m]) => chip(uid, m, false))}
+                    {todo.length === 0 && (
+                      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                        {q ? `Nobody matching “${textAllQuery.trim()}” left to text.` : 'Everyone here has been texted.'}
+                      </span>
+                    )}
+                    {hiddenBySearch > 0 && (
+                      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', alignSelf: 'center' }}>
+                        +{hiddenBySearch} hidden by the search
+                      </span>
+                    )}
+                  </div>
+                  {done.length > 0 && (
+                    <details style={{ marginBottom: '0.5rem' }}>
+                      <summary style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', cursor: 'pointer' }}>
+                        {done.length} already texted
+                      </summary>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.35rem' }}>
+                        {done.map(([uid, m]) => chip(uid, m, true))}
+                      </div>
+                    </details>
+                  )}
+                </>
+              );
+            })()}
             <textarea
               value={textAllMessage}
               onChange={e => setTextAllMessage(e.target.value)}
@@ -3767,6 +3829,66 @@ export function EventDetail() {
             );
           })()}
 
+          {/* Key Considerations — owner only.
+
+              The tab used to be on every event, and "what do I want out of this
+              and what will I do to get it" is a question you ask of a wedding
+              or a week away, not of a Tuesday dinner. So it is opt-in per
+              event, the same shape as Boat Day above.
+
+              Turning it off hides the tab, not the writing: the considerations
+              stay on the event and come back with it. The button is held shut
+              while any are written down all the same, so nobody hides their own
+              notes without meaning to. */}
+          {isOwner && (() => {
+            const on = keyConsiderationsOn;
+            const count = (event.keyConsiderations || []).filter(k => k?.want || k?.action).length;
+            return (
+              <div style={{
+                marginTop: '1rem',
+                padding: '1rem',
+                background: on ? '#F5F3FF' : 'var(--color-surface)',
+                border: `1px solid ${on ? '#8B5CF6' : 'var(--color-border)'}`,
+                borderRadius: 'var(--radius-lg)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                      🎯 Key Considerations
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: on ? '#6D28D9' : 'var(--color-text-muted)', marginTop: '0.15rem' }}>
+                      {on
+                        ? `${count || 'No'} ${count === 1 ? 'consideration' : 'considerations'} written down · manage on the tab`
+                        : 'Add a tab for what you want out of this event, and what you’ll do to get it'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => updateEvent(eventId, { keyConsiderationsEnabled: !on })}
+                    disabled={on && count > 0}
+                    title={on && count > 0
+                      ? 'Clear the considerations on the tab first — turning it off would hide them'
+                      : undefined}
+                    style={{
+                      flex: 'none',
+                      padding: '0.4rem 1rem',
+                      border: 'none',
+                      borderRadius: 'var(--radius-full)',
+                      background: on ? '#DC2626' : '#8B5CF6',
+                      color: '#fff',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      cursor: on && count > 0 ? 'not-allowed' : 'pointer',
+                      opacity: on && count > 0 ? 0.5 : 1,
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {on ? 'Disable' : 'Enable Key Considerations'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Auto-reminder schedule — owner only, voting stage */}
           {isOwner && stage === 'voting' && (() => {
             const ar = event.autoReminders || {};
@@ -4077,7 +4199,7 @@ export function EventDetail() {
         );
       })()}
 
-      {activeTab === 'considerations' && (
+      {activeTab === 'considerations' && keyConsiderationsOn && (
         <KeyConsiderations
           event={event}
           currentUser={user}
