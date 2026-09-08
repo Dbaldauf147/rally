@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { collection, doc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -25,6 +25,16 @@ import styles from './ExpensesPage.module.css';
    the side, charges across the top — because by the end of a trip the question
    is "what does Katie owe me, across all of it", which a list of charges can
    only answer by opening every one and adding up. */
+/* How far the grid may be zoomed out.
+
+   Low enough that Fit really does fit: a dozen charges on a 390px phone needs
+   about 22%, and a floor that stopped short of it made Fit a button that
+   promised the whole trip and delivered two thirds of it. It is small, and
+   deliberately so — at that size you are reading the shape of the trip rather
+   than the numbers, which is what zooming out is for. */
+const MIN_ZOOM = 0.2;
+const ZOOM_KEY = 'rally.expenses.gridZoom';
+
 export function EventExpenses({ event }) {
   const { user } = useAuth() || {};
   const { expenses, loading, ...actions } = useExpenses();
@@ -99,6 +109,80 @@ export function EventExpenses({ event }) {
   // underneath it instead of disappearing from the tab.
   const shownRows = grid.rows.filter(r => r.cells.some(c => c.on));
   const sittingOut = grid.rows.filter(r => !r.cells.some(c => c.on));
+
+  /* ── Zooming the grid out ───────────────────────────────────────────
+     By the end of a trip there are a dozen charges and the grid is far wider
+     than a phone, so you read it three columns at a time and never see the
+     shape of it. Pinching doesn't help: the grid sizes itself to the viewport
+     and scrolls inside its own box, so zooming the page out shrinks the text
+     and leaves the same three columns on screen. (EventDetail.module.css says
+     the same thing about the tab strip.)
+
+     So the grid gets its own zoom. CSS `zoom` rather than `transform: scale`
+     because it changes layout rather than painting over it — the wrapper
+     really does get narrower, so the scrollbar, the sticky name column and
+     hit-testing on the cells all keep working, and the text stays type rather
+     than becoming a shrunken bitmap.
+
+     Kept in localStorage: the trip you are squinting at today is the one you
+     will be squinting at tomorrow. */
+  const gridWrapRef = useRef(null);
+  const gridRef = useRef(null);
+  const [zoom, setZoom] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(ZOOM_KEY));
+      return saved >= MIN_ZOOM && saved <= 1 ? saved : 1;
+    } catch { return 1; }
+  });
+  const [overflows, setOverflows] = useState(false);
+
+  /* Snapped to 5%, so the buttons land on round numbers and Fit reports 35%
+     rather than 34.7%.
+
+     `down` rounds the snap towards zero instead of to the nearest, which is
+     what Fit needs: rounding 34.7% up to 35% would leave the last column a few
+     pixels off the screen, and a Fit button that doesn't quite fit is worse
+     than no Fit button. */
+  const applyZoom = useCallback((value, down = false) => {
+    const snapped = (down ? Math.floor : Math.round)(value * 20) / 20;
+    const next = Math.min(1, Math.max(MIN_ZOOM, snapped));
+    setZoom(next);
+    try { localStorage.setItem(ZOOM_KEY, String(next)); } catch { /* private mode */ }
+  }, []);
+
+  /* Shrink until the whole trip fits the screen.
+
+     Measured against the table's natural width — its rendered width divided
+     back out by whatever zoom is already on it — so pressing Fit twice doesn't
+     shrink it twice. */
+  const fitToWidth = useCallback(() => {
+    const wrap = gridWrapRef.current;
+    const table = gridRef.current;
+    if (!wrap || !table) return;
+    const natural = table.getBoundingClientRect().width / zoom;
+    if (natural > 0) applyZoom(wrap.clientWidth / natural, true);
+  }, [zoom, applyZoom]);
+
+  /* The Venmo column goes once the grid is zoomed out.
+
+     It is a text input, and a text input at 40% is neither readable nor
+     typable — while being one of the widest columns on the grid. Dropping it
+     buys real width back for the numbers, which are the thing you zoomed out
+     to see. Zoom back in and it returns with every handle still on it. */
+  const showVenmo = zoom >= 0.75;
+
+  // Offer the control only when there is something to zoom out of — but keep
+  // offering it once zoomed, or there would be no way back in.
+  useEffect(() => {
+    const wrap = gridWrapRef.current;
+    if (!wrap || typeof ResizeObserver === 'undefined') return undefined;
+    const check = () => setOverflows(wrap.scrollWidth > wrap.clientWidth + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(wrap);
+    if (gridRef.current) ro.observe(gridRef.current);
+    return () => ro.disconnect();
+  }, [grid.columns.length, shownRows.length, zoom]);
 
   /* One cell: is this person in on this one charge.
 
@@ -334,8 +418,31 @@ export function EventExpenses({ event }) {
           Click a cell to put someone in on that charge or take them out — the rest of it
           re-divides. The × by a name takes them off the whole trip.
         </p>
-        <div className={styles.gridWrap}>
-          <table className={styles.grid}>
+        {(overflows || zoom < 1) && (
+          <div className={styles.zoomBar}>
+            <span className={styles.zoomLabel}>Zoom</span>
+            <button
+              type="button"
+              className={styles.zoomBtn}
+              onClick={() => applyZoom(zoom - 0.1)}
+              disabled={zoom <= MIN_ZOOM}
+              aria-label="Zoom the grid out"
+            >−</button>
+            <span className={styles.zoomPct}>{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              className={styles.zoomBtn}
+              onClick={() => applyZoom(zoom + 0.1)}
+              disabled={zoom >= 1}
+              aria-label="Zoom the grid in"
+            >+</button>
+            <button type="button" className={styles.zoomFit} onClick={fitToWidth}>
+              Fit all
+            </button>
+          </div>
+        )}
+        <div className={styles.gridWrap} ref={gridWrapRef}>
+          <table className={styles.grid} ref={gridRef} style={{ zoom }}>
             <thead>
               <tr>
                 <th scope="col" className={styles.gridCorner}>Person</th>
@@ -352,7 +459,7 @@ export function EventExpenses({ event }) {
                 ))}
                 <th scope="col" className={styles.gridTotalCol}>Their total</th>
                 <th scope="col" className={styles.gridTotalCol}>Still owes</th>
-                <th scope="col" className={styles.gridTotalCol}>Venmo</th>
+                {showVenmo && <th scope="col" className={styles.gridTotalCol}>Venmo</th>}
               </tr>
             </thead>
             <tbody>
@@ -442,6 +549,7 @@ export function EventExpenses({ event }) {
                       </td>
                     );
                   })()}
+                  {showVenmo && (
                   <td className={styles.gridCellPad}>
                     <input
                       className={styles.gridVenmo}
@@ -453,6 +561,7 @@ export function EventExpenses({ event }) {
                       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                     />
                   </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -474,7 +583,7 @@ export function EventExpenses({ event }) {
                 <td className={grid.grandOutstanding > 0 ? styles.gridOwed : styles.gridTotal}>
                   {grid.grandOutstanding > 0 ? money(grid.grandOutstanding) : '—'}
                 </td>
-                <td className={styles.gridTotal} />
+                {showVenmo && <td className={styles.gridTotal} />}
               </tr>
             </tfoot>
           </table>

@@ -312,3 +312,19 @@
   .statementTable .stAmount, .statementTable thead th.stAmount { display: none; }
   .statementTotal, .statementOwed { font-size: 1.2rem; }
 }
+
+/* ── Zooming the grid out ────────────────────────────────────────────
+   A dozen charges is far wider than a phone, and the grid scrolls inside its
+   own box — so pinching the page shrinks the text without revealing another
+   column. This zooms the table itself. Sits above the grid, and only appears
+   when there is something to zoom out of. */
+.zoomBar { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.5rem; }
+.zoomLabel { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+/* Sized for a thumb: these are the controls you reach for on a phone, which is
+   the screen the grid does not fit on in the first place. */
+.zoomBtn { width: 1.9rem; height: 1.9rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 1rem; font-weight: 700; line-height: 1; cursor: pointer; }
+.zoomBtn:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
+.zoomBtn:disabled { opacity: 0.35; cursor: default; }
+.zoomPct { min-width: 2.6rem; text-align: center; font-size: 0.78rem; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+.zoomFit { padding: 0.35rem 0.7rem; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); color: var(--color-text-secondary); font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer; }
+.zoomFit:hover { border-color: var(--color-accent); color: var(--color-accent); }
