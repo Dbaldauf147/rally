@@ -12,7 +12,8 @@
 //   • GET  (Vercel Cron) — runs daily, sends to each enabled user on their
 //     chosen weekday, deduped once per day.
 //   • POST { uid, preview: true } — returns the HTML without sending.
-//   • POST { uid } — "send test now", straight to the account's own address.
+//   • POST { uid } — "send test now", to the account's own address alone,
+//     never the shared list.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { weddingStats, snapshotOf } from '../lib/weddingStats.js';
@@ -300,16 +301,38 @@ export function buildDigestForUser(userData, now = new Date()) {
   };
 }
 
-async function sendDigestForUser(resendKey, uid, userData, now) {
+/* Where a test send is allowed to go: the account's own address, and nothing
+   else.
+
+   The shared list is the point of the weekly digest — a wedding has two people
+   planning it — but it is emphatically not the point of the Test button. That
+   button exists to let you look at the thing before anyone else does, and a
+   test that also mails your fiancée every time you want to check the wording
+   is a button you stop pressing.
+
+   Run through digestRecipients with an empty config so a malformed account
+   address is rejected the same way any other address would be, and so this
+   can only ever return one entry. */
+export function testRecipients(userData) {
+  return digestRecipients({}, userData?.email);
+}
+
+/* `to` overrides who it goes to; the cron leaves it out and gets the whole
+   configured list. Kept as an argument rather than read off the config,
+   because "who is this going to" is the one decision a send should never make
+   for itself. */
+async function sendDigestForUser(resendKey, uid, userData, now, to = null) {
   const built = buildDigestForUser(userData, now);
   if (built.skipped) return { uid, skipped: built.skipped };
+  const emails = to || built.emails;
+  if (!emails.length) return { uid, skipped: 'no email' };
 
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'Rally Wedding <noreply@resend.dev>',
-      to: built.emails,
+      to: emails,
       subject: built.subject,
       html: built.html,
     }),
@@ -323,7 +346,7 @@ async function sendDigestForUser(resendKey, uid, userData, now) {
     success: true,
     done: built.sum.complete,
     total: built.sum.total,
-    sentTo: built.emails,
+    sentTo: emails,
     snapshot: built.snapshot,
   };
 }
@@ -360,15 +383,23 @@ export default async function handler(req, res) {
     return res.status(200).json({ skipped: true, reason: 'No RESEND_API_KEY configured' });
   }
 
-  // "Send test now" — always to the account's own address, never one supplied
-  // in the request body.
+  /* "Send test now" — to the account's own address, and only there.
+
+     Never an address out of the request body, and never the shared list
+     either: this is the button you press to see the thing before anybody else
+     does, and one that also mails whoever else is on the digest is a button
+     nobody presses twice. */
   if (req.method === 'POST') {
     const uid = req.body?.uid;
     if (!uid) return res.status(400).json({ error: 'uid required' });
     try {
       const snap = await db.collection('users').doc(uid).get();
       if (!snap.exists) return res.status(404).json({ error: 'user not found' });
-      const result = await sendDigestForUser(resendKey, uid, snap.data(), new Date());
+      const to = testRecipients(snap.data());
+      if (!to.length) {
+        return res.status(200).json({ sent: 0, skipped: 'no address on your account to send a test to' });
+      }
+      const result = await sendDigestForUser(resendKey, uid, snap.data(), new Date(), to);
       if (result.skipped) return res.status(200).json({ sent: 0, ...result });
       if (!result.success) return res.status(502).json(result);
       // Deliberately does NOT write lastSnapshot: a test send shouldn't consume

@@ -1027,9 +1027,9 @@ function GuestList() {
                   type="button"
                   className={styles.digestTest}
                   onClick={sendDigestTest}
-                  disabled={digestBusy || !digestCfg.emails.some((e) => e.trim())}
+                  disabled={digestBusy}
                 >
-                  {digestBusy ? 'Sending…' : 'Send one now'}
+                  {digestBusy ? 'Sending…' : 'Send one to me'}
                 </button>
                 {digestMsg && (
                   <span className={digestMsg.type === 'ok' ? styles.digestOkMsg : styles.digestErrMsg}>
@@ -1038,8 +1038,9 @@ function GuestList() {
                 )}
               </div>
               <p className={styles.digestNote}>
-                Sends in the morning on your chosen day. A test send doesn&apos;t count as the
-                week&apos;s email, so next one still shows what changed.
+                Sends in the morning on your chosen day, to everyone above. A test goes to
+                your own address only — nobody else on the list gets one — and doesn&apos;t
+                count as the week&apos;s email, so the next one still shows what changed.
               </p>
             </div>
           )}
