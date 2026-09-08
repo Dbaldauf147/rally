@@ -250,6 +250,9 @@ export function normalizeEntry(raw) {
   const out = { id: String(raw?.id || makeId()) };
   FIELD_KEYS.forEach((k) => { out[k] = String(raw?.[k] ?? '').trim(); });
   out.status = parseStatus(raw?.status);
+  // Appointments off the calendar this record has been matched to. See the
+  // appointments section below for why they're stored rather than re-fetched.
+  out.appointments = normalizeAppointments(raw?.appointments);
   // Values for columns the owner added. Kept as stored — coercing needs the
   // field definition, which lives on the list and not on the record.
   out.custom = (raw?.custom && typeof raw.custom === 'object' && !Array.isArray(raw.custom))
@@ -298,6 +301,13 @@ export function normalizeList(raw) {
     columnLabels: labels,
     hiddenColumns: strings(raw?.hiddenColumns),
     daysSinceSource: String(raw?.daysSinceSource ?? '').trim(),
+    calendar: {
+      id: String(raw?.calendar?.id ?? '').trim(),
+      name: String(raw?.calendar?.name ?? '').trim(),
+    },
+    // Events told "this isn't a doctor's appointment". Kept by id so they stop
+    // being offered without being linked to anything.
+    ignoredEvents: strings(raw?.ignoredEvents),
     entries,
   };
 }
@@ -400,26 +410,47 @@ export function laneCounts(list) {
 
    Untyped rows come last under their own heading, and a group with nothing in
    it doesn't render at all rather than leaving a bare heading behind. */
+/* Something settled sinks.
+
+   Being treated first, then ongoing, then resolved — the order the filter pills
+   already run in. It applies inside a heading and to the headings themselves:
+   a speciality with nothing left open drops below one that still has something
+   going on, keeping its place relative to the other settled ones.
+
+   Without the second half the page reads backwards. Four specialities whose
+   only record is a resolved complaint sat above the one thing actually being
+   treated, because they happened to come first in the type order — and the type
+   order is about how you like the list arranged, not about what still needs
+   attention. */
+const statusRank = (e) => {
+  const i = STATUS_ORDER.indexOf(e?.status);
+  return i === -1 ? STATUS_ORDER.indexOf(STATUS.NONE) : i;
+};
+const settled = (group) => group.entries.every((e) => e.status === STATUS.RESOLVED);
+
 export function groupByType(list, { query = '', status = 'all', lane = 'all' } = {}) {
   const { types, fields, entries } = normalizeList(list);
   const visible = entries.filter((e) =>
     (status === 'all' || e.status === status) && inLane(e, lane) && matchesQuery(e, query, fields));
 
+  const byStatusThenName = (type) => (a, b) =>
+    statusRank(a) - statusRank(b)
+    || entryTitle(a, type).localeCompare(entryTitle(b, type), undefined, { sensitivity: 'base' });
+
   const groups = types.map((type) => ({
     type,
-    entries: visible
-      .filter((e) => sameType(e.type, type))
-      .sort((a, b) => entryTitle(a, type).localeCompare(entryTitle(b, type), undefined, { sensitivity: 'base' })),
+    entries: visible.filter((e) => sameType(e.type, type)).sort(byStatusThenName(type)),
   }));
 
   groups.push({
     type: NO_TYPE,
-    entries: visible
-      .filter((e) => !e.type)
-      .sort((a, b) => entryTitle(a).localeCompare(entryTitle(b), undefined, { sensitivity: 'base' })),
+    entries: visible.filter((e) => !e.type).sort(byStatusThenName(NO_TYPE)),
   });
 
-  return groups.filter((g) => g.entries.length > 0);
+  // Stable within each half, so the owner's type order still decides everything
+  // except whether a heading has anything left open.
+  const shown = groups.filter((g) => g.entries.length > 0);
+  return [...shown.filter((g) => !settled(g)), ...shown.filter(settled)];
 }
 
 export function countByStatus(entries) {
@@ -636,6 +667,248 @@ export const customValueOf = (entry, field) => entry?.custom?.[field?.id];
 
 // What a custom column reads as, for display and for search.
 export const customText = (entry, field) => formatCustomValue(field, customValueOf(entry, field));
+
+// --- appointments off a Google Calendar -------------------------------------
+//
+// The owner nominates one calendar — a "Medical" one, typically — and every
+// appointment on it is either linked to the record it belongs to or waved off.
+// Linking is what makes an appointment count for anything: a past one writes
+// the visit into the Date column the counter reads, and a booked future one
+// answers "next visit" outright instead of leaving the cadence to guess it.
+//
+// What's linked is stored on the record rather than held in the fetch. The page
+// has to read the same offline, and a calendar that stops being reachable —
+// revoked, renamed, deleted — must not blank the dates it already contributed.
+// The fetch only ever tells us about events we haven't decided about yet.
+
+/* An appointment's day, from either shape Google returns: an all-day event
+   carries "2026-03-12", a timed one "2026-03-12T14:00:00-04:00". Only the day
+   matters here, and taking it off the front of the string keeps it the day the
+   calendar says rather than the day the reader's timezone shifts it to. */
+const apptDay = (value) => {
+  const p = parseLooseDate(String(value ?? '').slice(0, 10));
+  return validParts(p) && p.year ? `${p.year}-${pad2(p.month)}-${pad2(p.day)}` : '';
+};
+
+const todayKey = (today) =>
+  `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+
+/* One record's linked appointments, oldest first.
+
+   An event with no readable day is dropped: it can't be counted from, and
+   keeping it would leave a row no column could show. */
+export function normalizeAppointments(raw) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(raw) ? raw : []).forEach((a) => {
+    const eventId = String(a?.eventId ?? '').trim();
+    const date = apptDay(a?.date ?? a?.start);
+    if (!eventId || !date || seen.has(eventId)) return;
+    seen.add(eventId);
+    out.push({ eventId, date, title: String(a?.title ?? '').trim() });
+  });
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/* The visit already had, and the one still to come.
+
+   Today's appointment counts as had. You were there this morning, and the
+   counter saying "Today" is the right answer — calling it upcoming would put a
+   booking in the future that has already happened. */
+export function lastAppointment(entry, today = new Date()) {
+  const t = todayKey(today);
+  const past = (entry?.appointments || []).filter((a) => a.date <= t);
+  return past.length ? past[past.length - 1] : null;
+}
+
+export function nextAppointment(entry, today = new Date()) {
+  const t = todayKey(today);
+  return (entry?.appointments || []).find((a) => a.date > t) || null;
+}
+
+/* What the Next visit column shows.
+
+   A booked appointment beats the cadence's arithmetic — the cadence says when
+   you're due, the calendar says when you're going, and the second is the one
+   worth printing. `booked` marks which it is, so the column can say so. */
+export function upcomingVisit(entry, lastValue, today = new Date()) {
+  const booked = nextAppointment(entry, today);
+  if (!booked) {
+    const guess = nextVisit(lastValue, entry?.cadence, today);
+    return guess ? { ...guess, booked: false, title: '' } : null;
+  }
+  const p = parseLooseDate(booked.date);
+  const then = Date.UTC(p.year, p.month - 1, p.day);
+  const now = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const daysAway = Math.round((then - now) / 86400000);
+  return {
+    iso: booked.date,
+    label: `${p.month}/${p.day}/${p.year}`,
+    daysAway,
+    overdue: false, // in the future by construction
+    due: daysAway === 0,
+    booked: true,
+    title: booked.title,
+  };
+}
+
+// Which calendar the appointments come from. Clearing it leaves everything
+// already linked alone — those dates belong to the records now.
+export function setDoctorCalendar(list, id, name) {
+  const l = normalizeList(list);
+  return { ...l, calendar: { id: String(id ?? '').trim(), name: String(name ?? '').trim() } };
+}
+
+// Every event id already spoken for, linked or waved off, so the suggestions
+// can be whatever is left.
+export function settledEventIds(list) {
+  const l = normalizeList(list);
+  const out = new Set(l.ignoredEvents);
+  l.entries.forEach((e) => e.appointments.forEach((a) => out.add(a.eventId)));
+  return out;
+}
+
+/* Link an appointment to a record.
+
+   A past one also writes its day into the Date column the counter reads —
+   that's the point of linking it — but only when it's later than what's there,
+   so filing an old appointment can't walk the last-visit date backwards past a
+   more recent one. */
+export function linkAppointment(list, entryId, event, { dateFieldId = '', today = new Date() } = {}) {
+  const l = normalizeList(list);
+  const entry = l.entries.find((e) => e.id === entryId);
+  const date = apptDay(event?.date ?? event?.start);
+  const eventId = String(event?.eventId ?? event?.id ?? '').trim();
+  if (!entry || !date || !eventId) return l;
+
+  const appointment = { eventId, date, title: String(event?.title ?? '').trim() };
+  const linked = normalizeList({
+    ...l,
+    // An event linked to one record and then to another moves rather than
+    // ending up on both: it was one appointment either way.
+    entries: l.entries.map((e) => ({
+      ...e,
+      appointments: e.id === entryId
+        ? [...e.appointments.filter((a) => a.eventId !== eventId), appointment]
+        : e.appointments.filter((a) => a.eventId !== eventId),
+    })),
+    ignoredEvents: l.ignoredEvents.filter((id) => id !== eventId),
+  });
+
+  if (!dateFieldId || date > todayKey(today)) return linked;
+  const current = apptDay(linked.entries.find((e) => e.id === entryId)?.custom?.[dateFieldId]);
+  if (current && current >= date) return linked;
+  return setCustomValue(linked, entryId, dateFieldId, date);
+}
+
+/* Unlink one, and wave one off.
+
+   Neither touches the Date column. A date written into a record belongs to the
+   record now — it may have been edited since, and quietly rewinding a
+   last-visit date is worse than leaving one that's a day too generous. */
+export function unlinkAppointment(list, eventId) {
+  const l = normalizeList(list);
+  const id = String(eventId ?? '').trim();
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => ({ ...e, appointments: e.appointments.filter((a) => a.eventId !== id) })),
+  });
+}
+
+export function ignoreAppointment(list, eventId) {
+  const l = normalizeList(list);
+  const id = String(eventId ?? '').trim();
+  if (!id) return l;
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => ({ ...e, appointments: e.appointments.filter((a) => a.eventId !== id) })),
+    ignoredEvents: [...l.ignoredEvents, id],
+  });
+}
+
+// Put a waved-off event back among the suggestions.
+export function unignoreAppointment(list, eventId) {
+  const l = normalizeList(list);
+  const id = String(eventId ?? '').trim();
+  return { ...l, ignoredEvents: l.ignoredEvents.filter((x) => x !== id) };
+}
+
+/* Guessing which record an appointment belongs to.
+
+   Calendar entries are written for the person reading them — "Dr Chen 2pm",
+   "Dermatology follow-up", "Bloods at Newport Medical" — so the signal is
+   whichever of a record's own words turn up in the event. A surname is worth
+   more than a speciality, because a speciality is shared by every record under
+   that heading.
+
+   Words too short or too common to mean anything go first, so "Appointment"
+   and "Dr" can't match every record in the list at once. */
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'dr', 'drs', 'doctor', 'appointment', 'appt', 'visit',
+  'follow', 'followup', 'check', 'checkup', 'annual', 'yearly', 'exam', 'consult',
+  'consultation', 'office', 'clinic', 'center', 'centre', 'medical', 'health', 'new',
+  'patient', 'review', 'call', 'phone', 'video', 'telehealth', 'test', 'tests',
+]);
+
+const words = (text) => String(text ?? '')
+  .toLowerCase()
+  .split(/[^a-z0-9]+/)
+  .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+
+// Every word of the phrase present in the event — a two-word place name has to
+// arrive whole rather than on the strength of one half.
+const allPresent = (phrase, haystack) => {
+  const parts = words(phrase);
+  return parts.length > 0 && parts.every((w) => haystack.has(w));
+};
+
+const surnameOf = (name) => {
+  const parts = words(name);
+  return parts.length ? parts[parts.length - 1] : '';
+};
+
+/* The record an event most likely belongs to, or null when nothing in the list
+   looks like it. `reason` is what matched, so the page can show its working
+   rather than asking for a yes to an unexplained guess. */
+export function suggestEntryFor(event, entries) {
+  const haystack = new Set(words(`${event?.title ?? ''} ${event?.location ?? ''}`));
+  if (haystack.size === 0) return null;
+
+  let best = null;
+  (entries || []).forEach((entry) => {
+    let score = 0;
+    let reason = '';
+    if (allPresent(entry.doctor, haystack)) { score += 4; reason = 'name'; }
+    else if (surnameOf(entry.doctor) && haystack.has(surnameOf(entry.doctor))) { score += 3; reason = 'name'; }
+    if (allPresent(entry.place, haystack)) { score += 2; reason = reason || 'place'; }
+    if (allPresent(entry.type, haystack)) { score += 1; reason = reason || 'type'; }
+    if (score > (best?.score ?? 0)) best = { entryId: entry.id, score, reason };
+  });
+  // One weak signal on its own — a speciality half the list shares — isn't
+  // worth putting a name to. Better to offer the event unmatched.
+  return best && best.score >= 2 ? best : null;
+}
+
+/* The appointments still waiting on a decision, each with its guess.
+
+   Latest first, which puts what's booked ahead of what's been and gone: the
+   upcoming ones are the ones a decision actually changes. */
+export function pendingAppointments(list, events) {
+  const l = normalizeList(list);
+  const settled = settledEventIds(l);
+  const checkIns = l.entries.filter(isCheckInEntry);
+  return (events || [])
+    .map((e) => ({
+      eventId: String(e?.id ?? e?.eventId ?? '').trim(),
+      date: apptDay(e?.start ?? e?.date),
+      title: String(e?.title ?? '').trim(),
+      location: String(e?.location ?? '').trim(),
+      allDay: !!e?.allDay,
+    }))
+    .filter((e) => e.eventId && e.date && !settled.has(e.eventId))
+    .map((e) => ({ ...e, suggestion: suggestEntryFor(e, checkIns) }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
 
 // --- the columns, built-in and added alike ---------------------------------
 //

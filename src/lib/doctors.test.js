@@ -10,6 +10,9 @@ import {
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
   isCheckInEntry, isIssueEntry, laneCounts, inLane,
+  normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
+  linkAppointment, unlinkAppointment, ignoreAppointment, unignoreAppointment,
+  settledEventIds, suggestEntryFor, pendingAppointments, setDoctorCalendar,
 } from './doctors';
 
 const entry = (o) => normalizeEntry(o);
@@ -433,10 +436,15 @@ describe('seeded types', () => {
       .toEqual(['Gastroenterologist', 'Skin', 'Colorectal', 'Primary Physician', 'Dentist', 'Ear']);
   });
 
-  it('puts the untyped complaints last, under their own heading', () => {
+  it('gathers the untyped complaints under their own heading', () => {
     const groups = groupByType(seedDoctors());
-    expect(groups[groups.length - 1].type).toBe(NO_TYPE);
-    expect(groups[groups.length - 1].entries).toHaveLength(4);
+    const untyped = groups.find((g) => g.type === NO_TYPE);
+    expect(untyped.entries).toHaveLength(4);
+    // It used to be pinned last. It no longer is: the pile holds the one record
+    // still being treated, so it now sits above the specialities that are
+    // entirely resolved. It is still last among the headings with nothing open.
+    const open = groups.filter((g) => g.entries.some((e) => e.status !== 'resolved'));
+    expect(open[open.length - 1].type).toBe(NO_TYPE);
   });
 
   it('files both skin records under the one Skin heading', () => {
@@ -887,5 +895,314 @@ describe('check-ins and issues', () => {
       .toEqual(['4']);
     expect(groupByType(list, { lane: 'issues', status: 'treating' }).flatMap((g) => g.entries.map((e) => e.id)))
       .toEqual(['4']);
+  });
+});
+
+describe('settled things sink', () => {
+  // Shaped like the real list: four specialities holding nothing but a resolved
+  // complaint, one ongoing, and the untyped pile where the live one sits.
+  const list = {
+    types: ['Skin', 'Colorectal', 'Dentist', 'Ear', 'Hair'],
+    entries: [
+      { id: 'skin', type: 'Skin', issue: 'Jock itch', status: 'resolved' },
+      { id: 'colo', type: 'Colorectal', issue: 'Anal fissure', status: 'resolved' },
+      { id: 'dent', type: 'Dentist', issue: 'Angular cheilitis', status: 'resolved', cadence: 'Every 6 months' },
+      { id: 'ear', type: 'Ear', issue: 'Eczema', status: 'resolved', cadence: 'Every 1 year(s)' },
+      { id: 'hair', type: 'Hair', issue: 'Male pattern balding', status: 'none' },
+      { id: 'levator', issue: 'Levator spasm', status: 'resolved' },
+      { id: 'neck', issue: 'Neck sprain', status: 'resolved' },
+      { id: 'pf-left', issue: 'Plantar fasciitis (left foot)', status: 'resolved' },
+      { id: 'pf-right', issue: 'Plantar fasciitis (right foot)', status: 'treating' },
+    ],
+  };
+  const headings = (lane = 'issues') => groupByType(list, { lane }).map((g) => g.type);
+  const ids = (lane = 'issues') => groupByType(list, { lane }).flatMap((g) => g.entries.map((e) => e.id));
+
+  it('puts what is still open above what is finished, within a heading', () => {
+    const untyped = groupByType(list, { lane: 'issues' }).find((g) => g.type === '');
+    expect(untyped.entries.map((e) => e.id))
+      .toEqual(['pf-right', 'levator', 'neck', 'pf-left']);
+  });
+
+  it('floats a heading with something open above the settled ones', () => {
+    // Hair is ongoing and the untyped pile still has one being treated, so both
+    // come before the four specialities that are entirely resolved.
+    expect(headings().slice(0, 2)).toEqual(['Hair', '']);
+    expect(headings().slice(2)).toEqual(['Skin', 'Colorectal', 'Dentist', 'Ear']);
+  });
+
+  it('leaves the being-treated record at the top of its own heading', () => {
+    // Not the top of the page: Hair is ongoing and sits earlier in the owner's
+    // type order, and this rule only sinks headings with nothing left open —
+    // it does not re-rank the ones that are still live against each other.
+    expect(ids()[0]).toBe('hair');
+    expect(ids()[1]).toBe('pf-right');
+  });
+
+  it('keeps the owner’s type order among headings that are equally settled', () => {
+    // Skin/Colorectal/Dentist/Ear are all resolved — they stay in the order the
+    // owner arranged, rather than being re-sorted by name.
+    expect(headings().slice(2)).toEqual(['Skin', 'Colorectal', 'Dentist', 'Ear']);
+  });
+
+  it('sorts by name inside a status, as it always did', () => {
+    const same = {
+      types: ['Skin'],
+      entries: [
+        { id: 'z', type: 'Skin', doctor: 'Zeta', status: 'resolved' },
+        { id: 'a', type: 'Skin', doctor: 'Alpha', status: 'resolved' },
+      ],
+    };
+    expect(groupByType(same).flatMap((g) => g.entries.map((e) => e.id))).toEqual(['a', 'z']);
+  });
+
+  it('treats an unrecognised status as ongoing, not as settled', () => {
+    const odd = { types: ['X'], entries: [{ id: 'odd', type: 'X', issue: 'thing', status: 'weird' }] };
+    expect(groupByType(odd)[0].entries[0].id).toBe('odd');
+    // and it does not sink the heading
+    const mixed = {
+      types: ['Done', 'Odd'],
+      entries: [
+        { id: 'd', type: 'Done', issue: 'a', status: 'resolved' },
+        { id: 'o', type: 'Odd', issue: 'b', status: 'weird' },
+      ],
+    };
+    expect(groupByType(mixed).map((g) => g.type)).toEqual(['Odd', 'Done']);
+  });
+});
+
+// --- appointments off a Google Calendar -------------------------------------
+
+const TODAY = new Date(2026, 8, 7); // 2026-09-07
+
+// A list with one Date column and two records, the shape the page has once a
+// "Last Visit" column exists.
+function apptList() {
+  let l = normalizeList({
+    types: ['Dermatology', 'Dental'],
+    entries: [
+      { id: 'e1', doctor: 'Amy Chen', type: 'Dermatology', place: 'Newport Skin', cadence: 'Every 6 months' },
+      { id: 'e2', doctor: 'Rob Salk', type: 'Dental', cadence: 'Every 6 months' },
+    ],
+  });
+  l = addField(l, { label: 'Last Visit', type: 'date' });
+  return l;
+}
+const dateFieldId = (l) => l.fields[0].id;
+const ev = (o) => ({ id: 'g1', title: '', start: '', ...o });
+
+describe('normalizeAppointments', () => {
+  it('reads both shapes Google returns and sorts oldest first', () => {
+    const out = normalizeAppointments([
+      { eventId: 'b', start: '2026-03-12T14:00:00-04:00', title: 'Timed' },
+      { eventId: 'a', date: '2026-01-05', title: 'All day' },
+    ]);
+    expect(out.map((a) => [a.eventId, a.date])).toEqual([['a', '2026-01-05'], ['b', '2026-03-12']]);
+  });
+
+  it('drops what it cannot count from, and repeats of one event', () => {
+    const out = normalizeAppointments([
+      { eventId: 'a', date: '2026-01-05' },
+      { eventId: 'a', date: '2026-02-05' },
+      { eventId: 'b', date: 'sometime' },
+      { eventId: '', date: '2026-01-05' },
+      null,
+    ]);
+    expect(out).toEqual([{ eventId: 'a', date: '2026-01-05', title: '' }]);
+  });
+
+  it('survives a round trip through the stored entry', () => {
+    const e = normalizeEntry({ doctor: 'A', appointments: [{ eventId: 'a', date: '2026-01-05' }] });
+    expect(normalizeEntry(e).appointments).toEqual([{ eventId: 'a', date: '2026-01-05', title: '' }]);
+  });
+});
+
+describe('lastAppointment / nextAppointment', () => {
+  const entry = normalizeEntry({
+    doctor: 'A',
+    appointments: [
+      { eventId: 'past', date: '2026-03-12' },
+      { eventId: 'today', date: '2026-09-07' },
+      { eventId: 'soon', date: '2026-10-01' },
+      { eventId: 'later', date: '2027-03-01' },
+    ],
+  });
+
+  it('counts today as a visit had, not one to come', () => {
+    expect(lastAppointment(entry, TODAY).eventId).toBe('today');
+    expect(nextAppointment(entry, TODAY).eventId).toBe('soon');
+  });
+
+  it('is null on either side when there is nothing there', () => {
+    const bare = normalizeEntry({ doctor: 'A' });
+    expect(lastAppointment(bare, TODAY)).toBe(null);
+    expect(nextAppointment(bare, TODAY)).toBe(null);
+  });
+});
+
+describe('upcomingVisit', () => {
+  it('prints the booked appointment rather than the cadence guess', () => {
+    const entry = normalizeEntry({
+      doctor: 'A', cadence: 'Every 6 months',
+      appointments: [{ eventId: 'x', date: '2026-10-01', title: 'Dr Chen' }],
+    });
+    const out = upcomingVisit(entry, '2026-03-12', TODAY);
+    expect(out.label).toBe('10/1/2026');
+    expect(out.booked).toBe(true);
+    expect(out.daysAway).toBe(24);
+    expect(out.title).toBe('Dr Chen');
+  });
+
+  it('falls back to the cadence when nothing is booked', () => {
+    const entry = normalizeEntry({ doctor: 'A', cadence: 'Every 6 months' });
+    const out = upcomingVisit(entry, '2026-03-12', TODAY);
+    expect(out.label).toBe('9/12/2026');
+    expect(out.booked).toBe(false);
+  });
+
+  it('is null when there is neither', () => {
+    expect(upcomingVisit(normalizeEntry({ doctor: 'A' }), '', TODAY)).toBe(null);
+  });
+});
+
+describe('linkAppointment', () => {
+  it('files the appointment and writes a past visit into the Date column', () => {
+    const l = apptList();
+    const f = dateFieldId(l);
+    const out = linkAppointment(l, 'e1', ev({ start: '2026-03-12', title: 'Dr Chen' }), { dateFieldId: f, today: TODAY });
+    const e1 = out.entries.find((e) => e.id === 'e1');
+    expect(e1.appointments).toEqual([{ eventId: 'g1', date: '2026-03-12', title: 'Dr Chen' }]);
+    expect(e1.custom[f]).toBe('2026-03-12');
+  });
+
+  it('leaves the Date column alone for one still to come', () => {
+    const l = apptList();
+    const f = dateFieldId(l);
+    const out = linkAppointment(l, 'e1', ev({ start: '2026-10-01' }), { dateFieldId: f, today: TODAY });
+    expect(out.entries.find((e) => e.id === 'e1').custom[f]).toBe(undefined);
+  });
+
+  it('never walks the last visit backwards', () => {
+    const l = apptList();
+    const f = dateFieldId(l);
+    const recent = linkAppointment(l, 'e1', ev({ id: 'new', start: '2026-08-01' }), { dateFieldId: f, today: TODAY });
+    const older = linkAppointment(recent, 'e1', ev({ id: 'old', start: '2026-01-05' }), { dateFieldId: f, today: TODAY });
+    expect(older.entries.find((e) => e.id === 'e1').custom[f]).toBe('2026-08-01');
+    expect(older.entries.find((e) => e.id === 'e1').appointments).toHaveLength(2);
+  });
+
+  it('moves an event rather than leaving it on two records', () => {
+    const l = apptList();
+    const first = linkAppointment(l, 'e1', ev({ start: '2026-03-12' }), { today: TODAY });
+    const moved = linkAppointment(first, 'e2', ev({ start: '2026-03-12' }), { today: TODAY });
+    expect(moved.entries.find((e) => e.id === 'e1').appointments).toEqual([]);
+    expect(moved.entries.find((e) => e.id === 'e2').appointments).toHaveLength(1);
+  });
+
+  it('refuses an event with no day, and an unknown record', () => {
+    const l = apptList();
+    expect(linkAppointment(l, 'e1', ev({ start: 'whenever' }), { today: TODAY }).entries[0].appointments).toEqual([]);
+    expect(linkAppointment(l, 'nope', ev({ start: '2026-03-12' }), { today: TODAY }).entries[0].appointments).toEqual([]);
+  });
+});
+
+describe('ignoring and unlinking', () => {
+  it('waves an event off so it stops being offered', () => {
+    const out = ignoreAppointment(apptList(), 'g1');
+    expect(settledEventIds(out).has('g1')).toBe(true);
+    expect(pendingAppointments(out, [ev({ start: '2026-03-12' })])).toEqual([]);
+  });
+
+  it('takes an event back off a record without touching the date it wrote', () => {
+    const l = apptList();
+    const f = dateFieldId(l);
+    const linked = linkAppointment(l, 'e1', ev({ start: '2026-03-12' }), { dateFieldId: f, today: TODAY });
+    const out = unlinkAppointment(linked, 'g1');
+    expect(out.entries.find((e) => e.id === 'e1').appointments).toEqual([]);
+    expect(out.entries.find((e) => e.id === 'e1').custom[f]).toBe('2026-03-12');
+  });
+
+  it('linking a waved-off event takes it back off the ignore list', () => {
+    const ignored = ignoreAppointment(apptList(), 'g1');
+    const out = linkAppointment(ignored, 'e1', ev({ start: '2026-03-12' }), { today: TODAY });
+    expect(out.ignoredEvents).toEqual([]);
+  });
+
+  it('unignoring puts it back among the suggestions', () => {
+    const out = unignoreAppointment(ignoreAppointment(apptList(), 'g1'), 'g1');
+    expect(pendingAppointments(out, [ev({ start: '2026-03-12' })])).toHaveLength(1);
+  });
+});
+
+describe('suggestEntryFor', () => {
+  const entries = apptList().entries;
+
+  it('matches on the doctor’s name, however the calendar wrote it', () => {
+    expect(suggestEntryFor({ title: 'Dr. Chen 2pm' }, entries)).toMatchObject({ entryId: 'e1', reason: 'name' });
+    expect(suggestEntryFor({ title: 'Amy Chen follow-up' }, entries)).toMatchObject({ entryId: 'e1' });
+  });
+
+  it('matches on the place when the name is not there', () => {
+    expect(suggestEntryFor({ title: 'Bloods', location: 'Newport Skin' }, entries)).toMatchObject({ entryId: 'e1', reason: 'place' });
+  });
+
+  it('will not name a record off a speciality alone', () => {
+    expect(suggestEntryFor({ title: 'Dermatology' }, entries)).toBe(null);
+  });
+
+  it('offers nothing for an event with no word worth reading', () => {
+    expect(suggestEntryFor({ title: 'Appointment' }, entries)).toBe(null);
+    expect(suggestEntryFor({ title: '' }, entries)).toBe(null);
+  });
+
+  it('picks the stronger match when two records could fit', () => {
+    const both = [
+      ...entries,
+      normalizeEntry({ id: 'e3', doctor: 'Chen Wu', type: 'Dermatology' }),
+    ];
+    expect(suggestEntryFor({ title: 'Amy Chen, Newport Skin' }, both).entryId).toBe('e1');
+  });
+});
+
+describe('pendingAppointments', () => {
+  const events = [
+    ev({ id: 'a', start: '2026-03-12', title: 'Dr. Chen' }),
+    ev({ id: 'b', start: '2026-10-01', title: 'Teeth cleaning — Salk' }),
+    ev({ id: 'c', start: '2026-06-01', title: 'Lunch with Kate' }),
+  ];
+
+  it('offers everything undecided, latest first, each with its guess', () => {
+    const out = pendingAppointments(apptList(), events);
+    expect(out.map((e) => e.eventId)).toEqual(['b', 'c', 'a']);
+    expect(out.find((e) => e.eventId === 'a').suggestion.entryId).toBe('e1');
+    expect(out.find((e) => e.eventId === 'b').suggestion.entryId).toBe('e2');
+    expect(out.find((e) => e.eventId === 'c').suggestion).toBe(null);
+  });
+
+  it('drops the ones already linked or waved off', () => {
+    let l = linkAppointment(apptList(), 'e1', events[0], { today: TODAY });
+    l = ignoreAppointment(l, 'c');
+    expect(pendingAppointments(l, events).map((e) => e.eventId)).toEqual(['b']);
+  });
+
+  it('only ever suggests a check-in record', () => {
+    const withIssue = normalizeList({
+      entries: [{ id: 'i1', doctor: 'Amy Chen', issue: 'Rash', status: 'Being Treated' }],
+    });
+    expect(pendingAppointments(withIssue, [events[0]])[0].suggestion).toBe(null);
+  });
+});
+
+describe('setDoctorCalendar', () => {
+  it('remembers which calendar, and forgets it again', () => {
+    const on = setDoctorCalendar(apptList(), 'med@group.calendar.google.com', 'Medical');
+    expect(on.calendar).toEqual({ id: 'med@group.calendar.google.com', name: 'Medical' });
+    expect(setDoctorCalendar(on, '', '').calendar).toEqual({ id: '', name: '' });
+  });
+
+  it('keeps what was already linked when the calendar changes', () => {
+    const linked = linkAppointment(apptList(), 'e1', ev({ start: '2026-03-12' }), { today: TODAY });
+    const swapped = setDoctorCalendar(linked, 'other', 'Other');
+    expect(swapped.entries.find((e) => e.id === 'e1').appointments).toHaveLength(1);
   });
 });
