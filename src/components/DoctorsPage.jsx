@@ -992,14 +992,25 @@ export function DoctorsPage() {
   const safeList = useMemo(() => list || { types: [], fields: [], entries: [] }, [list]);
   const entries = safeList.entries;
   const counts = useMemo(() => countByStatus(entries), [entries]);
+  // Status answers "how is the complaint going?", so it has nothing to say on
+  // the check-ins lane, where a row is a schedule or a number worth keeping.
+  // Neither the column nor the filter pills show there.
+  const showStatus = lane !== 'checkins';
   const groups = useMemo(
-    () => groupByType(safeList, { query, status, lane }),
-    [safeList, query, status, lane],
+    // A status picked on Issues must not go on quietly hiding rows once the
+    // pills that set it are gone, so the filter lifts with them.
+    () => groupByType(safeList, { query, status: showStatus ? status : 'all', lane }),
+    [safeList, query, status, showStatus, lane],
   );
   const lanes = useMemo(() => laneCounts(safeList), [safeList]);
   // Every column, for the manager; the showing ones, for the table.
   const allColumns = useMemo(() => resolveColumns(safeList), [safeList]);
-  const shownColumns = useMemo(() => allColumns.filter((c) => !c.hidden), [allColumns]);
+  // Dropped from the table rather than hidden for good: the Columns manager
+  // still lists it, and Issues still shows it.
+  const shownColumns = useMemo(
+    () => allColumns.filter((c) => !c.hidden && (showStatus || c.key !== 'status')),
+    [allColumns, showStatus],
+  );
   // Resolved once for the whole table rather than per row.
   const daysFrom = useMemo(() => daysSinceField(safeList), [safeList]);
 
@@ -1074,21 +1085,23 @@ export function DoctorsPage() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search a name, a drug, a street, a complaint…"
         />
-        <div className={styles.pills}>
-          <button
-            type="button"
-            className={status === 'all' ? styles.pillOn : styles.pill}
-            onClick={() => setStatus('all')}
-          >All</button>
-          {STATUS_ORDER.map((s) => (
+        {showStatus && (
+          <div className={styles.pills}>
             <button
-              key={s}
               type="button"
-              className={status === s ? styles.pillOn : styles.pill}
-              onClick={() => setStatus(s)}
-            >{statusLabel(s)} <span className={styles.pillCount}>{counts[s]}</span></button>
-          ))}
-        </div>
+              className={status === 'all' ? styles.pillOn : styles.pill}
+              onClick={() => setStatus('all')}
+            >All</button>
+            {STATUS_ORDER.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={status === s ? styles.pillOn : styles.pill}
+                onClick={() => setStatus(s)}
+              >{statusLabel(s)} <span className={styles.pillCount}>{counts[s]}</span></button>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           className={styles.btn}
