@@ -484,6 +484,20 @@ export function TravelListPage() {
   // Which categories are switched off. Stored with the list rather than on the
   // device, so hiding a category on the phone hides it on the website too.
   const hiddenCats = new Set(list.meta?.hiddenCats || []);
+  /* What a category toggle leaves behind.
+
+     A group header is a divider, not content, so it can't hold a list open by
+     itself: switch Flying off and a "Flying only" list whose every item is
+     tagged Flying goes, header and all.
+
+     But "emptied by the toggles" and "empty in its own right" are different
+     things, and only the first one hides. A list with nothing in it yet, or a
+     header you just added and haven't filled, stays put — otherwise adding one
+     would make it vanish as you look at it. */
+  const isHidden = (it) => !!(it.category && hiddenCats.has(it.category));
+  const shownItems = (section) => section.items.filter((it) => !isHidden(it));
+  const hasContent = (items) => items.some((it) => !it.isHeader);
+  const sectionShows = (s) => !hasContent(s.items) || hasContent(shownItems(s));
   function toggleCat(name) {
     updateList((l) => {
       const cur = l.meta.hiddenCats || [];
@@ -1079,12 +1093,10 @@ export function TravelListPage() {
     });
   }
 
-  // Sections that will actually render (a section whose every item is hidden by
-  // a category toggle renders nothing). Only these get column slots, so we never
-  // leave an empty column on the right.
-  const renderableSections = list.sections.filter(
-    (s) => !(s.items.length > 0 && s.items.every((it) => it.category && hiddenCats.has(it.category))),
-  );
+  // Sections that will actually render. Only these get column slots, so we never
+  // leave an empty column on the right — and since the same test decides what
+  // renders, a slot can't be handed to a list that then draws nothing.
+  const renderableSections = list.sections.filter(sectionShows);
   // Distribute lists into columns, greedily placing each into the currently
   // shortest column (estimated by leaf count) so column bottoms stay roughly
   // even and the full width is used.
@@ -1255,10 +1267,26 @@ export function TravelListPage() {
         <div className={styles.sectionsCol} key={colIdx}>
         {column.sections.map((section) => {
         const sIdx = list.sections.indexOf(section);
-        // Hide items whose category is toggled off; hide the whole list if every
-        // item gets filtered out that way.
-        const visibleItems = section.items.filter((it) => !(it.category && hiddenCats.has(it.category)));
-        if (section.items.length > 0 && visibleItems.length === 0) return null;
+        // Items whose category is toggled off are out. The list itself was
+        // already tested by renderableSections above, so it stays.
+        const visibleItems = shownItems(section);
+        // Headers the toggles have emptied, which go the same way their items
+        // did. Counted over the unfiltered items so a header with nothing under
+        // it in the first place isn't caught — see sectionShows above.
+        const emptiedHeaders = new Set();
+        {
+          let header = null;
+          let under = 0;
+          let left = 0;
+          const decide = () => { if (header && under > 0 && left === 0) emptiedHeaders.add(header); };
+          for (const it of section.items) {
+            if (it.isHeader) { decide(); header = it.id; under = 0; left = 0; continue; }
+            if (!header) continue;
+            under += 1;
+            if (!isHidden(it)) left += 1;
+          }
+          decide();
+        }
         // Count (and go green) over only the visible items, so a list turns green
         // once everything currently shown is checked — items hidden by a category
         // toggle don't hold it back.
@@ -1351,6 +1379,7 @@ export function TravelListPage() {
               <div className={styles.sectionBody}>
                 {visibleItems.map((item, iIdx) => {
                   if (!item.isHeader && hiddenItemIds.has(item.id)) return null; // inside a collapsed header
+                  if (item.isHeader && emptiedHeaders.has(item.id)) return null; // its items are all switched off
                   const hasChildren = item.children && item.children.length > 0;
                   return (
                     <div
