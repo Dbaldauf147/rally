@@ -502,7 +502,7 @@ export function TravelListPage() {
       meta: { ...l.meta, hiddenCats: hidden ? [...(l.meta.categories || [])] : [] },
     }));
   }
-  // Double-click an item to open an editor popup for its label and note.
+  // The pencil on an item row opens an editor popup for its label and note.
   const [editItem, setEditItem] = useState(null); // { sectionId, itemId, label, note, category, children, isNew }
   const [manageCats, setManageCats] = useState(false); // category manager open in the popup
   const [newCatDraft, setNewCatDraft] = useState('');
@@ -1450,8 +1450,7 @@ export function TravelListPage() {
                           )}
                           <div
                             className={styles.itemBody}
-                            onDoubleClick={(e) => { e.preventDefault(); openItemEditor(section.id, item); }}
-                            title="Double-click to edit · drag to move"
+                            title="Drag to move"
                           >
                             <div className={`${styles.itemLabel} ${!hasChildren && item.checked ? styles.itemLabelChecked : ''}`}>
                               {displayLabel(item.label, section.name)}
@@ -1459,6 +1458,19 @@ export function TravelListPage() {
                             </div>
                             {item.note && <div className={styles.itemNote}>{item.note}</div>}
                           </div>
+                          {/* The row is a <label>, so a plain click anywhere in it
+                              ticks the checkbox — both buttons have to stop that
+                              before doing their own job. */}
+                          <button
+                            className={styles.itemEditBtn}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openItemEditor(section.id, item);
+                            }}
+                            title="Edit item"
+                            aria-label={`Edit ${item.label || 'item'}`}
+                          >✏️</button>
                           <button
                             className={styles.itemDeleteBtn}
                             onClick={(e) => {
@@ -1502,16 +1514,18 @@ export function TravelListPage() {
                               checked={!!child.checked}
                               onChange={() => toggleChild(section.id, item.id, child.id)}
                             />
-                            <div
-                              className={styles.itemBody}
-                              onDoubleClick={(e) => { e.preventDefault(); openChildEditor(section.id, item.id, child); }}
-                              title="Double-click to edit"
-                            >
+                            <div className={styles.itemBody}>
                               <div className={`${styles.itemLabel} ${child.checked ? styles.itemLabelChecked : ''}`}>
                                 {displayLabel(child.label, section.name)}
                               </div>
                               {child.note && <div className={styles.itemNote}>{child.note}</div>}
                             </div>
+                            <button
+                              className={styles.itemEditBtn}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openChildEditor(section.id, item.id, child); }}
+                              title="Edit sub-item"
+                              aria-label={`Edit ${child.label || 'sub-item'}`}
+                            >✏️</button>
                             <button
                               className={styles.itemDeleteBtn}
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteChild(section.id, item.id, child.id); }}

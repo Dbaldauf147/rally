@@ -101,6 +101,10 @@
 .sectionHeaderRight { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
 .itemDeleteBtn { flex-shrink: 0; background: none; border: none; color: var(--color-text-muted); font-size: 1.15rem; line-height: 1; cursor: pointer; padding: 0 0.3rem; opacity: 0.5; }
 .itemDeleteBtn:hover { color: var(--color-danger); opacity: 1; }
+/* Sits beside the × and reads as its quieter sibling. It replaced a
+   double-click on the row, which no touch device could perform. */
+.itemEditBtn { flex-shrink: 0; background: none; border: none; font-size: 0.9rem; line-height: 1; cursor: pointer; padding: 0 0.3rem; margin-top: 0.15rem; opacity: 0.45; }
+.itemEditBtn:hover { opacity: 1; }
 .rentDue, .rentNot { display: flex; align-items: center; gap: 0.4rem; padding: 0.6rem 0.85rem; margin-bottom: 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.85rem; }
 .rentDue { background: #FEE2E2; border: 1px solid #FCA5A5; color: #991B1B; }
 .rentNot { background: #DCFCE7; border: 1px solid #86EFAC; color: #166534; }
