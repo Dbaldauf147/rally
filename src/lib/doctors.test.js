@@ -431,6 +431,29 @@ describe('editing the type list', () => {
     expect(l.entries.find((e) => e.id === '1').type).toBe(NO_TYPE);
   });
 
+  it('renaming or deleting a type leaves the rest of the list alone', () => {
+    // Everything a list carries besides its types and records: an added column,
+    // what the counter counts from, the hidden and reordered columns, and the
+    // calendar appointments are read off.
+    const dressed = normalizeList({
+      ...addField(base(), { label: 'Last Visit', type: 'date' }),
+      hiddenColumns: ['status'],
+      columnOrder: ['status', 'name'],
+      columnLabels: { name: 'Who' },
+      calendar: { id: 'med@cal', name: 'Medical' },
+    });
+    const kept = (l) => ({
+      fields: l.fields.length,
+      daysSinceSource: l.daysSinceSource,
+      hiddenColumns: l.hiddenColumns,
+      columnOrder: l.columnOrder,
+      columnLabels: l.columnLabels,
+      calendar: l.calendar,
+    });
+    expect(kept(normalizeList(renameType(dressed, 'Skin', 'Dermatology')))).toEqual(kept(dressed));
+    expect(kept(normalizeList(removeType(dressed, 'Skin')))).toEqual(kept(dressed));
+  });
+
   it('reorders a type, and does nothing at either end', () => {
     expect(moveType(base(), 'Ear', -1).types).toEqual(['Ear', 'Skin', 'Dentist']);
     expect(moveType(base(), 'Ear', 1).types).toEqual(['Skin', 'Dentist', 'Ear']);

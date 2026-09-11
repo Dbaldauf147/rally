@@ -539,7 +539,12 @@ export function renameType(list, from, to) {
     ? l.types.filter((t) => !sameType(t, from))
     : l.types.map((t) => (sameType(t, from) ? clean : t));
 
+  // Spread the list: a rename changes the types and the records carrying them
+  // and nothing else. Rebuilding the object from those two alone dropped the
+  // added columns, their order and labels, what the counter counts from, and
+  // the linked calendar — every one of them silently, on a rename.
   return {
+    ...l,
     types,
     entries: l.entries.map((e) => (sameType(e.type, from) ? { ...e, type: clean } : e)),
   };
@@ -550,6 +555,7 @@ export function renameType(list, from, to) {
 export function removeType(list, name) {
   const l = normalizeList(list);
   return {
+    ...l, // as in renameType: everything else on the list survives a delete
     types: l.types.filter((t) => !sameType(t, name)),
     entries: l.entries.map((e) => (sameType(e.type, name) ? { ...e, type: NO_TYPE } : e)),
   };
