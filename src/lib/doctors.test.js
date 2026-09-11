@@ -10,6 +10,8 @@ import {
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
   isCheckInEntry, isIssueEntry, laneCounts,
+  addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
+  removeQuestionTag, groupQuestions, questionTagCounts, questionMatches, normalizeQuestion,
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
   linkAppointment, unlinkAppointment, ignoreAppointment, unignoreAppointment,
   settledEventIds, suggestEntryFor, pendingAppointments, setDoctorCalendar,
@@ -929,7 +931,7 @@ describe('check-ins and issues', () => {
 
   it('counts each lane, and says so even when they overlap', () => {
     const list = { types: [], entries: [dentist, physical, sprain, treating, contact] };
-    expect(laneCounts(list)).toEqual({ all: 5, checkins: 3, issues: 3 });
+    expect(laneCounts(list)).toEqual({ all: 5, checkins: 3, issues: 3, questions: 0 });
   });
 
   it('filters the grouped list down to one lane', () => {
@@ -1255,5 +1257,151 @@ describe('setDoctorCalendar', () => {
     const linked = linkAppointment(apptList(), 'e1', ev({ start: '2026-03-12' }), { today: TODAY });
     const swapped = setDoctorCalendar(linked, 'other', 'Other');
     expect(swapped.entries.find((e) => e.id === 'e1').appointments).toHaveLength(1);
+  });
+});
+
+describe('questions', () => {
+  const base = () => normalizeList({
+    types: ['Skin', 'Dentist'],
+    entries: [
+      { id: 'd1', doctor: 'Dr. Uliasz', type: 'Skin' },
+      { id: 'd2', place: '34th St Dental', type: 'Dentist' },
+    ],
+  });
+
+  it('writes one down against a record, newest first', () => {
+    let l = addQuestion(base(), { text: 'Is the mole changing?', entryId: 'd1' });
+    l = addQuestion(l, { text: 'Night guard worth it?', entryId: 'd2' });
+    expect(l.questions.map((q) => q.text)).toEqual(['Night guard worth it?', 'Is the mole changing?']);
+    expect(l.questions[1].entryId).toBe('d1');
+    expect(l.questions[0].answered).toBe(false);
+  });
+
+  it('refuses a blank one', () => {
+    expect(addQuestion(base(), { text: '   ', entryId: 'd1' }).questions).toHaveLength(0);
+  });
+
+  it('keeps one that is not for anybody in particular', () => {
+    const l = addQuestion(base(), { text: 'Ask whoever I see next about the rash' });
+    expect(l.questions[0].entryId).toBe('');
+  });
+
+  it('tags and untags, and remembers the tag either way', () => {
+    let l = addQuestion(base(), { text: 'Is the mole changing?', entryId: 'd1' });
+    const id = l.questions[0].id;
+    l = toggleQuestionTag(l, id, 'Follow up');
+    expect(l.questions[0].tags).toEqual(['Follow up']);
+    expect(l.questionTags).toContain('Follow up');
+    l = toggleQuestionTag(l, id, 'Follow up');
+    expect(l.questions[0].tags).toEqual([]);
+    expect(l.questionTags).toContain('Follow up'); // a tag used once is a tag you meant
+  });
+
+  it('answers one without losing what was asked', () => {
+    let l = addQuestion(base(), { text: 'Night guard worth it?', entryId: 'd2' });
+    l = updateQuestion(l, l.questions[0].id, { answered: true, answer: 'Yes — get fitted in spring' });
+    expect(l.questions[0]).toMatchObject({
+      text: 'Night guard worth it?', answered: true, answer: 'Yes — get fitted in spring',
+    });
+  });
+
+  it('counts only the ones still to ask on the tab', () => {
+    let l = addQuestion(base(), { text: 'One', entryId: 'd1' });
+    l = addQuestion(l, { text: 'Two', entryId: 'd1' });
+    l = updateQuestion(l, l.questions.find((q) => q.text === 'One').id, { answered: true });
+    expect(laneCounts(l).questions).toBe(1);
+  });
+
+  it('retires a tag off the vocabulary and off every question', () => {
+    let l = addQuestion(base(), { text: 'One', entryId: 'd1' });
+    l = toggleQuestionTag(l, l.questions[0].id, 'Meds');
+    l = removeQuestionTag(l, 'Meds');
+    expect(l.questionTags).not.toContain('Meds');
+    expect(l.questions[0].tags).toEqual([]);
+    expect(l.questions[0].text).toBe('One'); // the question itself survives
+  });
+
+  it('deletes one', () => {
+    let l = addQuestion(base(), { text: 'One', entryId: 'd1' });
+    l = addQuestion(l, { text: 'Two', entryId: 'd1' });
+    l = removeQuestion(l, l.questions.find((q) => q.text === 'One').id);
+    expect(l.questions.map((q) => q.text)).toEqual(['Two']);
+  });
+
+  it('adds a tag to the vocabulary before anything wears it', () => {
+    const l = addQuestionTag(base(), 'Insurance');
+    expect(l.questionTags).toEqual(['Insurance']);
+    expect(addQuestionTag(l, 'insurance').questionTags).toEqual(['Insurance']); // already there
+    expect(addQuestionTag(l, '   ').questionTags).toEqual(['Insurance']);
+  });
+
+  it('matches on the question, the answer or a tag', () => {
+    const q = normalizeQuestion({ text: 'Is the mole changing?', answer: 'Watch it', tags: ['Follow up'] });
+    expect(questionMatches(q, 'mole')).toBe(true);
+    expect(questionMatches(q, 'watch')).toBe(true);
+    expect(questionMatches(q, 'follow')).toBe(true);
+    expect(questionMatches(q, 'mole watch follow')).toBe(true); // every word has to land
+    expect(questionMatches(q, 'dentist')).toBe(false);
+    expect(questionMatches(q, '')).toBe(true);
+  });
+
+  it('groups under the record, in the order the table has them', () => {
+    let l = addQuestion(base(), { text: 'Mole?', entryId: 'd1' });
+    l = addQuestion(l, { text: 'Guard?', entryId: 'd2' });
+    l = addQuestion(l, { text: 'Whoever I see next', entryId: '' });
+    const groups = groupQuestions(l, { answered: 'all' });
+    expect(groups.map((g) => g.entryId)).toEqual(['d1', 'd2', '']);
+    expect(groups[2].entry).toBe(null); // the loose ones come last, under no record
+  });
+
+  it('leaves out a record with nothing to ask', () => {
+    const l = addQuestion(base(), { text: 'Mole?', entryId: 'd1' });
+    expect(groupQuestions(l, { answered: 'all' }).map((g) => g.entryId)).toEqual(['d1']);
+  });
+
+  it('sinks the answered ones within a record', () => {
+    let l = addQuestion(base(), { text: 'Older', entryId: 'd1' });
+    l = addQuestion(l, { text: 'Newer', entryId: 'd1' });
+    l = updateQuestion(l, l.questions.find((q) => q.text === 'Newer').id, { answered: true });
+    const [group] = groupQuestions(l, { answered: 'all' });
+    expect(group.questions.map((q) => q.text)).toEqual(['Older', 'Newer']);
+  });
+
+  it('filters by tag, by answeredness and by what is typed', () => {
+    let l = addQuestion(base(), { text: 'Is the mole changing?', entryId: 'd1' });
+    l = toggleQuestionTag(l, l.questions[0].id, 'Follow up');
+    l = addQuestion(l, { text: 'Night guard worth it?', entryId: 'd2' });
+    l = updateQuestion(l, l.questions[0].id, { answered: true, answer: 'Yes, in spring' });
+
+    expect(groupQuestions(l, { tag: 'Follow up', answered: 'all' })).toHaveLength(1);
+    expect(groupQuestions(l, { answered: 'open' })[0].questions[0].text).toBe('Is the mole changing?');
+    expect(groupQuestions(l, { answered: 'answered' })[0].questions[0].text).toBe('Night guard worth it?');
+    expect(groupQuestions(l, { query: 'spring', answered: 'all' })[0].questions[0].answer).toBe('Yes, in spring');
+    expect(groupQuestions(l, { query: 'nothing here', answered: 'all' })).toEqual([]);
+  });
+
+  it('counts each tag, ignoring the answered', () => {
+    let l = addQuestion(base(), { text: 'One', entryId: 'd1' });
+    l = toggleQuestionTag(l, l.questions[0].id, 'Meds');
+    l = addQuestion(l, { text: 'Two', entryId: 'd1' });
+    l = toggleQuestionTag(l, l.questions.find((q) => q.text === 'Two').id, 'Meds');
+    expect(questionTagCounts(l).Meds).toBe(2);
+    l = updateQuestion(l, l.questions.find((q) => q.text === 'Two').id, { answered: true });
+    expect(questionTagCounts(l).Meds).toBe(1);
+  });
+
+  it('survives a round trip through the saved document', () => {
+    let l = addQuestion(base(), { text: 'Is the mole changing?', entryId: 'd1' });
+    l = toggleQuestionTag(l, l.questions[0].id, 'Follow up');
+    const reloaded = normalizeList(JSON.parse(JSON.stringify(l)));
+    expect(reloaded.questions).toEqual(l.questions);
+    expect(reloaded.questionTags).toEqual(l.questionTags);
+  });
+
+  it('is not eaten by renaming or deleting a speciality', () => {
+    let l = addQuestion(base(), { text: 'Is the mole changing?', entryId: 'd1' });
+    l = toggleQuestionTag(l, l.questions[0].id, 'Follow up');
+    expect(normalizeList(renameType(l, 'Skin', 'Dermatology')).questions).toHaveLength(1);
+    expect(normalizeList(removeType(l, 'Skin')).questionTags).toContain('Follow up');
   });
 });
