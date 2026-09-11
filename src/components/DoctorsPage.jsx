@@ -14,6 +14,8 @@ import {
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
   dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
   isCheckInEntry, setDoctorCalendar, pendingAppointments,
+  addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
+  removeQuestionTag, groupQuestions, questionTagCounts,
   linkAppointment, ignoreAppointment, unignoreAppointment,
   telHref, mailHref, mapHref, safeLink, linkLabel, makeId, seedDoctors,
 } from '../lib/doctors';
@@ -710,6 +712,269 @@ function AppointmentsPanel({ list, update, daysFrom }) {
   );
 }
 
+/* The Questions tab: what you mean to ask, and what they said.
+
+   Grouped under the record each question is for, because that's how they get
+   used — you're about to see the dentist and you want the dentist's four, not
+   everything you've ever wondered in date order. */
+function QuestionsPanel({ list, update }) {
+  const [text, setText] = useState('');
+  const [forEntry, setForEntry] = useState('');
+  const [draftTags, setDraftTags] = useState([]);
+  const [query, setQuery] = useState('');
+  const [tag, setTag] = useState('all');
+  const [answered, setAnswered] = useState('open');
+  const [editing, setEditing] = useState(null); // { id, field } — one open at a time
+
+  const tags = list.questionTags || [];
+  const tagCounts = useMemo(() => questionTagCounts(list), [list]);
+  const groups = useMemo(
+    () => groupQuestions(list, { query, tag, answered }),
+    [list, query, tag, answered],
+  );
+  const total = (list.questions || []).length;
+  // The picker offers every record, not only the check-ins: a question about
+  // the thing that was wrong is as real as one about the next cleaning.
+  const records = list.entries || [];
+
+  function submit(e) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    update((l) => addQuestion(l, { text, entryId: forEntry, tags: draftTags }));
+    setText('');
+    setDraftTags([]);
+    // The record stays picked: writing down three things for the same doctor is
+    // the normal way this gets used.
+  }
+
+  const draftTagOn = (t) => draftTags.some((x) => x.toLowerCase() === t.toLowerCase());
+  function toggleDraftTag(t) {
+    setDraftTags((cur) => (draftTagOn(t) ? cur.filter((x) => x.toLowerCase() !== t.toLowerCase()) : [...cur, t]));
+  }
+  function newTag() {
+    const name = window.prompt('New tag');
+    if (!name || !name.trim()) return;
+    update((l) => addQuestionTag(l, name));
+    setDraftTags((cur) => [...cur, name.trim()]);
+  }
+
+  return (
+    <section className={styles.questions}>
+      <form className={styles.qAdd} onSubmit={submit}>
+        <input
+          className={styles.qAddText}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="What do you want to ask?"
+          aria-label="What do you want to ask?"
+        />
+        <select
+          className={styles.qAddWho}
+          value={forEntry}
+          onChange={(e) => setForEntry(e.target.value)}
+          aria-label="Which record this question is for"
+        >
+          <option value="">Whoever I see next</option>
+          {records.map((e) => (
+            <option key={e.id} value={e.id}>{entryPickerLabel(e)}</option>
+          ))}
+        </select>
+        <button type="submit" className={styles.btnPrimary} disabled={!text.trim()}>Add</button>
+        {tags.length > 0 && (
+          <div className={styles.qAddTags}>
+            {tags.map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={draftTagOn(t) ? styles.qTagOn : styles.qTag}
+                aria-pressed={draftTagOn(t)}
+                onClick={() => toggleDraftTag(t)}
+              >{t}</button>
+            ))}
+            <button type="button" className={styles.qTagNew} onClick={newTag}>+ Tag</button>
+          </div>
+        )}
+        {tags.length === 0 && (
+          <button type="button" className={styles.qTagNew} onClick={newTag}>+ Tag</button>
+        )}
+      </form>
+
+      {total > 0 && (
+        <div className={styles.toolbar}>
+          <input
+            className={styles.search}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a question, an answer, a tag…"
+          />
+          <div className={styles.pills}>
+            {[['open', 'To ask'], ['answered', 'Answered'], ['all', 'All']].map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                className={answered === k ? styles.pillOn : styles.pill}
+                onClick={() => setAnswered(k)}
+              >{label}</button>
+            ))}
+          </div>
+          {tags.length > 0 && (
+            <div className={styles.pills}>
+              <button
+                type="button"
+                className={tag === 'all' ? styles.pillOn : styles.pill}
+                onClick={() => setTag('all')}
+              >Any tag</button>
+              {tags.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={tag === t ? styles.pillOn : styles.pill}
+                  onClick={() => setTag(t)}
+                >{t} <span className={styles.pillCount}>{tagCounts[t] || 0}</span></button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {total === 0 && (
+        <div className={styles.empty}>
+          Nothing to ask yet. Write down the thing you always forget in the room.
+        </div>
+      )}
+
+      {total > 0 && groups.length === 0 && (
+        <div className={styles.empty}>
+          Nothing matches{query.trim() ? ` “${query.trim()}”` : ' that filter'}.{' '}
+          <button
+            type="button"
+            className={styles.linkBtn}
+            onClick={() => { setQuery(''); setTag('all'); setAnswered('all'); }}
+          >Clear the filters</button>
+        </div>
+      )}
+
+      {groups.map((group) => (
+        <div key={group.entryId || '__loose__'} className={styles.qGroup}>
+          <h2 className={styles.qGroupHead}>
+            {group.entry ? entryPickerLabel(group.entry) : 'Not for anybody in particular'}
+            <span className={styles.qGroupCount}>{group.questions.length}</span>
+          </h2>
+          <ul className={styles.qList}>
+            {group.questions.map((q) => (
+              <li key={q.id} className={q.answered ? styles.qRowDone : styles.qRow}>
+                <label className={styles.qCheck}>
+                  <input
+                    type="checkbox"
+                    checked={q.answered}
+                    onChange={() => update((l) => updateQuestion(l, q.id, { answered: !q.answered }))}
+                    aria-label={q.answered ? `Mark “${q.text}” still to ask` : `Mark “${q.text}” answered`}
+                  />
+                </label>
+                <div className={styles.qBody}>
+                  {editing?.id === q.id && editing.field === 'text' ? (
+                    <input
+                      className={styles.qEdit}
+                      defaultValue={q.text}
+                      autoFocus
+                      onBlur={(e) => { update((l) => updateQuestion(l, q.id, { text: e.target.value })); setEditing(null); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                        if (e.key === 'Escape') setEditing(null);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.qText}
+                      onClick={() => setEditing({ id: q.id, field: 'text' })}
+                      title="Click to edit"
+                    >{q.text}</button>
+                  )}
+
+                  {editing?.id === q.id && editing.field === 'answer' ? (
+                    <input
+                      className={styles.qEdit}
+                      defaultValue={q.answer}
+                      autoFocus
+                      placeholder="What they said…"
+                      onBlur={(e) => { update((l) => updateQuestion(l, q.id, { answer: e.target.value })); setEditing(null); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                        if (e.key === 'Escape') setEditing(null);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className={q.answer ? styles.qAnswer : styles.qAnswerEmpty}
+                      onClick={() => setEditing({ id: q.id, field: 'answer' })}
+                    >{q.answer || 'What they said…'}</button>
+                  )}
+
+                  <div className={styles.qTags}>
+                    {q.tags.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={styles.qTagOn}
+                        title={`Take “${t}” off this question`}
+                        onClick={() => update((l) => toggleQuestionTag(l, q.id, t))}
+                      >{t} ×</button>
+                    ))}
+                    {tags.filter((t) => !q.tags.some((x) => x.toLowerCase() === t.toLowerCase())).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={styles.qTag}
+                        title={`File this question under “${t}”`}
+                        onClick={() => update((l) => toggleQuestionTag(l, q.id, t))}
+                      >+ {t}</button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={styles.qDelete}
+                  title="Delete this question"
+                  aria-label={`Delete “${q.text}”`}
+                  onClick={() => { if (window.confirm(`Delete “${q.text}”?`)) update((l) => removeQuestion(l, q.id)); }}
+                >×</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      {tags.length > 0 && (
+        <details className={styles.qTagManager}>
+          <summary>Tags</summary>
+          <div className={styles.qTagManagerBody}>
+            {tags.map((t) => (
+              <span key={t} className={styles.qTagManagerRow}>
+                {t}
+                <button
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() => {
+                    const n = tagCounts[t] || 0;
+                    const warn = n > 0 ? ` It's on ${n} question${n === 1 ? '' : 's'} still to ask.` : '';
+                    if (window.confirm(`Retire the “${t}” tag?${warn} The questions themselves stay.`)) {
+                      update((l) => removeQuestionTag(l, t));
+                      if (tag === t) setTag('all');
+                    }
+                  }}
+                >retire</button>
+              </span>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
 const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
 
 function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete }) {
@@ -1070,12 +1335,18 @@ export function DoctorsPage() {
           ? 'Whoever you see on a schedule, and anyone you just keep the number for.'
           : lane === 'issues'
             ? 'What was wrong, and who sorted it. A doctor you also see regularly shows in both tabs.'
-            : 'Every record, check-ins and issues together.'}
+            : lane === 'questions'
+              ? 'What you mean to ask, filed under whoever you mean to ask it.'
+              : 'Every record, check-ins and issues together.'}
       </p>
 
       {lane === 'checkins' && (
         <AppointmentsPanel list={safeList} update={update} daysFrom={daysFrom} />
       )}
+
+      {/* Questions are the one tab that isn't a slice of the records table, so
+          it replaces the table rather than filtering it. */}
+      {lane === 'questions' ? <QuestionsPanel list={safeList} update={update} /> : <>
 
       <div className={styles.toolbar}>
         <input
@@ -1181,6 +1452,8 @@ export function DoctorsPage() {
           </table>
         </div>
       )}
+
+      </>}
     </div>
   );
 }

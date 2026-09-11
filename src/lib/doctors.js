@@ -279,9 +279,35 @@ function dedupeTypes(names) {
    Any type a record uses but the list has lost is appended rather than
    silently swallowing that record into "No type" — the list decides the order
    of the headings, but it never decides which records exist. */
+/* ── Questions ───────────────────────────────────────────────────────
+   The things you mean to ask and forget in the room.
+
+   A question belongs to a record, carries whatever tags you file it under,
+   and is either still to ask or answered — with room for what they said,
+   because the answer is the whole point of having written the question down.
+
+   `entryId` is allowed to be empty: "ask whoever I see next about the mole"
+   is a real thing to want to write down before you know who that is. */
+export function normalizeQuestion(raw) {
+  const tags = Array.isArray(raw?.tags) ? raw.tags : [];
+  return {
+    id: String(raw?.id ?? '').trim() || makeId(),
+    entryId: String(raw?.entryId ?? '').trim(),
+    text: String(raw?.text ?? '').trim(),
+    tags: dedupeTypes(tags),
+    answer: String(raw?.answer ?? '').trim(),
+    answered: !!raw?.answered,
+    // Written down when, so the list can run newest-first without the owner
+    // ordering it by hand.
+    created: String(raw?.created ?? '').trim() || todayKey(new Date()),
+  };
+}
+
 export function normalizeList(raw) {
   const rawEntries = Array.isArray(raw?.entries) ? raw.entries : Array.isArray(raw) ? raw : [];
   const entries = rawEntries.map(normalizeEntry);
+  const questions = (Array.isArray(raw?.questions) ? raw.questions : []).map(normalizeQuestion)
+    .filter((q) => q.text);
   const declared = Array.isArray(raw?.types) ? raw.types : [];
   const used = entries.map((e) => e.type).filter(Boolean);
   // Column order, renames and hidden-ness are stored by key alone; see
@@ -308,6 +334,10 @@ export function normalizeList(raw) {
     // Events told "this isn't a doctor's appointment". Kept by id so they stop
     // being offered without being linked to anything.
     ignoredEvents: strings(raw?.ignoredEvents),
+    questions,
+    // Declared tags and used tags together, so a tag survives being taken off
+    // the last question wearing it — the same bargain the speciality list makes.
+    questionTags: dedupeTypes([...strings(raw?.questionTags), ...questions.flatMap((q) => q.tags)]),
     entries,
   };
 }
@@ -395,6 +425,10 @@ export function matchesQuery(entry, query, fields = []) {
 export const LANES = [
   { key: 'checkins', label: 'Check-ins' },
   { key: 'issues', label: 'Issues' },
+  // Not a slice of the records like the other two — it's the questions you
+  // mean to ask them. It sits here because it's the same question as the tabs
+  // beside it ("what about this doctor?"), asked from the other side.
+  { key: 'questions', label: 'Questions' },
 ];
 
 // A complaint: something written in the issue field, or a status that only
@@ -416,11 +450,14 @@ export function inLane(entry, lane) {
 // For the numbers on the tabs. They add up to more than the list when a record
 // is in both, which is the honest total for a tab that says what it holds.
 export function laneCounts(list) {
-  const { entries } = normalizeList(list);
+  const { entries, questions } = normalizeList(list);
   return {
     all: entries.length,
     checkins: entries.filter(isCheckInEntry).length,
     issues: entries.filter(isIssueEntry).length,
+    // Only the ones still to ask. A tab reading "Questions 34" when 30 of them
+    // were answered years ago is a number you learn to ignore.
+    questions: questions.filter((q) => !q.answered).length,
   };
 }
 
@@ -572,6 +609,132 @@ export function moveType(list, name, delta) {
   const [moved] = types.splice(from, 1);
   types.splice(to, 0, moved);
   return { ...l, types };
+}
+
+// --- questions -------------------------------------------------------------
+//
+// Every one of these takes the list and gives back a new one, like the record
+// and column helpers above, so the page never edits what it was handed.
+
+// Write one down. A blank question is refused rather than stored empty: the
+// add box can stay live without the caller checking first.
+export function addQuestion(list, { text, entryId = '', tags = [] } = {}) {
+  const l = normalizeList(list);
+  const q = normalizeQuestion({ text, entryId, tags });
+  if (!q.text) return l;
+  // Newest first, which is where you'll look for the one you just typed.
+  return { ...l, questions: [q, ...l.questions] };
+}
+
+export function updateQuestion(list, id, patch) {
+  const l = normalizeList(list);
+  return {
+    ...l,
+    questions: l.questions.map((q) => (q.id === id ? normalizeQuestion({ ...q, ...patch, id: q.id }) : q)),
+  };
+}
+
+export function removeQuestion(list, id) {
+  const l = normalizeList(list);
+  return { ...l, questions: l.questions.filter((q) => q.id !== id) };
+}
+
+/* Put a tag on a question or take it off.
+
+   The tag joins the list's vocabulary on the way in, so it can be offered on
+   the next question without being typed again — and it stays there when the
+   last question wearing it loses it, because a tag you've used once is a tag
+   you meant. */
+export function toggleQuestionTag(list, id, tag) {
+  const l = normalizeList(list);
+  const clean = String(tag ?? '').trim();
+  if (!clean) return l;
+  const questions = l.questions.map((q) => {
+    if (q.id !== id) return q;
+    const on = q.tags.some((t) => sameType(t, clean));
+    return { ...q, tags: on ? q.tags.filter((t) => !sameType(t, clean)) : [...q.tags, clean] };
+  });
+  return { ...l, questionTags: dedupeTypes([...l.questionTags, clean]), questions };
+}
+
+// Add a tag to the vocabulary without putting it on anything yet.
+export function addQuestionTag(list, tag) {
+  const l = normalizeList(list);
+  const clean = String(tag ?? '').trim();
+  if (!clean || l.questionTags.some((t) => sameType(t, clean))) return l;
+  return { ...l, questionTags: [...l.questionTags, clean] };
+}
+
+/* Retire a tag: off the vocabulary and off every question wearing it.
+
+   Unlike deleting a speciality, which leaves the records behind under "No
+   type", there is nothing to leave behind here — the question keeps its text
+   and its record and simply stops being filed under this word. */
+export function removeQuestionTag(list, tag) {
+  const l = normalizeList(list);
+  return {
+    ...l,
+    questionTags: l.questionTags.filter((t) => !sameType(t, tag)),
+    questions: l.questions.map((q) => ({ ...q, tags: q.tags.filter((t) => !sameType(t, tag)) })),
+  };
+}
+
+// Does this question match what's typed in the box? Its text, its answer and
+// its tags all count — you might remember any of the three.
+export function questionMatches(q, query) {
+  const term = String(query || '').trim().toLowerCase();
+  if (!term) return true;
+  const hay = [q.text, q.answer, ...q.tags].join(' ').toLowerCase();
+  return term.split(/\s+/).every((w) => hay.includes(w));
+}
+
+/* The questions, under the record each one is for.
+
+   Grouped by record rather than listed flat because that's how they get used:
+   you're about to see the dentist and you want the dentist's four, not a
+   chronological feed. Records run in the order the table has them, so the two
+   views agree; anything not assigned to a record yet comes last under its own
+   heading, and a record with nothing to ask doesn't appear at all.
+
+   Answered questions sink within a group but stay put — what they said is
+   often the thing you came back for. */
+export function groupQuestions(list, { query = '', tag = 'all', answered = 'open' } = {}) {
+  const l = normalizeList(list);
+  const wanted = l.questions.filter((q) => (
+    questionMatches(q, query)
+    && (tag === 'all' || q.tags.some((t) => sameType(t, tag)))
+    && (answered === 'all' || (answered === 'answered' ? q.answered : !q.answered))
+  ));
+  const sorted = [...wanted].sort((a, b) => (
+    (a.answered === b.answered ? 0 : a.answered ? 1 : -1)
+    || b.created.localeCompare(a.created)
+  ));
+
+  const groups = [];
+  const byEntry = new Map();
+  l.entries.forEach((e) => {
+    const g = { entryId: e.id, entry: e, questions: [] };
+    byEntry.set(e.id, g);
+    groups.push(g);
+  });
+  const loose = { entryId: '', entry: null, questions: [] };
+  sorted.forEach((q) => (byEntry.get(q.entryId) || loose).questions.push(q));
+  return [...groups, loose].filter((g) => g.questions.length > 0);
+}
+
+// How many questions wear each tag, for the numbers on the filter pills. Only
+// the open ones, to agree with the count on the tab.
+export function questionTagCounts(list) {
+  const l = normalizeList(list);
+  const counts = Object.fromEntries(l.questionTags.map((t) => [t, 0]));
+  l.questions.forEach((q) => {
+    if (q.answered) return;
+    q.tags.forEach((t) => {
+      const key = l.questionTags.find((x) => sameType(x, t));
+      if (key) counts[key] += 1;
+    });
+  });
+  return counts;
 }
 
 // --- links out -------------------------------------------------------------
