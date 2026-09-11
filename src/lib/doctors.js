@@ -324,9 +324,27 @@ export const hasContent = (e) => FIELD_KEYS.some((k) => e[k]);
    "Gastroenterologist" inside a "Gastroenterologist" group says nothing twice,
    so that candidate is skipped and the row admits what it really is: a
    speciality nobody has been found for yet. */
+export const NO_DOCTOR = 'No doctor recorded yet';
+
 export function entryTitle(e, omit = '') {
   const pick = [e.doctor, e.place, e.issue, e.type].find((c) => c && !sameType(c, omit));
-  return pick || 'No doctor recorded yet';
+  return pick || NO_DOCTOR;
+}
+
+/* What a record is called when you're picking one from a list.
+
+   The speciality leads here, because filing "Cleaning — 9:00" you think "that's
+   the dentist", not the name of the practice. Whatever identifies the record
+   follows it, so two records under one speciality stay tellable apart — a
+   list of "Skin", "Skin" would be no use to pick from.
+
+   A record with no speciality falls back to that identifier alone, and one with
+   nothing but a speciality shows it alone rather than trailing an apology. */
+export function entryPickerLabel(e) {
+  const type = String(e?.type || '').trim();
+  if (!type) return entryTitle(e);
+  const rest = entryTitle(e, type);
+  return rest === NO_DOCTOR ? type : `${type} — ${rest}`;
 }
 
 // Whatever identifies the row next, minus the bit already used as the title and
