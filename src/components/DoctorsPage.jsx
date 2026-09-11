@@ -5,7 +5,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
   FIELDS, STATUS, STATUS_ORDER, NO_TYPE, statusLabel, typeHeading,
-  normalizeEntry, normalizeList, entryTitle, entrySubtitle,
+  normalizeEntry, normalizeList, entryTitle, entrySubtitle, entryPickerLabel,
   groupByType, countByStatus, issueCell, typeUsage,
   LANES, laneCounts,
   addEntry, updateEntry, removeEntry, isBlank,
@@ -656,7 +656,7 @@ function AppointmentsPanel({ list, update, daysFrom }) {
                   >
                     <option value="">Choose a record…</option>
                     {checkIns.map((e) => (
-                      <option key={e.id} value={e.id}>{entryTitle(e)}</option>
+                      <option key={e.id} value={e.id}>{entryPickerLabel(e)}</option>
                     ))}
                   </select>
                   {why && chosen === a.suggestion.entryId && (

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   STATUS, NO_TYPE, parseStatus, normalizeEntry, normalizeList, hasContent, entryTitle,
-  entrySubtitle, matchesQuery, groupByType, countByStatus, issueCell, typeUsage,
+  entrySubtitle, entryPickerLabel, matchesQuery, groupByType, countByStatus, issueCell, typeUsage,
   daysSince, daysSinceLabel, dateColumns, daysSinceField, setDaysSinceSource,
   parseCadence, nextVisit,
   addEntry, updateEntry, removeEntry, isBlank,
@@ -9,7 +9,7 @@ import {
   BUILTIN_COLUMNS, resolveColumns, visibleColumns, renameColumn, setColumnHidden, moveColumn,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
-  isCheckInEntry, isIssueEntry, laneCounts, inLane,
+  isCheckInEntry, isIssueEntry, laneCounts,
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
   linkAppointment, unlinkAppointment, ignoreAppointment, unignoreAppointment,
   settledEventIds, suggestEntryFor, pendingAppointments, setDoctorCalendar,
@@ -78,6 +78,34 @@ describe('entryTitle', () => {
     expect(entryTitle(entry({ place: 'City MD', issue: 'Jock itch' }))).toBe('City MD');
     expect(entryTitle(entry({ issue: 'Neck sprain', type: 'Ortho' }))).toBe('Neck sprain');
     expect(entryTitle(entry({ type: 'Gastroenterologist' }))).toBe('Gastroenterologist');
+  });
+});
+
+describe('entryPickerLabel', () => {
+  it('leads with the speciality, so you pick the dentist rather than the practice', () => {
+    expect(entryPickerLabel(entry({ doctor: 'Dr. Matthew Kim, MD (ENT)', type: 'Ear' })))
+      .toBe('Ear — Dr. Matthew Kim, MD (ENT)');
+  });
+
+  it('keeps what identifies the record, so one speciality twice stays tellable apart', () => {
+    expect(entryPickerLabel(entry({ doctor: 'Dr. Annemarie Uliasz, MD', type: 'Skin' })))
+      .toBe('Skin — Dr. Annemarie Uliasz, MD');
+    expect(entryPickerLabel(entry({ doctor: 'Sochulak, Stephen', type: 'Skin' })))
+      .toBe('Skin — Sochulak, Stephen');
+  });
+
+  it('falls back to the place when there is no name', () => {
+    expect(entryPickerLabel(entry({ place: '34th St Dental', type: 'Dentist' })))
+      .toBe('Dentist — 34th St Dental');
+  });
+
+  it('shows a speciality on its own rather than trailing an apology', () => {
+    expect(entryPickerLabel(entry({ type: 'Gastroenterologist' }))).toBe('Gastroenterologist');
+  });
+
+  it('falls back to the title when the record has no speciality', () => {
+    expect(entryPickerLabel(entry({ doctor: 'Amy Chen' }))).toBe('Amy Chen');
+    expect(entryPickerLabel(entry({}))).toBe('No doctor recorded yet');
   });
 });
 
