@@ -45,6 +45,9 @@
 .muted { margin-top: 0.15rem; font-size: 0.8rem; color: var(--color-text-muted); }
 .cellIssue { width: 20%; }
 .cellMeds { width: 17%; }
+/* Only on the Issues tab, where it takes the room the contact and scheduling
+   columns give up. */
+.cellNotes { width: 34%; }
 .cellContact { width: 22%; }
 .cellCadence { width: 9%; }
 /* A counted column, so it reads as numbers: right-aligned and tabular, which

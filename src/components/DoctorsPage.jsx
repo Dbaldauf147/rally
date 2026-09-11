@@ -148,7 +148,23 @@ const CELL_FIELDS = {
   meds: ['currentMeds', 'previousMeds'],
   contact: ['phone', 'email', 'location', 'link'],
   cadence: ['cadence'],
+  notes: ['notes'],
 };
+
+/* What the Issues tab shows, and all it shows.
+
+   What was wrong, what was taken for it, and whatever was written down. Every
+   other column on the table — how to reach them, when you're next due, the
+   counters, the status, and any column added since — answers a check-in
+   question rather than this one, and a record that is only a complaint has
+   nothing to put in them anyway.
+
+   Notes ride inside the Issue cell everywhere else; here they get the column,
+   which is what the space freed up is for. A column hidden from the Columns
+   manager stays hidden here too — this narrows the table, it doesn't overrule
+   what you asked for. */
+const ISSUE_COLUMNS = ['name', 'issue', 'meds', 'notes'];
+const NOTES_COLUMN = { key: 'notes', kind: 'builtin', field: null, label: 'Notes', hidden: false };
 
 /* One field inside an open cell.
 
@@ -984,6 +1000,11 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
   const link = safeLink(entry.link);
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
+  // Notes live under the issue unless a Notes column is carrying them, in
+  // which case the Issue cell neither shows nor edits them — one field, one
+  // place to type it.
+  const notesColumn = columns.some((c) => c.key === 'notes');
+  const fieldsIn = (col) => (col === 'issue' && notesColumn ? ['issue'] : CELL_FIELDS[col]);
 
   const cell = (col, className, label, display) => (
     <Cell
@@ -996,7 +1017,7 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
       display={display}
     >
       {col === 'name' && <TypeField entry={entry} types={types} onCommit={onCommit} />}
-      {CELL_FIELDS[col]?.map((key, i) => (
+      {fieldsIn(col)?.map((key, i) => (
         <CellInput
           key={key}
           field={FIELD_OF[key]}
@@ -1021,9 +1042,10 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
       case 'issue': return cell('issue', styles.cellIssue, col.label, (
         <>
           {issue ? <div>{issue}</div> : null}
-          {entry.notes ? <div className={styles.muted}>{entry.notes}</div> : null}
+          {!notesColumn && entry.notes ? <div className={styles.muted}>{entry.notes}</div> : null}
         </>
       ));
+      case 'notes': return cell('notes', styles.cellNotes, col.label, entry.notes || null);
       case 'meds': return cell('meds', styles.cellMeds, col.label, (
         <>
           {entry.currentMeds ? <div>{entry.currentMeds}</div> : null}
@@ -1272,10 +1294,16 @@ export function DoctorsPage() {
   const allColumns = useMemo(() => resolveColumns(safeList), [safeList]);
   // Dropped from the table rather than hidden for good: the Columns manager
   // still lists it, and Issues still shows it.
-  const shownColumns = useMemo(
-    () => allColumns.filter((c) => !c.hidden && (showStatus || c.key !== 'status')),
-    [allColumns, showStatus],
-  );
+  const shownColumns = useMemo(() => {
+    // Issues runs its own short set — see ISSUE_COLUMNS.
+    if (lane === 'issues') {
+      const byKey = new Map(allColumns.map((c) => [c.key, c]));
+      return ISSUE_COLUMNS
+        .map((key) => (key === 'notes' ? NOTES_COLUMN : byKey.get(key)))
+        .filter((c) => c && !c.hidden);
+    }
+    return allColumns.filter((c) => !c.hidden && (showStatus || c.key !== 'status'));
+  }, [allColumns, showStatus, lane]);
   // Resolved once for the whole table rather than per row.
   const daysFrom = useMemo(() => daysSinceField(safeList), [safeList]);
 
