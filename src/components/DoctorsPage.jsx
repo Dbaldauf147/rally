@@ -991,6 +991,95 @@ function QuestionsPanel({ list, update }) {
   );
 }
 
+/* One speciality, opened from its heading on the Check-ins tab.
+
+   Everything the table spreads across a wide row, stacked per doctor so it
+   reads on a phone: how to reach them, how often, when last and when next, and
+   whatever questions are still waiting to be asked of them. Read-only — the
+   table is where editing happens, and two places to type the same field is
+   one too many. */
+function TypeDetail({ list, group, daysFrom, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const ids = new Set(group.entries.map((e) => e.id));
+  const openQuestions = (list.questions || []).filter((q) => ids.has(q.entryId) && !q.answered);
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div
+        className={styles.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-label={typeHeading(group.type)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button type="button" className={styles.modalClose} aria-label="Close" onClick={onClose}>×</button>
+        <h2 className={styles.modalTitle}>
+          {typeHeading(group.type)}
+          <span className={styles.groupCount}>{group.entries.length}</span>
+        </h2>
+
+        {group.entries.map((entry) => {
+          const since = daysFrom ? customValueOf(entry, daysFrom) : '';
+          const counted = daysSinceLabel(since);
+          const next = upcomingVisit(entry, since);
+          const tel = telHref(entry.phone);
+          const mail = mailHref(entry.email);
+          const map = mapHref(entry.location);
+          const link = safeLink(entry.link);
+          const subtitle = entrySubtitle(entry, group.type);
+          const questions = openQuestions.filter((q) => q.entryId === entry.id);
+          const facts = [
+            ['Cadence', entry.cadence],
+            // The counter only reads as "days ago" when it is a plain number.
+            [daysFrom?.label || 'Last visit', since
+              ? `${formatCustomValue(daysFrom, since)}${/^\d+$/.test(counted) ? ` · ${counted} days ago` : ''}`
+              : ''],
+            ['Next visit', next ? `${next.label}${next.booked ? ' 📅' : ''}${next.overdue ? ' · overdue' : ''}` : ''],
+            ['Current meds', entry.currentMeds],
+            ['Issue', issueCell(entry, group.type)],
+            ['Notes', entry.notes],
+          ].filter(([, v]) => v);
+          return (
+            <section key={entry.id} className={styles.modalEntry}>
+              <div className={styles.name}>{entryTitle(entry, group.type)}</div>
+              {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
+              {(tel || mail || map || link) && (
+                <div className={styles.modalContact}>
+                  {tel ? <a className={styles.link} href={tel}>{entry.phone}</a> : null}
+                  {mail ? <a className={styles.link} href={mail}>{entry.email}</a> : null}
+                  {map ? <a className={`${styles.link} ${styles.linkMuted}`} href={map} target="_blank" rel="noreferrer">{entry.location}</a> : null}
+                  {link ? <a className={styles.link} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
+                </div>
+              )}
+              {facts.length > 0 && (
+                <dl className={styles.modalFacts}>
+                  {facts.map(([label, value]) => (
+                    <div key={label} className={next?.overdue && label === 'Next visit' ? styles.modalFactOverdue : styles.modalFact}>
+                      <dt>{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {questions.length > 0 && (
+                <div className={styles.modalQuestions}>
+                  <div className={styles.fieldLabel}>To ask</div>
+                  <ul>{questions.map((q) => <li key={q.id}>{q.text}</li>)}</ul>
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
 
 function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete }) {
@@ -1306,6 +1395,12 @@ export function DoctorsPage() {
   }, [allColumns, showStatus, lane]);
   // Resolved once for the whole table rather than per row.
   const daysFrom = useMemo(() => daysSinceField(safeList), [safeList]);
+  // The speciality whose pop-up is open, looked up in the live groups so an
+  // edit syncing in from another device shows in it, and a type that has
+  // emptied out closes it.
+  const [detailType, setDetailType] = useState(null);
+  const detailGroup = detailType === null ? null : groups.find((g) => g.type === detailType) || null;
+  const closeDetail = useCallback(() => setDetailType(null), []);
 
   function handleAdd() {
     const blank = emptyEntry();
@@ -1455,8 +1550,22 @@ export function DoctorsPage() {
               <tbody key={group.type || '__none__'}>
                 <tr className={styles.groupRow}>
                   <th scope="colgroup" colSpan={shownColumns.length + 1} className={styles.groupHead}>
-                    {typeHeading(group.type)}
-                    <span className={styles.groupCount}>{group.entries.length}</span>
+                    {lane === 'checkins' ? (
+                      <button
+                        type="button"
+                        className={styles.groupHeadBtn}
+                        title={`Show everything for ${typeHeading(group.type)}`}
+                        onClick={() => { setOpenCell(null); setDetailType(group.type); }}
+                      >
+                        {typeHeading(group.type)}
+                        <span className={styles.groupCount}>{group.entries.length}</span>
+                      </button>
+                    ) : (
+                      <>
+                        {typeHeading(group.type)}
+                        <span className={styles.groupCount}>{group.entries.length}</span>
+                      </>
+                    )}
                   </th>
                 </tr>
                 {group.entries.map((entry) => (
@@ -1482,6 +1591,10 @@ export function DoctorsPage() {
       )}
 
       </>}
+
+      {lane === 'checkins' && detailGroup && (
+        <TypeDetail list={safeList} group={detailGroup} daysFrom={daysFrom} onClose={closeDetail} />
+      )}
     </div>
   );
 }
