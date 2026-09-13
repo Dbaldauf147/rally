@@ -9,6 +9,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { fetchSeasonWithPhases, fetchDraftPicks } from '../lib/espnSeason.js';
 import { fetchKeyPlayers } from '../lib/espnPlayers.js';
+import { senderAddress } from '../lib/emailSender.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -922,7 +923,7 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
     method: 'POST',
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: 'Rally Sports <noreply@resend.dev>',
+      from: senderAddress('Rally Sports'),
       to: [built.email],
       subject: built.subject,
       html: built.html,

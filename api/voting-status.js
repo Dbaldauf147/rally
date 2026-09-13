@@ -9,6 +9,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { summarizeVoting, renderVotingStatusEmail } from '../src/lib/votingStatus.js';
+import { senderAddress } from '../lib/emailSender.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -58,7 +59,7 @@ export default async function handler(req, res) {
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: 'Rally <noreply@resend.dev>', to: [r.email], subject, html }),
+          body: JSON.stringify({ from: senderAddress('Rally'), to: [r.email], subject, html }),
         });
         if (response.ok) {
           results.push({ name: r.name, email: r.email, success: true });
