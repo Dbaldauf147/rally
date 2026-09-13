@@ -18,9 +18,11 @@
 
 import {
   normalizeFieldDefs, newFieldId, coerceCustomValue, formatCustomValue,
-} from './customFields';
+} from './customFields.js';
 
-import { parseLooseDate, validParts, pad2 } from './looseDate';
+// The extensions are for api/weekly-digest.js, which imports this file under
+// plain Node ESM — Vite resolves either spelling, Node only the full one.
+import { parseLooseDate, validParts, pad2 } from './looseDate.js';
 
 export const STATUS = { TREATING: 'treating', RESOLVED: 'resolved', NONE: 'none' };
 
@@ -1173,6 +1175,30 @@ export function daysSinceField(list) {
   const dates = dateColumns(l);
   const chosen = dates.find((c) => c.key === l.daysSinceSource);
   return (chosen || dates[0])?.field || null;
+}
+
+/* The check-ins with no next visit to show — what the weekly digest lists as
+   still needing to be booked.
+
+   The same test the Next visit column makes: nothing booked on the calendar,
+   and no last visit and readable cadence to count one from. An overdue row is
+   not here, because it has a date; it's only the rows the column leaves blank.
+   `reason` says which half is missing, since that's what you'd fix. */
+export function checkInsNeedingScheduling(list, today = new Date()) {
+  const l = normalizeList(list);
+  const from = daysSinceField(l);
+  return l.entries
+    .filter((e) => hasContent(e) && isCheckInEntry(e))
+    .filter((e) => !upcomingVisit(e, from ? customValueOf(e, from) : '', today))
+    .map((e) => {
+      const p = parseLooseDate(from ? customValueOf(e, from) : '');
+      const hasLast = validParts(p) && !!p.year;
+      const reason = !String(e.cadence || '').trim() ? 'No cadence'
+        : !parseCadence(e.cadence) ? 'Cadence has no interval'
+          : !hasLast ? 'No last visit' : '';
+      return { id: e.id, type: e.type, label: entryPickerLabel(e), cadence: e.cadence, reason };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 }
 
 // Point the counter at a different Date column. A key that isn't one is
