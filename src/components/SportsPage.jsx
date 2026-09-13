@@ -93,10 +93,11 @@ const TOPICS = [
   { key: 'scores', label: 'Recent scores' },
   { key: 'upcoming', label: 'Upcoming games' },
   { key: 'standings', label: 'Records & standings' },
+  { key: 'players', label: 'Key players' },
   { key: 'seasons', label: 'Season calendars' },
   { key: 'draft', label: 'Draft picks' },
 ];
-const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true, seasons: true, draft: true };
+const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true, players: true, seasons: true, draft: true };
 
 const DEFAULT_CONFIG = { enabled: false, frequency: 'daily', sendHour: 8, sendWeekday: 1, sendDayOfMonth: 1, timezone: BROWSER_TZ, topics: { ...DEFAULT_TOPICS }, teams: [] };
 
