@@ -15,6 +15,7 @@ import {
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
   linkAppointment, unlinkAppointment, ignoreAppointment, unignoreAppointment,
   settledEventIds, suggestEntryFor, pendingAppointments, setDoctorCalendar,
+  checkInsNeedingScheduling,
 } from './doctors';
 
 const entry = (o) => normalizeEntry(o);
@@ -1115,6 +1116,44 @@ describe('upcomingVisit', () => {
 
   it('is null when there is neither', () => {
     expect(upcomingVisit(normalizeEntry({ doctor: 'A' }), '', TODAY)).toBe(null);
+  });
+});
+
+describe('checkInsNeedingScheduling', () => {
+  const withLastVisit = (entries) => addField(normalizeList({ entries }), { label: 'Last visit', type: 'date' });
+
+  it('lists the check-ins the Next visit column leaves blank, and only those', () => {
+    let l = withLastVisit([
+      { id: 'counted', type: 'Dentist', place: '34th St Dental', cadence: 'Every 6 months' },
+      { id: 'booked', type: 'Skin', doctor: 'Dr Uliasz', appointments: [{ eventId: 'e', date: '2026-10-01' }] },
+      { id: 'no-last', type: 'Eye', cadence: 'Every 1 year(s)' },
+      { id: 'no-cadence', type: 'Ear', doctor: 'Dr Kim' },
+      { id: 'vague', type: 'GI', cadence: 'when it flares up' },
+      { id: 'issue-only', issue: 'Neck sprain', status: 'Resolved' },
+      { id: 'blank' },
+    ]);
+    const fieldId = l.fields[0].id;
+    l = setCustomValue(l, 'counted', fieldId, '2026-03-12');
+    l = setCustomValue(l, 'no-cadence', fieldId, '2026-03-12');
+
+    const out = checkInsNeedingScheduling(l, TODAY);
+    expect(out.map((c) => [c.id, c.reason])).toEqual([
+      ['no-cadence', 'No cadence'],
+      ['no-last', 'No last visit'],
+      ['vague', 'Cadence has no interval'],
+    ]);
+    expect(out[0].label).toBe('Ear — Dr Kim');
+  });
+
+  it('counts an overdue check-in as having a date', () => {
+    let l = withLastVisit([{ id: 'late', type: 'Dentist', cadence: 'Every 6 months' }]);
+    l = setCustomValue(l, 'late', l.fields[0].id, '2025-01-01');
+    expect(checkInsNeedingScheduling(l, TODAY)).toEqual([]);
+  });
+
+  it('has nothing to count from without a Date column', () => {
+    const out = checkInsNeedingScheduling({ entries: [{ id: 'a', type: 'Dentist', cadence: 'Every 6 months' }] }, TODAY);
+    expect(out.map((c) => c.reason)).toEqual(['No last visit']);
   });
 });
 

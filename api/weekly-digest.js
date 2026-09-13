@@ -1,8 +1,10 @@
 // Vercel Cron: runs weekly on Sunday, emails a digest of events that don't
-// have a finalized date yet (where the configured recipient is the owner).
+// have a finalized date yet (where the configured recipient is the owner), and
+// the Doctors check-ins with no next visit to show.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { checkInsNeedingScheduling } from '../src/lib/doctors.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -126,8 +128,19 @@ export default async function handler(req, res) {
       });
     }
 
-    if (unscheduled.length === 0) {
-      return res.status(200).json({ sent: false, reason: 'No unscheduled events', recipient });
+    // The Doctors list lives on the owner's own user doc (see DoctorsPage.jsx).
+    // A missing or unreadable list costs this section, not the whole digest.
+    let checkIns = [];
+    try {
+      const userSnap = await db.collection('users').doc(ownerUid).get();
+      const doctors = userSnap.exists ? userSnap.data()?.doctors : null;
+      if (doctors) checkIns = checkInsNeedingScheduling(doctors);
+    } catch (err) {
+      console.error('weekly-digest: doctors check-ins', err);
+    }
+
+    if (unscheduled.length === 0 && checkIns.length === 0) {
+      return res.status(200).json({ sent: false, reason: 'Nothing needs scheduling', recipient });
     }
 
     // Sort: events with a closest date first (soonest first), then no-date events by createdAt
@@ -178,11 +191,7 @@ export default async function handler(req, res) {
         </tr>`;
     }).join('');
 
-    const subject = `Rally: ${unscheduled.length} event${unscheduled.length === 1 ? '' : 's'} still need${unscheduled.length === 1 ? 's' : ''} a date`;
-
-    const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 760px; margin: 0 auto; padding: 2rem;">
-        <h1 style="font-size: 1.5rem; color: #4f46e5; margin: 0 0 0.25rem;">Rally weekly digest</h1>
+    const eventsSection = unscheduled.length === 0 ? '' : `
         <p style="color: #525252; margin: 0 0 1.5rem;">${unscheduled.length} event${unscheduled.length === 1 ? '' : 's'} still waiting on a date.</p>
         <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
           <thead>
@@ -194,7 +203,37 @@ export default async function handler(req, res) {
             </tr>
           </thead>
           <tbody>${rows}</tbody>
-        </table>
+        </table>`;
+
+    const checkInRows = checkIns.map(c => `
+        <tr>
+          <td style="${cellStyle}"><a href="${APP_URL}/doctors" style="font-weight:600; color:#1a1a1a; text-decoration:none;">${escapeHtml(c.label)}</a></td>
+          <td style="${cellStyle} color:#374151;">${c.cadence ? escapeHtml(c.cadence) : '<span style="color:#9ca3af;">—</span>'}</td>
+          <td style="${cellStyle} color:#6b7280;">${escapeHtml(c.reason)}</td>
+        </tr>`).join('');
+
+    const checkInsSection = checkIns.length === 0 ? '' : `
+        <h2 style="font-size: 1.1rem; color: #1f2937; margin: ${unscheduled.length ? '2rem' : '0'} 0 0.25rem;">Doctors: check-ins to schedule</h2>
+        <p style="color: #525252; margin: 0 0 1rem;">${checkIns.length} check-in${checkIns.length === 1 ? '' : 's'} with no next visit date.</p>
+        <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+          <thead>
+            <tr>
+              <th style="${headStyle}">Doctor</th>
+              <th style="${headStyle}">Cadence</th>
+              <th style="${headStyle}">Missing</th>
+            </tr>
+          </thead>
+          <tbody>${checkInRows}</tbody>
+        </table>`;
+
+    const total = unscheduled.length + checkIns.length;
+    const subject = `Rally: ${total} event${total === 1 ? '' : 's'} still need${total === 1 ? 's' : ''} scheduling`;
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 760px; margin: 0 auto; padding: 2rem;">
+        <h1 style="font-size: 1.5rem; color: #4f46e5; margin: 0 0 0.25rem;">Rally weekly digest</h1>
+        ${eventsSection}
+        ${checkInsSection}
         <a href="${APP_URL}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.6rem 1.25rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 1.5rem;">Open Rally</a>
         <div style="margin-top: 1.5rem; padding: 0.9rem 1rem; background: #eef2ff; border-left: 3px solid #4f46e5; border-radius: 6px; color: #1f2937; font-size: 0.82rem; line-height: 1.45;">
           <strong>✈️ Flight booking tip:</strong> Best time to book is <strong>30–45 days out</strong> for domestic flights and <strong>3–6 months out</strong> for international.
@@ -218,7 +257,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ sent: false, error: err.message || `HTTP ${response.status}` });
     }
 
-    return res.status(200).json({ sent: true, recipient, count: unscheduled.length });
+    return res.status(200).json({ sent: true, recipient, count: unscheduled.length, checkIns: checkIns.length });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
