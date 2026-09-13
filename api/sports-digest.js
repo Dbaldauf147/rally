@@ -264,7 +264,29 @@ function standingsRows(entries) {
         gb: gbText && gbText !== '-' ? `${gbText} GB` : '',
       };
     })
-    .sort((a, b) => a.behind - b.behind || (b.pct || 0) - (a.pct || 0) || a.name.localeCompare(b.name));
+    .sort((a, b) => a.behind - b.behind || (b.pct || 0) - (a.pct || 0) || a.name.localeCompare(b.name))
+    // Rank is fixed here, before any table is cut down, so a club shown below
+    // a trimmed top ten still carries its real place.
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
+const LEAGUE_TOP = 10;
+
+/* The rows the whole-league table prints: the top ten, and the followed team
+ * tacked on underneath when it sits below them — thirty rows to find one club
+ * was the problem, but the club is still the reason you're reading the table.
+ * Exported for tests. */
+export function leagueTopRows(rows, teamId, limit = LEAGUE_TOP) {
+  const top = (rows || []).slice(0, limit);
+  const me = (rows || []).find((r) => r.id === String(teamId));
+  return me && me.rank > limit ? [...top, me] : top;
+}
+
+// Where the team sits in the whole league, for the pill beside its name.
+export function leagueRank(tables, teamId) {
+  const rows = tables?.national?.rows || [];
+  const me = rows.find((r) => r.id === String(teamId));
+  return me ? { rank: me.rank, of: rows.length } : null;
 }
 
 // The table, at one grouping level, for whichever group the team sits in.
@@ -414,14 +436,17 @@ function upcomingTable(games, tz) {
 
 // One standings table. The followed team's row is bolded and tinted so it's
 // findable at a glance in a 30-row league table.
-function standingsTable(table, teamId) {
-  const rows = table.rows.map((r, i) => {
+function standingsTable(table, teamId, rows = table.rows) {
+  const body = rows.map((r, i) => {
     const me = r.id === teamId;
-    const base = `${CELL}${me ? 'background:#eef2ff;' : ''}font-weight:${me ? 700 : 400};`;
+    // A row pulled up from below the cut gets a gap above it, so #17 doesn't
+    // read as if it came straight after #10.
+    const gap = i > 0 && r.rank !== rows[i - 1].rank + 1 ? 'border-top:2px dashed #e5e7eb;' : '';
+    const base = `${CELL}${gap}${me ? 'background:#eef2ff;' : ''}font-weight:${me ? 700 : 400};`;
     const cell = `${base}color:${me ? '#111827' : '#4b5563'};`;
     return `
       <tr>
-        <td width="18" align="right" style="${base}color:#9ca3af;">${i + 1}</td>
+        <td width="18" align="right" style="${base}color:#9ca3af;">${r.rank ?? i + 1}</td>
         <td style="${cell}padding-left:8px;">${logoImg(r.logo, r.abbrev)} ${r.name}</td>
         <td align="right" style="${cell}white-space:nowrap;">${r.record}</td>
         <td align="right" style="${cell}padding-left:10px;white-space:nowrap;">${r.gb || '—'}</td>
@@ -435,7 +460,7 @@ function standingsTable(table, teamId) {
         <th align="right" style="${TH}">Record</th>
         <th align="right" style="${TH}padding-left:10px;">GB</th>
       </tr>
-      ${rows}
+      ${body}
     </table>`;
 }
 
@@ -457,13 +482,17 @@ function twoColumn(left, right) {
 function standingsBlock(tables, teamId) {
   const panels = [
     tables.division && { caption: tables.division.group, table: tables.division },
-    tables.national && { caption: tables.national.group, table: tables.national },
+    tables.national && {
+      caption: `${tables.national.group}${tables.national.rows.length > LEAGUE_TOP ? ` · top ${LEAGUE_TOP}` : ''}`,
+      table: tables.national,
+      rows: leagueTopRows(tables.national.rows, teamId),
+    },
   ].filter(Boolean);
   const caption = (text) =>
     `<div style="font-size:0.72rem;font-weight:700;color:#374151;margin:0 0 4px;">${text}</div>`;
   const legend = `<div style="color:#9ca3af;font-size:0.7rem;margin-top:6px;">GB = games behind the leader of that table.</div>`;
 
-  const panel = (p) => `${caption(p.caption)}${standingsTable(p.table, teamId)}`;
+  const panel = (p) => `${caption(p.caption)}${standingsTable(p.table, teamId, p.rows)}`;
   if (panels.length === 1) {
     return `${panel(panels[0])}${legend}`;
   }
@@ -586,40 +615,40 @@ export function buildSeasonBanner(openers, tz) {
     </div>`;
 }
 
-// Where each in-season league stands today — one row per league. The full
-// phase-by-phase calendar stays on the Sports page; the email only answers
-// "what part of the season is this, and how much of it is left".
-function buildSeasonBlock(seasons, tz) {
+// Where each in-season league stands today — one line per league, under a
+// small label rather than a heading, since it's a glance before the teams and
+// not a section of its own. The full phase-by-phase calendar stays on the
+// Sports page; the email only answers "what part of the season is this, and
+// how much of it is left". Exported for tests.
+export function buildSeasonBlock(seasons, tz) {
   if (!seasons || seasons.length === 0) return '';
-  const muted = (text) => `<span style="color:#6b7280;font-weight:400;">${text}</span>`;
   const rows = seasons.map(({ label, season }) => {
     const phase = currentPhase(season);
     // Exhibitions are left out of the games sections, so the status line doesn't
     // announce them either — a league sitting in its preseason counts down to
-    // the phase that does play games instead. The status underneath moves with
-    // it: "In season" is about the exhibitions we're not reporting.
+    // the phase that does play games instead.
     const counting = phase && isPreseasonPhase(phase) ? nextCountingPhase(season) : null;
     let detail;
-    let status = seasonStatusText(season);
+    let status = seasonStatusText(season).replace(/^In season · /, '');
     if (counting) {
-      detail = `${counting.name} ${muted(`starts ${fmtSeasonDate(counting.startDate, tz)}`)}`;
-      status = `Starts in ${daysUntil(counting.startDate)} days`;
+      detail = `${counting.name} starts ${fmtSeasonDate(counting.startDate, tz)}`;
+      status = `in ${daysUntil(counting.startDate)} days`;
     } else if (phase && !isPreseasonPhase(phase)) {
-      detail = `${phase.name} ${muted(`through ${fmtSeasonDate(phase.endDate, tz)}`)}`;
+      detail = `${phase.name} through ${fmtSeasonDate(phase.endDate, tz)}`;
     } else {
-      detail = season?.endDate ? muted(`Season ends ${fmtSeasonDate(season.endDate, tz)}`) : '';
+      detail = season?.endDate ? `Season ends ${fmtSeasonDate(season.endDate, tz)}` : '';
     }
+    const cell = 'padding:2px 0;';
     return `
       <tr>
-        <td style="${CELL}color:#111827;font-weight:700;white-space:nowrap;">${label}<span style="color:#6b7280;font-size:0.78rem;font-weight:400;">${season?.displayName ? ' · ' + season.displayName : ''}</span></td>
-        <td align="right" style="${CELL}color:#4f46e5;font-weight:600;">${detail}
-          <div style="color:#6b7280;font-size:0.78rem;font-weight:400;">${status}</div>
-        </td>
+        <td style="${cell}color:#111827;font-weight:700;white-space:nowrap;width:1%;padding-right:12px;">${label}</td>
+        <td style="${cell}color:#4b5563;">${detail}</td>
+        <td align="right" style="${cell}color:#4f46e5;font-weight:600;white-space:nowrap;padding-left:12px;">${status}</td>
       </tr>`;
   }).join('');
   return `
-    <div style="background:#eef2ff;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
-      <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">Season status</h2>
+    <div style="background:#eef2ff;border-radius:10px;padding:0.55rem 1rem;margin:0 0 1rem;">
+      <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;font-weight:600;margin:0 0 2px;">Season status</div>
       ${TABLE_OPEN}${rows}</table>
     </div>`;
 }
@@ -717,9 +746,15 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams,
         : '<div style="color:#9ca3af;">No upcoming games scheduled.</div>'}`;
       if (scores && upcoming) blocks.push(twoColumn(scores, upcoming));
       else if (scores || upcoming) blocks.push(scores || upcoming);
+      // Place in the whole league, beside the name. Only when standings are on
+      // and counting — the preseason line above says why there isn't one.
+      const place = topics.standings && !t.standingsFrom ? leagueRank(t.table, t.teamId) : null;
+      const rankPill = place
+        ? ` <span style="display:inline-block;background:#4f46e5;color:#fff;border-radius:999px;padding:1px 8px;font-size:0.8rem;font-weight:700;vertical-align:middle;">#${place.rank}</span><span style="color:#9ca3af;font-size:0.75rem;font-weight:400;vertical-align:middle;"> of ${place.of}</span>`
+        : '';
       return `
         <div style="background:#f5f3ef;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
-          <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">${t.name}</h2>
+          <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">${t.name}${rankPill}</h2>
           ${blocks.join('')}
         </div>`;
     })
