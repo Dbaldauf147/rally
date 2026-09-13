@@ -59,6 +59,35 @@ function localWeekday(date, tz) {
   }
 }
 
+function localHour(date, tz) {
+  try {
+    const h = new Intl.DateTimeFormat('en-US', { timeZone: tz || 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(date);
+    return Number(h);
+  } catch {
+    return date.getUTCHours();
+  }
+}
+
+/* When the weekly email goes: 8 AM on the chosen day, in the digest's timezone
+ * (Eastern unless one was saved).
+ *
+ * The Hobby plan runs a cron once a day at a fixed UTC hour, and 8 AM Eastern
+ * is 12:00 UTC in summer and 13:00 in winter — so vercel.json fires this at
+ * both, and whichever run first finds it 8 o'clock or later sends. The other
+ * run finds today already sent. A later hour counts too, so the 13:00 run in
+ * summer is a retry for a 12:00 send that failed rather than a missed week.
+ *
+ * Exported for tests. */
+export const SEND_HOUR = 8;
+export function isDueNow(cfg = {}, now = new Date()) {
+  if (!cfg.enabled) return false;
+  const tz = cfg.timezone;
+  const wanted = typeof cfg.sendWeekday === 'number' ? cfg.sendWeekday : 0;
+  if (localWeekday(now, tz) !== wanted) return false;
+  if (localHour(now, tz) < (typeof cfg.sendHour === 'number' ? cfg.sendHour : SEND_HOUR)) return false;
+  return cfg.lastSentDate !== localDateKey(now, tz);
+}
+
 function fmtWeekOf(date, tz) {
   try {
     return new Intl.DateTimeFormat('en-US', {
@@ -320,33 +349,55 @@ export function testRecipients(userData) {
 /* `to` overrides who it goes to; the cron leaves it out and gets the whole
    configured list. Kept as an argument rather than read off the config,
    because "who is this going to" is the one decision a send should never make
-   for itself. */
-async function sendDigestForUser(resendKey, uid, userData, now, to = null) {
+   for itself.
+
+   One email per address, not one email to all of them. Resend refuses a
+   message outright if it refuses any recipient — and from the shared
+   resend.dev sender it refuses everyone but the account's own address — so a
+   second address on the list used to cost the first one its email too, with
+   nothing on the page to say so. Sent separately, each address stands on its
+   own, and the refusals come back by name. */
+export async function sendDigestForUser(resendKey, uid, userData, now, to = null) {
   const built = buildDigestForUser(userData, now);
   if (built.skipped) return { uid, skipped: built.skipped };
   const emails = to || built.emails;
   if (!emails.length) return { uid, skipped: 'no email' };
 
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: 'Rally Wedding <noreply@resend.dev>',
-      to: emails,
-      subject: built.subject,
-      html: built.html,
-    }),
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    return { uid, success: false, error: err.message || `HTTP ${response.status}` };
+  const sentTo = [];
+  const failed = [];
+  for (const address of emails) {
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'Rally Wedding <noreply@resend.dev>',
+          to: [address],
+          subject: built.subject,
+          html: built.html,
+        }),
+      });
+      if (response.ok) {
+        sentTo.push(address);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        failed.push({ email: address, error: err.message || `HTTP ${response.status}` });
+      }
+    } catch (err) {
+      failed.push({ email: address, error: err.message || 'network error' });
+    }
+  }
+
+  if (sentTo.length === 0) {
+    return { uid, success: false, error: failed.map((f) => `${f.email}: ${f.error}`).join('; '), failed };
   }
   return {
     uid,
     success: true,
     done: built.sum.complete,
     total: built.sum.total,
-    sentTo: emails,
+    sentTo,
+    failed,
     snapshot: built.snapshot,
   };
 }
@@ -410,9 +461,8 @@ export default async function handler(req, res) {
     }
   }
 
-  // Cron. Runs daily; each user's chosen weekday decides whether today is
-  // theirs, matching how the sports digest handles frequency on the Hobby plan
-  // where the cron fires once a day at a time we don't control.
+  // Cron. Fires twice a day (see isDueNow) and sends to each user whose day
+  // and hour it is, once.
   const now = new Date();
   const results = [];
   try {
@@ -420,20 +470,27 @@ export default async function handler(req, res) {
     for (const userDoc of usersSnap.docs) {
       const data = userDoc.data();
       const cfg = data.weddingDigest;
-      if (!cfg?.enabled) continue;
-      const wanted = typeof cfg.sendWeekday === 'number' ? cfg.sendWeekday : 0;
-      if (localWeekday(now, cfg.timezone) !== wanted) continue;
+      if (!isDueNow(cfg, now)) continue;
       const todayKey = localDateKey(now, cfg.timezone);
-      if (cfg.lastSentDate === todayKey) continue;
       const result = await sendDigestForUser(resendKey, userDoc.id, data, now);
-      if (result.success) {
-        // Snapshot saved only on a real send, so next week's "done this week"
-        // is measured against the last email that actually went out.
-        await db.collection('users').doc(userDoc.id).set(
-          { weddingDigest: { lastSentDate: todayKey, lastSnapshot: result.snapshot } },
-          { merge: true },
-        );
-      }
+      if (result.skipped) { results.push(result); continue; }
+      // What happened, kept where the page can read it: a refused address
+      // should say so on the Wedding page, not only in a function log.
+      const lastResult = {
+        at: now.toISOString(),
+        sentTo: result.sentTo || [],
+        failed: result.failed || (result.error ? [{ email: '', error: result.error }] : []),
+      };
+      await db.collection('users').doc(userDoc.id).set(
+        {
+          weddingDigest: result.success
+            // Snapshot saved only on a real send, so next week's "done this
+            // week" is measured against the last email that actually went out.
+            ? { lastSentDate: todayKey, lastSnapshot: result.snapshot, lastResult }
+            : { lastResult },
+        },
+        { merge: true },
+      );
       results.push(result);
     }
   } catch (err) {
