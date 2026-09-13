@@ -23,6 +23,8 @@ import {
 import { parseVCards, headersFor } from '../lib/vcard';
 import { pickPhoneContacts, contactsSource, sourceLabel, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
 import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
+import { FriendProfileEditor } from './FriendProfileEditor';
+import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
@@ -1013,6 +1015,9 @@ export function FriendsPage() {
       // removed — the save below replaces the whole doc, so anything left out
       // here would be dropped.
       custom: (friend.custom && typeof friend.custom === 'object') ? { ...friend.custom } : {},
+      // Likes / Things I appreciate — the two default sections when there's
+      // nothing yet, trimmed back out on save if left empty.
+      profile: profileForEditing(friend.profile),
     });
     setGiftDraft('');
     setEditFriend(friend);
@@ -1038,6 +1043,7 @@ export function FriendsPage() {
       address: cleanedAddresses[0]?.value || '',
       notes: (editFields.notes || '').trim(),
       giftIdeas,
+      profile: profileForSaving(editFields.profile),
       custom: cleanCustomValues(coerceCustomMap(customFields, editFields.custom)),
       createdAt: editFriend.createdAt || new Date().toISOString(),
     };
@@ -2319,9 +2325,12 @@ export function FriendsPage() {
       {/* Edit contact modal */}
       {editFriend && (
         <div className={styles.overlay} onClick={() => setEditFriend(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div className={`${styles.modal} ${styles.modalWide}`} onClick={e => e.stopPropagation()}>
             <h2 className={styles.modalTitle}>Edit Contact</h2>
             <form onSubmit={handleSaveEdit} className={styles.form}>
+              <div className={styles.editColumns}>
+              {/* Left: how to reach them. Right: who they are. */}
+              <div className={styles.editColumn}>
               <label className={styles.label}>Name *<input className={styles.input} value={editFields.name} onChange={e => editSet('name', e.target.value)} required autoFocus /></label>
               <label className={styles.label}>Email<input className={styles.input} type="email" value={editFields.email} onChange={e => editSet('email', e.target.value)} /></label>
               <label className={styles.label}>Work Email<input className={styles.input} type="email" value={editFields.workEmail} onChange={e => editSet('workEmail', e.target.value)} /></label>
@@ -2337,6 +2346,23 @@ export function FriendsPage() {
               <label className={styles.label}>Date of Birth<DateField className={styles.input} value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
               <label className={styles.label}>Anniversary<input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
               <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
+              <ComesWithPicker
+                friends={friends}
+                editFriendId={editFriend?.id}
+                value={editFields.linkedTo || ''}
+                onChange={val => editSet('linkedTo', val)}
+              />
+              <CustomFieldInputs
+                fields={customFields}
+                values={editFields.custom}
+                onChange={editSetCustom}
+              />
+              </div>
+              <div className={styles.editColumn}>
+              <FriendProfileEditor
+                value={editFields.profile}
+                onChange={v => editSet('profile', v)}
+              />
               <label className={styles.label}>
                 📝 Notes
                 <textarea
@@ -2372,17 +2398,8 @@ export function FriendsPage() {
                   <button type="button" onClick={addGiftIdea} disabled={!giftDraft.trim()} style={{ flexShrink: 0, padding: '0 0.85rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-accent-light)', color: 'var(--color-accent)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Add</button>
                 </div>
               </div>
-              <ComesWithPicker
-                friends={friends}
-                editFriendId={editFriend?.id}
-                value={editFields.linkedTo || ''}
-                onChange={val => editSet('linkedTo', val)}
-              />
-              <CustomFieldInputs
-                fields={customFields}
-                values={editFields.custom}
-                onChange={editSetCustom}
-              />
+              </div>
+              </div>
               <div className={styles.formActions}>
                 <button className={styles.saveBtn} type="submit">Save Changes</button>
                 <button className={styles.cancelBtn} type="button" onClick={() => setEditFriend(null)}>Cancel</button>
