@@ -1,0 +1,92 @@
+.profile { display: flex; flex-direction: column; gap: 1rem; }
+
+.section {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.85rem 0.6rem;
+  background: var(--color-surface);
+}
+
+.sectionHead { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
+.sectionTitle {
+  flex: 1; min-width: 8rem;
+  font: inherit; font-size: 1rem; font-weight: 700; color: var(--color-text);
+  border: 1px solid transparent; border-radius: var(--radius-md);
+  padding: 0.25rem 0.4rem; margin-left: -0.4rem; background: none; outline: none;
+}
+.sectionTitle:hover { border-color: var(--color-border-light); }
+.sectionTitle:focus { border-color: var(--color-accent); }
+.sectionTools { display: flex; gap: 0.2rem; }
+
+.tool {
+  background: none; border: 1px solid transparent; border-radius: 6px;
+  color: var(--color-text-muted); font: inherit; font-size: 0.78rem; line-height: 1;
+  padding: 0.3rem 0.4rem; cursor: pointer; min-width: 1.6rem;
+}
+.tool:hover:not(:disabled) { border-color: var(--color-border); color: var(--color-text); }
+.tool:disabled { opacity: 0.3; cursor: default; }
+
+.outline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+
+.row {
+  display: flex; align-items: center; gap: 0.35rem;
+  padding-left: calc(var(--depth, 0) * 1.4rem);
+  border-radius: 6px;
+}
+.row:hover, .row:focus-within { background: var(--color-surface-alt); }
+
+.bullet {
+  flex-shrink: 0; width: 0.35rem; height: 0.35rem; border-radius: 50%;
+  background: var(--color-text-muted); margin-left: 0.4rem; opacity: 0.6;
+}
+.top .bullet { width: 0.45rem; height: 0.45rem; background: var(--color-accent); opacity: 1; }
+
+.itemInput {
+  flex: 1; min-width: 0;
+  font: inherit; font-size: 0.9rem; color: var(--color-text);
+  border: none; background: none; outline: none;
+  padding: 0.35rem 0.25rem;
+  text-transform: none; letter-spacing: normal;
+}
+.top .itemInput { font-weight: 600; }
+
+/* Out of the way until the row is in use. */
+.rowTools { display: flex; gap: 0.05rem; opacity: 0; transition: opacity 0.1s; }
+.row:hover .rowTools, .row:focus-within .rowTools { opacity: 1; }
+
+/* A phone has no room beside the text and no hover to reveal them, so they
+   drop onto their own line under whichever row you've tapped into — which is
+   also the only way to nest there, with no Tab key. */
+@media (max-width: 600px), (hover: none) {
+  .row { flex-wrap: wrap; }
+  .rowTools { display: none; opacity: 1; }
+  .row:focus-within .rowTools { display: flex; width: 100%; justify-content: flex-end; padding-bottom: 0.25rem; }
+  .tool { min-width: 2.2rem; min-height: 2rem; font-size: 0.9rem; }
+  .sectionTitle { min-width: 100%; }
+}
+
+.addLine, .addSection {
+  background: none; border: none; font: inherit; cursor: pointer;
+  color: var(--color-accent); font-size: 0.82rem; font-weight: 600;
+  padding: 0.35rem 0.4rem; margin-top: 0.15rem; text-align: left;
+}
+.addSection {
+  border: 1px dashed var(--color-border); border-radius: var(--radius-md);
+  padding: 0.55rem; text-align: center;
+}
+
+.pasteBox { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.25rem 0 0.6rem; }
+.pasteArea {
+  font: inherit; font-size: 0.85rem; line-height: 1.45; color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  padding: 0.5rem 0.6rem; resize: vertical; outline: none; tab-size: 2;
+}
+.pasteArea:focus { border-color: var(--color-accent); }
+.pasteHint { font-size: 0.75rem; color: var(--color-text-muted); }
+.pasteActions { display: flex; gap: 0.5rem; align-items: center; }
+.addBtn {
+  padding: 0.4rem 0.85rem; border: 1px solid var(--color-accent); border-radius: var(--radius-md);
+  background: var(--color-accent-light); color: var(--color-accent);
+  font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+}
+.addBtn:disabled { opacity: 0.4; cursor: default; }

@@ -328,7 +328,6 @@ function GuestList() {
             : [wd.email || data.email || user.email || '']).filter((v, i) => i === 0 || v),
           sendWeekday: typeof wd.sendWeekday === 'number' ? wd.sendWeekday : 0,
           timezone: wd.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
-          lastResult: wd.lastResult && typeof wd.lastResult === 'object' ? wd.lastResult : null,
         });
         const stored = Array.isArray(data.weddingContacts) ? data.weddingContacts : null;
         setLoading(false);
@@ -955,7 +954,7 @@ function GuestList() {
           >
             <span>📧 Weekly email</span>
             <span className={digestCfg.enabled ? styles.digestOn : styles.digestOff}>
-              {digestCfg.enabled ? `On · ${WEEKDAYS[digestCfg.sendWeekday] || 'Sunday'}s at 8 AM` : 'Off'}
+              {digestCfg.enabled ? `On · ${WEEKDAYS[digestCfg.sendWeekday] || 'Sunday'}s` : 'Off'}
             </span>
             <span className={styles.digestChevron} aria-hidden="true">{digestOpen ? '▾' : '▸'}</span>
           </button>
@@ -1020,30 +1019,6 @@ function GuestList() {
                       {WEEKDAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
                     </select>
                   </label>
-                  {/* Fixed rather than a picker: the cron runs at set hours on
-                      this plan, and a picker offering 6 PM would be a promise
-                      nothing keeps. See isDueNow in api/wedding-digest.js. */}
-                  <div className={styles.digestField}>
-                    <span>At</span>
-                    <div className={styles.digestTime}>8:00 AM Eastern</div>
-                  </div>
-                </div>
-              )}
-
-              {/* The last scheduled send, when an address on the list didn't get
-                  it — otherwise a refused address is silence, which reads as "the
-                  email just didn't come". */}
-              {digestCfg.enabled && digestCfg.lastResult?.failed?.length > 0 && (
-                <div className={styles.digestFailed} role="status">
-                  <strong>
-                    The {new Date(digestCfg.lastResult.at).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} email
-                    {digestCfg.lastResult.sentTo?.length ? ` reached ${digestCfg.lastResult.sentTo.join(', ')} but` : ''} didn&apos;t reach:
-                  </strong>
-                  <ul>
-                    {digestCfg.lastResult.failed.map((f, i) => (
-                      <li key={i}>{f.email ? `${f.email} — ` : ''}{f.error}</li>
-                    ))}
-                  </ul>
                 </div>
               )}
 
@@ -1063,8 +1038,7 @@ function GuestList() {
                 )}
               </div>
               <p className={styles.digestNote}>
-                Sends at 8 AM Eastern on your chosen day (some time before 9), to everyone
-                above, each as their own email. A test goes to
+                Sends in the morning on your chosen day, to everyone above. A test goes to
                 your own address only — nobody else on the list gets one — and doesn&apos;t
                 count as the week&apos;s email, so the next one still shows what changed.
               </p>
