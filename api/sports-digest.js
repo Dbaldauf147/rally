@@ -8,6 +8,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { fetchSeasonWithPhases, fetchDraftPicks } from '../lib/espnSeason.js';
+import { fetchKeyPlayers } from '../lib/espnPlayers.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -96,7 +97,7 @@ const logoImg = (src, alt) => (src
 // The content sections a digest can include. Any key not explicitly set to
 // false is treated as on, so newly added topics default on for existing
 // configs (and legacy configs with no topics field get everything).
-const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true, seasons: true, draft: true };
+const DEFAULT_TOPICS = { scores: true, upcoming: true, standings: true, players: true, seasons: true, draft: true };
 function normalizeTopics(cfg) {
   const t = cfg?.topics;
   if (!t || typeof t !== 'object') return { ...DEFAULT_TOPICS };
@@ -104,6 +105,7 @@ function normalizeTopics(cfg) {
     scores: t.scores !== false,
     upcoming: t.upcoming !== false,
     standings: t.standings !== false,
+    players: t.players !== false,
     seasons: t.seasons !== false,
     draft: t.draft !== false,
   };
@@ -365,12 +367,16 @@ function fmtSeasonDate(iso, tz) {
    Standings now follow the same rule the games sections do: skipped entirely
    until the phase that counts starts, with a line saying when that is. */
 async function fetchTeamDigest(team, topics, standingsCache, season) {
-  const out = { name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null };
+  const out = { name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null, keyPlayers: null };
+  // Started alongside the schedule rather than after it; best-effort, so a
+  // failure here costs the players block and nothing else.
+  const players = topics.players ? fetchKeyPlayers(team, season).catch(() => null) : null;
   if (topics.scores || topics.upcoming) {
     const sched = await fetchTeamSchedule(team);
     out.results = sched.results;
     out.upcoming = sched.upcoming;
   }
+  if (players) out.keyPlayers = await players;
   if (topics.standings) {
     out.standingsFrom = standingsHeldUntil(season);
     // Nothing to rank yet — skip the fetch as well as the block.
@@ -497,6 +503,27 @@ function standingsBlock(tables, teamId) {
     return `${panel(panels[0])}${legend}`;
   }
   return `${twoColumn(panel(panels[0]), panel(panels[1]))}${legend}`;
+}
+
+// The five players who matter most and are available, one row each: headshot,
+// name and position, then the number that put them on the list. Football and
+// soccer pick by role, so the role rides under the name there.
+function keyPlayersTable(players) {
+  const rows = players.map((p) => {
+    const face = p.headshot
+      ? `<img src="${p.headshot}" alt="" width="28" height="28" style="width:28px;height:28px;border-radius:50%;object-fit:cover;background:#e5e7eb;border:0;vertical-align:middle;" />`
+      : '';
+    return `
+      <tr>
+        <td width="34" valign="middle" style="${CELL}">${face}</td>
+        <td valign="middle" style="${CELL}color:#111827;font-weight:600;">${p.name}
+          <span style="color:#6b7280;font-weight:400;font-size:0.78rem;">${p.position ? ' · ' + p.position : ''}</span>
+          ${p.role ? `<div style="color:#9ca3af;font-size:0.72rem;font-weight:400;">${p.role}</div>` : ''}
+        </td>
+        <td align="right" valign="middle" style="${CELL}color:#4f46e5;font-weight:600;padding-left:10px;">${p.stat}</td>
+      </tr>`;
+  }).join('');
+  return `${TABLE_OPEN}${rows}</table>`;
 }
 
 const sectionLabel = (text, first) =>
@@ -733,6 +760,12 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams,
       } else if (topics.standings && (t.record || t.standing)) {
         const parts = [t.record, t.standing].filter(Boolean).join(' · ');
         blocks.push(`${sectionLabel('Record &amp; standing', blocks.length === 0)}<div style="margin:2px 0;color:#1f2937;font-weight:600;">${parts}</div>`);
+      }
+      if (topics.players && t.keyPlayers?.players?.length) {
+        const note = t.keyPlayers.lastSeason
+          ? ` <span style="text-transform:none;letter-spacing:0;color:#9ca3af;">· ${t.keyPlayers.year} stats</span>`
+          : '';
+        blocks.push(`${sectionLabel(`Key players${note}`, blocks.length === 0)}${keyPlayersTable(t.keyPlayers.players)}`);
       }
       // Scores and schedule are both narrow lists, so they ride side by side —
       // that's most of the width buying back height. Either one alone spans the
