@@ -1,3 +1,4 @@
+import { senderAddress } from '../lib/emailSender.js';
 // Sends reminder emails to event members who haven't responded to the poll
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -32,7 +33,7 @@ export default async function handler(req, res) {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from: 'Rally <noreply@resend.dev>',
+          from: senderAddress('Rally'),
           to: [r.email],
           subject,
           html: `

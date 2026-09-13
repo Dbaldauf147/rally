@@ -2,6 +2,7 @@
 // and sends reminder emails to non-voters via the Resend API.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { senderAddress } from '../lib/emailSender.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -101,7 +102,7 @@ export default async function handler(req, res) {
             method: 'POST',
             headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              from: 'Rally <noreply@resend.dev>',
+              from: senderAddress('Rally'),
               to: [m.email],
               subject,
               html: `

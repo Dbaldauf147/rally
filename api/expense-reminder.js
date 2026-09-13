@@ -13,6 +13,7 @@
 //   FIREBASE_SERVICE_ACCOUNT  Rally's own, for verifying the caller
 import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { senderAddress } from '../lib/emailSender.js';
 
 const MAX_RECIPIENTS = 20;
 
@@ -94,7 +95,7 @@ export default async function handler(req, res) {
         method: 'POST',
         headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from: 'Rally <noreply@resend.dev>',
+          from: senderAddress('Rally'),
           to: [r.email],
           subject: `${from} split ${what}${where} — your share is ${usd(amount)}`,
           html: `

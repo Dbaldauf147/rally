@@ -18,6 +18,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { weddingStats, snapshotOf } from '../lib/weddingStats.js';
 import { checklistSummary, checklistSnapshot, checklistDelta } from '../lib/weddingChecklistDigest.js';
+import { senderAddress } from '../lib/emailSender.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -371,7 +372,7 @@ export async function sendDigestForUser(resendKey, uid, userData, now, to = null
         method: 'POST',
         headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from: 'Rally Wedding <noreply@resend.dev>',
+          from: senderAddress('Rally Wedding'),
           to: [address],
           subject: built.subject,
           html: built.html,
