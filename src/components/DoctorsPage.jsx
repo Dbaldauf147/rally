@@ -13,7 +13,7 @@ import {
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
   dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
-  isCheckInEntry, setDoctorCalendar, pendingAppointments,
+  isCheckInEntry, setDoctorCalendar, pendingAppointments, sameType,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts,
   linkAppointment, ignoreAppointment, unignoreAppointment,
@@ -991,22 +991,62 @@ function QuestionsPanel({ list, update }) {
   );
 }
 
+/* A labelled field inside the speciality pop-up.
+
+   Uncontrolled and committed on blur, like the table's cells, for the same
+   reason: the stored shape trims, so writing per keystroke would eat spaces.
+   Keyed on the stored value by the caller, so an edit syncing in from another
+   device replaces what's shown — it only changes on a commit, never mid-word. */
+function DetailField({ label, value, onCommit, type = 'text', long = false, placeholder }) {
+  const commit = (e) => { if (e.target.value.trim() !== String(value || '')) onCommit(e.target.value); };
+  const common = {
+    className: styles.modalInput,
+    defaultValue: value || '',
+    placeholder: placeholder || label,
+    'aria-label': label,
+    onBlur: commit,
+  };
+  return (
+    <label className={long ? styles.modalFieldWide : styles.modalField}>
+      <span className={styles.fieldLabel}>{label}</span>
+      {long
+        ? <textarea rows={2} {...common} />
+        : <input type={type} {...common} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }} />}
+    </label>
+  );
+}
+
 /* One speciality, opened from its heading on the Check-ins tab.
 
-   Everything the table spreads across a wide row, stacked per doctor so it
-   reads on a phone: how to reach them, how often, when last and when next, and
-   whatever questions are still waiting to be asked of them. Read-only — the
-   table is where editing happens, and two places to type the same field is
-   one too many. */
-function TypeDetail({ list, group, daysFrom, onClose }) {
+   Every record filed under it — the doctor you see on a schedule and the
+   complaint that sent you there — stacked per record so it reads on a phone,
+   and editable in place: the name, how to reach them, the issue and what was
+   taken for it, and the questions waiting to be asked. Only what's counted
+   (the last and next visit) stays read-only; it isn't typed anywhere. */
+function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
+  const [draftQ, setDraftQ] = useState({});
+
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const ids = new Set(group.entries.map((e) => e.id));
-  const openQuestions = (list.questions || []).filter((q) => ids.has(q.entryId) && !q.answered);
+  const questionsFor = (id) => (list.questions || [])
+    .filter((q) => q.entryId === id)
+    .sort((a, b) => (a.answered === b.answered ? 0 : a.answered ? 1 : -1));
+  const commit = (id, key) => (value) => update((l) => updateEntry(l, id, { [key]: value }));
+
+  function addQ(id) {
+    const text = (draftQ[id] || '').trim();
+    if (!text) return;
+    update((l) => addQuestion(l, { text, entryId: id }));
+    setDraftQ((d) => ({ ...d, [id]: '' }));
+  }
+
+  function addRecord() {
+    update((l) => addEntry(l, normalizeEntry({ id: makeId(), type, status: STATUS.NONE })));
+  }
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
@@ -1014,16 +1054,17 @@ function TypeDetail({ list, group, daysFrom, onClose }) {
         className={styles.modal}
         role="dialog"
         aria-modal="true"
-        aria-label={typeHeading(group.type)}
+        aria-label={typeHeading(type)}
         onClick={(e) => e.stopPropagation()}
       >
         <button type="button" className={styles.modalClose} aria-label="Close" onClick={onClose}>×</button>
         <h2 className={styles.modalTitle}>
-          {typeHeading(group.type)}
-          <span className={styles.groupCount}>{group.entries.length}</span>
+          {typeHeading(type)}
+          <span className={styles.groupCount}>{entries.length}</span>
         </h2>
+        <p className={styles.modalHint}>Edit anything here — it saves when you click away.</p>
 
-        {group.entries.map((entry) => {
+        {entries.map((entry) => {
           const since = daysFrom ? customValueOf(entry, daysFrom) : '';
           const counted = daysSinceLabel(since);
           const next = upcomingVisit(entry, since);
@@ -1031,50 +1072,123 @@ function TypeDetail({ list, group, daysFrom, onClose }) {
           const mail = mailHref(entry.email);
           const map = mapHref(entry.location);
           const link = safeLink(entry.link);
-          const subtitle = entrySubtitle(entry, group.type);
-          const questions = openQuestions.filter((q) => q.entryId === entry.id);
-          const facts = [
-            ['Cadence', entry.cadence],
-            // The counter only reads as "days ago" when it is a plain number.
-            [daysFrom?.label || 'Last visit', since
-              ? `${formatCustomValue(daysFrom, since)}${/^\d+$/.test(counted) ? ` · ${counted} days ago` : ''}`
-              : ''],
-            ['Next visit', next ? `${next.label}${next.booked ? ' 📅' : ''}${next.overdue ? ' · overdue' : ''}` : ''],
-            ['Current meds', entry.currentMeds],
-            ['Issue', issueCell(entry, group.type)],
-            ['Notes', entry.notes],
-          ].filter(([, v]) => v);
+          const questions = questionsFor(entry.id);
+          const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
           return (
             <section key={entry.id} className={styles.modalEntry}>
-              <div className={styles.name}>{entryTitle(entry, group.type)}</div>
-              {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
+              <div className={styles.modalEntryHead}>
+                <div className={styles.name}>{entryTitle(entry, type)}</div>
+                <select
+                  className={styles.statusSelect}
+                  aria-label={`Status of ${entryTitle(entry, type)}`}
+                  value={entry.status}
+                  onChange={(e) => update((l) => updateEntry(l, entry.id, { status: e.target.value }))}
+                >
+                  {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+                </select>
+              </div>
+
+              <div className={styles.modalGrid}>
+                <DetailField key={k('doctor')} label="Doctor" value={entry.doctor} onCommit={commit(entry.id, 'doctor')} />
+                <DetailField key={k('place')} label="Place" value={entry.place} onCommit={commit(entry.id, 'place')} />
+              </div>
+
+              <div className={styles.modalSection}>Issue &amp; meds</div>
+              <div className={styles.modalGrid}>
+                <DetailField key={k('issue')} label="Issue" value={entry.issue} onCommit={commit(entry.id, 'issue')} placeholder="What it's for" />
+                <DetailField key={k('currentMeds')} label="Current meds" value={entry.currentMeds} onCommit={commit(entry.id, 'currentMeds')} />
+                <DetailField key={k('previousMeds')} label="Previous meds" value={entry.previousMeds} onCommit={commit(entry.id, 'previousMeds')} />
+                <DetailField key={k('notes')} label="Notes" value={entry.notes} onCommit={commit(entry.id, 'notes')} long />
+              </div>
+
+              <div className={styles.modalSection}>Visits &amp; contact</div>
+              <dl className={styles.modalFacts}>
+                <div className={styles.modalFact}>
+                  <dt>{daysFrom?.label || 'Last visit'}</dt>
+                  <dd>{since ? `${formatCustomValue(daysFrom, since)}${/^\d+$/.test(counted) ? ` · ${counted} days ago` : ''}` : '—'}</dd>
+                </div>
+                <div className={next?.overdue ? styles.modalFactOverdue : styles.modalFact}>
+                  <dt>Next visit</dt>
+                  <dd>{next ? `${next.label}${next.booked ? ' 📅' : ''}${next.overdue ? ' · overdue' : ''}` : '—'}</dd>
+                </div>
+              </dl>
+              <div className={styles.modalGrid}>
+                <DetailField key={k('cadence')} label="Cadence" value={entry.cadence} onCommit={commit(entry.id, 'cadence')} placeholder="Every 6 months" />
+                <DetailField key={k('phone')} label="Phone" type="tel" value={entry.phone} onCommit={commit(entry.id, 'phone')} />
+                <DetailField key={k('email')} label="Email" type="email" value={entry.email} onCommit={commit(entry.id, 'email')} />
+                <DetailField key={k('location')} label="Location" value={entry.location} onCommit={commit(entry.id, 'location')} />
+                <DetailField key={k('link')} label="Link" type="url" value={entry.link} onCommit={commit(entry.id, 'link')} />
+              </div>
               {(tel || mail || map || link) && (
-                <div className={styles.modalContact}>
-                  {tel ? <a className={styles.link} href={tel}>{entry.phone}</a> : null}
-                  {mail ? <a className={styles.link} href={mail}>{entry.email}</a> : null}
-                  {map ? <a className={`${styles.link} ${styles.linkMuted}`} href={map} target="_blank" rel="noreferrer">{entry.location}</a> : null}
-                  {link ? <a className={styles.link} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
+                <div className={styles.modalLinks}>
+                  {tel ? <a className={styles.modalLink} href={tel}>Call</a> : null}
+                  {mail ? <a className={styles.modalLink} href={mail}>Email</a> : null}
+                  {map ? <a className={styles.modalLink} href={map} target="_blank" rel="noreferrer">Map ↗</a> : null}
+                  {link ? <a className={styles.modalLink} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
                 </div>
               )}
-              {facts.length > 0 && (
-                <dl className={styles.modalFacts}>
-                  {facts.map(([label, value]) => (
-                    <div key={label} className={next?.overdue && label === 'Next visit' ? styles.modalFactOverdue : styles.modalFact}>
-                      <dt>{label}</dt>
-                      <dd>{value}</dd>
+
+              <div className={styles.modalSection}>
+                Questions
+                {questions.some((q) => !q.answered) && (
+                  <span className={styles.groupCount}>{questions.filter((q) => !q.answered).length}</span>
+                )}
+              </div>
+              <ul className={styles.modalQList}>
+                {questions.map((q) => (
+                  <li key={q.id} className={q.answered ? styles.modalQDone : styles.modalQ}>
+                    <input
+                      type="checkbox"
+                      checked={q.answered}
+                      aria-label={q.answered ? `Mark “${q.text}” still to ask` : `Mark “${q.text}” answered`}
+                      onChange={() => update((l) => updateQuestion(l, q.id, { answered: !q.answered }))}
+                    />
+                    <div className={styles.modalQBody}>
+                      <input
+                        key={`${q.id}:t:${q.text}`}
+                        className={styles.modalQText}
+                        defaultValue={q.text}
+                        aria-label="Question"
+                        onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== q.text) update((l) => updateQuestion(l, q.id, { text: e.target.value })); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      />
+                      <input
+                        key={`${q.id}:a:${q.answer}`}
+                        className={styles.modalQAnswer}
+                        defaultValue={q.answer}
+                        placeholder="What they said…"
+                        aria-label={`Answer to “${q.text}”`}
+                        onBlur={(e) => { if (e.target.value.trim() !== q.answer) update((l) => updateQuestion(l, q.id, { answer: e.target.value })); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      />
                     </div>
-                  ))}
-                </dl>
-              )}
-              {questions.length > 0 && (
-                <div className={styles.modalQuestions}>
-                  <div className={styles.fieldLabel}>To ask</div>
-                  <ul>{questions.map((q) => <li key={q.id}>{q.text}</li>)}</ul>
-                </div>
-              )}
+                    <button
+                      type="button"
+                      className={styles.qDelete}
+                      title="Delete this question"
+                      aria-label={`Delete “${q.text}”`}
+                      onClick={() => { if (window.confirm(`Delete “${q.text}”?`)) update((l) => removeQuestion(l, q.id)); }}
+                    >×</button>
+                  </li>
+                ))}
+              </ul>
+              <form className={styles.modalQAdd} onSubmit={(e) => { e.preventDefault(); addQ(entry.id); }}>
+                <input
+                  className={styles.modalInput}
+                  value={draftQ[entry.id] || ''}
+                  placeholder="Add a question to ask…"
+                  aria-label={`New question for ${entryTitle(entry, type)}`}
+                  onChange={(e) => setDraftQ((d) => ({ ...d, [entry.id]: e.target.value }))}
+                />
+                <button type="submit" className={styles.btn} disabled={!(draftQ[entry.id] || '').trim()}>Add</button>
+              </form>
             </section>
           );
         })}
+
+        <button type="button" className={styles.modalAddRecord} onClick={addRecord}>
+          + Add another {typeHeading(type)} record
+        </button>
       </div>
     </div>
   );
@@ -1399,7 +1513,13 @@ export function DoctorsPage() {
   // edit syncing in from another device shows in it, and a type that has
   // emptied out closes it.
   const [detailType, setDetailType] = useState(null);
-  const detailGroup = detailType === null ? null : groups.find((g) => g.type === detailType) || null;
+  // Every record under the speciality, not just the check-ins the heading sat
+  // over: the issues filed there belong in the same pop-up. Read from the whole
+  // list rather than the filtered groups, so a search doesn't hide half of it.
+  const detailEntries = useMemo(
+    () => (detailType === null ? [] : entries.filter((e) => sameType(e.type, detailType))),
+    [entries, detailType],
+  );
   const closeDetail = useCallback(() => setDetailType(null), []);
 
   function handleAdd() {
@@ -1592,8 +1712,15 @@ export function DoctorsPage() {
 
       </>}
 
-      {lane === 'checkins' && detailGroup && (
-        <TypeDetail list={safeList} group={detailGroup} daysFrom={daysFrom} onClose={closeDetail} />
+      {lane === 'checkins' && detailEntries.length > 0 && (
+        <TypeDetail
+          list={safeList}
+          type={detailType}
+          entries={detailEntries}
+          daysFrom={daysFrom}
+          update={update}
+          onClose={closeDetail}
+        />
       )}
     </div>
   );
