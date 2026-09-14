@@ -50,14 +50,38 @@
 .modalClose:hover { color: var(--color-text); }
 .modalTitle { display: flex; align-items: center; margin: 0 2rem 0.5rem 0; font-size: 1.1rem; font-weight: 700; }
 .modalEntry { padding: 0.85rem 0; border-top: 1px solid var(--color-border-light); }
-.modalContact { margin-top: 0.45rem; }
 .modalFacts { display: grid; gap: 0.3rem; margin: 0.6rem 0 0; }
 .modalFact, .modalFactOverdue { display: grid; grid-template-columns: 7.5rem 1fr; gap: 0.5rem; font-size: 0.85rem; }
 .modalFact dt, .modalFactOverdue dt { color: var(--color-text-muted); }
 .modalFact dd, .modalFactOverdue dd { margin: 0; color: var(--color-text); overflow-wrap: anywhere; }
 .modalFactOverdue dd { color: var(--color-danger); font-weight: 650; }
-.modalQuestions { margin-top: 0.6rem; }
-.modalQuestions ul { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.85rem; color: var(--color-text); }
+/* The pop-up is where editing happens now, so it gets the room a form needs. */
+.modal:has(.modalGrid) { max-width: 640px; }
+.modalHint { margin: 0 0 0.5rem; font-size: 0.78rem; color: var(--color-text-muted); }
+.modalEntryHead { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
+.modalSection { display: flex; align-items: center; margin: 0.9rem 0 0.35rem; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); }
+.modalGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; }
+.modalField, .modalFieldWide { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.modalFieldWide { grid-column: 1 / -1; }
+.modalInput { width: 100%; min-width: 0; padding: 0.4rem 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.85rem; color: var(--color-text); resize: vertical; }
+.modalInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+.modalFacts + .modalGrid { margin-top: 0.5rem; }
+.modalLinks { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+.modalLink { padding: 0.25rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); font-size: 0.78rem; color: var(--color-accent); text-decoration: none; }
+.modalLink:hover { border-color: var(--color-accent); }
+.modalQList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.modalQ, .modalQDone { display: flex; align-items: flex-start; gap: 0.5rem; }
+.modalQ > input[type='checkbox'], .modalQDone > input[type='checkbox'] { width: 16px; height: 16px; margin-top: 0.4rem; accent-color: var(--color-accent); cursor: pointer; flex-shrink: 0; }
+.modalQBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.modalQText, .modalQAnswer { width: 100%; padding: 0.25rem 0.4rem; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; font-family: inherit; color: var(--color-text); }
+.modalQText { font-size: 0.88rem; }
+.modalQAnswer { font-size: 0.8rem; color: var(--color-text-secondary); }
+.modalQText:hover, .modalQAnswer:hover { border-color: var(--color-border); }
+.modalQText:focus, .modalQAnswer:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+.modalQDone .modalQText { color: var(--color-text-muted); text-decoration: line-through; }
+.modalQAdd { display: flex; gap: 0.4rem; margin-top: 0.45rem; }
+.modalAddRecord { width: 100%; margin-top: 0.5rem; padding: 0.55rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: none; font-family: inherit; font-size: 0.82rem; color: var(--color-accent); cursor: pointer; }
+.modalAddRecord:hover { border-color: var(--color-accent); }
 
 .cellName { width: 20%; }
 .name { font-size: 0.9rem; font-weight: 650; color: var(--color-text); line-height: 1.3; }
