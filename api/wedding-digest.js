@@ -18,7 +18,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { weddingStats, snapshotOf } from '../lib/weddingStats.js';
 import { checklistSummary, checklistSnapshot, checklistDelta } from '../lib/weddingChecklistDigest.js';
-import { senderAddress } from '../lib/emailSender.js';
+import { sendOne, mailConfigured } from '../lib/mailer.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -357,8 +357,12 @@ export function testRecipients(userData) {
    resend.dev sender it refuses everyone but the account's own address — so a
    second address on the list used to cost the first one its email too, with
    nothing on the page to say so. Sent separately, each address stands on its
-   own, and the refusals come back by name. */
-export async function sendDigestForUser(resendKey, uid, userData, now, to = null) {
+   own, and the refusals come back by name.
+
+   Which provider carries it is lib/mailer.js's call: Gmail when an App
+   Password is configured (it mails anyone), otherwise Resend. `env` is only
+   there so tests can pick. */
+export async function sendDigestForUser(uid, userData, now, to = null, env = globalThis.process?.env || {}) {
   const built = buildDigestForUser(userData, now);
   if (built.skipped) return { uid, skipped: built.skipped };
   const emails = to || built.emails;
@@ -367,26 +371,9 @@ export async function sendDigestForUser(resendKey, uid, userData, now, to = null
   const sentTo = [];
   const failed = [];
   for (const address of emails) {
-    try {
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: senderAddress('Rally Wedding'),
-          to: [address],
-          subject: built.subject,
-          html: built.html,
-        }),
-      });
-      if (response.ok) {
-        sentTo.push(address);
-      } else {
-        const err = await response.json().catch(() => ({}));
-        failed.push({ email: address, error: err.message || `HTTP ${response.status}` });
-      }
-    } catch (err) {
-      failed.push({ email: address, error: err.message || 'network error' });
-    }
+    const r = await sendOne({ to: address, subject: built.subject, html: built.html, fromName: 'Rally Wedding' }, env);
+    if (r.ok) sentTo.push(address);
+    else failed.push({ email: address, error: r.error });
   }
 
   if (sentTo.length === 0) {
@@ -430,9 +417,8 @@ export default async function handler(req, res) {
     }
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    return res.status(200).json({ skipped: true, reason: 'No RESEND_API_KEY configured' });
+  if (!mailConfigured()) {
+    return res.status(200).json({ skipped: true, reason: 'No email provider configured (GMAIL_USER/GMAIL_APP_PASSWORD or RESEND_API_KEY)' });
   }
 
   /* "Send test now" — to the account's own address, and only there.
@@ -451,7 +437,7 @@ export default async function handler(req, res) {
       if (!to.length) {
         return res.status(200).json({ sent: 0, skipped: 'no address on your account to send a test to' });
       }
-      const result = await sendDigestForUser(resendKey, uid, snap.data(), new Date(), to);
+      const result = await sendDigestForUser(uid, snap.data(), new Date(), to);
       if (result.skipped) return res.status(200).json({ sent: 0, ...result });
       if (!result.success) return res.status(502).json(result);
       // Deliberately does NOT write lastSnapshot: a test send shouldn't consume
@@ -473,7 +459,7 @@ export default async function handler(req, res) {
       const cfg = data.weddingDigest;
       if (!isDueNow(cfg, now)) continue;
       const todayKey = localDateKey(now, cfg.timezone);
-      const result = await sendDigestForUser(resendKey, userDoc.id, data, now);
+      const result = await sendDigestForUser(userDoc.id, data, now);
       if (result.skipped) { results.push(result); continue; }
       // What happened, kept where the page can read it: a refused address
       // should say so on the Wedding page, not only in a function log.
