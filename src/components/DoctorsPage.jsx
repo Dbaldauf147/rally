@@ -1052,6 +1052,22 @@ function LinkField({ label, value, onCommit }) {
   );
 }
 
+/* Phone width, where the pop-up becomes a full-screen sheet of cards. A wide
+   table scrolled sideways through a phone-sized window was the whole problem
+   there: you could never see a record's doctor and its issue at once. */
+const NARROW_QUERY = '(max-width: 700px)';
+function useIsNarrow() {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(NARROW_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.(NARROW_QUERY);
+    if (!mq) return undefined;
+    const onChange = (e) => setNarrow(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return narrow;
+}
+
 // The pop-up's typed columns: which grow with their text, which stay one line,
 // and what an empty one says.
 const GRID_LONG = new Set(['issue', 'currentMeds', 'previousMeds', 'notes', 'location']);
@@ -1238,6 +1254,18 @@ function ImageGallery({ uid, entry, title, startId, update, onClose }) {
    scrolls the tables sideways, as it does the page's own. */
 function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
   const [gallery, setGallery] = useState(null); // { entryId, imageId }
+  const narrow = useIsNarrow();
+
+  // The page underneath stays put while the pop-up is open. On a phone a
+  // swipe that reaches the end of the sheet otherwise scrolls the list behind
+  // it, and closing drops you somewhere other than where you opened it.
+  useEffect(() => {
+    const { style } = document.documentElement;
+    const before = style.overflow;
+    style.overflow = 'hidden';
+    return () => { style.overflow = before; };
+  }, []);
+
   const [draftQ, setDraftQ] = useState('');
   const [qFor, setQFor] = useState(null); // entry id, null = the first record
   const [newIssue, setNewIssue] = useState('');
@@ -1391,16 +1419,19 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
   };
   const sorted = sortEntries(entries, prefs.sort, valueOf);
 
-  function renderCell(entry, c) {
+  /* What one column holds for one record, and whether it's a counted fact
+     rather than a field. The desktop table puts it in a cell, the phone's
+     cards under a label — same controls, same saving. */
+  function cellParts(entry, c) {
     const title = entryTitle(entry, type);
     const label = `${c.label} for ${title}`;
     const k = `${entry.id}:${c.key}:${entry[c.key] || ''}`;
     switch (c.key) {
       case 'link':
-        return <td><LinkField key={k} label={label} value={entry.link} onCommit={commit(entry.id, 'link')} /></td>;
+        return { node: <LinkField key={k} label={label} value={entry.link} onCommit={commit(entry.id, 'link')} /> };
       case 'status':
-        return (
-          <td>
+        return {
+          node: (
             <select
               className={styles.statusSelect}
               aria-label={`Status of ${title}`}
@@ -1409,27 +1440,23 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
             >
               {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </select>
-          </td>
-        );
+          ),
+        };
       case 'questions':
-        return <td className={styles.gridFact}>{openFor(entry.id) || '—'}</td>;
+        return { fact: true, node: openFor(entry.id) || '—' };
       case 'images':
-        return <td><ImagesCell uid={uid} entry={entry} title={title} update={update} onOpen={(imageId) => setGallery({ entryId: entry.id, imageId })} /></td>;
+        return { node: <ImagesCell uid={uid} entry={entry} title={title} update={update} onOpen={(imageId) => setGallery({ entryId: entry.id, imageId })} /> };
       case 'lastVisit': {
         const { since } = visitOf(entry);
-        return <td className={styles.gridFact}>{since && daysFrom ? formatCustomValue(daysFrom, since) : '—'}</td>;
+        return { fact: true, node: since && daysFrom ? formatCustomValue(daysFrom, since) : '—' };
       }
       case 'nextVisit': {
         const { next } = visitOf(entry);
-        return (
-          <td className={next?.overdue ? styles.gridFactOverdue : styles.gridFact}>
-            {next ? `${next.label}${next.booked ? ' 📅' : ''}` : '—'}
-          </td>
-        );
+        return { fact: true, overdue: !!next?.overdue, node: next ? `${next.label}${next.booked ? ' 📅' : ''}` : '—' };
       }
       default:
-        return (
-          <td>
+        return {
+          node: (
             <GridField
               key={k}
               label={label}
@@ -1440,10 +1467,57 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
               long={GRID_LONG.has(c.key)}
               wrap={!GRID_LONG.has(c.key)}
             />
-          </td>
-        );
+          ),
+        };
     }
   }
+
+  function renderCell(entry, c) {
+    const { node, fact, overdue } = cellParts(entry, c);
+    const cls = fact ? (overdue ? styles.gridFactOverdue : styles.gridFact) : undefined;
+    return <td className={cls}>{node}</td>;
+  }
+
+  // A question's controls, shared by the desktop table and the phone's cards.
+  const qCheck = (q) => (
+    <input
+      type="checkbox"
+      className={styles.gridCheck}
+      checked={q.answered}
+      aria-label={q.answered ? `Mark “${q.text}” still to ask` : `Mark “${q.text}” answered`}
+      onChange={() => update((l) => updateQuestion(l, q.id, { answered: !q.answered }))}
+    />
+  );
+  const qText = (q) => (
+    <input
+      key={`${q.id}:t:${q.text}`}
+      className={`${styles.gridInput} ${styles.gridQText}`}
+      defaultValue={q.text}
+      aria-label="Question"
+      onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== q.text) update((l) => updateQuestion(l, q.id, { text: e.target.value })); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+    />
+  );
+  const qAnswer = (q) => (
+    <input
+      key={`${q.id}:a:${q.answer}`}
+      className={styles.gridInput}
+      defaultValue={q.answer}
+      placeholder="What they said…"
+      aria-label={`Answer to “${q.text}”`}
+      onBlur={(e) => { if (e.target.value.trim() !== q.answer) update((l) => updateQuestion(l, q.id, { answer: e.target.value })); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+    />
+  );
+  const qDelete = (q) => (
+    <button
+      type="button"
+      className={styles.qDelete}
+      title="Delete this question"
+      aria-label={`Delete “${q.text}”`}
+      onClick={() => { if (window.confirm(`Delete “${q.text}”?`)) update((l) => removeQuestion(l, q.id)); }}
+    >×</button>
+  );
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
@@ -1454,8 +1528,12 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
         aria-label={typeHeading(type)}
         onClick={(e) => e.stopPropagation()}
       >
-        <button type="button" className={styles.modalClose} aria-label="Close" onClick={onClose}>×</button>
-        <h2 className={styles.modalTitle}>{typeHeading(type)}</h2>
+        {/* Pinned, so the name and the way out stay in reach however far down a
+            long list you've scrolled — on a phone that's most of the time. */}
+        <div className={styles.modalHead}>
+          <h2 className={styles.modalTitle}>{typeHeading(type)}</h2>
+          <button type="button" className={styles.modalClose} aria-label="Close" onClick={onClose}>×</button>
+        </div>
 
         <form className={styles.modalIssueAdd} onSubmit={addIssue}>
           <div className={styles.modalSection}>Add an issue</div>
@@ -1515,6 +1593,60 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
             )}
           </div>
         </div>
+        {narrow && (
+          // No headers to tap on a phone, so sorting is a picker instead.
+          <div className={styles.cardSort}>
+            <select
+              className={styles.modalInput}
+              aria-label="Sort records by"
+              value={prefs.sort?.key || ''}
+              onChange={(e) => setPrefs((p) => ({ ...p, sort: e.target.value ? { key: e.target.value, dir: p.sort?.dir || 'asc' } : null }))}
+            >
+              <option value="">Sort: as listed</option>
+              {columns.map((c) => <option key={c.key} value={c.key}>Sort: {c.key === 'questions' ? 'Questions to ask' : c.label}</option>)}
+            </select>
+            {prefs.sort && (
+              <button
+                type="button"
+                className={styles.gridColsBtn}
+                aria-label={prefs.sort.dir === 'asc' ? 'Sorted ascending — switch to descending' : 'Sorted descending — switch to ascending'}
+                onClick={() => setPrefs((p) => ({ ...p, sort: { ...p.sort, dir: p.sort.dir === 'asc' ? 'desc' : 'asc' } }))}
+              >{prefs.sort.dir === 'asc' ? '▲ A–Z' : '▼ Z–A'}</button>
+            )}
+          </div>
+        )}
+        {narrow ? (
+          <div className={styles.cardList}>
+            {sorted.map((entry) => (
+              <section
+                key={entry.id}
+                id={`detail-${entry.id}`}
+                className={entry.id === addedId ? `${styles.card} ${styles.cardNew}` : styles.card}
+                aria-label={entryTitle(entry, type)}
+              >
+                <div className={styles.cardTitleRow}>
+                  <div className={styles.cardTitle}>{entryTitle(entry, type)}</div>
+                  <button
+                    type="button"
+                    className={styles.qDelete}
+                    title={`Delete ${entryTitle(entry, type)}`}
+                    aria-label={`Delete ${entryTitle(entry, type)}`}
+                    onClick={() => deleteRecord(entry)}
+                  >×</button>
+                </div>
+                {columns.map((c) => {
+                  const { node, fact, overdue } = cellParts(entry, c);
+                  return (
+                    <div key={c.key} className={styles.cardField}>
+                      <span className={styles.cardLabel}>{c.key === 'questions' ? 'Questions' : c.label}</span>
+                      <div className={fact ? (overdue ? styles.cardFactOverdue : styles.cardFact) : styles.cardValue}>{node}</div>
+                    </div>
+                  );
+                })}
+              </section>
+            ))}
+          </div>
+        ) : (
         <div className={styles.gridWrap}>
           <table className={`${styles.grid} ${styles.gridSized}`} style={{ width: `${tableWidth}px` }}>
             <colgroup>
@@ -1578,6 +1710,7 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
             </tbody>
           </table>
         </div>
+        )}
         <button type="button" className={styles.modalAddRecord} onClick={addRecord}>
           + Add another {typeHeading(type)} record
         </button>
@@ -1586,6 +1719,25 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
           Questions
           {openCount > 0 && <span className={styles.groupCount}>{openCount}</span>}
         </div>
+        {narrow ? (
+          <ul className={styles.cardList}>
+            {questions.length === 0 && <li className={styles.cardEmpty}>No questions yet.</li>}
+            {questions.map((q) => {
+              const entry = entries[entryIndex.get(q.entryId)];
+              return (
+                <li key={q.id} className={q.answered ? `${styles.card} ${styles.qCardDone}` : styles.card}>
+                  <div className={styles.qCardRow}>
+                    {qCheck(q)}
+                    <div className={styles.qCardText}>{qText(q)}</div>
+                    {qDelete(q)}
+                  </div>
+                  <div className={styles.qCardAnswer}>{qAnswer(q)}</div>
+                  <div className={styles.cardLabel}>For {entryTitle(entry, type)}</div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
         <div className={styles.gridWrap}>
           <table className={`${styles.grid} ${styles.gridQuestions}`}>
             <thead>
@@ -1605,52 +1757,18 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
                 const entry = entries[entryIndex.get(q.entryId)];
                 return (
                   <tr key={q.id} className={q.answered ? styles.gridQDone : undefined}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        className={styles.gridCheck}
-                        checked={q.answered}
-                        aria-label={q.answered ? `Mark “${q.text}” still to ask` : `Mark “${q.text}” answered`}
-                        onChange={() => update((l) => updateQuestion(l, q.id, { answered: !q.answered }))}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        key={`${q.id}:t:${q.text}`}
-                        className={`${styles.gridInput} ${styles.gridQText}`}
-                        defaultValue={q.text}
-                        aria-label="Question"
-                        onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== q.text) update((l) => updateQuestion(l, q.id, { text: e.target.value })); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        key={`${q.id}:a:${q.answer}`}
-                        className={styles.gridInput}
-                        defaultValue={q.answer}
-                        placeholder="What they said…"
-                        aria-label={`Answer to “${q.text}”`}
-                        onBlur={(e) => { if (e.target.value.trim() !== q.answer) update((l) => updateQuestion(l, q.id, { answer: e.target.value })); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                      />
-                    </td>
+                    <td>{qCheck(q)}</td>
+                    <td>{qText(q)}</td>
+                    <td>{qAnswer(q)}</td>
                     <td className={styles.gridFact}>{entryTitle(entry, type)}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className={styles.qDelete}
-                        title="Delete this question"
-                        aria-label={`Delete “${q.text}”`}
-                        onClick={() => { if (window.confirm(`Delete “${q.text}”?`)) update((l) => removeQuestion(l, q.id)); }}
-                      >×</button>
-                    </td>
+                    <td>{qDelete(q)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        )}
         {entries.length > 0 && (
           <form className={styles.modalQAdd} onSubmit={addQ}>
             <input
@@ -1981,7 +2099,12 @@ export function DoctorsPage() {
   // clicking another cell commits the one you were in and moves on.
   const [openCell, setOpenCell] = useState(null);
 
-  const safeList = useMemo(() => list || { types: [], fields: [], entries: [] }, [list]);
+  // A full empty list, not a hand-made partial one: the calendar strip reads
+  // `calendar` and `ignoredEvents` while the real list is still loading, and
+  // the partial stand-in crashed Check-ins into the error screen on a slow
+  // first load — the usual case on a phone, where Check-ins is the tab it
+  // remembers.
+  const safeList = useMemo(() => list || normalizeList({}), [list]);
   const entries = safeList.entries;
   const counts = useMemo(() => countByStatus(entries), [entries]);
   // Status answers "how is the complaint going?", so it has nothing to say on
