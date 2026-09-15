@@ -528,6 +528,26 @@ export const typeUsage = (entries, type) => entries.filter((e) => sameType(e.typ
 // what registers a type the moment a record starts using it, so typing a new
 // speciality into a row makes its heading appear without a second step.
 
+/* A new issue under a speciality, as a record of its own.
+ *
+ * An issue is its own row here (see isIssueEntry), so adding one to the
+ * dentist doesn't overwrite the dentist's existing issue — it files a second
+ * record under the same type. When it's with a doctor already on the list, it
+ * carries that doctor's name and how to reach them, so the new row isn't a bare
+ * complaint with nobody attached. The schedule stays behind: the cadence
+ * belongs to the check-up, not to the complaint, and copying it would put the
+ * issue on the Check-ins tab as well.
+ *
+ * Starts as "being treated" — you're adding it because it's current — and
+ * the pop-up's status select changes it. */
+const CONTACT_FIELDS = ['doctor', 'place', 'phone', 'email', 'location', 'link'];
+export function issueRecord(type, issue, withEntry = null, status = STATUS.TREATING) {
+  const carried = withEntry
+    ? Object.fromEntries(CONTACT_FIELDS.map((k) => [k, withEntry[k] || '']))
+    : {};
+  return normalizeEntry({ ...carried, id: makeId(), type, issue, status });
+}
+
 export function addEntry(list, entry = {}) {
   const l = normalizeList(list);
   return normalizeList({ ...l, entries: [...l.entries, normalizeEntry({ ...entry, id: entry.id || makeId() })] });
