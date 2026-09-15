@@ -28,6 +28,7 @@ export const POPUP_COLUMNS = [
   { key: 'email', label: 'Email', width: 200, sort: 'text' },
   { key: 'location', label: 'Location', width: 220, sort: 'text' },
   { key: 'link', label: 'Link', width: 130, sort: 'text' },
+  { key: 'images', label: 'Images', width: 170, sort: 'number', readOnly: true },
   { key: 'status', label: 'Status', width: 140, sort: 'status' },
   { key: 'questions', label: 'Qs', width: 64, sort: 'number', readOnly: true },
 ];
@@ -36,7 +37,14 @@ const COLUMN_BY_KEY = Object.fromEntries(POPUP_COLUMNS.map((c) => [c.key, c]));
 
 // What the table showed before it could be changed, so opening it looks the
 // same until you change it.
-export const DEFAULT_SHOWN = ['doctor', 'issue', 'currentMeds', 'notes', 'link', 'status', 'questions'];
+export const DEFAULT_SHOWN = ['doctor', 'issue', 'currentMeds', 'notes', 'link', 'images', 'status', 'questions'];
+
+// Columns added after preferences started being saved. Saved preferences
+// from before a column existed never had the chance to show it, so a default
+// one appears for them once; after that `known` records it was offered, and
+// hiding it sticks.
+const ALL_KEYS = POPUP_COLUMNS.map((c) => c.key);
+const ADDED_LATER = ['images'];
 
 export const MIN_WIDTH = 60;
 export const MAX_WIDTH = 900;
@@ -50,7 +58,11 @@ export const STORAGE_KEY = 'rally.doctors.popupColumns.v1';
  * defaults rather than leaving a table with no columns and no way to tell why. */
 export function normalizePrefs(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
-  const shown = (Array.isArray(r.shown) ? r.shown : []).filter((k, i, a) => COLUMN_BY_KEY[k] && a.indexOf(k) === i);
+  const saved = (Array.isArray(r.shown) ? r.shown : []).filter((k, i, a) => COLUMN_BY_KEY[k] && a.indexOf(k) === i);
+  const known = new Set(Array.isArray(r.known) ? r.known : ALL_KEYS.filter((k) => !ADDED_LATER.includes(k)));
+  const shown = saved.length
+    ? [...saved, ...DEFAULT_SHOWN.filter((k) => !known.has(k) && !saved.includes(k))]
+    : saved;
   const widths = {};
   Object.entries(r.widths && typeof r.widths === 'object' ? r.widths : {}).forEach(([k, w]) => {
     const n = Math.round(Number(w));
@@ -59,7 +71,7 @@ export function normalizePrefs(raw) {
   const sort = r.sort && COLUMN_BY_KEY[r.sort.key] && (r.sort.dir === 'asc' || r.sort.dir === 'desc')
     ? { key: r.sort.key, dir: r.sort.dir }
     : null;
-  return { shown: shown.length ? shown : [...DEFAULT_SHOWN], widths, sort };
+  return { shown: shown.length ? shown : [...DEFAULT_SHOWN], widths, sort, known: [...ALL_KEYS] };
 }
 
 // The shown columns, in catalogue order, each with its width.

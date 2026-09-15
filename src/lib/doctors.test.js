@@ -15,7 +15,7 @@ import {
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
   linkAppointment, unlinkAppointment, ignoreAppointment, unignoreAppointment,
   settledEventIds, suggestEntryFor, pendingAppointments, setDoctorCalendar,
-  checkInsNeedingScheduling,
+  checkInsNeedingScheduling, normalizeImages, addEntryImage, removeEntryImage,
 } from './doctors';
 
 const entry = (o) => normalizeEntry(o);
@@ -606,6 +606,36 @@ describe('isBlank', () => {
 
   it('is false as soon as anything is typed', () => {
     expect(isBlank(normalizeEntry({ phone: '555' }))).toBe(false);
+  });
+
+  it('is false for a row that only has a picture', () => {
+    expect(isBlank(normalizeEntry({ images: [{ id: 'img1' }] }))).toBe(false);
+  });
+});
+
+describe('images on a record', () => {
+  it('keeps only named, distinct images', () => {
+    expect(normalizeImages([{ id: 'a', name: ' x.jpg ' }, { id: 'a' }, { name: 'no id' }, null])).toEqual([
+      { id: 'a', name: 'x.jpg', created: '' },
+    ]);
+    expect(normalizeEntry({}).images).toEqual([]);
+    expect(normalizeImages('nope')).toEqual([]);
+  });
+
+  it('adds and removes an image on one record only', () => {
+    let l = normalizeList({ entries: [{ id: 'r1', doctor: 'A' }, { id: 'r2', doctor: 'B' }] });
+    l = addEntryImage(l, 'r1', { id: 'i1', name: 'rash.jpg', created: '2026-09-14' });
+    l = addEntryImage(l, 'r1', { id: 'i2', name: 'later.jpg', created: '2026-09-15' });
+    expect(l.entries[0].images.map((i) => i.id)).toEqual(['i1', 'i2']);
+    expect(l.entries[1].images).toEqual([]);
+    l = removeEntryImage(l, 'r1', 'i1');
+    expect(l.entries[0].images.map((i) => i.id)).toEqual(['i2']);
+  });
+
+  it('survives an edit to the record it is on', () => {
+    let l = normalizeList({ entries: [{ id: 'r1', images: [{ id: 'i1' }] }] });
+    l = updateEntry(l, 'r1', { notes: 'better' });
+    expect(l.entries[0].images).toHaveLength(1);
   });
 });
 

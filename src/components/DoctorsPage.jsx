@@ -2,13 +2,14 @@ import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'rea
 import { Navigate } from 'react-router-dom';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { saveImage, readImage, deleteImage } from '../lib/doctorImages';
 import { useAuth } from '../contexts/AuthContext';
 import {
   FIELDS, STATUS, STATUS_ORDER, NO_TYPE, statusLabel, typeHeading,
   normalizeEntry, normalizeList, entryTitle, entrySubtitle, entryPickerLabel,
   groupByType, countByStatus, issueCell, typeUsage,
   LANES, laneCounts,
-  addEntry, updateEntry, removeEntry, isBlank,
+  addEntry, updateEntry, removeEntry, isBlank, addEntryImage, removeEntryImage,
   addType, renameType, removeType, moveType,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
@@ -1057,6 +1058,176 @@ const GRID_LONG = new Set(['issue', 'currentMeds', 'previousMeds', 'notes', 'loc
 const GRID_INPUT_TYPE = { phone: 'tel', email: 'email' };
 const GRID_PLACEHOLDER = { doctor: 'Doctor', place: 'Place', issue: "What it's for", cadence: 'Every 6 months' };
 
+/* ── Pictures on a record ─────────────────────────────────────────────
+   A photo of the rash, the prescription, the referral letter. Stored one per
+   document (lib/doctorImages.js); the record lists their ids. */
+
+function useImageData(uid, id) {
+  const [state, setState] = useState({ id: null, data: null, failed: false });
+  useEffect(() => {
+    let live = true;
+    readImage(uid, id)
+      .then((data) => { if (live) setState({ id, data, failed: !data }); })
+      .catch(() => { if (live) setState({ id, data: null, failed: true }); });
+    return () => { live = false; };
+  }, [uid, id]);
+  return state.id === id ? state : { id, data: null, failed: false };
+}
+
+// Adds the chosen files to one record, one at a time so a failure names the
+// file it was and the ones before it are kept.
+function useImageAdder(uid, entryId, update) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const add = useCallback(async (files) => {
+    const list = [...(files || [])].filter((f) => !f.type || f.type.startsWith('image/'));
+    if (!list.length) return;
+    setBusy(true);
+    setError('');
+    try {
+      for (const file of list) {
+        const image = await saveImage(uid, entryId, file, makeId());
+        update((l) => addEntryImage(l, entryId, image));
+      }
+    } catch (err) {
+      setError(err?.message || 'That picture could not be saved.');
+    } finally {
+      setBusy(false);
+    }
+  }, [uid, entryId, update]);
+  return { add, busy, error };
+}
+
+function AddImagesButton({ label, adder, className, children }) {
+  const input = useRef(null);
+  return (
+    <>
+      <button
+        type="button"
+        className={className}
+        disabled={adder.busy}
+        aria-label={label}
+        title={label}
+        onClick={(e) => { e.stopPropagation(); input.current?.click(); }}
+      >{adder.busy ? '…' : children}</button>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => { const files = [...e.target.files]; e.target.value = ''; adder.add(files); }}
+      />
+    </>
+  );
+}
+
+function Thumb({ uid, image, onOpen }) {
+  const { data, failed } = useImageData(uid, image.id);
+  return (
+    <button type="button" className={styles.thumb} title={image.name} aria-label={`Open ${image.name || 'picture'}`} onClick={onOpen}>
+      {data ? <img src={data} alt="" /> : <span className={styles.thumbWait}>{failed ? '!' : ''}</span>}
+    </button>
+  );
+}
+
+// The Images cell in the speciality pop-up's table.
+function ImagesCell({ uid, entry, title, update, onOpen }) {
+  const adder = useImageAdder(uid, entry.id, update);
+  return (
+    <div className={styles.imagesCell}>
+      <div className={styles.thumbs}>
+        {entry.images.map((img) => <Thumb key={img.id} uid={uid} image={img} onOpen={() => onOpen(img.id)} />)}
+        <AddImagesButton label={`Attach pictures to ${title}`} adder={adder} className={styles.thumbAdd}>+</AddImagesButton>
+      </div>
+      {adder.error ? <div className={styles.imageError}>{adder.error}</div> : null}
+    </div>
+  );
+}
+
+/* One record's pictures, large, with the rest in a strip underneath.
+
+   Opened from a thumbnail in the pop-up or the 📷 count on the page's table.
+   Escape closes this and only this — the pop-up it may sit over stays open. */
+function ImageGallery({ uid, entry, title, startId, update, onClose }) {
+  const [currentId, setCurrentId] = useState(startId);
+  const adder = useImageAdder(uid, entry.id, update);
+  const images = entry.images;
+  const index = Math.max(0, images.findIndex((i) => i.id === currentId));
+  const current = images[index] || null;
+  const { data, failed } = useImageData(uid, current?.id || '');
+
+  // Newly added pictures are what you want to see, so land on the last one.
+  const [seenCount, setSeenCount] = useState(images.length);
+  if (images.length !== seenCount) {
+    if (images.length > seenCount) setCurrentId(images[images.length - 1].id);
+    setSeenCount(images.length);
+  }
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+      if (e.key === 'ArrowRight' && images.length > 1) setCurrentId(images[(index + 1) % images.length].id);
+      if (e.key === 'ArrowLeft' && images.length > 1) setCurrentId(images[(index - 1 + images.length) % images.length].id);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [images, index, onClose]);
+
+  async function remove() {
+    if (!current || !window.confirm(`Delete ${current.name || 'this picture'}? This cannot be undone.`)) return;
+    const next = images[index + 1] || images[index - 1] || null;
+    update((l) => removeEntryImage(l, entry.id, current.id));
+    setCurrentId(next?.id || null);
+    deleteImage(uid, current.id).catch(() => { /* the record no longer names it */ });
+  }
+
+  return (
+    <div className={`${styles.modalOverlay} ${styles.galleryOverlay}`} onClick={(e) => { e.stopPropagation(); onClose(); }}>
+      <div className={styles.gallery} role="dialog" aria-modal="true" aria-label={`Pictures for ${title}`} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.galleryHead}>
+          <div className={styles.galleryTitle}>
+            {title}
+            <span className={styles.groupCount}>{images.length}</span>
+          </div>
+          <div className={styles.galleryActions}>
+            <AddImagesButton label={`Attach pictures to ${title}`} adder={adder} className={styles.btn}>Add pictures</AddImagesButton>
+            {current ? <button type="button" className={`${styles.btn} ${styles.btnDanger}`} onClick={remove}>Delete</button> : null}
+            <button type="button" className={styles.galleryClose} aria-label="Close pictures" onClick={onClose}>×</button>
+          </div>
+        </div>
+        {adder.error ? <div className={styles.imageError}>{adder.error}</div> : null}
+        <div className={styles.galleryStage}>
+          {!current && <div className={styles.galleryEmpty}>No pictures yet. Add a photo of a rash, a prescription or a letter.</div>}
+          {current && data && <img src={data} alt={current.name} />}
+          {current && !data && <div className={styles.galleryEmpty}>{failed ? "This picture couldn't be loaded." : 'Loading…'}</div>}
+          {images.length > 1 && (
+            <>
+              <button type="button" className={`${styles.galleryNav} ${styles.galleryPrev}`} aria-label="Previous picture" onClick={() => setCurrentId(images[(index - 1 + images.length) % images.length].id)}>‹</button>
+              <button type="button" className={`${styles.galleryNav} ${styles.galleryNext}`} aria-label="Next picture" onClick={() => setCurrentId(images[(index + 1) % images.length].id)}>›</button>
+            </>
+          )}
+        </div>
+        {current ? (
+          <div className={styles.galleryCaption}>
+            {current.name}
+            {current.created ? ` · added ${new Date(current.created).toLocaleDateString()}` : ''}
+          </div>
+        ) : null}
+        {images.length > 1 && (
+          <div className={styles.galleryStrip}>
+            {images.map((img) => (
+              <div key={img.id} className={img.id === current?.id ? styles.stripOn : undefined}>
+                <Thumb uid={uid} image={img} onOpen={() => setCurrentId(img.id)} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* One speciality, opened from its heading on the Check-ins tab.
 
    Every record filed under it — the doctor you see on a schedule and the
@@ -1065,7 +1236,8 @@ const GRID_PLACEHOLDER = { doctor: 'Doctor', place: 'Place', issue: "What it's f
    it, the questions for all of them in a second table. The visit dates,
    cadence and contact details stay on the page's own table, not here. A phone
    scrolls the tables sideways, as it does the page's own. */
-function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
+function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
+  const [gallery, setGallery] = useState(null); // { entryId, imageId }
   const [draftQ, setDraftQ] = useState('');
   const [qFor, setQFor] = useState(null); // entry id, null = the first record
   const [newIssue, setNewIssue] = useState('');
@@ -1109,6 +1281,9 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
     el.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
   }, [addedId, entries]);
 
+  const galleryEntry = gallery ? entries.find((e) => e.id === gallery.entryId) : null;
+  const closeGallery = useCallback(() => setGallery(null), []);
+
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
@@ -1148,10 +1323,13 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
   // particular" on the Questions tab, and the prompt says so.
   function deleteRecord(entry) {
     const qs = questions.filter((q) => q.entryId === entry.id).length;
-    const note = qs ? ` Its ${qs} question${qs === 1 ? '' : 's'} will move to "Not for anybody in particular".` : '';
+    const pics = entry.images.length;
+    const note = (qs ? ` Its ${qs} question${qs === 1 ? '' : 's'} will move to "Not for anybody in particular".` : '')
+      + (pics ? ` Its ${pics} picture${pics === 1 ? '' : 's'} will be deleted.` : '');
     const blank = isBlank({ ...entry, type: '' }) && qs === 0;
     if (!blank && !window.confirm(`Delete ${entryTitle(entry, type)}? This cannot be undone.${note}`)) return;
     update((l) => removeEntry(l, entry.id));
+    entry.images.forEach((img) => deleteImage(uid, img.id).catch(() => {}));
   }
 
   /* ── The records table's columns ─────────────────────────────────
@@ -1206,6 +1384,7 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
   };
   const valueOf = (entry, key) => {
     if (key === 'questions') return openFor(entry.id);
+    if (key === 'images') return entry.images.length;
     if (key === 'lastVisit') return visitOf(entry).since;
     if (key === 'nextVisit') return visitOf(entry).next?.iso || '';
     return entry[key];
@@ -1234,6 +1413,8 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
         );
       case 'questions':
         return <td className={styles.gridFact}>{openFor(entry.id) || '—'}</td>;
+      case 'images':
+        return <td><ImagesCell uid={uid} entry={entry} title={title} update={update} onOpen={(imageId) => setGallery({ entryId: entry.id, imageId })} /></td>;
       case 'lastVisit': {
         const { since } = visitOf(entry);
         return <td className={styles.gridFact}>{since && daysFrom ? formatCustomValue(daysFrom, since) : '—'}</td>;
@@ -1491,13 +1672,23 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
           </form>
         )}
       </div>
+      {galleryEntry && (
+        <ImageGallery
+          uid={uid}
+          entry={galleryEntry}
+          title={entryTitle(galleryEntry)}
+          startId={gallery.imageId}
+          update={update}
+          onClose={closeGallery}
+        />
+      )}
     </div>
   );
 }
 
 const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
 
-function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete }) {
+function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages }) {
   const tel = telHref(entry.phone);
   const mail = mailHref(entry.email);
   const map = mapHref(entry.location);
@@ -1541,6 +1732,16 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
         <>
           <div className={styles.name}>{entryTitle(entry, groupType)}</div>
           {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
+          {entry.images.length > 0 && (
+            <button
+              type="button"
+              className={styles.imageCount}
+              title="Show pictures"
+              aria-label={`Show ${entry.images.length} picture${entry.images.length === 1 ? '' : 's'}`}
+              onClick={(e) => { e.stopPropagation(); onOpenImages(); }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >📷 {entry.images.length}</button>
+          )}
         </>
       ));
       case 'issue': return cell('issue', styles.cellIssue, col.label, (
@@ -1833,11 +2034,18 @@ export function DoctorsPage() {
     setOpenCell({ id: blank.id, col: 'name' });
   }
 
+  // The record whose pictures are open from the page's own table.
+  const [pageGallery, setPageGallery] = useState(null);
+  const pageGalleryEntry = pageGallery ? entries.find((e) => e.id === pageGallery) : null;
+  const closePageGallery = useCallback(() => setPageGallery(null), []);
+
   function handleDelete(entry) {
     const name = entryTitle(entry);
     // A row added and never filled in has nothing to lose, so it goes quietly.
     if (!isBlank(entry) && !window.confirm(`Delete ${name}? This cannot be undone.`)) return;
     update((l) => removeEntry(l, entry.id));
+    // Its pictures go with it; nothing else names them.
+    entry.images.forEach((img) => deleteImage(user.uid, img.id).catch(() => {}));
     setOpenCell(null);
   }
 
@@ -2003,6 +2211,7 @@ export function DoctorsPage() {
                     onCommit={(patch) => update((l) => updateEntry(l, entry.id, patch))}
                     onCommitCustom={(fieldId, value) => update((l) => setCustomValue(l, entry.id, fieldId, value))}
                     onDelete={() => handleDelete(entry)}
+                    onOpenImages={() => setPageGallery(entry.id)}
                   />
                 ))}
               </tbody>
@@ -2013,8 +2222,20 @@ export function DoctorsPage() {
 
       </>}
 
+      {pageGalleryEntry && (
+        <ImageGallery
+          uid={user.uid}
+          entry={pageGalleryEntry}
+          title={entryTitle(pageGalleryEntry)}
+          startId={pageGalleryEntry.images[0]?.id || null}
+          update={update}
+          onClose={closePageGallery}
+        />
+      )}
+
       {lane === 'checkins' && detailEntries.length > 0 && (
         <TypeDetail
+          uid={user.uid}
           list={safeList}
           type={detailType}
           entries={detailEntries}

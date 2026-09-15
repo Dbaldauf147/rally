@@ -53,6 +53,18 @@ service cloud.firestore {
       match /friends/{friendId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+
+      // Pictures attached to Doctors records (src/lib/doctorImages.js). Only
+      // the owner of the account reads or writes them, and a picture has to be
+      // a JPEG data URL under the size the browser shrinks it to.
+      match /doctorImages/{imageId} {
+        allow read, delete: if request.auth != null && request.auth.uid == userId;
+        allow create, update: if request.auth != null && request.auth.uid == userId
+          && request.resource.data.data is string
+          && request.resource.data.data.matches('^data:image/jpeg;base64,.*')
+          && request.resource.data.data.size() <= 900000
+          && request.resource.data.entryId is string;
+      }
     }
   }
 }
