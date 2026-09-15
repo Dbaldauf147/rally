@@ -438,14 +438,42 @@ export const LANES = [
 export const isIssueEntry = (e) => !!String(e?.issue || '').trim()
   || e?.status === STATUS.TREATING || e?.status === STATUS.RESOLVED;
 
-// Somebody you see on a schedule. Any cadence text counts, not only one that
-// parses: "when it flares up" is still you saying this is an ongoing
-// arrangement, even though no date can be worked out from it.
-export const isCheckInEntry = (e) => !!String(e?.cadence || '').trim() || !isIssueEntry(e);
+// Somebody you see on a schedule, or keep the number for. Any cadence text
+// counts, not only one that parses: "when it flares up" is still you saying
+// this is an ongoing arrangement, even though no date can be worked out from it.
+// This is the narrow reading — what the weekly digest nags you to book.
+export const isScheduledOrContact = (e) => !!String(e?.cadence || '').trim() || !isIssueEntry(e);
 
-export function inLane(entry, lane) {
+const hasDoctorName = (e) => !!String(e?.doctor || e?.place || '').trim();
+const doctorKey = (e) => [e?.type, e?.doctor, e?.place].map((v) => String(v || '').trim().toLowerCase()).join('|');
+
+/* Whether a record shows on the Check-ins tab.
+ *
+ * The scheduled and the bare contacts, as above — and any record with a doctor
+ * or practice named on it. Writing down what the skin doctor treated used to
+ * move the skin doctor off Check-ins altogether (a complaint with no cadence
+ * read as issue-only), which is not what typing an issue means. A named
+ * doctor is someone you'd go back to, whatever they were seen for.
+ *
+ * Once per doctor, though, when `entries` is passed. An issue filed from the
+ * pop-up carries its doctor's name, and the dentist shouldn't then appear on
+ * Check-ins once for the check-up and again for every complaint: a doctor who
+ * already has a scheduled or contact record is shown by that one, and one who
+ * has only issues is shown by the first of them. Without `entries` there's no
+ * way to know, and a named record counts. */
+export function isCheckInEntry(e, entries = null) {
+  if (isScheduledOrContact(e)) return true;
+  if (!hasDoctorName(e)) return false;
+  if (!entries) return true;
+  const key = doctorKey(e);
+  const same = entries.filter((x) => doctorKey(x) === key);
+  if (same.some(isScheduledOrContact)) return false;
+  return (same[0]?.id ?? e.id) === e.id;
+}
+
+export function inLane(entry, lane, entries = null) {
   if (lane === 'issues') return isIssueEntry(entry);
-  if (lane === 'checkins') return isCheckInEntry(entry);
+  if (lane === 'checkins') return isCheckInEntry(entry, entries);
   return true;
 }
 
@@ -455,7 +483,7 @@ export function laneCounts(list) {
   const { entries, questions } = normalizeList(list);
   return {
     all: entries.length,
-    checkins: entries.filter(isCheckInEntry).length,
+    checkins: entries.filter((e) => isCheckInEntry(e, entries)).length,
     issues: entries.filter(isIssueEntry).length,
     // Only the ones still to ask. A tab reading "Questions 34" when 30 of them
     // were answered years ago is a number you learn to ignore.
@@ -488,7 +516,7 @@ const settled = (group) => group.entries.every((e) => e.status === STATUS.RESOLV
 export function groupByType(list, { query = '', status = 'all', lane = 'all' } = {}) {
   const { types, fields, entries } = normalizeList(list);
   const visible = entries.filter((e) =>
-    (status === 'all' || e.status === status) && inLane(e, lane) && matchesQuery(e, query, fields));
+    (status === 'all' || e.status === status) && inLane(e, lane, entries) && matchesQuery(e, query, fields));
 
   const byStatusThenName = (type) => (a, b) =>
     statusRank(a) - statusRank(b)
@@ -1105,7 +1133,7 @@ export function suggestEntryFor(event, entries) {
 export function pendingAppointments(list, events) {
   const l = normalizeList(list);
   const settled = settledEventIds(l);
-  const checkIns = l.entries.filter(isCheckInEntry);
+  const checkIns = l.entries.filter((e) => isCheckInEntry(e, l.entries));
   return (events || [])
     .map((e) => ({
       eventId: String(e?.id ?? e?.eventId ?? '').trim(),
@@ -1208,7 +1236,7 @@ export function checkInsNeedingScheduling(list, today = new Date()) {
   const l = normalizeList(list);
   const from = daysSinceField(l);
   return l.entries
-    .filter((e) => hasContent(e) && isCheckInEntry(e))
+    .filter((e) => hasContent(e) && isScheduledOrContact(e))
     .filter((e) => !upcomingVisit(e, from ? customValueOf(e, from) : '', today))
     .map((e) => {
       const p = parseLooseDate(from ? customValueOf(e, from) : '');
