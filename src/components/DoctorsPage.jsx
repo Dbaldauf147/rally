@@ -1884,6 +1884,280 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
   );
 }
 
+/* ── On a phone ───────────────────────────────────────────────────────
+   The table is the page on a laptop; on a phone it was four squeezed columns
+   with names broken mid-word and contact details cut off the right edge, and
+   editing meant hitting a cell the size of a fingertip. So below NARROW_QUERY
+   the records are cards you read top to bottom, with the things you do from
+   a phone — call, email, get directions — as buttons on the card, and a tap
+   opens the whole record full-screen to change anything on it. */
+
+function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImages }) {
+  const title = entryTitle(entry, groupType);
+  const subtitle = entrySubtitle(entry, groupType);
+  const issue = issueCell(entry, groupType);
+  const since = daysFrom ? customValueOf(entry, daysFrom) : '';
+  const counted = daysSinceLabel(since);
+  const next = upcomingVisit(entry, since);
+  const tel = telHref(entry.phone);
+  const mail = mailHref(entry.email);
+  const map = mapHref(entry.location);
+  const link = safeLink(entry.link);
+  const resolved = entry.status === STATUS.RESOLVED;
+  const cls = [styles.recCard, resolved && !next?.booked && styles.recCardResolved, next?.booked && styles.recCardBooked]
+    .filter(Boolean).join(' ');
+  const hasActions = tel || mail || map || link || entry.images.length > 0;
+
+  return (
+    <li className={cls}>
+      <button type="button" className={styles.recMain} onClick={onOpen} aria-label={`Open ${title}`}>
+        <span className={styles.recHead}>
+          <span className={styles.recTitle}>{title}</span>
+          {showStatus && entry.status !== STATUS.NONE && (
+            <span className={entry.status === STATUS.TREATING ? styles.badgeLive : styles.badge}>{statusLabel(entry.status)}</span>
+          )}
+        </span>
+        {subtitle ? <span className={styles.recSub}>{subtitle}</span> : null}
+        {issue ? <span className={styles.recIssue}>{issue}</span> : null}
+        {entry.currentMeds ? <span className={styles.recLine}><span className={styles.recKey}>Meds</span>{entry.currentMeds}</span> : null}
+        {entry.notes ? <span className={styles.recNotes}>{entry.notes}</span> : null}
+        {(next || counted || entry.cadence) && (
+          <span className={styles.recChips}>
+            {next && (
+              <span className={next.booked ? styles.chipBooked : next.overdue ? styles.chipOverdue : styles.chip}>
+                {next.booked ? '📅 ' : ''}Next {next.label}{next.overdue ? ' · overdue' : ''}
+              </span>
+            )}
+            {/^\d+$/.test(counted) && <span className={styles.chip}>{counted} days since</span>}
+            {!next && entry.cadence ? <span className={styles.chip}>{entry.cadence}</span> : null}
+          </span>
+        )}
+      </button>
+      {hasActions && (
+        <div className={styles.recActions}>
+          {tel && <a className={styles.recAction} href={tel}>Call</a>}
+          {mail && <a className={styles.recAction} href={mail}>Email</a>}
+          {map && <a className={styles.recAction} href={map} target="_blank" rel="noreferrer">Directions</a>}
+          {link && <a className={styles.recAction} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a>}
+          {entry.images.length > 0 && (
+            <button
+              type="button"
+              className={styles.recAction}
+              aria-label={`Show ${entry.images.length} picture${entry.images.length === 1 ? '' : 's'}`}
+              onClick={onOpenImages}
+            >📷 {entry.images.length}</button>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+// A labelled field in the record sheet. Uncontrolled and committed on blur,
+// like every other editor on this page, and keyed on the stored value by the
+// caller so an edit syncing in from another device replaces it.
+function SheetField({ label, value, onCommit, type = 'text', long = false, placeholder, inputMode }) {
+  const commit = (e) => { if (e.target.value.trim() !== String(value ?? '')) onCommit(e.target.value); };
+  const fit = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } };
+  return (
+    <label className={styles.sheetField}>
+      <span className={styles.sheetLabel}>{label}</span>
+      {long ? (
+        <textarea
+          className={styles.sheetInput}
+          rows={1}
+          ref={fit}
+          onInput={(e) => fit(e.target)}
+          defaultValue={value ?? ''}
+          placeholder={placeholder}
+          onBlur={commit}
+        />
+      ) : (
+        <input
+          className={styles.sheetInput}
+          type={type}
+          inputMode={inputMode}
+          defaultValue={value ?? ''}
+          placeholder={placeholder}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+        />
+      )}
+    </label>
+  );
+}
+
+function SheetCustomField({ entry, field, onCommit }) {
+  const value = customValueOf(entry, field);
+  const commit = (raw) => onCommit(field.id, raw);
+  if (field.type === 'checkbox') {
+    return (
+      <label className={styles.sheetCheck}>
+        <input type="checkbox" checked={value === true} onChange={(e) => commit(e.target.checked)} />
+        <span>{field.label}</span>
+      </label>
+    );
+  }
+  if (field.type === 'select') {
+    return (
+      <label className={styles.sheetField}>
+        <span className={styles.sheetLabel}>{field.label}</span>
+        <select className={styles.sheetInput} value={value ?? ''} onChange={(e) => commit(e.target.value)}>
+          <option value="">—</option>
+          {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
+          {value && !field.options.includes(String(value)) && <option value={value}>{String(value)}</option>}
+        </select>
+      </label>
+    );
+  }
+  const type = field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : field.type === 'link' ? 'url' : 'text';
+  return (
+    <SheetField
+      key={`${field.id}:${value ?? ''}`}
+      label={field.label}
+      type={type}
+      inputMode={field.type === 'number' ? 'decimal' : undefined}
+      value={field.type === 'date' ? (value || '') : value}
+      onCommit={commit}
+    />
+  );
+}
+
+/* One record, full-screen, every field of it editable. */
+function RecordSheet({ uid, entry, list, daysFrom, update, onClose, onDelete, onOpenImages }) {
+  const commit = (key) => (value) => update((l) => updateEntry(l, entry.id, { [key]: value }));
+  // A record with nothing typed into it yet is just that, not "No doctor recorded yet".
+  const title = isBlank({ ...entry, type: '' }) ? 'New record' : entryTitle(entry);
+  const since = daysFrom ? customValueOf(entry, daysFrom) : '';
+  const next = upcomingVisit(entry, since);
+  const counted = daysSinceLabel(since);
+  const customFields = list.fields || [];
+  const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
+  const field = (key, extra = {}) => {
+    const f = FIELD_OF[key];
+    return (
+      <SheetField
+        key={k(key)}
+        label={f.label}
+        value={entry[key]}
+        onCommit={commit(key)}
+        type={f.type === 'url' ? 'url' : f.type || 'text'}
+        long={['issue', 'notes', 'currentMeds', 'previousMeds', 'location'].includes(key)}
+        placeholder={f.placeholder}
+        {...extra}
+      />
+    );
+  };
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className={`${styles.modalOverlay} ${styles.sheetOverlay}`} onClick={onClose}>
+      <div className={styles.modal} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalHead}>
+          <h2 className={styles.modalTitle}>{title}</h2>
+          <button type="button" className={styles.sheetDone} onClick={onClose}>Done</button>
+        </div>
+
+        <div className={styles.sheetStatus} role="radiogroup" aria-label="Status">
+          {STATUS_ORDER.map((s) => (
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={entry.status === s}
+              className={entry.status === s ? styles.sheetStatusOn : styles.sheetStatusBtn}
+              onClick={() => update((l) => updateEntry(l, entry.id, { status: s }))}
+            >{statusLabel(s)}</button>
+          ))}
+        </div>
+
+        {(next || /^\d+$/.test(counted)) && (
+          <div className={styles.recChips}>
+            {next && (
+              <span className={next.booked ? styles.chipBooked : next.overdue ? styles.chipOverdue : styles.chip}>
+                {next.booked ? '📅 ' : ''}Next {next.label}{next.overdue ? ' · overdue' : ''}
+              </span>
+            )}
+            {/^\d+$/.test(counted) && <span className={styles.chip}>{counted} days since {daysFrom.label.toLowerCase()}</span>}
+          </div>
+        )}
+
+        <div className={styles.sheetSection}>Who</div>
+        <label className={styles.sheetField}>
+          <span className={styles.sheetLabel}>Type</span>
+          <span className={styles.sheetType}>
+            <TypeField entry={entry} types={list.types} onCommit={(patch) => update((l) => updateEntry(l, entry.id, patch))} />
+          </span>
+        </label>
+        {field('doctor')}
+        {field('place')}
+
+        <div className={styles.sheetSection}>What for</div>
+        {field('issue', { placeholder: "What it's for" })}
+        {field('currentMeds')}
+        {field('previousMeds')}
+        {field('notes')}
+
+        <div className={styles.sheetSection}>Reaching them</div>
+        {field('phone', { inputMode: 'tel' })}
+        {field('email', { inputMode: 'email' })}
+        {field('location')}
+        {field('link', { inputMode: 'url' })}
+        {field('cadence')}
+
+        {customFields.length > 0 && (
+          <>
+            <div className={styles.sheetSection}>Your fields</div>
+            {customFields.map((f) => (
+              <SheetCustomField
+                key={f.id}
+                entry={entry}
+                field={f}
+                onCommit={(fieldId, value) => update((l) => setCustomValue(l, entry.id, fieldId, value))}
+              />
+            ))}
+          </>
+        )}
+
+        <div className={styles.sheetSection}>Pictures</div>
+        <div className={styles.sheetPictures}>
+          <ImagesCell uid={uid} entry={entry} title={title} update={update} onOpen={onOpenImages} />
+        </div>
+
+        <button type="button" className={styles.sheetDelete} onClick={onDelete}>Delete this record</button>
+      </div>
+    </div>
+  );
+}
+
+// The ⋯ menu on a phone: the two jobs that reshape the page rather than add to it.
+function PhoneMenu({ onTypes, onColumns }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [open]);
+  return (
+    <div className={styles.phoneMenuWrap} ref={ref}>
+      <button type="button" className={styles.phoneIconBtn} aria-label="More" aria-expanded={open} onClick={() => setOpen((v) => !v)}>⋯</button>
+      {open && (
+        <div className={styles.phoneMenu} role="menu">
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onTypes(); }}>Manage types</button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onColumns(); }}>Fields &amp; columns</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
 
 function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages, onOpenContact }) {
@@ -2156,6 +2430,10 @@ export function DoctorsPage() {
   // Which single cell is open for editing: { id, col }. One at a time, so
   // clicking another cell commits the one you were in and moves on.
   const [openCell, setOpenCell] = useState(null);
+  // On a phone: the record open full-screen, and whether it was just added
+  // (a record added and left empty goes away again when the sheet closes).
+  const narrow = useIsNarrow();
+  const [sheet, setSheet] = useState(null); // { id, added }
 
   // A full empty list, not a hand-made partial one: the calendar strip reads
   // `calendar` and `ignoredEvents` while the real list is still loading, and
@@ -2211,9 +2489,23 @@ export function DoctorsPage() {
     setManagingTypes(false);
     setManagingColumns(false);
     // Open the new row's first cell, so adding a record lands you in it rather
-    // than leaving you to find the empty line.
-    setOpenCell({ id: blank.id, col: 'name' });
+    // than leaving you to find the empty line. On a phone, open it full-screen.
+    if (narrow) setSheet({ id: blank.id, added: true });
+    else setOpenCell({ id: blank.id, col: 'name' });
   }
+
+  const sheetEntry = sheet ? entries.find((e) => e.id === sheet.id) : null;
+  const closeSheet = useCallback(() => {
+    if (sheet?.added) {
+      // Read inside the update, so a field committed by the same tap that
+      // closed the sheet counts.
+      update((l) => {
+        const e = l.entries.find((x) => x.id === sheet.id);
+        return e && isBlank(e) ? removeEntry(l, sheet.id) : l;
+      });
+    }
+    setSheet(null);
+  }, [sheet, update]);
 
   // The record whose pictures are open from the page's own table.
   const [pageGallery, setPageGallery] = useState(null);
@@ -2232,6 +2524,7 @@ export function DoctorsPage() {
     // Its pictures go with it; nothing else names them.
     entry.images.forEach((img) => deleteImage(user.uid, img.id).catch(() => {}));
     setOpenCell(null);
+    setSheet(null);
   }
 
   if (user && user.email !== OWNER_EMAIL) return <Navigate to="/" replace />;
@@ -2263,7 +2556,7 @@ export function DoctorsPage() {
             className={lane === l.key ? styles.laneOn : styles.lane}
             onClick={() => pickLane(l.key)}
           >
-            {l.label} <span className={styles.laneCount}>{lanes[l.key]}</span>
+            {narrow && l.key === 'all' ? 'All' : l.label} <span className={styles.laneCount}>{lanes[l.key]}</span>
           </button>
         ))}
       </div>
@@ -2286,13 +2579,25 @@ export function DoctorsPage() {
       {lane === 'questions' ? <QuestionsPanel list={safeList} update={update} /> : <>
 
       <div className={styles.toolbar}>
-        <input
-          className={styles.search}
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search a name, a drug, a street, a complaint…"
-        />
+        <div className={styles.searchRow}>
+          <input
+            className={styles.search}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={narrow ? 'Search doctors, drugs, issues…' : 'Search a name, a drug, a street, a complaint…'}
+            aria-label="Search records"
+          />
+          {narrow && (
+            <>
+              <button type="button" className={styles.phoneAddBtn} aria-label="Add a record" onClick={handleAdd}>+</button>
+              <PhoneMenu
+                onTypes={() => { setManagingTypes((m) => !m); setManagingColumns(false); }}
+                onColumns={() => { setManagingColumns((m) => !m); setManagingTypes(false); }}
+              />
+            </>
+          )}
+        </div>
         {showStatus && (
           <div className={styles.pills}>
             <button
@@ -2310,17 +2615,21 @@ export function DoctorsPage() {
             ))}
           </div>
         )}
-        <button
-          type="button"
-          className={styles.btn}
-          onClick={() => { setManagingTypes((m) => !m); setOpenCell(null); }}
-        >Manage types</button>
-        <button
-          type="button"
-          className={styles.btn}
-          onClick={() => { setManagingColumns((m) => !m); setManagingTypes(false); setOpenCell(null); }}
-        >Columns</button>
-        <button type="button" className={styles.btnPrimary} onClick={handleAdd}>+ Add</button>
+        {!narrow && (
+          <>
+            <button
+              type="button"
+              className={styles.btn}
+              onClick={() => { setManagingTypes((m) => !m); setOpenCell(null); }}
+            >Manage types</button>
+            <button
+              type="button"
+              className={styles.btn}
+              onClick={() => { setManagingColumns((m) => !m); setManagingTypes(false); setOpenCell(null); }}
+            >Columns</button>
+            <button type="button" className={styles.btnPrimary} onClick={handleAdd}>+ Add</button>
+          </>
+        )}
       </div>
 
       {managingTypes && (
@@ -2346,7 +2655,47 @@ export function DoctorsPage() {
         </div>
       )}
 
-      {groups.length > 0 && (
+      {groups.length > 0 && narrow && (
+        <div className={styles.recList}>
+          {groups.map((group) => (
+            <section key={group.type || '__none__'} className={styles.recGroup}>
+              <h2 className={styles.recGroupHead}>
+                {lane === 'checkins' ? (
+                  <button
+                    type="button"
+                    className={styles.recGroupBtn}
+                    onClick={() => setDetailType(group.type)}
+                  >
+                    {typeHeading(group.type)}
+                    <span className={styles.groupCount}>{group.entries.length}</span>
+                    <span className={styles.recGroupMore} aria-hidden="true">›</span>
+                  </button>
+                ) : (
+                  <>
+                    {typeHeading(group.type)}
+                    <span className={styles.groupCount}>{group.entries.length}</span>
+                  </>
+                )}
+              </h2>
+              <ul className={styles.recCards}>
+                {group.entries.map((entry) => (
+                  <RecordCard
+                    key={entry.id}
+                    entry={entry}
+                    groupType={group.type}
+                    daysFrom={daysFrom}
+                    showStatus={showStatus}
+                    onOpen={() => setSheet({ id: entry.id, added: false })}
+                    onOpenImages={() => setPageGallery(entry.id)}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {groups.length > 0 && !narrow && (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
             <thead>
@@ -2414,6 +2763,19 @@ export function DoctorsPage() {
           title={entryTitle(contactEntry)}
           onCommit={(patch) => update((l) => updateEntry(l, contactEntry.id, patch))}
           onClose={closeContact}
+        />
+      )}
+
+      {narrow && sheetEntry && (
+        <RecordSheet
+          uid={user.uid}
+          entry={sheetEntry}
+          list={safeList}
+          daysFrom={daysFrom}
+          update={update}
+          onClose={closeSheet}
+          onDelete={() => handleDelete(sheetEntry)}
+          onOpenImages={() => setPageGallery(sheetEntry.id)}
         />
       )}
 

@@ -514,3 +514,88 @@
   .contactCard { padding: 1.25rem 1rem; }
   .contactGrid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── On a phone: cards, a full-screen record, one toolbar row ──────────
+   Everything below is inert on a laptop except .searchRow, which steps out of
+   the way there so the toolbar lays out exactly as before. */
+.searchRow { display: contents; }
+.recList, .recCards { list-style: none; margin: 0; padding: 0; }
+.recGroup { margin-bottom: 1.1rem; }
+.recGroupHead { display: flex; align-items: center; margin: 0 0.15rem 0.45rem; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
+.recGroupBtn { display: flex; align-items: center; width: 100%; min-height: 44px; margin: -0.35rem 0; padding: 0; border: none; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; text-align: left; cursor: pointer; }
+.recGroupMore { margin-left: auto; font-size: 1.4rem; line-height: 1; color: var(--color-text-muted); }
+.recCards { display: flex; flex-direction: column; gap: 0.6rem; }
+.recCard { overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
+.recCardResolved .recTitle, .recCardResolved .recIssue { color: var(--color-text-muted); }
+.recCardBooked { border-color: var(--color-success); box-shadow: inset 4px 0 0 var(--color-success); }
+.recMain { display: flex; flex-direction: column; gap: 0.25rem; width: 100%; padding: 0.8rem 0.9rem 0.75rem; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.recMain:active { background: var(--color-surface-alt); }
+.recHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+.recTitle { font-size: 1.05rem; font-weight: 700; line-height: 1.3; color: var(--color-text); overflow-wrap: anywhere; }
+.recHead .badge, .recHead .badgeLive { margin-top: 0.15rem; flex-shrink: 0; }
+.recSub { font-size: 0.85rem; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.recIssue { margin-top: 0.15rem; font-size: 0.95rem; line-height: 1.4; color: var(--color-text); overflow-wrap: anywhere; }
+.recLine { font-size: 0.88rem; line-height: 1.4; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.recKey { margin-right: 0.35rem; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.recNotes { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 0.85rem; line-height: 1.4; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.recChips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
+.chip, .chipBooked, .chipOverdue { display: inline-flex; align-items: center; padding: 0.2rem 0.55rem; border-radius: var(--radius-full); background: var(--color-surface-alt); font-size: 0.78rem; font-weight: 600; color: var(--color-text-secondary); }
+.chipBooked { background: var(--color-success-light); color: #166534; }
+.chipOverdue { background: var(--color-danger-light); color: var(--color-danger); }
+.recActions { display: flex; border-top: 1px solid var(--color-border-light); overflow-x: auto; scrollbar-width: none; }
+.recActions::-webkit-scrollbar { display: none; }
+.recAction { flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 0.75rem; border: none; border-right: 1px solid var(--color-border-light); background: none; font-family: inherit; font-size: 0.88rem; font-weight: 600; color: var(--color-accent); text-decoration: none; white-space: nowrap; cursor: pointer; }
+.recAction:last-child { border-right: none; }
+.recAction:active { background: var(--color-accent-light); }
+
+.phoneAddBtn, .phoneIconBtn { flex-shrink: 0; width: 44px; height: 44px; border-radius: var(--radius-md, 10px); font-family: inherit; line-height: 1; cursor: pointer; }
+.phoneAddBtn { border: none; background: var(--color-accent); color: #fff; font-size: 1.6rem; font-weight: 500; }
+.phoneIconBtn { border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary); font-size: 1.3rem; }
+.phoneMenuWrap { position: relative; }
+.phoneMenu { position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 30; min-width: 12rem; padding: 0.3rem; border: 1px solid var(--color-border); border-radius: var(--radius-md, 10px); background: var(--color-surface); box-shadow: var(--shadow-lg); }
+.phoneMenu button { display: block; width: 100%; min-height: 44px; padding: 0 0.75rem; border: none; border-radius: var(--radius-sm); background: none; font-family: inherit; font-size: 0.95rem; color: var(--color-text); text-align: left; cursor: pointer; }
+.phoneMenu button:active { background: var(--color-surface-alt); }
+
+.sheetOverlay { z-index: 300; }
+.sheetDone { flex-shrink: 0; min-height: 40px; padding: 0 1rem; border: none; border-radius: var(--radius-full); background: var(--color-accent); color: #fff; font-family: inherit; font-size: 0.95rem; font-weight: 650; cursor: pointer; }
+.sheetStatus { display: flex; gap: 0.3rem; margin: 0.4rem 0 0.2rem; padding: 0.25rem; border-radius: var(--radius-md, 10px); background: var(--color-surface-alt); }
+.sheetStatusBtn, .sheetStatusOn { flex: 1; min-height: 40px; padding: 0 0.3rem; border: none; border-radius: var(--radius-sm); background: none; font-family: inherit; font-size: 0.88rem; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; }
+.sheetStatusOn { background: var(--color-surface); color: var(--color-accent); box-shadow: var(--shadow-sm); }
+.sheetSection { margin: 1.25rem 0 0.35rem; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
+.sheetField { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.65rem; }
+.sheetLabel { font-size: 0.8rem; font-weight: 600; color: var(--color-text-secondary); }
+.sheetInput, .sheetType select, .sheetType input { width: 100%; min-height: 44px; padding: 0.55rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md, 10px); background: var(--color-bg); font-family: inherit; font-size: 16px; line-height: 1.4; color: var(--color-text); resize: none; overflow: hidden; }
+.sheetInput:focus, .sheetType select:focus, .sheetType input:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+.sheetCheck { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; margin-bottom: 0.4rem; font-size: 1rem; color: var(--color-text); }
+.sheetCheck input { width: 22px; height: 22px; accent-color: var(--color-accent); }
+.sheetPictures .thumb, .sheetPictures .thumbAdd { width: 4.5rem; height: 4.5rem; }
+.sheetPictures .thumbs { gap: 0.5rem; }
+.sheetDelete { width: 100%; min-height: 48px; margin-top: 1.75rem; border: 1px solid var(--color-danger-light); border-radius: var(--radius-md, 10px); background: none; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--color-danger); cursor: pointer; }
+.sheetDelete:active { background: var(--color-danger-light); }
+
+@media (max-width: 700px) {
+  .page { padding: calc(0.9rem + env(safe-area-inset-top)) 0.85rem 7rem; }
+  .header { align-items: center; margin-bottom: 0.6rem; }
+  .title { font-size: 1.6rem; }
+  .summary { font-size: 0.8rem; gap: 0.45rem; }
+  .subtitle, .laneHint { display: none; }
+
+  /* The tabs stay in reach while the list scrolls under them, clear of the
+     notch, with the strip above them filled so cards don't show through. */
+  .lanes { position: sticky; top: env(safe-area-inset-top); z-index: 20; margin: 0 -0.85rem 0.75rem; padding: 0 0.85rem; background: var(--color-bg); gap: 0; }
+  .lanes::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: env(safe-area-inset-top); background: var(--color-bg); }
+  .lane, .laneOn { flex: 1 1 auto; justify-content: center; min-height: 46px; padding: 0.45rem 0.15rem; font-size: 0.84rem; gap: 0.2rem; white-space: nowrap; }
+  .laneCount { padding: 0.02rem 0.3rem; font-size: 0.64rem; }
+
+  .toolbar { flex-direction: column; align-items: stretch; gap: 0.55rem; margin-bottom: 1rem; }
+  .searchRow { display: flex; gap: 0.45rem; align-items: center; }
+  .search { min-width: 0; min-height: 44px; border-radius: var(--radius-md, 10px); font-size: 16px; }
+  .toolbar .pills { flex-wrap: nowrap; overflow-x: auto; margin: 0 -0.85rem; padding: 0 0.85rem 0.1rem; scrollbar-width: none; }
+  .toolbar .pills::-webkit-scrollbar { display: none; }
+  .toolbar .pill, .toolbar .pillOn { flex-shrink: 0; min-height: 36px; font-size: 0.85rem; }
+
+  /* Anything typed into on this page at 16px, or iOS zooms in on focus. */
+  .page input:not([type='checkbox']), .page select, .page textarea { font-size: 16px; }
+  .formCard { padding: 0.85rem; }
+  .empty { padding: 1.5rem 1rem; }
+}
