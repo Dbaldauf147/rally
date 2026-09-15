@@ -991,40 +991,44 @@ function QuestionsPanel({ list, update }) {
   );
 }
 
-/* A labelled field inside the speciality pop-up.
+/* One editable cell in the speciality pop-up's table.
 
-   Uncontrolled and committed on blur, like the table's cells, for the same
-   reason: the stored shape trims, so writing per keystroke would eat spaces.
-   Keyed on the stored value by the caller, so an edit syncing in from another
-   device replaces what's shown — it only changes on a commit, never mid-word. */
-function DetailField({ label, value, onCommit, type = 'text', long = false, placeholder }) {
+   Uncontrolled and committed on blur, like the page table's cells, for the
+   same reason: the stored shape trims, so writing per keystroke would eat
+   spaces. Keyed on the stored value by the caller, so an edit syncing in from
+   another device replaces what's shown — it only changes on a commit, never
+   mid-word. `wrap` shows a one-line value (a doctor's full name) across as
+   many lines as the column needs, while Enter still commits it. */
+function GridField({ label, value, onCommit, type = 'text', long = false, wrap = false, placeholder }) {
   const commit = (e) => { if (e.target.value.trim() !== String(value || '')) onCommit(e.target.value); };
+  const enterCommits = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } };
   const common = {
-    className: styles.modalInput,
+    className: styles.gridInput,
     defaultValue: value || '',
-    placeholder: placeholder || label,
+    placeholder: placeholder || '—',
     'aria-label': label,
     onBlur: commit,
   };
-  return (
-    <label className={long ? styles.modalFieldWide : styles.modalField}>
-      <span className={styles.fieldLabel}>{label}</span>
-      {long
-        ? <textarea rows={2} {...common} />
-        : <input type={type} {...common} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }} />}
-    </label>
-  );
+  // A text cell grows to show all of its value, so nothing hides behind a
+  // scrollbar inside a row.
+  const fit = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } };
+  const area = { ...common, rows: 1, ref: fit, onInput: (e) => fit(e.target) };
+  if (long) return <textarea {...area} />;
+  if (wrap) return <textarea {...area} inputMode={type === 'text' ? undefined : type} onKeyDown={enterCommits} />;
+  return <input type={type} {...common} onKeyDown={enterCommits} />;
 }
 
 /* One speciality, opened from its heading on the Check-ins tab.
 
    Every record filed under it — the doctor you see on a schedule and the
-   complaint that sent you there — stacked per record so it reads on a phone,
-   and editable in place: the name, how to reach them, the issue and what was
-   taken for it, and the questions waiting to be asked. Only what's counted
-   (the last and next visit) stays read-only; it isn't typed anywhere. */
+   complaint that sent you there — as one row each of a wide table, so they
+   read across and compare at a glance, and every cell edits in place. Below
+   it, the questions for all of them in a second table. Only what's counted
+   (the last and next visit) stays read-only; it isn't typed anywhere. A phone
+   scrolls the tables sideways, as it does the page's own. */
 function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
-  const [draftQ, setDraftQ] = useState({});
+  const [draftQ, setDraftQ] = useState('');
+  const [qFor, setQFor] = useState(null); // entry id, null = the first record
   const [newIssue, setNewIssue] = useState('');
   const [issueWith, setIssueWith] = useState(null); // entry id, '' = nobody, null = default
   const [addedId, setAddedId] = useState(null);
@@ -1053,9 +1057,9 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
     setAddedId(record.id);
   }
 
-  // Bring the record just added into view, so it's plain where it went and its
+  // Bring the row just added into view, so it's plain where it went and its
   // meds and notes are right there to fill in.
-  // Once: it waits for the record to render, then never moves you again while
+  // Once: it waits for the row to render, then never moves you again while
   // you type into it or anything else.
   const scrolledTo = useRef(null);
   useEffect(() => {
@@ -1063,7 +1067,7 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
     const el = document.getElementById(`detail-${addedId}`);
     if (!el) return;
     scrolledTo.current = addedId;
-    el.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
   }, [addedId, entries]);
 
   useEffect(() => {
@@ -1072,20 +1076,31 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const questionsFor = (id) => (list.questions || [])
-    .filter((q) => q.entryId === id)
-    .sort((a, b) => (a.answered === b.answered ? 0 : a.answered ? 1 : -1));
+  // The questions for every record here: still to ask first, then in the
+  // order their records sit in the table.
+  const entryIndex = new Map(entries.map((e, i) => [e.id, i]));
+  const questions = (list.questions || [])
+    .filter((q) => entryIndex.has(q.entryId))
+    .sort((a, b) => (a.answered === b.answered
+      ? entryIndex.get(a.entryId) - entryIndex.get(b.entryId)
+      : a.answered ? 1 : -1));
+  const openCount = questions.filter((q) => !q.answered).length;
+  const openFor = (id) => questions.filter((q) => q.entryId === id && !q.answered).length;
+  const qForId = qFor && entryIndex.has(qFor) ? qFor : (entries[0]?.id || '');
   const commit = (id, key) => (value) => update((l) => updateEntry(l, id, { [key]: value }));
 
-  function addQ(id) {
-    const text = (draftQ[id] || '').trim();
-    if (!text) return;
-    update((l) => addQuestion(l, { text, entryId: id }));
-    setDraftQ((d) => ({ ...d, [id]: '' }));
+  function addQ(e) {
+    e.preventDefault();
+    const text = draftQ.trim();
+    if (!text || !qForId) return;
+    update((l) => addQuestion(l, { text, entryId: qForId }));
+    setDraftQ('');
   }
 
   function addRecord() {
-    update((l) => addEntry(l, normalizeEntry({ id: makeId(), type, status: STATUS.NONE })));
+    const record = normalizeEntry({ id: makeId(), type, status: STATUS.NONE });
+    update((l) => addEntry(l, record));
+    setAddedId(record.id);
   }
 
   return (
@@ -1125,131 +1140,174 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
           </div>
         </form>
 
-        {entries.map((entry) => {
-          const since = daysFrom ? customValueOf(entry, daysFrom) : '';
-          const counted = daysSinceLabel(since);
-          const next = upcomingVisit(entry, since);
-          const tel = telHref(entry.phone);
-          const mail = mailHref(entry.email);
-          const link = safeLink(entry.link);
-          const questions = questionsFor(entry.id);
-          const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
-          return (
-            <section
-              key={entry.id}
-              id={`detail-${entry.id}`}
-              className={entry.id === addedId ? `${styles.modalEntry} ${styles.modalEntryNew}` : styles.modalEntry}
-            >
-              <div className={styles.modalEntryHead}>
-                <div className={styles.name}>{entryTitle(entry, type)}</div>
-                <select
-                  className={styles.statusSelect}
-                  aria-label={`Status of ${entryTitle(entry, type)}`}
-                  value={entry.status}
-                  onChange={(e) => update((l) => updateEntry(l, entry.id, { status: e.target.value }))}
-                >
-                  {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-                </select>
-              </div>
+        <div className={styles.modalSection}>
+          Records
+          <span className={styles.groupCount}>{entries.length}</span>
+        </div>
+        <div className={styles.gridWrap}>
+          <table className={styles.grid}>
+            <thead>
+              <tr>
+                {[
+                  ['Doctor', 9], ['Place', 8], ['Issue', 12], ['Current meds', 10], ['Notes', 12],
+                  [daysFrom?.label || 'Last visit', 6], ['Next visit', 6], ['Cadence', 7],
+                  ['Phone', 7], ['Email', 8], ['Link', 6], ['Status', 7],
+                ].map(([label, width]) => <th key={label} style={{ width: `${width}%` }}>{label}</th>)}
+                <th style={{ width: '3%' }} title="Questions still to ask">Qs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => {
+                const since = daysFrom ? customValueOf(entry, daysFrom) : '';
+                const counted = daysSinceLabel(since);
+                const next = upcomingVisit(entry, since);
+                const tel = telHref(entry.phone);
+                const mail = mailHref(entry.email);
+                const link = safeLink(entry.link);
+                const title = entryTitle(entry, type);
+                const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
+                return (
+                  <tr
+                    key={entry.id}
+                    id={`detail-${entry.id}`}
+                    className={entry.id === addedId ? styles.gridRowNew : undefined}
+                  >
+                    <td><GridField key={k('doctor')} label={`Doctor for ${title}`} value={entry.doctor} onCommit={commit(entry.id, 'doctor')} placeholder="Doctor" wrap /></td>
+                    <td><GridField key={k('place')} label={`Place for ${title}`} value={entry.place} onCommit={commit(entry.id, 'place')} placeholder="Place" wrap /></td>
+                    <td><GridField key={k('issue')} label={`Issue for ${title}`} value={entry.issue} onCommit={commit(entry.id, 'issue')} placeholder="What it's for" long /></td>
+                    <td><GridField key={k('currentMeds')} label={`Current meds for ${title}`} value={entry.currentMeds} onCommit={commit(entry.id, 'currentMeds')} long /></td>
+                    <td><GridField key={k('notes')} label={`Notes for ${title}`} value={entry.notes} onCommit={commit(entry.id, 'notes')} long /></td>
+                    <td className={styles.gridFact}>
+                      {since ? formatCustomValue(daysFrom, since) : '—'}
+                      {/^\d+$/.test(counted) ? <div className={styles.sub}>{counted} days ago</div> : null}
+                    </td>
+                    <td className={next?.overdue ? styles.gridFactOverdue : styles.gridFact}>
+                      {next ? `${next.label}${next.booked ? ' 📅' : ''}` : '—'}
+                      {next?.overdue ? <div className={styles.sub}>overdue</div> : null}
+                    </td>
+                    <td><GridField key={k('cadence')} label={`Cadence for ${title}`} value={entry.cadence} onCommit={commit(entry.id, 'cadence')} placeholder="6 months" wrap /></td>
+                    <td>
+                      <GridField key={k('phone')} label={`Phone for ${title}`} type="tel" value={entry.phone} onCommit={commit(entry.id, 'phone')} />
+                      {tel ? <a className={styles.gridLink} href={tel}>Call</a> : null}
+                    </td>
+                    <td>
+                      <GridField key={k('email')} label={`Email for ${title}`} type="email" value={entry.email} onCommit={commit(entry.id, 'email')} wrap />
+                      {mail ? <a className={styles.gridLink} href={mail}>Email</a> : null}
+                    </td>
+                    <td>
+                      <GridField key={k('link')} label={`Link for ${title}`} type="url" value={entry.link} onCommit={commit(entry.id, 'link')} wrap />
+                      {link ? <a className={styles.gridLink} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
+                    </td>
+                    <td>
+                      <select
+                        className={styles.statusSelect}
+                        aria-label={`Status of ${title}`}
+                        value={entry.status}
+                        onChange={(e) => update((l) => updateEntry(l, entry.id, { status: e.target.value }))}
+                      >
+                        {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+                      </select>
+                    </td>
+                    <td className={styles.gridFact}>{openFor(entry.id) || '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <button type="button" className={styles.modalAddRecord} onClick={addRecord}>
+          + Add another {typeHeading(type)} record
+        </button>
 
-              <div className={styles.modalGrid}>
-                <DetailField key={k('doctor')} label="Doctor" value={entry.doctor} onCommit={commit(entry.id, 'doctor')} />
-                <DetailField key={k('place')} label="Place" value={entry.place} onCommit={commit(entry.id, 'place')} />
-              </div>
-
-              <div className={styles.modalSection}>Issue &amp; meds</div>
-              <div className={styles.modalGrid}>
-                <DetailField key={k('issue')} label="Issue" value={entry.issue} onCommit={commit(entry.id, 'issue')} placeholder="What it's for" />
-                <DetailField key={k('currentMeds')} label="Current meds" value={entry.currentMeds} onCommit={commit(entry.id, 'currentMeds')} />
-                <DetailField key={k('notes')} label="Notes" value={entry.notes} onCommit={commit(entry.id, 'notes')} long />
-              </div>
-
-              <div className={styles.modalSection}>Visits &amp; contact</div>
-              <dl className={styles.modalFacts}>
-                <div className={styles.modalFact}>
-                  <dt>{daysFrom?.label || 'Last visit'}</dt>
-                  <dd>{since ? `${formatCustomValue(daysFrom, since)}${/^\d+$/.test(counted) ? ` · ${counted} days ago` : ''}` : '—'}</dd>
-                </div>
-                <div className={next?.overdue ? styles.modalFactOverdue : styles.modalFact}>
-                  <dt>Next visit</dt>
-                  <dd>{next ? `${next.label}${next.booked ? ' 📅' : ''}${next.overdue ? ' · overdue' : ''}` : '—'}</dd>
-                </div>
-              </dl>
-              <div className={styles.modalGrid}>
-                <DetailField key={k('cadence')} label="Cadence" value={entry.cadence} onCommit={commit(entry.id, 'cadence')} placeholder="Every 6 months" />
-                <DetailField key={k('phone')} label="Phone" type="tel" value={entry.phone} onCommit={commit(entry.id, 'phone')} />
-                <DetailField key={k('email')} label="Email" type="email" value={entry.email} onCommit={commit(entry.id, 'email')} />
-                <DetailField key={k('link')} label="Link" type="url" value={entry.link} onCommit={commit(entry.id, 'link')} />
-              </div>
-              {(tel || mail || link) && (
-                <div className={styles.modalLinks}>
-                  {tel ? <a className={styles.modalLink} href={tel}>Call</a> : null}
-                  {mail ? <a className={styles.modalLink} href={mail}>Email</a> : null}
-                  {link ? <a className={styles.modalLink} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
-                </div>
+        <div className={styles.modalSection}>
+          Questions
+          {openCount > 0 && <span className={styles.groupCount}>{openCount}</span>}
+        </div>
+        <div className={styles.gridWrap}>
+          <table className={`${styles.grid} ${styles.gridQuestions}`}>
+            <thead>
+              <tr>
+                <th className={styles.gridColCheck} title="Answered">✓</th>
+                <th style={{ width: '40%' }}>Question</th>
+                <th style={{ width: '35%' }}>Answer</th>
+                <th>For</th>
+                <th className={styles.gridColCheck} />
+              </tr>
+            </thead>
+            <tbody>
+              {questions.length === 0 && (
+                <tr><td colSpan={5} className={styles.gridEmpty}>No questions yet.</td></tr>
               )}
-
-              <div className={styles.modalSection}>
-                Questions
-                {questions.some((q) => !q.answered) && (
-                  <span className={styles.groupCount}>{questions.filter((q) => !q.answered).length}</span>
-                )}
-              </div>
-              <ul className={styles.modalQList}>
-                {questions.map((q) => (
-                  <li key={q.id} className={q.answered ? styles.modalQDone : styles.modalQ}>
-                    <input
-                      type="checkbox"
-                      checked={q.answered}
-                      aria-label={q.answered ? `Mark “${q.text}” still to ask` : `Mark “${q.text}” answered`}
-                      onChange={() => update((l) => updateQuestion(l, q.id, { answered: !q.answered }))}
-                    />
-                    <div className={styles.modalQBody}>
+              {questions.map((q) => {
+                const entry = entries[entryIndex.get(q.entryId)];
+                return (
+                  <tr key={q.id} className={q.answered ? styles.gridQDone : undefined}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        className={styles.gridCheck}
+                        checked={q.answered}
+                        aria-label={q.answered ? `Mark “${q.text}” still to ask` : `Mark “${q.text}” answered`}
+                        onChange={() => update((l) => updateQuestion(l, q.id, { answered: !q.answered }))}
+                      />
+                    </td>
+                    <td>
                       <input
                         key={`${q.id}:t:${q.text}`}
-                        className={styles.modalQText}
+                        className={`${styles.gridInput} ${styles.gridQText}`}
                         defaultValue={q.text}
                         aria-label="Question"
                         onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== q.text) update((l) => updateQuestion(l, q.id, { text: e.target.value })); }}
                         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                       />
+                    </td>
+                    <td>
                       <input
                         key={`${q.id}:a:${q.answer}`}
-                        className={styles.modalQAnswer}
+                        className={styles.gridInput}
                         defaultValue={q.answer}
                         placeholder="What they said…"
                         aria-label={`Answer to “${q.text}”`}
                         onBlur={(e) => { if (e.target.value.trim() !== q.answer) update((l) => updateQuestion(l, q.id, { answer: e.target.value })); }}
                         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                       />
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.qDelete}
-                      title="Delete this question"
-                      aria-label={`Delete “${q.text}”`}
-                      onClick={() => { if (window.confirm(`Delete “${q.text}”?`)) update((l) => removeQuestion(l, q.id)); }}
-                    >×</button>
-                  </li>
-                ))}
-              </ul>
-              <form className={styles.modalQAdd} onSubmit={(e) => { e.preventDefault(); addQ(entry.id); }}>
-                <input
-                  className={styles.modalInput}
-                  value={draftQ[entry.id] || ''}
-                  placeholder="Add a question to ask…"
-                  aria-label={`New question for ${entryTitle(entry, type)}`}
-                  onChange={(e) => setDraftQ((d) => ({ ...d, [entry.id]: e.target.value }))}
-                />
-                <button type="submit" className={styles.btn} disabled={!(draftQ[entry.id] || '').trim()}>Add</button>
-              </form>
-            </section>
-          );
-        })}
-
-        <button type="button" className={styles.modalAddRecord} onClick={addRecord}>
-          + Add another {typeHeading(type)} record
-        </button>
+                    </td>
+                    <td className={styles.gridFact}>{entryTitle(entry, type)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className={styles.qDelete}
+                        title="Delete this question"
+                        aria-label={`Delete “${q.text}”`}
+                        onClick={() => { if (window.confirm(`Delete “${q.text}”?`)) update((l) => removeQuestion(l, q.id)); }}
+                      >×</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {entries.length > 0 && (
+          <form className={styles.modalQAdd} onSubmit={addQ}>
+            <input
+              className={styles.modalInput}
+              value={draftQ}
+              placeholder="Add a question to ask…"
+              aria-label="New question"
+              onChange={(e) => setDraftQ(e.target.value)}
+            />
+            <select
+              className={`${styles.modalInput} ${styles.modalQFor}`}
+              value={qForId}
+              aria-label="Which record it's for"
+              onChange={(e) => setQFor(e.target.value)}
+            >
+              {entries.map((e) => <option key={e.id} value={e.id}>For {entryTitle(e, type)}</option>)}
+            </select>
+            <button type="submit" className={styles.btn} disabled={!draftQ.trim()}>Add</button>
+          </form>
+        )}
       </div>
     </div>
   );

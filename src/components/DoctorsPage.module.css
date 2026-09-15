@@ -45,40 +45,42 @@
 
 /* The speciality pop-up. */
 .modalOverlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
-.modal { position: relative; width: 100%; max-width: 960px; max-height: 94vh; overflow-y: auto; padding: 1.75rem 2rem; background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.modal { position: relative; width: 100%; max-width: min(1700px, 98vw); height: 94vh; max-height: 94vh; overflow-y: auto; padding: 1.75rem 2rem; background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
 .modalClose { position: absolute; top: 0.6rem; right: 0.7rem; padding: 0.25rem; border: none; background: none; font-size: 1.5rem; line-height: 1; color: var(--color-text-muted); cursor: pointer; }
 .modalClose:hover { color: var(--color-text); }
 .modalTitle { display: flex; align-items: center; margin: 0 2rem 0.5rem 0; font-size: 1.1rem; font-weight: 700; }
-.modalEntry { padding: 0.85rem 0; border-top: 1px solid var(--color-border-light); }
-.modalFacts { display: grid; gap: 0.3rem; margin: 0.6rem 0 0; }
-.modalFact, .modalFactOverdue { display: grid; grid-template-columns: 7.5rem 1fr; gap: 0.5rem; font-size: 0.85rem; }
-.modalFact dt, .modalFactOverdue dt { color: var(--color-text-muted); }
-.modalFact dd, .modalFactOverdue dd { margin: 0; color: var(--color-text); overflow-wrap: anywhere; }
-.modalFactOverdue dd { color: var(--color-danger); font-weight: 650; }
 /* Wide, because the pop-up is where editing happens; a phone gets its edges back. */
 @media (max-width: 600px) { .modal { padding: 1.25rem 1rem; } }
-.modalEntryHead { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
-.modalSection { display: flex; align-items: center; margin: 0.9rem 0 0.35rem; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); }
-.modalGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; }
-.modalField, .modalFieldWide { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-.modalFieldWide { grid-column: 1 / -1; }
+.modalSection { display: flex; align-items: center; margin: 1.1rem 0 0.4rem; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); }
 .modalInput { width: 100%; min-width: 0; padding: 0.4rem 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.85rem; color: var(--color-text); resize: vertical; }
 .modalInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
-.modalFacts + .modalGrid { margin-top: 0.5rem; }
-.modalLinks { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
-.modalLink { padding: 0.25rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); font-size: 0.78rem; color: var(--color-accent); text-decoration: none; }
-.modalLink:hover { border-color: var(--color-accent); }
-.modalQList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
-.modalQ, .modalQDone { display: flex; align-items: flex-start; gap: 0.5rem; }
-.modalQ > input[type='checkbox'], .modalQDone > input[type='checkbox'] { width: 16px; height: 16px; margin-top: 0.4rem; accent-color: var(--color-accent); cursor: pointer; flex-shrink: 0; }
-.modalQBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
-.modalQText, .modalQAnswer { width: 100%; padding: 0.25rem 0.4rem; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; font-family: inherit; color: var(--color-text); }
-.modalQText { font-size: 0.88rem; }
-.modalQAnswer { font-size: 0.8rem; color: var(--color-text-secondary); }
-.modalQText:hover, .modalQAnswer:hover { border-color: var(--color-border); }
-.modalQText:focus, .modalQAnswer:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
-.modalQDone .modalQText { color: var(--color-text-muted); text-decoration: line-through; }
-.modalQAdd { display: flex; gap: 0.4rem; margin-top: 0.45rem; }
+/* The records, one row each, and the questions under them. Cells are inputs
+   that read as plain text until hovered or focused. Wider than a phone, so
+   each table scrolls sideways inside its own wrapper. */
+.gridWrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }
+.grid { width: 100%; min-width: 1500px; border-collapse: collapse; font-size: 0.85rem; }
+.gridQuestions { min-width: 640px; }
+.grid thead th { text-align: left; padding: 0.5rem; background: var(--color-surface-alt); border-bottom: 1px solid var(--color-border); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); white-space: nowrap; }
+.grid td { padding: 0.3rem; border-bottom: 1px solid var(--color-border-light); vertical-align: top; }
+.grid tbody tr:last-child td { border-bottom: none; }
+.grid tbody tr:hover td { background: var(--color-surface-alt); }
+.gridColCheck { width: 2.25rem; }
+.gridInput { display: block; width: 100%; min-width: 0; padding: 0.3rem 0.4rem; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; font-family: inherit; font-size: 0.85rem; line-height: 1.4; color: var(--color-text); resize: none; overflow: hidden; overflow-wrap: anywhere; }
+.gridInput:hover { border-color: var(--color-border); }
+.gridInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+.gridInput::placeholder { color: var(--color-text-muted); }
+.grid td.gridFact, .grid td.gridFactOverdue { padding: 0.6rem; font-size: 0.85rem; color: var(--color-text); white-space: nowrap; }
+.grid td.gridFactOverdue { color: var(--color-danger); font-weight: 650; }
+.gridLink { display: inline-block; margin: 0.1rem 0 0 0.4rem; font-size: 0.75rem; color: var(--color-accent); text-decoration: none; }
+.gridLink:hover { text-decoration: underline; }
+.gridCheck { width: 16px; height: 16px; margin: 0.45rem 0 0 0.35rem; accent-color: var(--color-accent); cursor: pointer; }
+.gridQDone .gridQText { color: var(--color-text-muted); text-decoration: line-through; }
+.grid td.gridEmpty { padding: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem; }
+/* The record just added, so it's plain where it went. */
+.grid tbody tr.gridRowNew td { background: var(--color-accent-light); }
+.modalQAdd { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+.modalQFor { width: auto; max-width: 16rem; }
+@media (max-width: 560px) { .modalQAdd { flex-wrap: wrap; } .modalQFor { max-width: none; flex: 1; } }
 .modalAddRecord { width: 100%; margin-top: 0.5rem; padding: 0.55rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: none; font-family: inherit; font-size: 0.82rem; color: var(--color-accent); cursor: pointer; }
 .modalAddRecord:hover { border-color: var(--color-accent); }
 
@@ -371,4 +373,3 @@
 .modalIssueRow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.3fr) auto; gap: 0.4rem; }
 @media (max-width: 560px) { .modalIssueRow { grid-template-columns: 1fr; } }
 /* The record just added, so it's plain where it went. */
-.modalEntryNew { background: var(--color-accent-light); margin: 0 -0.75rem; padding-left: 0.75rem; padding-right: 0.75rem; border-radius: var(--radius-sm); }
