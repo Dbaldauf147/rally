@@ -58,7 +58,7 @@
    that read as plain text until hovered or focused. Wider than a phone, so
    each table scrolls sideways inside its own wrapper. */
 .gridWrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }
-.grid { width: 100%; min-width: 1500px; border-collapse: collapse; font-size: 0.85rem; }
+.grid { width: 100%; min-width: 1000px; border-collapse: collapse; font-size: 0.85rem; }
 .gridQuestions { min-width: 640px; }
 .grid thead th { text-align: left; padding: 0.5rem; background: var(--color-surface-alt); border-bottom: 1px solid var(--color-border); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); white-space: nowrap; }
 .grid td { padding: 0.3rem; border-bottom: 1px solid var(--color-border-light); vertical-align: top; }

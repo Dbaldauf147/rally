@@ -1023,10 +1023,10 @@ function GridField({ label, value, onCommit, type = 'text', long = false, wrap =
    Every record filed under it — the doctor you see on a schedule and the
    complaint that sent you there — as one row each of a wide table, so they
    read across and compare at a glance, and every cell edits in place. Below
-   it, the questions for all of them in a second table. Only what's counted
-   (the last and next visit) stays read-only; it isn't typed anywhere. A phone
+   it, the questions for all of them in a second table. The visit dates,
+   cadence and contact details stay on the page's own table, not here. A phone
    scrolls the tables sideways, as it does the page's own. */
-function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
+function TypeDetail({ list, type, entries, update, onClose }) {
   const [draftQ, setDraftQ] = useState('');
   const [qFor, setQFor] = useState(null); // entry id, null = the first record
   const [newIssue, setNewIssue] = useState('');
@@ -1149,20 +1149,14 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
             <thead>
               <tr>
                 {[
-                  ['Doctor', 9], ['Place', 8], ['Issue', 12], ['Current meds', 10], ['Notes', 12],
-                  [daysFrom?.label || 'Last visit', 6], ['Next visit', 6], ['Cadence', 7],
-                  ['Phone', 7], ['Email', 8], ['Link', 6], ['Status', 7],
+                  ['Doctor', 13], ['Place', 12], ['Issue', 19], ['Current meds', 15], ['Notes', 20],
+                  ['Link', 9], ['Status', 9],
                 ].map(([label, width]) => <th key={label} style={{ width: `${width}%` }}>{label}</th>)}
                 <th style={{ width: '3%' }} title="Questions still to ask">Qs</th>
               </tr>
             </thead>
             <tbody>
               {entries.map((entry) => {
-                const since = daysFrom ? customValueOf(entry, daysFrom) : '';
-                const counted = daysSinceLabel(since);
-                const next = upcomingVisit(entry, since);
-                const tel = telHref(entry.phone);
-                const mail = mailHref(entry.email);
                 const link = safeLink(entry.link);
                 const title = entryTitle(entry, type);
                 const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
@@ -1177,23 +1171,6 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
                     <td><GridField key={k('issue')} label={`Issue for ${title}`} value={entry.issue} onCommit={commit(entry.id, 'issue')} placeholder="What it's for" long /></td>
                     <td><GridField key={k('currentMeds')} label={`Current meds for ${title}`} value={entry.currentMeds} onCommit={commit(entry.id, 'currentMeds')} long /></td>
                     <td><GridField key={k('notes')} label={`Notes for ${title}`} value={entry.notes} onCommit={commit(entry.id, 'notes')} long /></td>
-                    <td className={styles.gridFact}>
-                      {since ? formatCustomValue(daysFrom, since) : '—'}
-                      {/^\d+$/.test(counted) ? <div className={styles.sub}>{counted} days ago</div> : null}
-                    </td>
-                    <td className={next?.overdue ? styles.gridFactOverdue : styles.gridFact}>
-                      {next ? `${next.label}${next.booked ? ' 📅' : ''}` : '—'}
-                      {next?.overdue ? <div className={styles.sub}>overdue</div> : null}
-                    </td>
-                    <td><GridField key={k('cadence')} label={`Cadence for ${title}`} value={entry.cadence} onCommit={commit(entry.id, 'cadence')} placeholder="6 months" wrap /></td>
-                    <td>
-                      <GridField key={k('phone')} label={`Phone for ${title}`} type="tel" value={entry.phone} onCommit={commit(entry.id, 'phone')} />
-                      {tel ? <a className={styles.gridLink} href={tel}>Call</a> : null}
-                    </td>
-                    <td>
-                      <GridField key={k('email')} label={`Email for ${title}`} type="email" value={entry.email} onCommit={commit(entry.id, 'email')} wrap />
-                      {mail ? <a className={styles.gridLink} href={mail}>Email</a> : null}
-                    </td>
                     <td>
                       <GridField key={k('link')} label={`Link for ${title}`} type="url" value={entry.link} onCommit={commit(entry.id, 'link')} wrap />
                       {link ? <a className={styles.gridLink} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
@@ -1836,7 +1813,6 @@ export function DoctorsPage() {
           list={safeList}
           type={detailType}
           entries={detailEntries}
-          daysFrom={daysFrom}
           update={update}
           onClose={closeDetail}
         />
