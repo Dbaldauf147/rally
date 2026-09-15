@@ -1196,7 +1196,8 @@ export const BUILTIN_COLUMNS = [
   { key: 'name', label: 'Doctor' },
   { key: 'issue', label: 'Issue' },
   { key: 'meds', label: 'Meds' },
-  { key: 'contact', label: 'Contact' },
+  // No Contact column: phone, email, address and link are in the doctor's own
+  // pop-up, opened from their name.
   { key: 'cadence', label: 'Cadence' },
   // Computed, not stored: it counts from a Date column of the owner's own.
   { key: 'daysSince', label: 'Days since' },

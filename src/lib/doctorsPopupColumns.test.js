@@ -13,8 +13,8 @@ describe('popup column preferences', () => {
   });
 
   it('drops unknown columns, clamps widths, forgets a sort on a missing column', () => {
-    const p = normalizePrefs({ known, shown: ['doctor', 'gone', 'doctor', 'phone'], widths: { doctor: 5, notes: 5000, gone: 100 }, sort: { key: 'gone', dir: 'asc' } });
-    expect(p.shown).toEqual(['doctor', 'phone']);
+    const p = normalizePrefs({ known, shown: ['doctor', 'gone', 'doctor', 'cadence'], widths: { doctor: 5, notes: 5000, gone: 100 }, sort: { key: 'gone', dir: 'asc' } });
+    expect(p.shown).toEqual(['doctor', 'cadence']);
     expect(p.widths).toEqual({ doctor: MIN_WIDTH, notes: MAX_WIDTH });
     expect(p.sort).toBe(null);
   });
@@ -26,13 +26,13 @@ describe('popup column preferences', () => {
   });
 
   it('shows and hides a column in catalogue order, and drops a sort on one it hides', () => {
-    let p = toggleColumn(null, 'phone');
-    expect(shownColumns(p).map((c) => c.key)).toContain('phone');
+    let p = toggleColumn(null, 'cadence');
+    expect(shownColumns(p).map((c) => c.key)).toContain('cadence');
     // Catalogue order, not the order they were switched on.
     expect(shownColumns(toggleColumn(null, 'place')).map((c) => c.key).slice(0, 3)).toEqual(['doctor', 'place', 'issue']);
-    p = { ...p, sort: { key: 'phone', dir: 'asc' } };
-    p = toggleColumn(p, 'phone');
-    expect(p.shown).not.toContain('phone');
+    p = { ...p, sort: { key: 'cadence', dir: 'asc' } };
+    p = toggleColumn(p, 'cadence');
+    expect(p.shown).not.toContain('cadence');
     expect(p.sort).toBe(null);
   });
 

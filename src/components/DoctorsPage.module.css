@@ -491,3 +491,26 @@
   .lanes::-webkit-scrollbar { display: none; }
   .lane, .laneOn { flex-shrink: 0; padding: 0.5rem 0.55rem; font-size: 0.88rem; gap: 0.3rem; }
 }
+
+/* ── A doctor's own pop-up ─────────────────────────────────────────── */
+/* The name that opens it: reads as the name, underlines to say it's a way in. */
+.nameBtn { display: block; max-width: 100%; margin: 0; padding: 0; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.nameBtn:hover, .nameBtn:focus-visible { color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; outline: none; }
+.name.nameBtn { font-size: 0.9rem; font-weight: 650; line-height: 1.3; }
+.gridName { padding: 0.45rem 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text); }
+
+/* Above the speciality pop-up, which it can be opened from. */
+.contactOverlay { z-index: 300; }
+.contactCard { position: relative; width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto; padding: 1.5rem 1.6rem 1.6rem; background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.contactTitle { margin: 0 2rem 0.1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text); overflow-wrap: anywhere; }
+.contactActions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.9rem 0 0.2rem; }
+.contactActions a { text-decoration: none; }
+.contactGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 0.75rem; margin-top: 1rem; }
+.contactWide { grid-column: 1 / -1; }
+.contactField { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.contactLabel { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
+.contactField .gridInput { border-color: var(--color-border); background: var(--color-bg); }
+@media (max-width: 600px) {
+  .contactCard { padding: 1.25rem 1rem; }
+  .contactGrid { grid-template-columns: minmax(0, 1fr); }
+}
