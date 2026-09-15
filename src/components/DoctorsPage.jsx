@@ -1142,6 +1142,18 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
     setAddedId(record.id);
   }
 
+  // The page table's rule: a record never filled in goes quietly, anything
+  // else asks first. Every record here carries the speciality, so that alone
+  // doesn't count as filled in. Its questions stay, under "Not for anybody in
+  // particular" on the Questions tab, and the prompt says so.
+  function deleteRecord(entry) {
+    const qs = questions.filter((q) => q.entryId === entry.id).length;
+    const note = qs ? ` Its ${qs} question${qs === 1 ? '' : 's'} will move to "Not for anybody in particular".` : '';
+    const blank = isBlank({ ...entry, type: '' }) && qs === 0;
+    if (!blank && !window.confirm(`Delete ${entryTitle(entry, type)}? This cannot be undone.${note}`)) return;
+    update((l) => removeEntry(l, entry.id));
+  }
+
   /* ── The records table's columns ─────────────────────────────────
      Which show, how wide, sorted by what — remembered on this device (see
      lib/doctorsPopupColumns.js for why not on the shared list). */
@@ -1163,7 +1175,10 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
   }, [colsOpen]);
 
   const columns = shownColumns(prefs);
-  const tableWidth = columns.reduce((sum, c) => sum + c.width, 0);
+  // The delete button's column sits outside the chooser: it can't be hidden,
+  // sorted or resized, so it's a fixed width on the end.
+  const DELETE_COL_WIDTH = 40;
+  const tableWidth = columns.reduce((sum, c) => sum + c.width, 0) + DELETE_COL_WIDTH;
 
   // Dragging a header's right edge. Pointer events, so a finger works too; the
   // handle captures the pointer, so the drag keeps going (and keeps its
@@ -1323,6 +1338,7 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
           <table className={`${styles.grid} ${styles.gridSized}`} style={{ width: `${tableWidth}px` }}>
             <colgroup>
               {columns.map((c) => <col key={c.key} style={{ width: `${c.width}px` }} />)}
+              <col style={{ width: `${DELETE_COL_WIDTH}px` }} />
             </colgroup>
             <thead>
               <tr>
@@ -1356,6 +1372,7 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
                     </th>
                   );
                 })}
+                <th aria-label="Delete" />
               </tr>
             </thead>
             <tbody>
@@ -1366,6 +1383,15 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
                   className={entry.id === addedId ? styles.gridRowNew : undefined}
                 >
                   {columns.map((c) => <Fragment key={c.key}>{renderCell(entry, c)}</Fragment>)}
+                  <td>
+                    <button
+                      type="button"
+                      className={styles.qDelete}
+                      title={`Delete ${entryTitle(entry, type)}`}
+                      aria-label={`Delete ${entryTitle(entry, type)}`}
+                      onClick={() => deleteRecord(entry)}
+                    >×</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
