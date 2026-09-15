@@ -1444,3 +1444,35 @@ describe('questions', () => {
     expect(normalizeList(removeType(l, 'Skin')).questionTags).toContain('Follow up');
   });
 });
+
+describe('issueRecord', () => {
+  const dentist = {
+    id: 'd1', type: 'Dentist', doctor: 'Dr. Molar', place: '34th St Dental', phone: '555', email: 'd@x.com',
+    location: '225 W 35th', link: 'https://x.com', cadence: 'Every 6 months', issue: 'Angular cheilitis',
+    currentMeds: 'Terrasil', notes: 'old note',
+  };
+
+  it('files a new issue under the speciality, with the doctor and how to reach them', async () => {
+    const { issueRecord, isIssueEntry, isCheckInEntry, addEntry, normalizeList, STATUS } = await import('./doctors.js');
+    const r = issueRecord('Dentist', 'Tooth pain', dentist);
+    expect(r).toMatchObject({
+      type: 'Dentist', issue: 'Tooth pain', status: STATUS.TREATING,
+      doctor: 'Dr. Molar', place: '34th St Dental', phone: '555', email: 'd@x.com', location: '225 W 35th', link: 'https://x.com',
+    });
+    expect(r.id).not.toBe('d1');
+    // The check-up's schedule, meds and notes stay with the check-up.
+    expect(r.cadence).toBe('');
+    expect(r.currentMeds).toBe('');
+    expect(r.notes).toBe('');
+    expect(isIssueEntry(r)).toBe(true);
+    expect(isCheckInEntry(r)).toBe(false);
+    // A second record, not an overwrite of the dentist's existing issue.
+    const l = addEntry(normalizeList({ entries: [dentist] }), r);
+    expect(l.entries.map((e) => e.issue)).toEqual(['Angular cheilitis', 'Tooth pain']);
+  });
+
+  it('can be with nobody yet', async () => {
+    const { issueRecord } = await import('./doctors.js');
+    expect(issueRecord('Skin', 'Rash', null)).toMatchObject({ type: 'Skin', issue: 'Rash', doctor: '', place: '' });
+  });
+});

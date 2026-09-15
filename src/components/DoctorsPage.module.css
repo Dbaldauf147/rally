@@ -365,3 +365,11 @@
 @media (max-width: 640px) {
   .qAddWho { max-width: 100%; flex: 1; }
 }
+
+/* Adding an issue from the speciality pop-up. */
+.modalIssueAdd { margin: 0 0 0.5rem; padding: 0.6rem 0.75rem 0.75rem; border: 1px solid var(--color-border-light); border-radius: var(--radius-sm); background: var(--color-bg); }
+.modalIssueAdd .modalSection { margin-top: 0; }
+.modalIssueRow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.3fr) auto; gap: 0.4rem; }
+@media (max-width: 560px) { .modalIssueRow { grid-template-columns: 1fr; } }
+/* The record just added, so it's plain where it went. */
+.modalEntryNew { background: var(--color-accent-light); margin: 0 -0.75rem; padding-left: 0.75rem; padding-right: 0.75rem; border-radius: var(--radius-sm); }

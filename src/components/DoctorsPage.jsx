@@ -13,7 +13,7 @@ import {
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
   dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
-  isCheckInEntry, setDoctorCalendar, pendingAppointments, sameType,
+  isCheckInEntry, setDoctorCalendar, pendingAppointments, sameType, issueRecord,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts,
   linkAppointment, ignoreAppointment, unignoreAppointment,
@@ -1025,6 +1025,46 @@ function DetailField({ label, value, onCommit, type = 'text', long = false, plac
    (the last and next visit) stays read-only; it isn't typed anywhere. */
 function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
   const [draftQ, setDraftQ] = useState({});
+  const [newIssue, setNewIssue] = useState('');
+  const [issueWith, setIssueWith] = useState(null); // entry id, '' = nobody, null = default
+  const [addedId, setAddedId] = useState(null);
+
+  // Who a new issue can be with: each doctor or practice already filed under
+  // this speciality, once, however many records they appear on.
+  const doctors = useMemo(() => {
+    const seen = new Set();
+    return entries.filter((e) => {
+      if (!String(e.doctor || e.place || '').trim()) return false;
+      const key = `${e.doctor}|${e.place}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [entries]);
+  const withId = issueWith ?? (doctors[0]?.id || '');
+
+  function addIssue(e) {
+    e.preventDefault();
+    const text = newIssue.trim();
+    if (!text) return;
+    const record = issueRecord(type, text, entries.find((x) => x.id === withId) || null);
+    update((l) => addEntry(l, record));
+    setNewIssue('');
+    setAddedId(record.id);
+  }
+
+  // Bring the record just added into view, so it's plain where it went and its
+  // meds and notes are right there to fill in.
+  // Once: it waits for the record to render, then never moves you again while
+  // you type into it or anything else.
+  const scrolledTo = useRef(null);
+  useEffect(() => {
+    if (!addedId || scrolledTo.current === addedId) return;
+    const el = document.getElementById(`detail-${addedId}`);
+    if (!el) return;
+    scrolledTo.current = addedId;
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [addedId, entries]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -1064,6 +1104,31 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
         </h2>
         <p className={styles.modalHint}>Edit anything here — it saves when you click away.</p>
 
+        <form className={styles.modalIssueAdd} onSubmit={addIssue}>
+          <div className={styles.modalSection}>Add an issue</div>
+          <div className={styles.modalIssueRow}>
+            <input
+              className={styles.modalInput}
+              value={newIssue}
+              placeholder={`What's the issue? e.g. tooth pain`}
+              aria-label={`New ${typeHeading(type)} issue`}
+              onChange={(e) => setNewIssue(e.target.value)}
+            />
+            <select
+              className={styles.modalInput}
+              value={withId}
+              aria-label="Which doctor it's with"
+              onChange={(e) => setIssueWith(e.target.value)}
+            >
+              {doctors.map((d) => (
+                <option key={d.id} value={d.id}>With {entryTitle(d, type)}</option>
+              ))}
+              <option value="">No doctor yet</option>
+            </select>
+            <button type="submit" className={styles.btnPrimary} disabled={!newIssue.trim()}>Add issue</button>
+          </div>
+        </form>
+
         {entries.map((entry) => {
           const since = daysFrom ? customValueOf(entry, daysFrom) : '';
           const counted = daysSinceLabel(since);
@@ -1075,7 +1140,11 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
           const questions = questionsFor(entry.id);
           const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
           return (
-            <section key={entry.id} className={styles.modalEntry}>
+            <section
+              key={entry.id}
+              id={`detail-${entry.id}`}
+              className={entry.id === addedId ? `${styles.modalEntry} ${styles.modalEntryNew}` : styles.modalEntry}
+            >
               <div className={styles.modalEntryHead}>
                 <div className={styles.name}>{entryTitle(entry, type)}</div>
                 <select
