@@ -1098,11 +1098,7 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <button type="button" className={styles.modalClose} aria-label="Close" onClick={onClose}>×</button>
-        <h2 className={styles.modalTitle}>
-          {typeHeading(type)}
-          <span className={styles.groupCount}>{entries.length}</span>
-        </h2>
-        <p className={styles.modalHint}>Edit anything here — it saves when you click away.</p>
+        <h2 className={styles.modalTitle}>{typeHeading(type)}</h2>
 
         <form className={styles.modalIssueAdd} onSubmit={addIssue}>
           <div className={styles.modalSection}>Add an issue</div>

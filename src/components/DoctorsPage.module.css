@@ -57,7 +57,6 @@
 .modalFactOverdue dd { color: var(--color-danger); font-weight: 650; }
 /* The pop-up is where editing happens now, so it gets the room a form needs. */
 .modal:has(.modalGrid) { max-width: 640px; }
-.modalHint { margin: 0 0 0.5rem; font-size: 0.78rem; color: var(--color-text-muted); }
 .modalEntryHead { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
 .modalSection { display: flex; align-items: center; margin: 0.9rem 0 0.35rem; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); }
 .modalGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; }
