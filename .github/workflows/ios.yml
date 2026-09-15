@@ -67,7 +67,9 @@ jobs:
         # NSContactsUsageDescription is what iOS shows when the Friends page asks
         # for the address book — without it the permission prompt never appears and
         # the app is killed on the first read, so the native import route depends
-        # on this line as much as on the plugin itself.
+        # on this line as much as on the plugin itself. The camera and photo library
+        # descriptions are the same kind of line for the Doctors page's picture
+        # upload: without them, choosing "Take Photo" from the file picker kills the app.
         # Also declare the export-compliance exemption (the app only uses the
         # standard HTTPS/TLS provided by iOS) so App Store Connect stops asking.
         run: |
@@ -78,6 +80,8 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string rally" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :NSContactsUsageDescription string Rally reads your contacts so you can add friends without typing them in one at a time. Only the people you pick are saved to Rally." "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string Rally uses the camera when you take a photo to attach to a record, such as a prescription or a rash on the Doctors page." "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string Rally opens your photo library when you choose a picture to attach to a record on the Doctors page." "$PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST" 2>/dev/null || true
 
       - name: Inject Share Extension target

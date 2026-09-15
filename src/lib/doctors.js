@@ -260,7 +260,38 @@ export function normalizeEntry(raw) {
   out.custom = (raw?.custom && typeof raw.custom === 'object' && !Array.isArray(raw.custom))
     ? { ...raw.custom }
     : {};
+  // Pictures attached to the record. Only what names them lives here; the
+  // image itself is its own document (see lib/doctorImages.js), because a
+  // photo is most of the size this whole list is allowed to be.
+  out.images = normalizeImages(raw?.images);
   return out;
+}
+
+export function normalizeImages(raw) {
+  const seen = new Set();
+  return (Array.isArray(raw) ? raw : [])
+    .map((img) => ({
+      id: String(img?.id ?? '').trim(),
+      name: String(img?.name ?? '').trim(),
+      created: String(img?.created ?? '').trim(),
+    }))
+    .filter((img) => img.id && !seen.has(img.id) && seen.add(img.id));
+}
+
+export function addEntryImage(list, entryId, image) {
+  const l = normalizeList(list);
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => (e.id === entryId ? { ...e, images: [...e.images, image] } : e)),
+  });
+}
+
+export function removeEntryImage(list, entryId, imageId) {
+  const l = normalizeList(list);
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => (e.id === entryId ? { ...e, images: e.images.filter((i) => i.id !== imageId) } : e)),
+  });
 }
 
 // Type names are compared case-insensitively so "skin" and "Skin" can't become
@@ -598,7 +629,7 @@ export function removeEntry(list, id) {
 
 // A row that was added and never filled in. Offered so the page can clear one
 // away rather than leaving a line of dashes behind.
-export const isBlank = (entry) => !hasContent(entry);
+export const isBlank = (entry) => !hasContent(entry) && !(entry.images || []).length;
 
 // --- editing the type list -------------------------------------------------
 //
