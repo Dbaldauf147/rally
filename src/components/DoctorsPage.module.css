@@ -377,3 +377,22 @@
 .modalIssueRow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.3fr) auto; gap: 0.4rem; }
 @media (max-width: 560px) { .modalIssueRow { grid-template-columns: 1fr; } }
 /* The record just added, so it's plain where it went. */
+
+/* The pop-up's records table: sortable headers, draggable widths, a column
+   picker. Fixed layout so a dragged width is the width you get. */
+.grid.gridSized { min-width: 0; table-layout: fixed; }
+.grid thead th.gridTh { position: relative; padding: 0; }
+.gridSortBtn { display: flex; align-items: center; gap: 0.3rem; width: 100%; padding: 0.5rem 0.9rem 0.5rem 0.5rem; border: none; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.gridSortBtn:hover { color: var(--color-text); }
+.gridSortMark { font-size: 0.6rem; color: var(--color-accent); }
+.gridResize { position: absolute; top: 0; right: -4px; z-index: 1; width: 9px; height: 100%; cursor: col-resize; touch-action: none; }
+.gridResize::after { content: ''; position: absolute; top: 25%; bottom: 25%; left: 4px; width: 1px; background: var(--color-border); }
+.gridResize:hover::after { top: 0; bottom: 0; width: 2px; left: 3px; background: var(--color-accent); }
+.gridColsWrap { position: relative; margin-left: auto; text-transform: none; letter-spacing: normal; font-weight: 400; }
+.gridColsBtn { padding: 0.3rem 0.65rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-family: inherit; font-size: 0.8rem; color: var(--color-text-secondary); cursor: pointer; }
+.gridColsBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.gridColsMenu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; gap: 0.1rem; min-width: 190px; padding: 0.4rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); box-shadow: var(--shadow-md); }
+.gridColsItem { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--color-text); cursor: pointer; white-space: nowrap; }
+.gridColsItem:hover { background: var(--color-surface-alt); }
+.gridColsItem input { accent-color: var(--color-accent); cursor: pointer; }
+.gridColsReset { margin-top: 0.25rem; padding: 0.35rem 0.4rem; border: none; border-top: 1px solid var(--color-border-light); background: none; font-family: inherit; font-size: 0.8rem; color: var(--color-accent); text-align: left; cursor: pointer; }
