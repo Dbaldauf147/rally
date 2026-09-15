@@ -1131,7 +1131,6 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
           const next = upcomingVisit(entry, since);
           const tel = telHref(entry.phone);
           const mail = mailHref(entry.email);
-          const map = mapHref(entry.location);
           const link = safeLink(entry.link);
           const questions = questionsFor(entry.id);
           const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
@@ -1162,7 +1161,6 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
               <div className={styles.modalGrid}>
                 <DetailField key={k('issue')} label="Issue" value={entry.issue} onCommit={commit(entry.id, 'issue')} placeholder="What it's for" />
                 <DetailField key={k('currentMeds')} label="Current meds" value={entry.currentMeds} onCommit={commit(entry.id, 'currentMeds')} />
-                <DetailField key={k('previousMeds')} label="Previous meds" value={entry.previousMeds} onCommit={commit(entry.id, 'previousMeds')} />
                 <DetailField key={k('notes')} label="Notes" value={entry.notes} onCommit={commit(entry.id, 'notes')} long />
               </div>
 
@@ -1181,14 +1179,12 @@ function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
                 <DetailField key={k('cadence')} label="Cadence" value={entry.cadence} onCommit={commit(entry.id, 'cadence')} placeholder="Every 6 months" />
                 <DetailField key={k('phone')} label="Phone" type="tel" value={entry.phone} onCommit={commit(entry.id, 'phone')} />
                 <DetailField key={k('email')} label="Email" type="email" value={entry.email} onCommit={commit(entry.id, 'email')} />
-                <DetailField key={k('location')} label="Location" value={entry.location} onCommit={commit(entry.id, 'location')} />
                 <DetailField key={k('link')} label="Link" type="url" value={entry.link} onCommit={commit(entry.id, 'link')} />
               </div>
-              {(tel || mail || map || link) && (
+              {(tel || mail || link) && (
                 <div className={styles.modalLinks}>
                   {tel ? <a className={styles.modalLink} href={tel}>Call</a> : null}
                   {mail ? <a className={styles.modalLink} href={mail}>Email</a> : null}
-                  {map ? <a className={styles.modalLink} href={map} target="_blank" rel="noreferrer">Map ↗</a> : null}
                   {link ? <a className={styles.modalLink} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
                 </div>
               )}
