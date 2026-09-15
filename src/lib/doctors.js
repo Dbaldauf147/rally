@@ -809,10 +809,12 @@ export function mapHref(location) {
 }
 
 // Only http(s) links are followed. A pasted `javascript:` URL would otherwise
-// become a clickable script on a page the owner trusts.
+// become a clickable script on a page the owner trusts. A bare domain typed
+// without its scheme (`mayoclinic.org/doctors`) is taken as https.
 export function safeLink(link) {
   const l = String(link || '').trim();
-  return /^https?:\/\//i.test(l) ? l : null;
+  if (/^https?:\/\//i.test(l)) return l;
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}([/?#]\S*)?$/i.test(l) ? `https://${l}` : null;
 }
 
 // Long URLs (the pasted search links are hundreds of characters) are unreadable

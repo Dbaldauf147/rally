@@ -999,14 +999,18 @@ function QuestionsPanel({ list, update }) {
    another device replaces what's shown — it only changes on a commit, never
    mid-word. `wrap` shows a one-line value (a doctor's full name) across as
    many lines as the column needs, while Enter still commits it. */
-function GridField({ label, value, onCommit, type = 'text', long = false, wrap = false, placeholder }) {
-  const commit = (e) => { if (e.target.value.trim() !== String(value || '')) onCommit(e.target.value); };
+function GridField({ label, value, onCommit, type = 'text', long = false, wrap = false, placeholder, autoFocus = false, onDone }) {
+  const commit = (e) => {
+    if (e.target.value.trim() !== String(value || '')) onCommit(e.target.value);
+    onDone?.();
+  };
   const enterCommits = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } };
   const common = {
     className: styles.gridInput,
     defaultValue: value || '',
     placeholder: placeholder || '—',
     'aria-label': label,
+    autoFocus,
     onBlur: commit,
   };
   // A text cell grows to show all of its value, so nothing hides behind a
@@ -1016,6 +1020,31 @@ function GridField({ label, value, onCommit, type = 'text', long = false, wrap =
   if (long) return <textarea {...area} />;
   if (wrap) return <textarea {...area} inputMode={type === 'text' ? undefined : type} onKeyDown={enterCommits} />;
   return <input type={type} {...common} onKeyDown={enterCommits} />;
+}
+
+/* The pop-up's Link cell: once there's a link, the cell is the link — its
+   site's name, clickable, as on the page's own table — with a pencil to change
+   it. Empty, or being edited, it's the usual field. Keyed on the stored value
+   by the caller, so a saved edit drops back to the link. */
+function LinkField({ label, value, onCommit }) {
+  const [editing, setEditing] = useState(false);
+  const href = safeLink(value);
+  if (!href || editing) {
+    return (
+      <GridField
+        label={label} type="url" value={value} onCommit={onCommit} wrap
+        autoFocus={editing} onDone={() => setEditing(false)}
+      />
+    );
+  }
+  return (
+    <div className={styles.gridLinkCell}>
+      <a className={styles.gridLinkText} href={href} target="_blank" rel="noreferrer" title={value}>
+        {linkLabel(value)}&nbsp;↗
+      </a>
+      <button type="button" className={styles.gridEdit} title="Edit link" aria-label={`Edit ${label}`} onClick={() => setEditing(true)}>✎</button>
+    </div>
+  );
 }
 
 /* One speciality, opened from its heading on the Check-ins tab.
@@ -1157,7 +1186,6 @@ function TypeDetail({ list, type, entries, update, onClose }) {
             </thead>
             <tbody>
               {entries.map((entry) => {
-                const link = safeLink(entry.link);
                 const title = entryTitle(entry, type);
                 const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
                 return (
@@ -1170,10 +1198,7 @@ function TypeDetail({ list, type, entries, update, onClose }) {
                     <td><GridField key={k('issue')} label={`Issue for ${title}`} value={entry.issue} onCommit={commit(entry.id, 'issue')} placeholder="What it's for" long /></td>
                     <td><GridField key={k('currentMeds')} label={`Current meds for ${title}`} value={entry.currentMeds} onCommit={commit(entry.id, 'currentMeds')} long /></td>
                     <td><GridField key={k('notes')} label={`Notes for ${title}`} value={entry.notes} onCommit={commit(entry.id, 'notes')} long /></td>
-                    <td>
-                      <GridField key={k('link')} label={`Link for ${title}`} type="url" value={entry.link} onCommit={commit(entry.id, 'link')} wrap />
-                      {link ? <a className={styles.gridLink} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
-                    </td>
+                    <td><LinkField key={k('link')} label={`Link for ${title}`} value={entry.link} onCommit={commit(entry.id, 'link')} /></td>
                     <td>
                       <select
                         className={styles.statusSelect}

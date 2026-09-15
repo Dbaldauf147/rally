@@ -71,8 +71,12 @@
 .gridInput::placeholder { color: var(--color-text-muted); }
 .grid td.gridFact, .grid td.gridFactOverdue { padding: 0.6rem; font-size: 0.85rem; color: var(--color-text); white-space: nowrap; }
 .grid td.gridFactOverdue { color: var(--color-danger); font-weight: 650; }
-.gridLink { display: inline-block; margin: 0.1rem 0 0 0.4rem; font-size: 0.75rem; color: var(--color-accent); text-decoration: none; }
-.gridLink:hover { text-decoration: underline; }
+/* A saved link reads as the link, with a pencil to change it. */
+.gridLinkCell { display: flex; align-items: flex-start; gap: 0.25rem; padding: 0.3rem 0.4rem; }
+.gridLinkText { min-width: 0; font-size: 0.85rem; line-height: 1.4; color: var(--color-accent); text-decoration: none; overflow-wrap: break-word; }
+.gridLinkText:hover { text-decoration: underline; }
+.gridEdit { flex-shrink: 0; margin-left: auto; padding: 0 0.2rem; border: none; border-radius: var(--radius-sm); background: none; font-size: 0.8rem; line-height: 1.4; color: var(--color-text-muted); cursor: pointer; opacity: 0.6; }
+.gridEdit:hover, .gridEdit:focus-visible { opacity: 1; color: var(--color-accent); }
 .gridCheck { width: 16px; height: 16px; margin: 0.45rem 0 0 0.35rem; accent-color: var(--color-accent); cursor: pointer; }
 .gridQDone .gridQText { color: var(--color-text-muted); text-decoration: line-through; }
 .grid td.gridEmpty { padding: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem; }
