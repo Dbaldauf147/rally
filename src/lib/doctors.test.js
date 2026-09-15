@@ -754,12 +754,12 @@ describe('the columns, built-in and added alike', () => {
 
   it('starts with the built-in columns, in their built order', () => {
     expect(keys(base())).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
-    expect(labels(base())).toEqual(['Doctor', 'Issue', 'Meds', 'Contact', 'Cadence', 'Days since', 'Next visit', 'Status']);
+    expect(labels(base())).toEqual(['Doctor', 'Issue', 'Meds', 'Cadence', 'Days since', 'Next visit', 'Status']);
   });
 
   it('puts an added column on the end without any bookkeeping', () => {
     const l = addCol(base());
-    expect(keys(l)).toHaveLength(9);
+    expect(keys(l)).toHaveLength(8);
     expect(labels(l).at(-1)).toBe('Copay');
     expect(resolveColumns(l).at(-1).kind).toBe('custom');
   });
@@ -791,21 +791,21 @@ describe('the columns, built-in and added alike', () => {
   });
 
   it('hides a built-in column without touching the records', () => {
-    const l = setColumnHidden(base(), 'contact', true);
-    expect(visibleColumns(l).map((c) => c.key)).not.toContain('contact');
-    expect(resolveColumns(l).map((c) => c.key)).toContain('contact');
+    const l = setColumnHidden(base(), 'cadence', true);
+    expect(visibleColumns(l).map((c) => c.key)).not.toContain('cadence');
+    expect(resolveColumns(l).map((c) => c.key)).toContain('cadence');
     expect(l.entries).toHaveLength(1);
   });
 
   it('unhiding brings it back where it was', () => {
-    const hidden = setColumnHidden(base(), 'contact', true);
-    expect(keys(setColumnHidden(hidden, 'contact', false))).toEqual(keys(base()));
-    expect(visibleColumns(setColumnHidden(hidden, 'contact', false))).toHaveLength(8);
+    const hidden = setColumnHidden(base(), 'cadence', true);
+    expect(keys(setColumnHidden(hidden, 'cadence', false))).toEqual(keys(base()));
+    expect(visibleColumns(setColumnHidden(hidden, 'cadence', false))).toHaveLength(7);
   });
 
   it('hiding twice does not stack up', () => {
-    const l = setColumnHidden(setColumnHidden(base(), 'contact', true), 'contact', true);
-    expect(l.hiddenColumns).toEqual(['contact']);
+    const l = setColumnHidden(setColumnHidden(base(), 'cadence', true), 'cadence', true);
+    expect(l.hiddenColumns).toEqual(['cadence']);
   });
 
   it('moves a column along the order, built-in or added', () => {
@@ -818,8 +818,8 @@ describe('the columns, built-in and added alike', () => {
   it('lets an added column sit between two built-in ones', () => {
     let l = addCol(base());
     const id = lastId(l);
-    l = moveColumn(l, id, -7);
-    expect(keys(l)).toEqual(['name', id, 'issue', 'meds', 'contact', 'cadence', 'daysSince', 'nextVisit', 'status']);
+    l = moveColumn(l, id, -6);
+    expect(keys(l)).toEqual(['name', id, 'issue', 'meds', 'cadence', 'daysSince', 'nextVisit', 'status']);
   });
 
   it('does nothing at either end', () => {
@@ -830,20 +830,26 @@ describe('the columns, built-in and added alike', () => {
   it('a stored order survives a column being deleted since', () => {
     const l0 = addCol(base());
     const id = lastId(l0);
-    const ordered = moveColumn(l0, id, -8);
+    const ordered = moveColumn(l0, id, -7);
     const l = removeField(ordered, id);
     expect(keys(l)).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
   });
 
+  it('a stored order naming the retired Contact column skips it', () => {
+    const l = normalizeList({ entries: [], columnOrder: ['contact', 'status', 'name'], hiddenColumns: ['contact'] });
+    expect(keys(l)).toEqual(['status', 'name', 'issue', 'meds', 'cadence', 'daysSince', 'nextVisit']);
+    expect(visibleColumns(l)).toHaveLength(7);
+  });
+
   it('a stored order missing a column still shows it, on the end', () => {
     const l = normalizeList({ entries: [], columnOrder: ['status', 'name'] });
-    expect(keys(l)).toEqual(['status', 'name', 'issue', 'meds', 'contact', 'cadence', 'daysSince', 'nextVisit']);
+    expect(keys(l)).toEqual(['status', 'name', 'issue', 'meds', 'cadence', 'daysSince', 'nextVisit']);
   });
 
   it('survives a document whose column settings are malformed', () => {
     const l = normalizeList({ entries: [], columnOrder: 'nope', columnLabels: 'nope', hiddenColumns: 7 });
     expect(keys(l)).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
-    expect(visibleColumns(l)).toHaveLength(8);
+    expect(visibleColumns(l)).toHaveLength(7);
   });
 });
 

@@ -144,14 +144,13 @@ const NEW_TYPE = ' new';
 
 /* Which fields each column edits.
 
-   A column shows more than one field — Contact is four of them — so opening a
+   A column shows more than one field — Doctor is the name and the place — so opening a
    cell gives you every field that column is responsible for, stacked. That way
    the table stays six columns wide while still reaching all thirteen fields. */
 const CELL_FIELDS = {
   name: ['doctor', 'place'],
   issue: ['issue', 'notes'],
   meds: ['currentMeds', 'previousMeds'],
-  contact: ['phone', 'email', 'location', 'link'],
   cadence: ['cadence'],
   notes: ['notes'],
 };
@@ -1052,6 +1051,76 @@ function LinkField({ label, value, onCommit }) {
   );
 }
 
+/* ── A doctor's own pop-up ───────────────────────────────────────────
+   How to reach them, opened by clicking the doctor's name — on the page's
+   table or in the speciality pop-up. Phone, email, address and link live here
+   and nowhere else, so the tables are about what's wrong and when you're due.
+
+   Every field edits in place and saves on blur, like the tables' cells. The
+   buttons along the top act on what's saved. Escape closes this and only
+   this — a speciality pop-up it sits over stays open. */
+function DoctorCard({ entry, title, onCommit, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  const tel = telHref(entry.phone);
+  const mail = mailHref(entry.email);
+  const map = mapHref(entry.location);
+  const link = safeLink(entry.link);
+  const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
+  const field = (key, label, props = {}) => (
+    <label className={styles.contactField}>
+      <span className={styles.contactLabel}>{label}</span>
+      <GridField key={k(key)} label={label} value={entry[key]} onCommit={(v) => onCommit({ [key]: v })} placeholder={label} {...props} />
+    </label>
+  );
+
+  return (
+    <div className={`${styles.modalOverlay} ${styles.contactOverlay}`} onClick={(e) => { e.stopPropagation(); onClose(); }}>
+      <div className={styles.contactCard} role="dialog" aria-modal="true" aria-label={`Contact for ${title}`} onClick={(e) => e.stopPropagation()}>
+        <button type="button" className={styles.modalClose} aria-label="Close contact" onClick={onClose}>×</button>
+        <h2 className={styles.contactTitle}>{title}</h2>
+        {entry.type ? <div className={styles.sub}>{entry.type}</div> : null}
+
+        {(tel || mail || map || link) && (
+          <div className={styles.contactActions}>
+            {tel ? <a className={styles.btn} href={tel}>Call</a> : null}
+            {mail ? <a className={styles.btn} href={mail}>Email</a> : null}
+            {map ? <a className={styles.btn} href={map} target="_blank" rel="noreferrer">Map ↗</a> : null}
+            {link ? <a className={styles.btn} href={link} target="_blank" rel="noreferrer">{linkLabel(entry.link)} ↗</a> : null}
+          </div>
+        )}
+
+        <div className={styles.contactGrid}>
+          {field('doctor', 'Doctor', { wrap: true })}
+          {field('place', 'Place', { wrap: true })}
+          {field('phone', 'Phone', { type: 'tel' })}
+          {field('email', 'Email', { type: 'email', wrap: true })}
+          <div className={styles.contactWide}>{field('location', 'Address', { long: true })}</div>
+          <div className={styles.contactWide}>{field('link', 'Link', { type: 'url', wrap: true })}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The doctor's name as the way into their pop-up. Stops the click there, so a
+// table cell it sits in doesn't also open for editing.
+function DoctorNameButton({ name, onOpen, className }) {
+  return (
+    <button
+      type="button"
+      className={className ? `${styles.nameBtn} ${className}` : styles.nameBtn}
+      title="Contact details"
+      onClick={(e) => { e.stopPropagation(); onOpen(); }}
+      onKeyDown={(e) => e.stopPropagation()}
+    >{name}</button>
+  );
+}
+
 /* Phone width, where the pop-up becomes a full-screen sheet of cards. A wide
    table scrolled sideways through a phone-sized window was the whole problem
    there: you could never see a record's doctor and its issue at once. */
@@ -1070,8 +1139,7 @@ function useIsNarrow() {
 
 // The pop-up's typed columns: which grow with their text, which stay one line,
 // and what an empty one says.
-const GRID_LONG = new Set(['issue', 'currentMeds', 'previousMeds', 'notes', 'location']);
-const GRID_INPUT_TYPE = { phone: 'tel', email: 'email' };
+const GRID_LONG = new Set(['issue', 'currentMeds', 'previousMeds', 'notes']);
 const GRID_PLACEHOLDER = { doctor: 'Doctor', place: 'Place', issue: "What it's for", cadence: 'Every 6 months' };
 
 /* ── Pictures on a record ─────────────────────────────────────────────
@@ -1249,11 +1317,12 @@ function ImageGallery({ uid, entry, title, startId, update, onClose }) {
    Every record filed under it — the doctor you see on a schedule and the
    complaint that sent you there — as one row each of a wide table, so they
    read across and compare at a glance, and every cell edits in place. Below
-   it, the questions for all of them in a second table. The visit dates,
-   cadence and contact details stay on the page's own table, not here. A phone
+   it, the questions for all of them in a second table. A doctor's name opens
+   their own pop-up, which is where phone, email and address live. A phone
    scrolls the tables sideways, as it does the page's own. */
 function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
   const [gallery, setGallery] = useState(null); // { entryId, imageId }
+  const [contactId, setContactId] = useState(null); // entry id
   const narrow = useIsNarrow();
 
   // The page underneath stays put while the pop-up is open. On a phone a
@@ -1311,6 +1380,8 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
 
   const galleryEntry = gallery ? entries.find((e) => e.id === gallery.entryId) : null;
   const closeGallery = useCallback(() => setGallery(null), []);
+  const contactEntry = contactId ? entries.find((e) => e.id === contactId) : null;
+  const closeContact = useCallback(() => setContactId(null), []);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -1427,6 +1498,8 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
     const label = `${c.label} for ${title}`;
     const k = `${entry.id}:${c.key}:${entry[c.key] || ''}`;
     switch (c.key) {
+      case 'doctor':
+        return { node: <DoctorNameButton className={styles.gridName} name={entry.doctor || title} onOpen={() => setContactId(entry.id)} /> };
       case 'link':
         return { node: <LinkField key={k} label={label} value={entry.link} onCommit={commit(entry.id, 'link')} /> };
       case 'status':
@@ -1462,7 +1535,6 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
               label={label}
               value={entry[c.key]}
               onCommit={commit(entry.id, c.key)}
-              type={GRID_INPUT_TYPE[c.key] || 'text'}
               placeholder={GRID_PLACEHOLDER[c.key]}
               long={GRID_LONG.has(c.key)}
               wrap={!GRID_LONG.has(c.key)}
@@ -1800,17 +1872,21 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
           onClose={closeGallery}
         />
       )}
+      {contactEntry && (
+        <DoctorCard
+          entry={contactEntry}
+          title={entryTitle(contactEntry)}
+          onCommit={(patch) => update((l) => updateEntry(l, contactEntry.id, patch))}
+          onClose={closeContact}
+        />
+      )}
     </div>
   );
 }
 
 const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
 
-function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages }) {
-  const tel = telHref(entry.phone);
-  const mail = mailHref(entry.email);
-  const map = mapHref(entry.location);
-  const link = safeLink(entry.link);
+function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages, onOpenContact }) {
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
   // Notes live under the issue unless a Notes column is carrying them, in
@@ -1848,7 +1924,7 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
     switch (col.key) {
       case 'name': return cell('name', styles.cellName, col.label, (
         <>
-          <div className={styles.name}>{entryTitle(entry, groupType)}</div>
+          <DoctorNameButton className={styles.name} name={entryTitle(entry, groupType)} onOpen={onOpenContact} />
           {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
           {entry.images.length > 0 && (
             <button
@@ -1873,24 +1949,6 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
         <>
           {entry.currentMeds ? <div>{entry.currentMeds}</div> : null}
           {entry.previousMeds ? <div className={styles.muted}>Was: {entry.previousMeds}</div> : null}
-        </>
-      ));
-      case 'contact': return cell('contact', styles.cellContact, col.label, (
-        <>
-          {tel ? <a className={styles.link} href={tel} onClick={(e) => e.stopPropagation()}>{entry.phone}</a> : null}
-          {mail ? <a className={styles.link} href={mail} onClick={(e) => e.stopPropagation()}>{entry.email}</a> : null}
-          {map ? (
-            <a
-              className={`${styles.link} ${styles.linkMuted}`} href={map} target="_blank" rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >{entry.location}</a>
-          ) : null}
-          {link ? (
-            <a
-              className={styles.link} href={link} target="_blank" rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >{linkLabel(entry.link)} ↗</a>
-          ) : null}
         </>
       ));
       case 'cadence': return cell('cadence', styles.cellCadence, col.label, entry.cadence || null);
@@ -2159,6 +2217,10 @@ export function DoctorsPage() {
 
   // The record whose pictures are open from the page's own table.
   const [pageGallery, setPageGallery] = useState(null);
+  // The doctor whose contact pop-up is open, from the page table.
+  const [contactFor, setContactFor] = useState(null);
+  const contactEntry = contactFor ? entries.find((e) => e.id === contactFor) : null;
+  const closeContact = useCallback(() => setContactFor(null), []);
   const pageGalleryEntry = pageGallery ? entries.find((e) => e.id === pageGallery) : null;
   const closePageGallery = useCallback(() => setPageGallery(null), []);
 
@@ -2335,6 +2397,7 @@ export function DoctorsPage() {
                     onCommitCustom={(fieldId, value) => update((l) => setCustomValue(l, entry.id, fieldId, value))}
                     onDelete={() => handleDelete(entry)}
                     onOpenImages={() => setPageGallery(entry.id)}
+                    onOpenContact={() => { setOpenCell(null); setContactFor(entry.id); }}
                   />
                 ))}
               </tbody>
@@ -2344,6 +2407,15 @@ export function DoctorsPage() {
       )}
 
       </>}
+
+      {contactEntry && (
+        <DoctorCard
+          entry={contactEntry}
+          title={entryTitle(contactEntry)}
+          onCommit={(patch) => update((l) => updateEntry(l, contactEntry.id, patch))}
+          onClose={closeContact}
+        />
+      )}
 
       {pageGalleryEntry && (
         <ImageGallery
