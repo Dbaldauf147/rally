@@ -1149,7 +1149,7 @@ function TypeDetail({ list, type, entries, update, onClose }) {
             <thead>
               <tr>
                 {[
-                  ['Doctor', 13], ['Place', 12], ['Issue', 19], ['Current meds', 15], ['Notes', 20],
+                  ['Doctor', 17], ['Issue', 22], ['Current meds', 18], ['Notes', 22],
                   ['Link', 9], ['Status', 9],
                 ].map(([label, width]) => <th key={label} style={{ width: `${width}%` }}>{label}</th>)}
                 <th style={{ width: '3%' }} title="Questions still to ask">Qs</th>
@@ -1167,7 +1167,6 @@ function TypeDetail({ list, type, entries, update, onClose }) {
                     className={entry.id === addedId ? styles.gridRowNew : undefined}
                   >
                     <td><GridField key={k('doctor')} label={`Doctor for ${title}`} value={entry.doctor} onCommit={commit(entry.id, 'doctor')} placeholder="Doctor" wrap /></td>
-                    <td><GridField key={k('place')} label={`Place for ${title}`} value={entry.place} onCommit={commit(entry.id, 'place')} placeholder="Place" wrap /></td>
                     <td><GridField key={k('issue')} label={`Issue for ${title}`} value={entry.issue} onCommit={commit(entry.id, 'issue')} placeholder="What it's for" long /></td>
                     <td><GridField key={k('currentMeds')} label={`Current meds for ${title}`} value={entry.currentMeds} onCommit={commit(entry.id, 'currentMeds')} long /></td>
                     <td><GridField key={k('notes')} label={`Notes for ${title}`} value={entry.notes} onCommit={commit(entry.id, 'notes')} long /></td>
