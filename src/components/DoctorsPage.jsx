@@ -572,7 +572,7 @@ function AppointmentsPanel({ list, update, daysFrom }) {
   }, [load]);
 
   const pending = useMemo(() => pendingAppointments(list, events), [list, events]);
-  const checkIns = useMemo(() => list.entries.filter(isCheckInEntry), [list.entries]);
+  const checkIns = useMemo(() => list.entries.filter((e) => isCheckInEntry(e, list.entries)), [list.entries]);
   const waved = useMemo(
     () => events.filter((e) => list.ignoredEvents.includes(e.id)),
     [events, list.ignoredEvents],

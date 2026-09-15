@@ -922,6 +922,28 @@ describe('check-ins and issues', () => {
     expect(isIssueEntry(contact)).toBe(false);
   });
 
+  // Typing what the skin doctor treated used to move the skin doctor off
+  // Check-ins: a complaint with no cadence read as issue-only.
+  it('keeps a named doctor on Check-ins after an issue is written on them', () => {
+    const skin = { id: 's', type: 'Skin', doctor: 'Dr. Annemarie Uliasz, MD', issue: 'Rash', status: 'none' };
+    expect(isCheckInEntry(skin)).toBe(true);
+    expect(isCheckInEntry(skin, [skin])).toBe(true);
+    expect(isIssueEntry(skin)).toBe(true);
+  });
+
+  it('shows each doctor on Check-ins once, however many issues carry their name', () => {
+    const checkup = { id: 'c', type: 'Dentist', place: '34th St Dental', cadence: 'Every 6 months' };
+    const pain = { id: 'p', type: 'Dentist', place: '34th St Dental', issue: 'Tooth pain', status: 'treating' };
+    const chip = { id: 'x', type: 'Dentist', place: '34th St Dental', issue: 'Chipped molar', status: 'treating' };
+    const all = [checkup, pain, chip];
+    expect(all.filter((e) => isCheckInEntry(e, all)).map((e) => e.id)).toEqual(['c']);
+    // No check-up on file: the first issue stands in for the doctor.
+    const issuesOnly = [pain, chip];
+    expect(issuesOnly.filter((e) => isCheckInEntry(e, issuesOnly)).map((e) => e.id)).toEqual(['p']);
+    // Everything still shows on Issues.
+    expect(all.filter(isIssueEntry).map((e) => e.id)).toEqual(['p', 'x']);
+  });
+
   it('counts a cadence it cannot parse as an arrangement all the same', () => {
     expect(isCheckInEntry({ id: '6', issue: 'Back', status: 'treating', cadence: 'when it flares up' })).toBe(true);
   });
@@ -1130,6 +1152,9 @@ describe('checkInsNeedingScheduling', () => {
       { id: 'no-cadence', type: 'Ear', doctor: 'Dr Kim' },
       { id: 'vague', type: 'GI', cadence: 'when it flares up' },
       { id: 'issue-only', issue: 'Neck sprain', status: 'Resolved' },
+      // Named, so on Check-ins now — but a one-off visit that got sorted out
+      // isn't something to book, and the digest mustn't start nagging about it.
+      { id: 'named-resolved', type: 'Skin', doctor: 'City MD', issue: 'Rash', status: 'resolved' },
       { id: 'blank' },
     ]);
     const fieldId = l.fields[0].id;
@@ -1277,11 +1302,22 @@ describe('pendingAppointments', () => {
     expect(pendingAppointments(l, events).map((e) => e.eventId)).toEqual(['b']);
   });
 
-  it('only ever suggests a check-in record', () => {
-    const withIssue = normalizeList({
+  // A named doctor stays on Check-ins with an issue written on them, so their
+  // appointment is theirs to file — but once per doctor: with a check-up on
+  // file, the visit goes there and not onto one of the complaints.
+  it('only ever suggests the record that stands for the doctor on Check-ins', () => {
+    const issueOnly = normalizeList({
       entries: [{ id: 'i1', doctor: 'Amy Chen', issue: 'Rash', status: 'Being Treated' }],
     });
-    expect(pendingAppointments(withIssue, [events[0]])[0].suggestion).toBe(null);
+    expect(pendingAppointments(issueOnly, [events[0]])[0].suggestion?.entryId).toBe('i1');
+
+    const withCheckup = normalizeList({
+      entries: [
+        { id: 'i1', doctor: 'Amy Chen', issue: 'Rash', status: 'Being Treated' },
+        { id: 'c1', doctor: 'Amy Chen', cadence: 'Every year' },
+      ],
+    });
+    expect(pendingAppointments(withCheckup, [events[0]])[0].suggestion?.entryId).toBe('c1');
   });
 });
 
@@ -1465,9 +1501,10 @@ describe('issueRecord', () => {
     expect(r.currentMeds).toBe('');
     expect(r.notes).toBe('');
     expect(isIssueEntry(r)).toBe(true);
-    expect(isCheckInEntry(r)).toBe(false);
     // A second record, not an overwrite of the dentist's existing issue.
     const l = addEntry(normalizeList({ entries: [dentist] }), r);
+    // …and not a second dentist on Check-ins: the check-up already stands for them.
+    expect(isCheckInEntry(l.entries[1], l.entries)).toBe(false);
     expect(l.entries.map((e) => e.issue)).toEqual(['Angular cheilitis', 'Tooth pain']);
   });
 
