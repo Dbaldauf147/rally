@@ -261,6 +261,14 @@ describe('links out', () => {
     expect(safeLink('not a url')).toBeNull();
   });
 
+  it('takes a bare domain as an https link', () => {
+    expect(safeLink('mayoclinic.org')).toBe('https://mayoclinic.org');
+    expect(safeLink('www.zocdoc.com/doctor/1?x=2')).toBe('https://www.zocdoc.com/doctor/1?x=2');
+    expect(safeLink('javascript:alert(1)//x.com')).toBeNull();
+    expect(safeLink('Dr. Smith')).toBeNull();
+    expect(linkLabel('www.mayoclinic.org/x')).toBe('mayoclinic.org');
+  });
+
   it('shows a long link by its host rather than in full', () => {
     expect(linkLabel('https://www.google.com/search?q=angular+cheilitis&ei=verylong')).toBe('google.com');
     expect(linkLabel('nope')).toBe('');
