@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
 import { Navigate } from 'react-router-dom';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -25,6 +25,10 @@ import {
 import {
   isGoogleCalendarConnected, connectGoogleCalendar, listGoogleCalendars, fetchGoogleCalendarEvents,
 } from '../googleCalendar';
+import {
+  POPUP_COLUMNS, STORAGE_KEY as POPUP_COLUMNS_KEY, normalizePrefs, shownColumns, toggleColumn,
+  setColumnWidth, cycleSort, sortEntries,
+} from '../lib/doctorsPopupColumns';
 import styles from './DoctorsPage.module.css';
 
 /* The owner's doctor list: who was seen for what, and how to reach them again.
@@ -1047,6 +1051,12 @@ function LinkField({ label, value, onCommit }) {
   );
 }
 
+// The pop-up's typed columns: which grow with their text, which stay one line,
+// and what an empty one says.
+const GRID_LONG = new Set(['issue', 'currentMeds', 'previousMeds', 'notes', 'location']);
+const GRID_INPUT_TYPE = { phone: 'tel', email: 'email' };
+const GRID_PLACEHOLDER = { doctor: 'Doctor', place: 'Place', issue: "What it's for", cadence: 'Every 6 months' };
+
 /* One speciality, opened from its heading on the Check-ins tab.
 
    Every record filed under it — the doctor you see on a schedule and the
@@ -1055,7 +1065,7 @@ function LinkField({ label, value, onCommit }) {
    it, the questions for all of them in a second table. The visit dates,
    cadence and contact details stay on the page's own table, not here. A phone
    scrolls the tables sideways, as it does the page's own. */
-function TypeDetail({ list, type, entries, update, onClose }) {
+function TypeDetail({ list, type, entries, daysFrom, update, onClose }) {
   const [draftQ, setDraftQ] = useState('');
   const [qFor, setQFor] = useState(null); // entry id, null = the first record
   const [newIssue, setNewIssue] = useState('');
@@ -1132,6 +1142,113 @@ function TypeDetail({ list, type, entries, update, onClose }) {
     setAddedId(record.id);
   }
 
+  /* ── The records table's columns ─────────────────────────────────
+     Which show, how wide, sorted by what — remembered on this device (see
+     lib/doctorsPopupColumns.js for why not on the shared list). */
+  const [prefs, setPrefs] = useState(() => {
+    try { return normalizePrefs(JSON.parse(localStorage.getItem(POPUP_COLUMNS_KEY) || 'null')); }
+    catch { return normalizePrefs(null); }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(POPUP_COLUMNS_KEY, JSON.stringify(prefs)); } catch { /* private mode */ }
+  }, [prefs]);
+
+  const [colsOpen, setColsOpen] = useState(false);
+  const colsMenuRef = useRef(null);
+  useEffect(() => {
+    if (!colsOpen) return undefined;
+    const away = (e) => { if (!colsMenuRef.current?.contains(e.target)) setColsOpen(false); };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [colsOpen]);
+
+  const columns = shownColumns(prefs);
+  const tableWidth = columns.reduce((sum, c) => sum + c.width, 0);
+
+  // Dragging a header's right edge. Pointer events, so a finger works too; the
+  // handle captures the pointer, so the drag keeps going (and keeps its
+  // resize cursor) when the pointer outruns the thin handle.
+  function startResize(e, key, startWidth) {
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget;
+    const x0 = e.clientX;
+    const move = (ev) => setPrefs((p) => setColumnWidth(p, key, startWidth + ev.clientX - x0));
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+    };
+    handle.setPointerCapture?.(e.pointerId);
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  }
+
+  const visitOf = (entry) => {
+    const since = daysFrom ? customValueOf(entry, daysFrom) : '';
+    return { since, next: upcomingVisit(entry, since) };
+  };
+  const valueOf = (entry, key) => {
+    if (key === 'questions') return openFor(entry.id);
+    if (key === 'lastVisit') return visitOf(entry).since;
+    if (key === 'nextVisit') return visitOf(entry).next?.iso || '';
+    return entry[key];
+  };
+  const sorted = sortEntries(entries, prefs.sort, valueOf);
+
+  function renderCell(entry, c) {
+    const title = entryTitle(entry, type);
+    const label = `${c.label} for ${title}`;
+    const k = `${entry.id}:${c.key}:${entry[c.key] || ''}`;
+    switch (c.key) {
+      case 'link':
+        return <td><LinkField key={k} label={label} value={entry.link} onCommit={commit(entry.id, 'link')} /></td>;
+      case 'status':
+        return (
+          <td>
+            <select
+              className={styles.statusSelect}
+              aria-label={`Status of ${title}`}
+              value={entry.status}
+              onChange={(e) => update((l) => updateEntry(l, entry.id, { status: e.target.value }))}
+            >
+              {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+            </select>
+          </td>
+        );
+      case 'questions':
+        return <td className={styles.gridFact}>{openFor(entry.id) || '—'}</td>;
+      case 'lastVisit': {
+        const { since } = visitOf(entry);
+        return <td className={styles.gridFact}>{since && daysFrom ? formatCustomValue(daysFrom, since) : '—'}</td>;
+      }
+      case 'nextVisit': {
+        const { next } = visitOf(entry);
+        return (
+          <td className={next?.overdue ? styles.gridFactOverdue : styles.gridFact}>
+            {next ? `${next.label}${next.booked ? ' 📅' : ''}` : '—'}
+          </td>
+        );
+      }
+      default:
+        return (
+          <td>
+            <GridField
+              key={k}
+              label={label}
+              value={entry[c.key]}
+              onCommit={commit(entry.id, c.key)}
+              type={GRID_INPUT_TYPE[c.key] || 'text'}
+              placeholder={GRID_PLACEHOLDER[c.key]}
+              long={GRID_LONG.has(c.key)}
+              wrap={!GRID_LONG.has(c.key)}
+            />
+          </td>
+        );
+    }
+  }
+
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
       <div
@@ -1172,47 +1289,85 @@ function TypeDetail({ list, type, entries, update, onClose }) {
         <div className={styles.modalSection}>
           Records
           <span className={styles.groupCount}>{entries.length}</span>
+          <div className={styles.gridColsWrap} ref={colsMenuRef}>
+            <button
+              type="button"
+              className={styles.gridColsBtn}
+              aria-expanded={colsOpen}
+              aria-haspopup="true"
+              onClick={() => setColsOpen((v) => !v)}
+            >Columns ▾</button>
+            {colsOpen && (
+              <div className={styles.gridColsMenu} role="menu">
+                {POPUP_COLUMNS.map((c) => (
+                  <label key={c.key} className={styles.gridColsItem}>
+                    <input
+                      type="checkbox"
+                      checked={prefs.shown.includes(c.key)}
+                      disabled={prefs.shown.length === 1 && prefs.shown.includes(c.key)}
+                      onChange={() => setPrefs((p) => toggleColumn(p, c.key))}
+                    />
+                    {c.key === 'questions' ? 'Questions to ask' : c.label}
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  className={styles.gridColsReset}
+                  onClick={() => setPrefs(normalizePrefs(null))}
+                >Reset columns</button>
+              </div>
+            )}
+          </div>
         </div>
         <div className={styles.gridWrap}>
-          <table className={styles.grid}>
+          <table className={`${styles.grid} ${styles.gridSized}`} style={{ width: `${tableWidth}px` }}>
+            <colgroup>
+              {columns.map((c) => <col key={c.key} style={{ width: `${c.width}px` }} />)}
+            </colgroup>
             <thead>
               <tr>
-                {[
-                  ['Doctor', 17], ['Issue', 22], ['Current meds', 18], ['Notes', 22],
-                  ['Link', 9], ['Status', 9],
-                ].map(([label, width]) => <th key={label} style={{ width: `${width}%` }}>{label}</th>)}
-                <th style={{ width: '3%' }} title="Questions still to ask">Qs</th>
+                {columns.map((c) => {
+                  const dir = prefs.sort?.key === c.key ? prefs.sort.dir : null;
+                  return (
+                    <th
+                      key={c.key}
+                      className={styles.gridTh}
+                      aria-sort={dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : 'none'}
+                      title={c.key === 'questions' ? 'Questions still to ask' : undefined}
+                    >
+                      <button
+                        type="button"
+                        className={styles.gridSortBtn}
+                        onClick={() => setPrefs((p) => ({ ...p, sort: cycleSort(p.sort, c.key) }))}
+                        title={`Sort by ${c.label}`}
+                      >
+                        {c.label}
+                        <span className={styles.gridSortMark} aria-hidden="true">{dir === 'asc' ? '▲' : dir === 'desc' ? '▼' : ''}</span>
+                      </button>
+                      <span
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`Resize ${c.label} column`}
+                        title="Drag to resize · double-click to reset"
+                        className={styles.gridResize}
+                        onPointerDown={(e) => startResize(e, c.key, c.width)}
+                        onDoubleClick={() => setPrefs((p) => setColumnWidth(p, c.key, POPUP_COLUMNS.find((x) => x.key === c.key).width))}
+                      />
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => {
-                const title = entryTitle(entry, type);
-                const k = (key) => `${entry.id}:${key}:${entry[key] || ''}`;
-                return (
-                  <tr
-                    key={entry.id}
-                    id={`detail-${entry.id}`}
-                    className={entry.id === addedId ? styles.gridRowNew : undefined}
-                  >
-                    <td><GridField key={k('doctor')} label={`Doctor for ${title}`} value={entry.doctor} onCommit={commit(entry.id, 'doctor')} placeholder="Doctor" wrap /></td>
-                    <td><GridField key={k('issue')} label={`Issue for ${title}`} value={entry.issue} onCommit={commit(entry.id, 'issue')} placeholder="What it's for" long /></td>
-                    <td><GridField key={k('currentMeds')} label={`Current meds for ${title}`} value={entry.currentMeds} onCommit={commit(entry.id, 'currentMeds')} long /></td>
-                    <td><GridField key={k('notes')} label={`Notes for ${title}`} value={entry.notes} onCommit={commit(entry.id, 'notes')} long /></td>
-                    <td><LinkField key={k('link')} label={`Link for ${title}`} value={entry.link} onCommit={commit(entry.id, 'link')} /></td>
-                    <td>
-                      <select
-                        className={styles.statusSelect}
-                        aria-label={`Status of ${title}`}
-                        value={entry.status}
-                        onChange={(e) => update((l) => updateEntry(l, entry.id, { status: e.target.value }))}
-                      >
-                        {STATUS_ORDER.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-                      </select>
-                    </td>
-                    <td className={styles.gridFact}>{openFor(entry.id) || '—'}</td>
-                  </tr>
-                );
-              })}
+              {sorted.map((entry) => (
+                <tr
+                  key={entry.id}
+                  id={`detail-${entry.id}`}
+                  className={entry.id === addedId ? styles.gridRowNew : undefined}
+                >
+                  {columns.map((c) => <Fragment key={c.key}>{renderCell(entry, c)}</Fragment>)}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -1837,6 +1992,7 @@ export function DoctorsPage() {
           list={safeList}
           type={detailType}
           entries={detailEntries}
+          daysFrom={daysFrom}
           update={update}
           onClose={closeDetail}
         />
