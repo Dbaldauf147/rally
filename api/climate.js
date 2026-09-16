@@ -25,11 +25,17 @@ const OPEN_METEO_GEOCODE = 'https://geocoding-api.open-meteo.com/v1/search';
 const cache = new Map();
 const TTL_MS = 12 * 60 * 60 * 1000;
 
+// Why Google said no, kept for the reply when nothing at all matched: a key
+// that works for Distance Matrix is not necessarily enabled for Geocoding,
+// and that is invisible from the outside otherwise.
+let lastGoogleStatus = '';
+
 async function geocodeGoogle(query, key) {
   const url = `${GOOGLE_GEOCODE}?address=${encodeURIComponent(query)}&key=${key}`;
   const res = await fetch(url);
-  if (!res.ok) return null;
+  if (!res.ok) { lastGoogleStatus = `HTTP ${res.status}`; return null; }
   const data = await res.json();
+  if (data.status !== 'OK') lastGoogleStatus = [data.status, data.error_message].filter(Boolean).join(': ');
   const hit = data.status === 'OK' ? data.results?.[0] : null;
   if (!hit?.geometry?.location) return null;
   return { label: hit.formatted_address || query, lat: hit.geometry.location.lat, lng: hit.geometry.location.lng };
@@ -59,16 +65,26 @@ export default async function handler(req, res) {
   const env = globalThis.process?.env || {};
   const key = env.GOOGLE_MAPS_SERVER_KEY || env.VITE_GOOGLE_MAPS_EMBED_KEY;
   let place = null;
+  lastGoogleStatus = '';
   try {
     // The whole address first, then broader parts of it, as lib/climate says.
+    // Google knows street addresses; Open-Meteo is asked for the same query
+    // whenever Google has no answer — including when it has no answer because
+    // the key isn't enabled for Geocoding, which is how this shipped broken.
     for (const query of locationQueries(location)) {
-      place = key ? await geocodeGoogle(query, key) : await geocodeOpenMeteo(query);
+      if (key) place = await geocodeGoogle(query, key);
+      if (!place) place = await geocodeOpenMeteo(query);
       if (place) break;
     }
   } catch (err) {
     return res.status(502).json({ error: `Could not look up that place: ${err.message}` });
   }
-  if (!place) return res.status(404).json({ error: `Could not find “${location}” on the map.` });
+  if (!place) {
+    return res.status(404).json({
+      error: `Could not find “${location}” on the map.`,
+      ...(lastGoogleStatus ? { detail: `Google geocoding said: ${lastGoogleStatus}` } : {}),
+    });
+  }
 
   const span = archiveSpan();
   const params = new URLSearchParams({
