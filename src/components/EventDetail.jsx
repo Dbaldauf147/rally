@@ -41,7 +41,7 @@ import {
   getAutoSyncEnabled,
   setAutoSyncEnabled,
 } from '../googleCalendar';
-import { isPinned, togglePin, subscribePins } from '../pinnedTrips';
+import { isPinned, togglePin, renamePin, subscribePins } from '../pinnedTrips';
 import styles from './EventDetail.module.css';
 import { DateField } from './DateField';
 
@@ -100,6 +100,9 @@ export function EventDetail() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+  // Renaming the event from its own title. null = not renaming.
+  const [titleDraft, setTitleDraft] = useState(null);
+  const [savingTitle, setSavingTitle] = useState(false);
   const [editMember, setEditMember] = useState(null); // { uid, name, email, rsvp, role }
   const [editMemberFields, setEditMemberFields] = useState({});
   const [friendLinkSearch, setFriendLinkSearch] = useState('');
@@ -727,6 +730,30 @@ export function EventDetail() {
   const myRsvp = event.members?.[user?.uid]?.rsvp || 'pending';
   // Whoever may edit the event may set its time.
   const canEditTime = canManageMembers;
+
+  /* Renaming the event.
+
+     The name is written in one place (the event doc) and read live everywhere
+     else, with one exception: a pinned trip carries its own copy for the
+     NavBar, so the rename is pushed there too. A name trimmed to nothing is
+     refused rather than leaving an event called nothing. */
+  async function saveTitle() {
+    const name = (titleDraft || '').trim();
+    if (!name || savingTitle) return;
+    if (name === event.title) { setTitleDraft(null); return; }
+    setSavingTitle(true);
+    try {
+      await updateEvent(eventId, { title: name });
+      await renamePin(user?.uid, eventId, name);
+      setTitleDraft(null);
+      setResult({ type: 'success', message: `Renamed to “${name}”` });
+      setTimeout(() => setResult(null), 3000);
+    } catch (err) {
+      setResult({ type: 'error', message: `Couldn't rename: ${err.message || err}` });
+      setTimeout(() => setResult(null), 5000);
+    }
+    setSavingTitle(false);
+  }
 
   /* Setting the time of day, from the hero.
 
@@ -1799,7 +1826,39 @@ export function EventDetail() {
         </div>
         <div className={styles.heroInfo}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <h1 className={styles.title} style={{ margin: 0 }}>{event.title}</h1>
+            {titleDraft === null ? (
+              <h1 className={styles.title} style={{ margin: 0 }}>
+                {canManageMembers ? (
+                  <button
+                    type="button"
+                    className={styles.titleBtn}
+                    title="Rename this event"
+                    onClick={() => setTitleDraft(event.title || '')}
+                  >{event.title}</button>
+                ) : event.title}
+              </h1>
+            ) : (
+              /* Renaming in place, rather than opening the whole Edit Event
+                 form to change one word. Enter saves, Escape puts it back. */
+              <form
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}
+                onSubmit={(e) => { e.preventDefault(); saveTitle(); }}
+              >
+                <input
+                  className={styles.titleInput}
+                  value={titleDraft}
+                  autoFocus
+                  aria-label="Event name"
+                  disabled={savingTitle}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setTitleDraft(null); } }}
+                />
+                <button className={styles.editBtn} type="submit" disabled={savingTitle || !titleDraft.trim()}>
+                  {savingTitle ? 'Saving…' : 'Save'}
+                </button>
+                <button className={styles.editBtn} type="button" disabled={savingTitle} onClick={() => setTitleDraft(null)}>Cancel</button>
+              </form>
+            )}
             {event.cancelled && (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
@@ -4228,7 +4287,16 @@ export function EventDetail() {
       {editing && (
         <div className={styles.modalOverlay} onClick={() => setEditing(false)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
-            <EventForm event={event} onSave={async (data) => { await updateEvent(eventId, data); setEditing(false); }} onCancel={() => setEditing(false)} />
+            <EventForm
+              event={event}
+              onSave={async (data) => {
+                await updateEvent(eventId, data);
+                // The form can rename too, and a pin holds its own copy.
+                if (data.title) await renamePin(user?.uid, eventId, data.title);
+                setEditing(false);
+              }}
+              onCancel={() => setEditing(false)}
+            />
           </div>
         </div>
       )}

@@ -58,3 +58,11 @@
 .timeEditInput:focus { outline: none; border-color: var(--color-accent); }
 .timeEditSave { padding: 0.2rem 0.6rem; border: none; border-radius: var(--radius-sm); background: var(--color-accent); color: #fff; font-family: inherit; font-size: 0.75rem; font-weight: 700; cursor: pointer; }
 .timeEditClear { padding: 0.2rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-family: inherit; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
+
+/* The event's name, as the way to rename it. It reads as the heading it
+   replaces; the dotted underline is the only hint, in the same key as the
+   editable member rows. */
+.titleBtn { padding: 0; border: none; background: none; font: inherit; color: inherit; letter-spacing: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: var(--color-border); text-underline-offset: 3px; }
+.titleBtn:hover, .titleBtn:focus-visible { color: var(--color-accent); text-decoration-color: currentColor; outline: none; }
+.titleInput { min-width: 12rem; max-width: 100%; flex: 1 1 16rem; padding: 0.25rem 0.5rem; border: 1px solid var(--color-accent); border-radius: var(--radius-md); background: var(--color-surface); font-family: inherit; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; color: var(--color-text); }
+.titleInput:focus { outline: none; }

@@ -117,6 +117,36 @@ export async function togglePin(uid, trip) {
   return !exists;
 }
 
+/* Follow a rename.
+
+   A pin carries its own copy of the title — that's what the NavBar draws from,
+   without reading every event — so renaming an event has to reach it or the
+   old name stays in the menu. A trip that isn't pinned has nothing to update,
+   and an unconfirmed pin of it keeps its title too, so the rename survives the
+   pending list being replayed. */
+export async function renamePin(uid, id, title) {
+  const clean = String(title || '').trim();
+  if (!clean) return;
+
+  const pending = getPending();
+  if (pending[id]?.op === 'add') {
+    pending[id] = { op: 'add', title: clean };
+    setPending(pending);
+  }
+
+  const list = getPinnedTrips();
+  if (!list.some(t => t.id === id)) return;
+  const next = list.map(t => (t.id === id ? { ...t, title: clean } : t));
+  writeCache(next);
+  if (uid) {
+    try {
+      await setDoc(doc(db, 'users', uid), { pinnedTrips: next }, { merge: true });
+    } catch (err) {
+      console.error('Failed to rename pinned trip:', err);
+    }
+  }
+}
+
 // Subscribe to pin changes. Streams the account's pins (source of truth) and
 // also listens for same-tab/cross-tab cache changes. Returns an unsubscribe fn.
 export function subscribePins(uid, cb) {
