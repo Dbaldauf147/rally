@@ -12,6 +12,8 @@ import { addFriend as writeFriend } from '../lib/friends';
 import { pickPhoneContacts, contactsSource, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
 import { parseVCards } from '../lib/vcard';
 import { isOwnerEmail } from '../lib/pagePrivacy';
+import { fetchEventClimate, normalFor, SPREAD } from '../lib/climate';
+import { geocode } from '../lib/weather';
 import { WEB_ORIGIN } from '../native';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
@@ -211,6 +213,19 @@ export function EventDetail() {
   const [showYesMaybeOnly, setShowYesMaybeOnly] = useState(false); // People & Poll: show only likely attendees (Yes/Maybe)
   const [dayVoteFilter, setDayVoteFilter] = useState({}); // People & Poll: per-day Yes/Maybe column filters { optionId: true }
   const [hiddenDays, setHiddenDays] = useState({}); // People & Poll: date columns hidden from the table view { optionId: true }
+  /* Typical weather under each date in the vote table: what the last ten years
+     did at the event's location (see lib/climate.js). Off until asked for —
+     it costs a lookup — and remembered per event on this device, because it
+     is a way of reading the poll rather than anything about the event. */
+  const [showWeather, setShowWeather] = useState(() => {
+    try { return localStorage.getItem(`rally.eventWeather.${eventId}`) === '1'; } catch { return false; }
+  });
+  const [climate, setClimate] = useState({ status: 'idle' }); // 'loading' | 'ready' | 'error'
+  const toggleWeather = () => setShowWeather(on => {
+    const next = !on;
+    try { localStorage.setItem(`rally.eventWeather.${eventId}`, next ? '1' : '0'); } catch { /* private mode */ }
+    return next;
+  });
   const [dismissedContactWarn, setDismissedContactWarn] = useState(() => new Set()); // member uids whose missing-contact warning was dismissed
   const [calSyncing, setCalSyncing] = useState(false);
   const [calSyncMsg, setCalSyncMsg] = useState(null); // { type: 'success' | 'error', message: string }
@@ -555,6 +570,23 @@ export function EventDetail() {
     const next = (Array.isArray(event?.altRanges) ? event.altRanges : []).map(r => r.id === id ? { ...r, ...partial } : r);
     await updateEvent(eventId, { altRanges: next });
   }
+
+  const eventLocation = event?.location || '';
+  /* Looked up when the row is switched on, and again if the event's location
+     changes. It asks every time it runs rather than guarding on what it has
+     already fetched: the answer is cached (per place, for a month), and a
+     guard is how this gets stuck — the effect must not depend on the state it
+     sets, and under StrictMode's double-mount a "already did this one" ref
+     would skip the run whose result actually arrives. */
+  useEffect(() => {
+    if (!showWeather) return undefined;
+    let live = true;
+    setClimate({ status: 'loading' });
+    fetchEventClimate(eventLocation, { geocoder: geocode })
+      .then(c => { if (live) setClimate({ status: 'ready', ...c }); })
+      .catch(err => { if (live) setClimate({ status: 'error', message: err.message }); });
+    return () => { live = false; };
+  }, [showWeather, eventLocation]);
 
   if (loading) return <div className={styles.loading}>Loading...</div>;
   if (!event) return <div className={styles.loading}>Event not found</div>;
@@ -1048,6 +1080,13 @@ export function EventDetail() {
     return (
       <>
         {renderHiddenDayChips()}
+        {showWeather && (
+          <div style={{ fontSize: '0.68rem', color: climate.status === 'error' ? 'var(--color-danger)' : 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
+            {climate.status === 'loading' && 'Looking up typical weather…'}
+            {climate.status === 'error' && `Typical weather: ${climate.message}`}
+            {climate.status === 'ready' && `Typical weather at ${climate.place?.label || eventLocation} — average high and low for the time of year, ${climate.years[0]}–${climate.years[1]}. Not a forecast.`}
+          </div>
+        )}
         {canManageMembers && (
           <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
             Tap a cell to set a vote: – → ✓ Works → ? Maybe → ✗ Can’t
@@ -1102,6 +1141,37 @@ export function EventDetail() {
               })}
               <th style={th} aria-hidden="true" />
             </tr>
+            {showWeather && (
+              <tr>
+                <th style={{ ...thName, fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                  Typical weather
+                  {climate.status === 'ready' && (
+                    <div style={{ fontWeight: 500, fontSize: '0.58rem', color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 0 }}>
+                      {climate.years[0]}–{climate.years[1]} average
+                    </div>
+                  )}
+                </th>
+                {visibleOptions.map(o => {
+                  const n = climate.status === 'ready' ? normalFor(climate.byDay, o.startDate, o.endDate) : null;
+                  const chosen = isChosenOption(o);
+                  const cell = { ...th, ...(chosen ? { background: 'var(--color-success-light)' } : {}) };
+                  if (climate.status === 'loading') return <th key={o.id} style={cell}>…</th>;
+                  if (!n) return <th key={o.id} style={cell}>—</th>;
+                  return (
+                    <th
+                      key={o.id}
+                      style={cell}
+                      title={`${fmtOpt(o)} at ${climate.place?.label || eventLocation}: average high ${n.high}° and low ${n.low}°, over the ${SPREAD} days either side across ${climate.years[0]}–${climate.years[1]}. Typical for the time of year — not a forecast.`}
+                    >
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#DC2626' }}>{n.high}°</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}> / </span>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#2563EB' }}>{n.low}°</span>
+                    </th>
+                  );
+                })}
+                <th style={th} aria-hidden="true" />
+              </tr>
+            )}
           </thead>
           <tbody>
             {clusters.map((cluster, ci) => cluster.map(([uid, m], idx) => {
@@ -2562,6 +2632,17 @@ export function EventDetail() {
                         title="Show only people who voted Yes or Maybe (likely attendees). Hides Can't-go and no-shows."
                       >
                         {showYesMaybeOnly ? '✓ ' : ''}Yes / Maybe only ({yesMaybeCount})
+                      </button>
+                    )}
+                    {votedView === 'table' && (
+                      <button
+                        onClick={toggleWeather}
+                        style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: showWeather ? 'var(--color-accent)' : 'var(--color-surface)', color: showWeather ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', marginLeft: '0.4rem' }}
+                        title={eventLocation
+                          ? `Typical high and low for each date at ${eventLocation}, averaged over the last ten years. Not a forecast.`
+                          : 'Add a location to this event to see typical weather for each date'}
+                      >
+                        {showWeather ? '✓ ' : ''}Typical weather
                       </button>
                     )}
                   </div>
