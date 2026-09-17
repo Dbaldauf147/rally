@@ -599,3 +599,13 @@
   .formCard { padding: 0.85rem; }
   .empty { padding: 1.5rem 1rem; }
 }
+
+/* The speciality, on the row instead of in a heading above it (Check-ins).
+   Reads as a label, and opens that speciality's pop-up like the heading did. */
+.nameLine { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.35rem; min-width: 0; }
+.typeChip { flex-shrink: 0; padding: 0.05rem 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface-alt); font-family: inherit; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; color: var(--color-text-secondary); white-space: nowrap; cursor: pointer; }
+.typeChip:hover, .typeChip:focus-visible { border-color: var(--color-accent); color: var(--color-accent); outline: none; }
+
+/* On a phone it reads beside the name, and wraps under it when the name is long. */
+.recTitleWrap { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
+.recTypeChip { flex-shrink: 0; padding: 0.1rem 0.5rem; font-size: 0.72rem; }
