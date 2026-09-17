@@ -1892,7 +1892,7 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
    a phone — call, email, get directions — as buttons on the card, and a tap
    opens the whole record full-screen to change anything on it. */
 
-function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImages }) {
+function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImages, onOpenType }) {
   const title = entryTitle(entry, groupType);
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
@@ -1910,9 +1910,19 @@ function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImag
 
   return (
     <li className={cls}>
-      <button type="button" className={styles.recMain} onClick={onOpen} aria-label={`Open ${title}`}>
+      <div
+        className={styles.recMain}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${title}`}
+        onClick={onOpen}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      >
         <span className={styles.recHead}>
-          <span className={styles.recTitle}>{title}</span>
+          <span className={styles.recTitleWrap}>
+            <span className={styles.recTitle}>{title}</span>
+            {onOpenType && <TypeChip type={entry.type} onOpen={onOpenType} className={styles.recTypeChip} />}
+          </span>
           {showStatus && entry.status !== STATUS.NONE && (
             <span className={entry.status === STATUS.TREATING ? styles.badgeLive : styles.badge}>{statusLabel(entry.status)}</span>
           )}
@@ -1932,7 +1942,7 @@ function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImag
             {!next && entry.cadence ? <span className={styles.chip}>{entry.cadence}</span> : null}
           </span>
         )}
-      </button>
+      </div>
       {hasActions && (
         <div className={styles.recActions}>
           {tel && <a className={styles.recAction} href={tel}>Call</a>}
@@ -2160,7 +2170,29 @@ function PhoneMenu({ onTypes, onColumns }) {
 
 const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
 
-function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages, onOpenContact }) {
+/* The speciality, on the row rather than in a heading over it.
+
+   Check-ins is read a row at a time — "when am I next due for this?" — and a
+   heading answers "which speciality?" only for as long as it is still on
+   screen. So on that tab the type rides in the row it belongs to, and still
+   opens the speciality's pop-up, which is what the heading used to be for. */
+function TypeChip({ type, onOpen, className }) {
+  const label = String(type || '').trim();
+  if (!label) return null;
+  return (
+    <button
+      type="button"
+      className={className ? `${styles.typeChip} ${className}` : styles.typeChip}
+      title={`Show everything for ${label}`}
+      onClick={(e) => { e.stopPropagation(); onOpen(); }}
+      // Only the keys the cell around it acts on: swallowing everything would
+      // eat the Escape that closes the pop-up this opens.
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}
+    >{label}</button>
+  );
+}
+
+function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages, onOpenContact, onOpenType }) {
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
   // Notes live under the issue unless a Notes column is carrying them, in
@@ -2198,7 +2230,10 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
     switch (col.key) {
       case 'name': return cell('name', styles.cellName, col.label, (
         <>
-          <DoctorNameButton className={styles.name} name={entryTitle(entry, groupType)} onOpen={onOpenContact} />
+          <div className={styles.nameLine}>
+            <DoctorNameButton className={styles.name} name={entryTitle(entry, groupType)} onOpen={onOpenContact} />
+            {onOpenType && <TypeChip type={entry.type} onOpen={onOpenType} />}
+          </div>
           {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
           {entry.images.length > 0 && (
             <button
@@ -2659,6 +2694,7 @@ export function DoctorsPage() {
         <div className={styles.recList}>
           {groups.map((group) => (
             <section key={group.type || '__none__'} className={styles.recGroup}>
+              {lane !== 'checkins' && (
               <h2 className={styles.recGroupHead}>
                 {lane === 'checkins' ? (
                   <button
@@ -2677,6 +2713,7 @@ export function DoctorsPage() {
                   </>
                 )}
               </h2>
+              )}
               <ul className={styles.recCards}>
                 {group.entries.map((entry) => (
                   <RecordCard
@@ -2687,6 +2724,7 @@ export function DoctorsPage() {
                     showStatus={showStatus}
                     onOpen={() => setSheet({ id: entry.id, added: false })}
                     onOpenImages={() => setPageGallery(entry.id)}
+                    onOpenType={lane === 'checkins' ? () => setDetailType(entry.type) : null}
                   />
                 ))}
               </ul>
@@ -2711,6 +2749,7 @@ export function DoctorsPage() {
                 group is measured against the same column widths. */}
             {groups.map((group) => (
               <tbody key={group.type || '__none__'}>
+                {lane !== 'checkins' && (
                 <tr className={styles.groupRow}>
                   <th scope="colgroup" colSpan={shownColumns.length + 1} className={styles.groupHead}>
                     {lane === 'checkins' ? (
@@ -2731,6 +2770,7 @@ export function DoctorsPage() {
                     )}
                   </th>
                 </tr>
+                )}
                 {group.entries.map((entry) => (
                   <EntryRow
                     key={entry.id}
@@ -2747,6 +2787,7 @@ export function DoctorsPage() {
                     onDelete={() => handleDelete(entry)}
                     onOpenImages={() => setPageGallery(entry.id)}
                     onOpenContact={() => { setOpenCell(null); setContactFor(entry.id); }}
+                    onOpenType={lane === 'checkins' ? () => { setOpenCell(null); setDetailType(entry.type); } : null}
                   />
                 ))}
               </tbody>
