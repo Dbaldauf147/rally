@@ -609,3 +609,8 @@
 /* On a phone it reads beside the name, and wraps under it when the name is long. */
 .recTitleWrap { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
 .recTypeChip { flex-shrink: 0; padding: 0.1rem 0.5rem; font-size: 0.72rem; }
+/* A line of explanation under a pop-up heading. */
+.modalHint { margin: -0.15rem 0 0.5rem; font-size: 0.78rem; color: var(--color-text-muted); }
+
+/* Delete, and moving a doctor to the former list — side by side on the end of a row. */
+.rowTools { display: flex; align-items: center; justify-content: flex-end; gap: 0.15rem; }
