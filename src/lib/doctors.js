@@ -264,6 +264,8 @@ export function normalizeEntry(raw) {
   // image itself is its own document (see lib/doctorImages.js), because a
   // photo is most of the size this whole list is allowed to be.
   out.images = normalizeImages(raw?.images);
+  // A doctor you used to see. See isFormerEntry.
+  out.former = !!raw?.former;
   return out;
 }
 
@@ -473,7 +475,16 @@ export const isIssueEntry = (e) => !!String(e?.issue || '').trim()
 // counts, not only one that parses: "when it flares up" is still you saying
 // this is an ongoing arrangement, even though no date can be worked out from it.
 // This is the narrow reading — what the weekly digest nags you to book.
-export const isScheduledOrContact = (e) => !!String(e?.cadence || '').trim() || !isIssueEntry(e);
+/* A doctor you used to see: the dentist before you moved, the GP who retired.
+
+   Worth keeping — they're where an old issue was treated, and you may still
+   need what they prescribed — but they're not who you see now, so they leave
+   the Check-ins tab and sit under their own heading in the speciality pop-up.
+   Nothing is deleted, and un-marking one brings it straight back. */
+export const isFormerEntry = (e) => !!e?.former;
+
+export const isScheduledOrContact = (e) => !isFormerEntry(e)
+  && (!!String(e?.cadence || '').trim() || !isIssueEntry(e));
 
 const hasDoctorName = (e) => !!String(e?.doctor || e?.place || '').trim();
 const doctorKey = (e) => [e?.type, e?.doctor, e?.place].map((v) => String(v || '').trim().toLowerCase()).join('|');
@@ -493,13 +504,27 @@ const doctorKey = (e) => [e?.type, e?.doctor, e?.place].map((v) => String(v || '
  * has only issues is shown by the first of them. Without `entries` there's no
  * way to know, and a named record counts. */
 export function isCheckInEntry(e, entries = null) {
+  // Somebody you used to see is not somebody you're due to see.
+  if (isFormerEntry(e)) return false;
   if (isScheduledOrContact(e)) return true;
   if (!hasDoctorName(e)) return false;
   if (!entries) return true;
   const key = doctorKey(e);
   const same = entries.filter((x) => doctorKey(x) === key);
   if (same.some(isScheduledOrContact)) return false;
-  return (same[0]?.id ?? e.id) === e.id;
+  return (same.filter((x) => !isFormerEntry(x))[0]?.id ?? e.id) === e.id;
+}
+
+/* Mark a doctor as one you used to see, or bring them back.
+
+   Their records stay exactly as they are — the issues they treated, the meds,
+   the pictures, the questions. Only where they're listed changes. */
+export function setEntryFormer(list, id, former) {
+  const l = normalizeList(list);
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => (e.id === id ? { ...e, former: !!former } : e)),
+  });
 }
 
 export function inLane(entry, lane, entries = null) {

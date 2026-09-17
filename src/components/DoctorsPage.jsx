@@ -14,7 +14,7 @@ import {
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
   dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
-  isCheckInEntry, setDoctorCalendar, pendingAppointments, sameType, issueRecord,
+  isCheckInEntry, isFormerEntry, setEntryFormer, setDoctorCalendar, pendingAppointments, sameType, issueRecord,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts,
   linkAppointment, ignoreAppointment, unignoreAppointment,
@@ -1322,6 +1322,8 @@ function ImageGallery({ uid, entry, title, startId, update, onClose }) {
    scrolls the tables sideways, as it does the page's own. */
 function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
   const [gallery, setGallery] = useState(null); // { entryId, imageId }
+  // Keeps the Former doctors heading up while the first one is being filled in.
+  const [addingFormer, setAddingFormer] = useState(false);
   const [contactId, setContactId] = useState(null); // entry id
   const narrow = useIsNarrow();
 
@@ -1410,10 +1412,16 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
     setDraftQ('');
   }
 
-  function addRecord() {
-    const record = normalizeEntry({ id: makeId(), type, status: STATUS.NONE });
+  function addRecord({ former = false } = {}) {
+    const record = normalizeEntry({ id: makeId(), type, status: STATUS.NONE, former });
     update((l) => addEntry(l, record));
     setAddedId(record.id);
+  }
+
+  // Moving a doctor to the former list and back. Nothing on the record
+  // changes; only where it is listed.
+  function toggleFormer(entry) {
+    update((l) => setEntryFormer(l, entry.id, !isFormerEntry(entry)));
   }
 
   // The page table's rule: a record never filled in goes quietly, anything
@@ -1452,9 +1460,10 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
   }, [colsOpen]);
 
   const columns = shownColumns(prefs);
-  // The delete button's column sits outside the chooser: it can't be hidden,
-  // sorted or resized, so it's a fixed width on the end.
-  const DELETE_COL_WIDTH = 40;
+  // The row's own buttons — delete, and moving a doctor to the former list —
+  // sit outside the chooser: they can't be hidden, sorted or resized, so they
+  // share a fixed width on the end.
+  const DELETE_COL_WIDTH = 76;
   const tableWidth = columns.reduce((sum, c) => sum + c.width, 0) + DELETE_COL_WIDTH;
 
   // Dragging a header's right edge. Pointer events, so a finger works too; the
@@ -1489,6 +1498,9 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
     return entry[key];
   };
   const sorted = sortEntries(entries, prefs.sort, valueOf);
+  // Who you see now, and who you used to. Both keep whatever sort is set.
+  const current = sorted.filter((e) => !isFormerEntry(e));
+  const former = sorted.filter(isFormerEntry);
 
   /* What one column holds for one record, and whether it's a counted fact
      rather than a field. The desktop table puts it in a cell, the phone's
@@ -1543,6 +1555,122 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
         };
     }
   }
+
+  /* The records, as a table on a desktop and cards on a phone. Called twice:
+     the doctors you see now, then the ones you used to. */
+  const renderRecords = (rows) => (
+    <>
+          {narrow ? (
+            <div className={styles.cardList}>
+              {rows.map((entry) => (
+                <section
+                  key={entry.id}
+                  id={`detail-${entry.id}`}
+                  className={entry.id === addedId ? `${styles.card} ${styles.cardNew}` : styles.card}
+                  aria-label={entryTitle(entry, type)}
+                >
+                  <div className={styles.cardTitleRow}>
+                    <div className={styles.cardTitle}>{entryTitle(entry, type)}</div>
+                    <button
+                      type="button"
+                      className={styles.qDelete}
+                      title={`Delete ${entryTitle(entry, type)}`}
+                      aria-label={`Delete ${entryTitle(entry, type)}`}
+                      onClick={() => deleteRecord(entry)}
+                    >×</button>
+                    {formerBtn(entry)}
+                  </div>
+                  {columns.map((c) => {
+                    const { node, fact, overdue } = cellParts(entry, c);
+                    return (
+                      <div key={c.key} className={styles.cardField}>
+                        <span className={styles.cardLabel}>{c.key === 'questions' ? 'Questions' : c.label}</span>
+                        <div className={fact ? (overdue ? styles.cardFactOverdue : styles.cardFact) : styles.cardValue}>{node}</div>
+                      </div>
+                    );
+                  })}
+                </section>
+              ))}
+            </div>
+          ) : (
+          <div className={styles.gridWrap}>
+            <table className={`${styles.grid} ${styles.gridSized}`} style={{ width: `${tableWidth}px` }}>
+              <colgroup>
+                {columns.map((c) => <col key={c.key} style={{ width: `${c.width}px` }} />)}
+                <col style={{ width: `${DELETE_COL_WIDTH}px` }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  {columns.map((c) => {
+                    const dir = prefs.sort?.key === c.key ? prefs.sort.dir : null;
+                    return (
+                      <th
+                        key={c.key}
+                        className={styles.gridTh}
+                        aria-sort={dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : 'none'}
+                        title={c.key === 'questions' ? 'Questions still to ask' : undefined}
+                      >
+                        <button
+                          type="button"
+                          className={styles.gridSortBtn}
+                          onClick={() => setPrefs((p) => ({ ...p, sort: cycleSort(p.sort, c.key) }))}
+                          title={`Sort by ${c.label}`}
+                        >
+                          {c.label}
+                          <span className={styles.gridSortMark} aria-hidden="true">{dir === 'asc' ? '▲' : dir === 'desc' ? '▼' : ''}</span>
+                        </button>
+                        <span
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Resize ${c.label} column`}
+                          title="Drag to resize · double-click to reset"
+                          className={styles.gridResize}
+                          onPointerDown={(e) => startResize(e, c.key, c.width)}
+                          onDoubleClick={() => setPrefs((p) => setColumnWidth(p, c.key, POPUP_COLUMNS.find((x) => x.key === c.key).width))}
+                        />
+                      </th>
+                    );
+                  })}
+                  <th aria-label="Delete" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((entry) => (
+                  <tr
+                    key={entry.id}
+                    id={`detail-${entry.id}`}
+                    className={entry.id === addedId ? styles.gridRowNew : undefined}
+                  >
+                    {columns.map((c) => <Fragment key={c.key}>{renderCell(entry, c)}</Fragment>)}
+                    <td>
+                      <div className={styles.rowTools}>
+                        <button
+                          type="button"
+                          className={styles.qDelete}
+                          title={`Delete ${entryTitle(entry, type)}`}
+                          aria-label={`Delete ${entryTitle(entry, type)}`}
+                          onClick={() => deleteRecord(entry)}
+                        >×</button>
+                        {formerBtn(entry)}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          )}
+    </>
+  );
+  const formerBtn = (entry) => (
+    <button
+      type="button"
+      className={styles.qDelete}
+      title={isFormerEntry(entry) ? `Bring ${entryTitle(entry, type)} back` : `Move ${entryTitle(entry, type)} to former doctors`}
+      aria-label={isFormerEntry(entry) ? `Bring ${entryTitle(entry, type)} back` : `Move ${entryTitle(entry, type)} to former doctors`}
+      onClick={() => toggleFormer(entry)}
+    >{isFormerEntry(entry) ? "↺" : "⏳"}</button>
+  );
 
   function renderCell(entry, c) {
     const { node, fact, overdue } = cellParts(entry, c);
@@ -1687,104 +1815,30 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
             )}
           </div>
         )}
-        {narrow ? (
-          <div className={styles.cardList}>
-            {sorted.map((entry) => (
-              <section
-                key={entry.id}
-                id={`detail-${entry.id}`}
-                className={entry.id === addedId ? `${styles.card} ${styles.cardNew}` : styles.card}
-                aria-label={entryTitle(entry, type)}
-              >
-                <div className={styles.cardTitleRow}>
-                  <div className={styles.cardTitle}>{entryTitle(entry, type)}</div>
-                  <button
-                    type="button"
-                    className={styles.qDelete}
-                    title={`Delete ${entryTitle(entry, type)}`}
-                    aria-label={`Delete ${entryTitle(entry, type)}`}
-                    onClick={() => deleteRecord(entry)}
-                  >×</button>
-                </div>
-                {columns.map((c) => {
-                  const { node, fact, overdue } = cellParts(entry, c);
-                  return (
-                    <div key={c.key} className={styles.cardField}>
-                      <span className={styles.cardLabel}>{c.key === 'questions' ? 'Questions' : c.label}</span>
-                      <div className={fact ? (overdue ? styles.cardFactOverdue : styles.cardFact) : styles.cardValue}>{node}</div>
-                    </div>
-                  );
-                })}
-              </section>
-            ))}
-          </div>
-        ) : (
-        <div className={styles.gridWrap}>
-          <table className={`${styles.grid} ${styles.gridSized}`} style={{ width: `${tableWidth}px` }}>
-            <colgroup>
-              {columns.map((c) => <col key={c.key} style={{ width: `${c.width}px` }} />)}
-              <col style={{ width: `${DELETE_COL_WIDTH}px` }} />
-            </colgroup>
-            <thead>
-              <tr>
-                {columns.map((c) => {
-                  const dir = prefs.sort?.key === c.key ? prefs.sort.dir : null;
-                  return (
-                    <th
-                      key={c.key}
-                      className={styles.gridTh}
-                      aria-sort={dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : 'none'}
-                      title={c.key === 'questions' ? 'Questions still to ask' : undefined}
-                    >
-                      <button
-                        type="button"
-                        className={styles.gridSortBtn}
-                        onClick={() => setPrefs((p) => ({ ...p, sort: cycleSort(p.sort, c.key) }))}
-                        title={`Sort by ${c.label}`}
-                      >
-                        {c.label}
-                        <span className={styles.gridSortMark} aria-hidden="true">{dir === 'asc' ? '▲' : dir === 'desc' ? '▼' : ''}</span>
-                      </button>
-                      <span
-                        role="separator"
-                        aria-orientation="vertical"
-                        aria-label={`Resize ${c.label} column`}
-                        title="Drag to resize · double-click to reset"
-                        className={styles.gridResize}
-                        onPointerDown={(e) => startResize(e, c.key, c.width)}
-                        onDoubleClick={() => setPrefs((p) => setColumnWidth(p, c.key, POPUP_COLUMNS.find((x) => x.key === c.key).width))}
-                      />
-                    </th>
-                  );
-                })}
-                <th aria-label="Delete" />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((entry) => (
-                <tr
-                  key={entry.id}
-                  id={`detail-${entry.id}`}
-                  className={entry.id === addedId ? styles.gridRowNew : undefined}
-                >
-                  {columns.map((c) => <Fragment key={c.key}>{renderCell(entry, c)}</Fragment>)}
-                  <td>
-                    <button
-                      type="button"
-                      className={styles.qDelete}
-                      title={`Delete ${entryTitle(entry, type)}`}
-                      aria-label={`Delete ${entryTitle(entry, type)}`}
-                      onClick={() => deleteRecord(entry)}
-                    >×</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        )}
+        {renderRecords(current)}
         <button type="button" className={styles.modalAddRecord} onClick={addRecord}>
           + Add another {typeHeading(type)} record
+        </button>
+
+        {/* Doctors you used to see. Their records are intact — issues, meds,
+            pictures, questions — they are just no longer who you see now, so
+            they sit down here and off the Check-ins tab. */}
+        {(former.length > 0 || addingFormer) && (
+          <>
+            <div className={styles.modalSection}>
+              Former doctors
+              <span className={styles.groupCount}>{former.length}</span>
+            </div>
+            <p className={styles.modalHint}>Kept for the history. They don&rsquo;t show on Check-ins.</p>
+            {former.length > 0 && renderRecords(former)}
+          </>
+        )}
+        <button
+          type="button"
+          className={styles.modalAddRecord}
+          onClick={() => { setAddingFormer(true); addRecord({ former: true }); }}
+        >
+          + Add a {typeHeading(type)} you used to see
         </button>
 
         <div className={styles.modalSection}>

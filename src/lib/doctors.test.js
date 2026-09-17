@@ -9,7 +9,7 @@ import {
   BUILTIN_COLUMNS, resolveColumns, visibleColumns, renameColumn, setColumnHidden, moveColumn,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
-  isCheckInEntry, isIssueEntry, laneCounts,
+  isCheckInEntry, isIssueEntry, isFormerEntry, setEntryFormer, laneCounts,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts, questionMatches, normalizeQuestion,
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
@@ -994,6 +994,37 @@ describe('check-ins and issues', () => {
 
   it('reads a status as an issue even with the field left blank', () => {
     expect(isIssueEntry({ id: '7', doctor: 'Someone', status: 'treating' })).toBe(true);
+  });
+
+  it('keeps a doctor you used to see off Check-ins, and keeps everything on them', () => {
+    const old = { id: '8', doctor: 'Dr. Prior', cadence: 'Every 6 months', issue: 'Filling', former: true };
+    expect(isFormerEntry(normalizeEntry(old))).toBe(true);
+    expect(isCheckInEntry(old)).toBe(false);
+    // Still a complaint that was treated, and still in the list.
+    expect(isIssueEntry(old)).toBe(true);
+    const list = { types: [], entries: [physical, old] };
+    expect(laneCounts(list)).toEqual({ all: 2, checkins: 1, issues: 1, questions: 0 });
+    expect(checkInsNeedingScheduling(list).map((c) => c.id)).toEqual(['2']);
+  });
+
+  it('marks one as former and back again without touching the record', () => {
+    const l0 = normalizeList({ types: [], entries: [{ ...physical, images: [{ id: 'i1', name: 'card.jpg' }] }] });
+    const marked = setEntryFormer(l0, '2', true);
+    expect(marked.entries[0].former).toBe(true);
+    expect(marked.entries[0]).toMatchObject({ doctor: 'Mount Sinai', cadence: 'Every 2 year(s)' });
+    expect(marked.entries[0].images).toHaveLength(1);
+    expect(setEntryFormer(marked, '2', false).entries[0].former).toBe(false);
+    expect(setEntryFormer(marked, 'nope', false).entries[0].former).toBe(true);
+  });
+
+  /* A doctor shows on Check-ins once, by their first record. That record going
+     former must hand the slot to another of theirs, not take the doctor off
+     the tab while they still have a live one. */
+  it('hands the Check-ins slot to a doctor’s remaining record', () => {
+    const gone = { id: 'a', doctor: 'Dr. Skin', issue: 'Rash', status: 'resolved', former: true };
+    const kept = { id: 'b', doctor: 'Dr. Skin', issue: 'Mole', status: 'treating' };
+    const all = [gone, kept];
+    expect(all.filter((e) => isCheckInEntry(e, all)).map((e) => e.id)).toEqual(['b']);
   });
 
   it('counts each lane, and says so even when they overlap', () => {
