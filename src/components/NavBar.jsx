@@ -32,6 +32,7 @@ const NAV_ITEMS = [
   { to: '/travel-list', label: 'Travel List', ownerOnly: true },
   { to: '/pto', label: 'PTO', ownerOnly: true },
   { to: '/doctors', label: 'Doctors', ownerOnly: true },
+  { to: '/joanne', label: 'Joanne', ownerOnly: true },
 ];
 
 export function NavBar() {

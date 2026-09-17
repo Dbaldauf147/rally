@@ -41,6 +41,7 @@ const LABELS = {
   recurring: 'Repeating',
   pto: 'PTO',
   doctors: 'Doctors',
+  joanne: 'Joanne',
   reachout: 'Reach Out',
   sports: 'Sports',
   admin: 'Admin',
