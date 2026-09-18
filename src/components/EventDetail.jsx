@@ -12,6 +12,7 @@ import { addFriend as writeFriend } from '../lib/friends';
 import { pickPhoneContacts, contactsSource, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
 import { parseVCards } from '../lib/vcard';
 import { isOwnerEmail } from '../lib/pagePrivacy';
+import { smsLink, recipientsFor, togglePicked, textProgress } from '../lib/textDraft';
 import { fetchEventClimate, normalFor, SPREAD } from '../lib/climate';
 import { geocode } from '../lib/weather';
 import { WEB_ORIGIN } from '../native';
@@ -168,6 +169,10 @@ export function EventDetail() {
   // Twenty-seven names is a wall; these turn it into a list you work down.
   const [textAllOpenedAt, setTextAllOpenedAt] = useState(0);
   const [textAllQuery, setTextAllQuery] = useState('');
+  // Ticked by hand: a Set of uids, or null while one of the audiences above
+  // decides. Picking starts from whoever the audience had, so narrowing a
+  // group down is unticking rather than starting from nothing.
+  const [textAllPicked, setTextAllPicked] = useState(null);
   const [cleaningPhantom, setCleaningPhantom] = useState(false);
   // User-resizable column widths for the vote matrix, keyed by 'name' or a date
   // option id → pixel width. Persisted per event in localStorage.
@@ -198,6 +203,7 @@ export function EventDetail() {
     // something else is not done with the message you are writing now.
     setTextAllOpenedAt(Date.now());
     setTextAllQuery('');
+    setTextAllPicked(null);
     setShowTextAll(true);
     setTimeout(() => document.getElementById('text-all-draft')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
   };
@@ -2334,26 +2340,15 @@ export function EventDetail() {
           if (textAllAudience === 'noorder') return eating() && !foodEntry(uid, m)[0];
           return true;
         };
-        const recipients = members.filter(([uid, m]) =>
-          uid !== user?.uid && m.phone && inAudience(uid, m),
-        );
+        // Everyone textable, for the checklist; the recipients, for the send.
+        const textable = members.filter(([uid, m]) => uid !== user?.uid && m.phone);
+        const recipients = recipientsFor(textable, { picked: textAllPicked, inAudience });
         const phones = recipients.map(([, m]) => m.phone);
-        if (phones.length === 0) return null;
+        if (textable.length === 0) return null;
         const sendText = () => {
-          const cleanedPhones = phones
-            .map(p => {
-              let c = String(p).replace(/[^+\d]/g, '');
-              if (!c.startsWith('+')) {
-                c = c.startsWith('1') ? `+${c}` : `+1${c}`;
-              }
-              return c;
-            })
-            .join(',');
-          const body = encodeURIComponent(textAllMessage);
           const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-          const smsUrl = isIOS
-            ? `sms:/open?addresses=${cleanedPhones}&body=${body}`
-            : `sms:${cleanedPhones}?body=${body}`;
+          const smsUrl = smsLink(phones, textAllMessage, { ios: isIOS });
+          if (!smsUrl) return;
           const updates = {};
           recipients.forEach(([uid]) => {
             updates[`members.${uid}.texted`] = new Date().toISOString();
@@ -2368,13 +2363,11 @@ export function EventDetail() {
         // goes to exactly one person, the poll link is swapped for their pinned
         // one so voting can't create a duplicate of them. The group send above
         // keeps the generic link — one message, many recipients.
-        const smsHref = (phone, uid, m) => {
-          let c = String(phone).replace(/[^+\d]/g, '');
-          if (!c.startsWith('+')) c = c.startsWith('1') ? `+${c}` : `+1${c}`;
-          const body = encodeURIComponent(personalizePollLink(textAllMessage, uid, m));
-          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-          return isIOS ? `sms:/open?addresses=${c}&body=${body}` : `sms:${c}?body=${body}`;
-        };
+        const smsHref = (phone, uid, m) => smsLink(
+          phone,
+          personalizePollLink(textAllMessage, uid, m),
+          { ios: /iPad|iPhone|iPod/.test(navigator.userAgent) },
+        );
         return (
           <div id="text-all-draft" style={{
             border: '1px solid var(--color-border)',
@@ -2385,7 +2378,8 @@ export function EventDetail() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Edit text draft — {textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : textAllAudience === 'noorder' ? 'yet to order' : textAllAudience === 'eating' ? 'everyone eating' : 'sending to'} {recipients.length}
+                Edit text draft — {textAllPicked ? 'picked' : textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : textAllAudience === 'noorder' ? 'yet to order' : textAllAudience === 'eating' ? 'everyone eating' : 'sending to'} {recipients.length}
+                {textAllPicked && ` of ${textable.length}`}
               </span>
               <button
                 onClick={() => { if (!textAllSending) { setShowTextAll(false); setTextAllMessage(''); } }}
@@ -2402,9 +2396,58 @@ export function EventDetail() {
                 the progress, and fold the finished ones away. A member's
                 `texted` is a running timestamp, which is why the comparison is
                 against the draft rather than against it being set at all. */}
+            {/* Pick exactly who this goes to. Ticking starts from whoever the
+                audience had, so the usual job — "everyone except those three"
+                — is three taps rather than twenty. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.45rem' }}>
+              <button
+                type="button"
+                onClick={() => setTextAllPicked(textAllPicked ? null : new Set(recipients.map(([uid]) => uid)))}
+                style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: textAllPicked ? 'var(--color-accent)' : 'var(--color-surface)', color: textAllPicked ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                {textAllPicked ? '✓ Choosing people' : 'Choose people'}
+              </button>
+              {textAllPicked && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setTextAllPicked(new Set(textable.map(([uid]) => uid)))}
+                    style={{ fontSize: '0.7rem', padding: '0.2rem 0.55rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >All {textable.length}</button>
+                  <button
+                    type="button"
+                    onClick={() => setTextAllPicked(new Set())}
+                    style={{ fontSize: '0.7rem', padding: '0.2rem 0.55rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >None</button>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                    Tick who this goes to.
+                  </span>
+                </>
+              )}
+            </div>
+            {textAllPicked && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.75rem', marginBottom: '0.55rem', maxHeight: '11rem', overflowY: 'auto' }}>
+                {textable.map(([uid, m]) => (
+                  <label
+                    key={uid}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: 'var(--color-text)', cursor: 'pointer', minWidth: '9rem' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={textAllPicked.has(uid)}
+                      onChange={() => setTextAllPicked((cur) => togglePicked(cur, uid))}
+                      style={{ width: '16px', height: '16px', accentColor: 'var(--color-accent)' }}
+                    />
+                    {m.name || 'Unnamed'}
+                  </label>
+                ))}
+                {textable.length === 0 && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>Nobody here has a phone number yet.</span>
+                )}
+              </div>
+            )}
             {(() => {
-              const done = recipients.filter(([, m]) =>
-                m.texted && new Date(m.texted).getTime() >= textAllOpenedAt);
+              const { done } = textProgress(recipients, textAllOpenedAt);
               const doneKeys = new Set(done.map(([uid]) => uid));
               const q = textAllQuery.trim().toLowerCase();
               const todo = recipients
@@ -2506,7 +2549,7 @@ export function EventDetail() {
                 {textAllMessage.length} character{textAllMessage.length !== 1 ? 's' : ''}
               </span>
               <button
-                disabled={!textAllMessage.trim() || textAllSending}
+                disabled={!textAllMessage.trim() || textAllSending || phones.length === 0}
                 onClick={sendText}
                 style={{
                   padding: '0.4rem 0.9rem',
@@ -2517,11 +2560,11 @@ export function EventDetail() {
                   fontSize: '0.82rem',
                   fontWeight: 600,
                   fontFamily: 'inherit',
-                  cursor: !textAllMessage.trim() ? 'not-allowed' : 'pointer',
-                  opacity: !textAllMessage.trim() ? 0.5 : 1,
+                  cursor: !textAllMessage.trim() || phones.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: !textAllMessage.trim() || phones.length === 0 ? 0.5 : 1,
                 }}
               >
-                📤 Open in Messages ({phones.length})
+                {phones.length === 0 ? '📤 Nobody ticked' : `📤 Open in Messages (${phones.length})`}
               </button>
             </div>
           </div>
