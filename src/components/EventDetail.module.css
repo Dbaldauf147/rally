@@ -1,5 +1,8 @@
 .page { max-width: 800px; margin: 0 auto; padding: 1.5rem; transition: max-width 0.2s ease; }
-.pageWide { max-width: 1200px; }
+/* The tabs that are a wide table rather than a column of text: the itinerary
+   grid, and People & Poll, whose vote table grows a column per date. Capped
+   against the window so it never runs edge to edge on a big screen. */
+.pageWide { max-width: min(1600px, 96vw); }
 .loading { text-align: center; padding: 4rem; color: var(--color-text-muted); }
 .backBtn { background: none; border: none; color: var(--color-accent); font-size: 0.88rem; font-weight: 600; cursor: pointer; margin-bottom: 1rem; padding: 0; font-family: inherit; }
 .hero { display: flex; gap: 1.25rem; align-items: flex-start; margin-bottom: 1.5rem; }
