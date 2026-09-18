@@ -170,6 +170,12 @@ const CELL_FIELDS = {
 const ISSUE_COLUMNS = ['name', 'issue', 'meds', 'notes'];
 const NOTES_COLUMN = { key: 'notes', kind: 'builtin', field: null, label: 'Notes', hidden: false };
 
+/* Check-ins runs without the speciality headings (see the table below), so the
+   speciality is a column of its own instead — the first one, because that is
+   what you scan the tab by. It is not in the Columns manager: it exists only
+   on this tab, and the headings it replaces were never hidable either. */
+const TYPE_COLUMN = { key: 'type', kind: 'builtin', field: null, label: 'Type', hidden: false };
+
 /* One field inside an open cell.
 
    Uncontrolled, committing on blur or Enter: the stored shape trims its
@@ -2222,7 +2228,7 @@ function PhoneMenu({ onTypes, onColumns }) {
   );
 }
 
-const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays };
+const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays, type: styles.cellType };
 
 /* The speciality, on the row rather than in a heading over it.
 
@@ -2282,11 +2288,17 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
   // name is not a phone number — so this is a switch and not a loop.
   const builtin = (col) => {
     switch (col.key) {
+      // Its own column on Check-ins, where the headings are gone. Clicking it
+      // opens the speciality's pop-up, which is what the heading was for.
+      case 'type': return (
+        <td key="type" className={styles.cellType}>
+          {onOpenType ? <TypeChip type={entry.type} onOpen={onOpenType} /> : (entry.type || null)}
+        </td>
+      );
       case 'name': return cell('name', styles.cellName, col.label, (
         <>
           <div className={styles.nameLine}>
             <DoctorNameButton className={styles.name} name={entryTitle(entry, groupType)} onOpen={onOpenContact} />
-            {onOpenType && <TypeChip type={entry.type} onOpen={onOpenType} />}
           </div>
           {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
           {entry.images.length > 0 && (
@@ -2555,7 +2567,8 @@ export function DoctorsPage() {
         .map((key) => (key === 'notes' ? NOTES_COLUMN : byKey.get(key)))
         .filter((c) => c && !c.hidden);
     }
-    return allColumns.filter((c) => !c.hidden && (showStatus || c.key !== 'status'));
+    const shown = allColumns.filter((c) => !c.hidden && (showStatus || c.key !== 'status'));
+    return lane === 'checkins' ? [TYPE_COLUMN, ...shown] : shown;
   }, [allColumns, showStatus, lane]);
   // Resolved once for the whole table rather than per row.
   const daysFrom = useMemo(() => daysSinceField(safeList), [safeList]);
