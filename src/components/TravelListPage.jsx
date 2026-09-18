@@ -292,6 +292,7 @@ function seedSection(s) {
         label: c.label,
         note: c.note || '',
         checked: !!c.defaultChecked,
+        category: c.category || '',
       })),
     })),
   };
@@ -340,6 +341,7 @@ function normalizeList(raw) {
         label: c.label || '',
         note: c.note || '',
         checked: !!c.checked,
+        category: c.category || '',
       })),
     })),
   }));
@@ -566,9 +568,15 @@ export function TravelListPage() {
   // Drag an item onto another section to move it, or onto an item to reorder.
   const [dragItem, setDragItem] = useState(null); // { sectionId, itemId }
   const [dragOverSection, setDragOverSection] = useState(null);
-  const [dragOverItem, setDragOverItem] = useState(null); // itemId being hovered
+  // { id, mode } — 'before' drops above the row, 'into' makes it a sub-item.
+  const [dragOverItem, setDragOverItem] = useState(null);
   const [dragSection, setDragSection] = useState(null); // sectionId being dragged
   function clearDrag() { setDragItem(null); setDragOverSection(null); setDragOverItem(null); setDragSection(null); }
+  // The item being dragged, for the drop zones below: whether it can go inside
+  // another one depends on what it is.
+  const draggedItem = dragItem
+    ? (list.sections.find((s0) => s0.id === dragItem.sectionId)?.items.find((i) => i.id === dragItem.itemId) || null)
+    : null;
   const [open, setOpen] = useState(() => {
     try {
       const raw = localStorage.getItem(OPEN_KEY);
@@ -1028,6 +1036,39 @@ export function TravelListPage() {
     });
   }
 
+  /* Drop an item onto another to make it a sub-item of it.
+
+     Sub-items are one level deep, which is the whole shape of this list, so an
+     item that already holds sub-items can't go inside another — the drop zone
+     never offers it (see the row's onDragOver). Everything the item carries
+     comes with it; the target becomes a group if it wasn't one. */
+  function nestItem(fromSectionId, itemId, toSectionId, targetItemId) {
+    if (itemId === targetItemId) return;
+    updateList((l) => {
+      let moved = null;
+      const stripped = l.sections.map((s) => {
+        if (s.id !== fromSectionId) return s;
+        moved = s.items.find((it) => it.id === itemId) || null;
+        return { ...s, items: s.items.filter((it) => it.id !== itemId) };
+      });
+      if (!moved || moved.isHeader || (moved.children && moved.children.length > 0)) return l;
+      return {
+        ...l,
+        sections: stripped.map((s) => s.id !== toSectionId ? s : {
+          ...s,
+          items: s.items.map((it) => it.id !== targetItemId ? it : {
+            ...it,
+            isGroup: true,
+            children: [...(it.children || []), {
+              id: moved.id, label: moved.label, note: moved.note || '',
+              checked: !!moved.checked, category: moved.category || '',
+            }],
+          }),
+        }),
+      };
+    });
+  }
+
   // Move an item to just before a target item (reorder within or across lists).
   function reorderItem(fromSectionId, itemId, toSectionId, targetItemId) {
     if (itemId === targetItemId) return;
@@ -1381,23 +1422,36 @@ export function TravelListPage() {
                   if (!item.isHeader && hiddenItemIds.has(item.id)) return null; // inside a collapsed header
                   if (item.isHeader && emptiedHeaders.has(item.id)) return null; // its items are all switched off
                   const hasChildren = item.children && item.children.length > 0;
+                  /* The middle of a row takes the drop as "make this a sub-item
+                     of that"; its top and bottom edges still reorder. Only for
+                     a plain item dropped on a plain item: a header, and an item
+                     that already holds sub-items, can only be reordered. */
+                  const canNest = !item.isHeader && !!draggedItem && !draggedItem.isHeader
+                    && !(draggedItem.children && draggedItem.children.length > 0);
+                  const over = dragOverItem?.id === item.id ? dragOverItem.mode : null;
                   return (
                     <div
                       key={item.id}
-                      className={dragOverItem === item.id ? styles.itemDropBefore : undefined}
+                      className={over === 'before' ? styles.itemDropBefore : over === 'into' ? styles.itemDropInto : undefined}
                       onDragOver={(e) => {
                         if (!dragItem) return;
                         e.preventDefault();
                         e.stopPropagation();
-                        const over = dragItem.itemId !== item.id ? item.id : null;
-                        if (dragOverItem !== over) setDragOverItem(over);
+                        if (dragItem.itemId === item.id) { if (dragOverItem) setDragOverItem(null); return; }
+                        const box = e.currentTarget.getBoundingClientRect();
+                        const middle = e.clientY - box.top > box.height * 0.3 && e.clientY - box.top < box.height * 0.75;
+                        const mode = canNest && middle ? 'into' : 'before';
+                        if (dragOverItem?.id !== item.id || dragOverItem?.mode !== mode) setDragOverItem({ id: item.id, mode });
                       }}
-                      onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget)) return; if (dragOverItem === item.id) setDragOverItem(null); }}
+                      onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget)) return; if (dragOverItem?.id === item.id) setDragOverItem(null); }}
                       onDrop={(e) => {
                         if (!dragItem) return;
                         e.preventDefault();
                         e.stopPropagation();
-                        if (dragItem.itemId !== item.id) reorderItem(dragItem.sectionId, dragItem.itemId, section.id, item.id);
+                        if (dragItem.itemId !== item.id) {
+                          if (over === 'into') nestItem(dragItem.sectionId, dragItem.itemId, section.id, item.id);
+                          else reorderItem(dragItem.sectionId, dragItem.itemId, section.id, item.id);
+                        }
                         clearDrag();
                       }}
                     >
@@ -1546,6 +1600,7 @@ export function TravelListPage() {
                             <div className={styles.itemBody}>
                               <div className={`${styles.itemLabel} ${child.checked ? styles.itemLabelChecked : ''}`}>
                                 {displayLabel(child.label, section.name)}
+                                {child.category && <span className={styles.itemCatBadge}>{child.category}</span>}
                               </div>
                               {child.note && <div className={styles.itemNote}>{child.note}</div>}
                             </div>

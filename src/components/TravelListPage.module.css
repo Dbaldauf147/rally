@@ -84,6 +84,9 @@
 .itemDragging { opacity: 0.45; }
 /* Insertion indicator when dragging an item before this one. */
 .itemDropBefore { box-shadow: inset 0 3px 0 -1px var(--color-accent); border-radius: 2px; }
+/* Dropping onto the middle of a row makes the dragged item a sub-item of it,
+   so the whole row lights up rather than a line above it. */
+.itemDropInto { outline: 2px solid var(--color-accent); outline-offset: -2px; border-radius: var(--radius-sm); background: var(--color-accent-light); }
 .inlineEditInput { flex: 1; min-width: 0; font-family: inherit; font-size: 0.9rem; padding: 0.25rem 0.4rem; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); }
 .sectionHeader { display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1rem; cursor: pointer; user-select: none; gap: 0.75rem; }
 .sectionHeader:hover { background: var(--color-surface-alt); }
