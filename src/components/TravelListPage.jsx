@@ -6,6 +6,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import { JetLagChecklist } from './JetLagChecklist';
 import styles from './TravelListPage.module.css';
+import { useDragMove } from '../hooks/useDragMove';
+import { applyDrop, nestAllowed, isMiddle } from '../lib/travelMove';
 import { isOwnerEmail } from '../lib/pagePrivacy';
 import { DateField } from './DateField';
 
@@ -566,17 +568,10 @@ export function TravelListPage() {
     closeEditor();
   }
   // Drag an item onto another section to move it, or onto an item to reorder.
-  const [dragItem, setDragItem] = useState(null); // { sectionId, itemId }
+
   const [dragOverSection, setDragOverSection] = useState(null);
-  // { id, mode } — 'before' drops above the row, 'into' makes it a sub-item.
-  const [dragOverItem, setDragOverItem] = useState(null);
   const [dragSection, setDragSection] = useState(null); // sectionId being dragged
-  function clearDrag() { setDragItem(null); setDragOverSection(null); setDragOverItem(null); setDragSection(null); }
-  // The item being dragged, for the drop zones below: whether it can go inside
-  // another one depends on what it is.
-  const draggedItem = dragItem
-    ? (list.sections.find((s0) => s0.id === dragItem.sectionId)?.items.find((i) => i.id === dragItem.itemId) || null)
-    : null;
+  function clearDrag() { setDragOverSection(null); setDragSection(null); }
   const [open, setOpen] = useState(() => {
     try {
       const raw = localStorage.getItem(OPEN_KEY);
@@ -690,6 +685,30 @@ export function TravelListPage() {
       return next;
     });
   }
+
+  /* Dragging an item to another list, into a group, or onto a category chip.
+     Pointer-driven (see hooks/useDragMove) rather than the browser's own
+     drag-and-drop, which does nothing on a phone. Where it lands is decided
+     by lib/travelMove, which is where the rules are tested. */
+  const { drag, gripProps } = useDragMove((payload, target, point) => {
+    if (!payload || !target) return;
+    updateList((l) => {
+      const dragged = l.sections.find((s0) => s0.id === payload.sectionId)?.items.find((i) => i.id === payload.itemId);
+      // The middle of a row nests, its edges reorder — the gesture #260 added,
+      // now driven by the pointer so a finger can do it too.
+      const nest = target.type === 'item' && nestAllowed(dragged) && isMiddle(point?.y ?? 0, target.rect);
+      return applyDrop(l, payload, nest ? { ...target, type: 'nest' } : target);
+    });
+  });
+  const dragTargetKey = drag?.target?.key || '';
+  // The same question while the drag is still in the air, for the marks on the
+  // row under it and for what the hint at the bottom says.
+  const draggedItem = drag?.payload
+    ? (list.sections.find((s0) => s0.id === drag.payload.sectionId)?.items.find((i) => i.id === drag.payload.itemId) || null)
+    : null;
+  const dropMode = drag?.target?.type === 'item'
+    ? (nestAllowed(draggedItem) && isMiddle(drag.y, drag.target.rect) ? 'nest' : 'before')
+    : drag?.target?.type || null;
 
   // Leaving the page, or sending the app to the background, must not swallow a
   // debounced edit — on the phone the timer may never run once the web view is
@@ -1036,64 +1055,6 @@ export function TravelListPage() {
     });
   }
 
-  /* Drop an item onto another to make it a sub-item of it.
-
-     Sub-items are one level deep, which is the whole shape of this list, so an
-     item that already holds sub-items can't go inside another — the drop zone
-     never offers it (see the row's onDragOver). Everything the item carries
-     comes with it; the target becomes a group if it wasn't one. */
-  function nestItem(fromSectionId, itemId, toSectionId, targetItemId) {
-    if (itemId === targetItemId) return;
-    updateList((l) => {
-      let moved = null;
-      const stripped = l.sections.map((s) => {
-        if (s.id !== fromSectionId) return s;
-        moved = s.items.find((it) => it.id === itemId) || null;
-        return { ...s, items: s.items.filter((it) => it.id !== itemId) };
-      });
-      if (!moved || moved.isHeader || (moved.children && moved.children.length > 0)) return l;
-      return {
-        ...l,
-        sections: stripped.map((s) => s.id !== toSectionId ? s : {
-          ...s,
-          items: s.items.map((it) => it.id !== targetItemId ? it : {
-            ...it,
-            isGroup: true,
-            children: [...(it.children || []), {
-              id: moved.id, label: moved.label, note: moved.note || '',
-              checked: !!moved.checked, category: moved.category || '',
-            }],
-          }),
-        }),
-      };
-    });
-  }
-
-  // Move an item to just before a target item (reorder within or across lists).
-  function reorderItem(fromSectionId, itemId, toSectionId, targetItemId) {
-    if (itemId === targetItemId) return;
-    updateList((l) => {
-      let moved = null;
-      const stripped = l.sections.map((s) => {
-        if (s.id !== fromSectionId) return s;
-        moved = s.items.find((it) => it.id === itemId) || null;
-        return { ...s, items: s.items.filter((it) => it.id !== itemId) };
-      });
-      if (!moved) return l;
-      return {
-        ...l,
-        sections: stripped.map((s) => {
-          if (s.id !== toSectionId) return s;
-          const idx = s.items.findIndex((it) => it.id === targetItemId);
-          if (idx === -1) return { ...s, items: [...s.items, moved] };
-          const items = s.items.slice();
-          items.splice(idx, 0, moved);
-          return { ...s, items };
-        }),
-      };
-    });
-  }
-
   // Reorder a section to sit just before another (drag a list onto another).
   function reorderSection(draggedId, targetId) {
     if (draggedId === targetId) return;
@@ -1230,10 +1191,12 @@ export function TravelListPage() {
         {(list.meta.categories || []).map((c) => (
           <button
             key={c}
-            className={`${styles.btn} ${!hiddenCats.has(c) ? styles.btnActive : ''}`}
+            className={[styles.btn, !hiddenCats.has(c) ? styles.btnActive : '', dragTargetKey === `category:::${c}` ? styles.dropOn : ''].filter(Boolean).join(' ')}
             onClick={() => toggleCat(c)}
             aria-pressed={!hiddenCats.has(c)}
             title={hiddenCats.has(c) ? `Show ${c} items` : `Hide ${c} items`}
+            data-drop="category"
+            data-category={c}
           >{c}</button>
         ))}
         <button
@@ -1303,6 +1266,20 @@ export function TravelListPage() {
         </form>
       </div>
 
+      {drag && (
+        <>
+          <div className={styles.dragGhost} style={{ left: drag.x, top: drag.y }} aria-hidden="true">{drag.label}</div>
+          <div className={styles.dragHint} role="status">
+            {dropMode === 'section' ? 'Drop into this list'
+              : dropMode === 'header' ? 'Drop into this group'
+              : dropMode === 'nest' ? 'Drop inside this item'
+              : dropMode === 'before' ? 'Drop above this item'
+              : dropMode === 'category' ? `Tag it "${drag.target.category}"`
+              : 'Drag onto a list, a group heading or a category'}
+          </div>
+        </>
+      )}
+
       <div className={styles.sectionsGrid} ref={gridRef}>
       {sectionColumns.map((column, colIdx) => (
         <div className={styles.sectionsCol} key={colIdx}>
@@ -1351,17 +1328,17 @@ export function TravelListPage() {
             }
           }
         }
-        const itemDropTarget = dragItem && dragItem.sectionId !== section.id;
         const sectionDropTarget = dragSection && dragSection !== section.id;
         return (
           <div
             key={section.id}
-            className={`${styles.section} ${complete ? styles.sectionDone : ''} ${dragOverSection === section.id ? styles.sectionDragOver : ''} ${dragSection === section.id ? styles.itemDragging : ''}`}
-            onDragOver={(e) => { if (itemDropTarget || sectionDropTarget) { e.preventDefault(); if (dragOverSection !== section.id) setDragOverSection(section.id); } }}
+            className={[styles.section, complete ? styles.sectionDone : '', (dragOverSection === section.id || dragTargetKey === `section:${section.id}::`) ? styles.sectionDragOver : '', dragSection === section.id ? styles.itemDragging : ''].filter(Boolean).join(' ')}
+            data-drop="section"
+            data-section={section.id}
+            onDragOver={(e) => { if (sectionDropTarget) { e.preventDefault(); if (dragOverSection !== section.id) setDragOverSection(section.id); } }}
             onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget)) return; if (dragOverSection === section.id) setDragOverSection(null); }}
             onDrop={(e) => {
-              if (itemDropTarget) { e.preventDefault(); moveItemToSection(dragItem.sectionId, dragItem.itemId, section.id); clearDrag(); }
-              else if (sectionDropTarget) { e.preventDefault(); reorderSection(dragSection, section.id); clearDrag(); }
+              if (sectionDropTarget) { e.preventDefault(); reorderSection(dragSection, section.id); clearDrag(); }
             }}
           >
             {complete && <div className={styles.readyBanner}>🎉 Ready to Go!</div>}
@@ -1422,48 +1399,32 @@ export function TravelListPage() {
                   if (!item.isHeader && hiddenItemIds.has(item.id)) return null; // inside a collapsed header
                   if (item.isHeader && emptiedHeaders.has(item.id)) return null; // its items are all switched off
                   const hasChildren = item.children && item.children.length > 0;
-                  /* The middle of a row takes the drop as "make this a sub-item
-                     of that"; its top and bottom edges still reorder. Only for
-                     a plain item dropped on a plain item: a header, and an item
-                     that already holds sub-items, can only be reordered. */
-                  const canNest = !item.isHeader && !!draggedItem && !draggedItem.isHeader
-                    && !(draggedItem.children && draggedItem.children.length > 0);
-                  const over = dragOverItem?.id === item.id ? dragOverItem.mode : null;
                   return (
                     <div
                       key={item.id}
-                      className={over === 'before' ? styles.itemDropBefore : over === 'into' ? styles.itemDropInto : undefined}
-                      onDragOver={(e) => {
-                        if (!dragItem) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (dragItem.itemId === item.id) { if (dragOverItem) setDragOverItem(null); return; }
-                        const box = e.currentTarget.getBoundingClientRect();
-                        const middle = e.clientY - box.top > box.height * 0.3 && e.clientY - box.top < box.height * 0.75;
-                        const mode = canNest && middle ? 'into' : 'before';
-                        if (dragOverItem?.id !== item.id || dragOverItem?.mode !== mode) setDragOverItem({ id: item.id, mode });
-                      }}
-                      onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget)) return; if (dragOverItem?.id === item.id) setDragOverItem(null); }}
-                      onDrop={(e) => {
-                        if (!dragItem) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (dragItem.itemId !== item.id) {
-                          if (over === 'into') nestItem(dragItem.sectionId, dragItem.itemId, section.id, item.id);
-                          else reorderItem(dragItem.sectionId, dragItem.itemId, section.id, item.id);
-                        }
-                        clearDrag();
-                      }}
+                      className={[
+                        drag?.payload?.itemId === item.id ? styles.itemDragging : '',
+                        dragTargetKey === `item:${section.id}:${item.id}:` && dropMode === 'before' ? styles.itemDropBefore : '',
+                        dragTargetKey === `item:${section.id}:${item.id}:` && dropMode === 'nest' ? styles.itemDropInto : '',
+                        dragTargetKey === `header:${section.id}:${item.id}:` ? styles.headerDropIn : '',
+                      ].filter(Boolean).join(' ')}
+                      data-drop={item.isHeader ? 'header' : 'item'}
+                      data-section={section.id}
+                      data-item={item.id}
                     >
                       {item.isHeader ? (
                         <div
                           className={styles.groupHeader}
-                          draggable
-                          onDragStart={(e) => { setDragItem({ sectionId: section.id, itemId: item.id }); e.dataTransfer.effectAllowed = 'move'; }}
-                          onDragEnd={clearDrag}
                           onClick={() => toggleHeaderCollapsed(section.id, item.id)}
-                          title="Click to collapse/expand · drag to move"
+                          title="Click to collapse or expand · drop an item here to file it under this heading"
                         >
+                          <span
+                            className={styles.grip}
+                            title={`Drag "${item.label || 'this group'}" somewhere else`}
+                            aria-label={`Drag ${item.label || 'this group'}`}
+                            onClick={(e) => e.stopPropagation()}
+                            {...gripProps({ sectionId: section.id, itemId: item.id }, item.label || 'Group')}
+                          >⠿</span>
                           <span className={`${styles.caret} ${!item.collapsed ? styles.caretOpen : ''}`}>▶</span>
                           <span className={styles.groupHeaderLabel}>{item.label || 'Group'}</span>
                           <span className={styles.groupHeaderCount}>{(headerStats[item.id]?.done) || 0} / {(headerStats[item.id]?.total) || 0}</span>
@@ -1515,12 +1476,14 @@ export function TravelListPage() {
                           </div>
                         </div>
                       ) : (
-                        <label
-                          className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''} ${dragItem && dragItem.itemId === item.id ? styles.itemDragging : ''}`}
-                          draggable
-                          onDragStart={(e) => { setDragItem({ sectionId: section.id, itemId: item.id }); e.dataTransfer.effectAllowed = 'move'; }}
-                          onDragEnd={clearDrag}
-                        >
+                        <label className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''}`}>
+                          <span
+                            className={styles.grip}
+                            title={`Drag "${displayLabel(item.label, section.name)}" to another list, group or category`}
+                            aria-label={`Drag ${displayLabel(item.label, section.name)}`}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            {...gripProps({ sectionId: section.id, itemId: item.id }, displayLabel(item.label, section.name))}
+                          >⠿</span>
                           {!hasChildren ? (
                             <input
                               type="checkbox"
@@ -1531,10 +1494,7 @@ export function TravelListPage() {
                           ) : (
                             <span className={styles.checkbox} style={{ background: 'transparent' }} />
                           )}
-                          <div
-                            className={styles.itemBody}
-                            title="Drag to move"
-                          >
+                          <div className={styles.itemBody}>
                             <div className={`${styles.itemLabel} ${!hasChildren && item.checked ? styles.itemLabelChecked : ''}`}>
                               {displayLabel(item.label, section.name)}
                               {item.category && <span className={styles.itemCatBadge}>{item.category}</span>}
