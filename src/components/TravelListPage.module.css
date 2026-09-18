@@ -222,3 +222,8 @@
   .grip { padding: 0.5rem 0.55rem; font-size: 1.15rem; opacity: 0.6; }
   .dragHint { bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 }
+
+/* A sub-item’s grip sits in its indent, not beside the row above it. */
+.itemChild .grip { margin-left: -0.15rem; opacity: 0.35; }
+.itemChild .grip:hover { opacity: 1; }
+@media (max-width: 700px) { .itemChild .grip { opacity: 0.5; } }
