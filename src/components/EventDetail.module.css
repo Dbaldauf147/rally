@@ -66,3 +66,15 @@
 .titleBtn:hover, .titleBtn:focus-visible { color: var(--color-accent); text-decoration-color: currentColor; outline: none; }
 .titleInput { min-width: 12rem; max-width: 100%; flex: 1 1 16rem; padding: 0.25rem 0.5rem; border: 1px solid var(--color-accent); border-radius: var(--radius-md); background: var(--color-surface); font-family: inherit; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; color: var(--color-text); }
 .titleInput:focus { outline: none; }
+
+/* Hiding the event from somebody (a surprise party). Organizer-only, and it
+   sits with the other organizer actions. */
+.hidePanel { flex-basis: 100%; margin-top: 0.5rem; padding: 0.85rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.hideHead { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.hideNote { margin: 0.3rem 0 0.6rem; font-size: 0.8rem; line-height: 1.45; color: var(--color-text-secondary); }
+.hideList { list-style: none; margin: 0 0 0.6rem; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.hideList li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text); }
+.hideList span { flex: 1; overflow-wrap: anywhere; }
+.hideAdd { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.hideSelect, .hideInput { flex: 1 1 12rem; min-width: 0; padding: 0.45rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-family: inherit; font-size: 0.85rem; color: var(--color-text); }
+.hideSelect:focus, .hideInput:focus { outline: none; border-color: var(--color-accent); }

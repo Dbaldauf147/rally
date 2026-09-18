@@ -51,6 +51,10 @@ export default async function handler(req, res) {
       const startedAt = new Date(ar.startedAt);
       const daysSinceStart = Math.floor((now - startedAt) / (1000 * 60 * 60 * 24));
       const members = event.members || {};
+      // Somebody the event is hidden from doesn't get told about it by email
+      // either — that would give the surprise away.
+      const hiddenFrom = new Set((Array.isArray(event.hiddenFrom) ? event.hiddenFrom : [])
+        .map((e) => String(e || '').trim().toLowerCase()));
 
       // Get open date options to determine who has voted
       const dateOptsSnap = await db.collection('events').doc(eventId).collection('dateOptions').get();
@@ -68,6 +72,7 @@ export default async function handler(req, res) {
         if (!m || typeof m !== 'object') continue;
         if (!m.email) continue;
         if (m.skipVote) continue;
+        if (hiddenFrom.has(String(m.email || '').trim().toLowerCase())) continue;
         if (voterUids.has(uid)) continue; // already voted
 
         const sent = m.autoRemindersSent || 0;
