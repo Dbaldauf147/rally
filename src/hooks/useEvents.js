@@ -3,6 +3,7 @@ import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { activeOccurrence, isRecurring } from '../lib/recurrence';
+import { visibleEvents } from '../lib/eventVisibility';
 
 // A yearly event lives in a single doc whose date/endDate are one occurrence
 // (the anchor). Every consumer of this list — dashboard, cards, the Plans grid,
@@ -51,7 +52,9 @@ export function useEvents() {
 
     function mergeAndUpdate() {
       const now = new Date();
-      const items = [...eventsMap.values()].map(e => withCurrentOccurrence(e, now));
+      // An event hidden from this person never reaches their dashboard, their
+      // plans or their calendar — see lib/eventVisibility.js.
+      const items = visibleEvents([...eventsMap.values()], user.email).map(e => withCurrentOccurrence(e, now));
       items.sort((a, b) => {
         const aDate = a.date?.toDate?.() || new Date(a.date);
         const bDate = b.date?.toDate?.() || new Date(b.date);

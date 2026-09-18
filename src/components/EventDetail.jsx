@@ -44,6 +44,7 @@ import {
   setAutoSyncEnabled,
 } from '../googleCalendar';
 import { isPinned, togglePin, renamePin, subscribePins } from '../pinnedTrips';
+import { isHiddenFrom, hiddenPeople, addHiddenFrom, removeHiddenFrom, cleanEmail } from '../lib/eventVisibility';
 import styles from './EventDetail.module.css';
 import { DateField } from './DateField';
 
@@ -102,6 +103,9 @@ export function EventDetail() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+  // Who the event is hidden from, from the organizer's panel below.
+  const [hideOpen, setHideOpen] = useState(false);
+  const [hideDraft, setHideDraft] = useState('');
   // Renaming the event from its own title. null = not renaming.
   const [titleDraft, setTitleDraft] = useState(null);
   const [savingTitle, setSavingTitle] = useState(false);
@@ -590,6 +594,10 @@ export function EventDetail() {
 
   if (loading) return <div className={styles.loading}>Loading...</div>;
   if (!event) return <div className={styles.loading}>Event not found</div>;
+  // Hidden from this person: the event is not theirs to look at, even with the
+  // link. Same words as an event that isn't there, so the page doesn't
+  // announce that there is something they can't see.
+  if (isHiddenFrom(event, user?.email)) return <div className={styles.loading}>Event not found</div>;
 
   const date = event.date?.toDate ? event.date.toDate() : new Date(event.date);
   const endDate = event.endDate?.toDate ? event.endDate.toDate() : event.endDate ? new Date(event.endDate) : null;
@@ -762,6 +770,28 @@ export function EventDetail() {
   const myRsvp = event.members?.[user?.uid]?.rsvp || 'pending';
   // Whoever may edit the event may set its time.
   const canEditTime = canManageMembers;
+
+  /* Hiding the event from somebody.
+
+     The organizer's own address and the person doing the hiding are refused
+     by addHiddenFrom: hiding the event from yourself would take away the page
+     that holds this control. */
+  async function hideFrom(email) {
+    const owner = Object.values(event.members || {}).find((m) => m?.role === 'owner');
+    const except = [user?.email, owner?.email].filter(Boolean);
+    const next = addHiddenFrom(event.hiddenFrom, email, { except });
+    if (next.length === (event.hiddenFrom || []).length) return;
+    await updateEvent(eventId, { hiddenFrom: next });
+    setHideDraft('');
+    setResult({ type: 'success', message: `Hidden from ${cleanEmail(email)}` });
+    setTimeout(() => setResult(null), 3000);
+  }
+
+  async function unhideFrom(email) {
+    await updateEvent(eventId, { hiddenFrom: removeHiddenFrom(event.hiddenFrom, email) });
+    setResult({ type: 'success', message: `${cleanEmail(email)} can see this again` });
+    setTimeout(() => setResult(null), 3000);
+  }
 
   /* Renaming the event.
 
@@ -3637,7 +3667,7 @@ export function EventDetail() {
                 </button>
               )}
               {stage === 'voting' && (() => {
-                const nonResponders = members.filter(([uid, m]) => uid !== user?.uid && !['yes', 'maybe', 'no'].includes(m.rsvp) && m.email);
+                const nonResponders = members.filter(([uid, m]) => uid !== user?.uid && !['yes', 'maybe', 'no'].includes(m.rsvp) && m.email && !isHiddenFrom(event, m.email));
                 if (nonResponders.length === 0) return null;
                 return (
                   <button className={styles.editBtn} disabled={reminderSending} onClick={async () => {
@@ -3684,6 +3714,54 @@ export function EventDetail() {
                 style={{ background: '#EEF2FF', borderColor: '#6366F1', color: '#3730A3' }}
               >📊 Email Status Update</button>
               <button className={styles.editBtn} onClick={() => setEditing(true)}>Edit Event</button>
+              <button
+                className={styles.editBtn}
+                onClick={() => setHideOpen((v) => !v)}
+                aria-expanded={hideOpen}
+              >🙈 Hide from…{(event.hiddenFrom || []).length > 0 ? ` (${(event.hiddenFrom || []).length})` : ''}</button>
+              {hideOpen && (
+                <div className={styles.hidePanel}>
+                  <div className={styles.hideHead}>Hide this event from</div>
+                  <p className={styles.hideNote}>
+                    They won&rsquo;t see it on their dashboard, plans or calendar, the page says
+                    &ldquo;Event not found&rdquo; if they open the link, and the reminder emails skip them.
+                    It stays on their guest list for you.
+                  </p>
+                  {hiddenPeople(event).length > 0 && (
+                    <ul className={styles.hideList}>
+                      {hiddenPeople(event).map((p0) => (
+                        <li key={p0.email}>
+                          <span>{p0.name ? `${p0.name} — ${p0.email}` : p0.email}</span>
+                          <button type="button" className={styles.editBtn} onClick={() => unhideFrom(p0.email)}>Unhide</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className={styles.hideAdd}>
+                    <select
+                      className={styles.hideSelect}
+                      aria-label="Someone on the guest list"
+                      value=""
+                      onChange={(e) => { if (e.target.value) hideFrom(e.target.value); }}
+                    >
+                      <option value="">Someone on the guest list…</option>
+                      {members
+                        .filter(([, m]) => m.email && !isHiddenFrom(event, m.email) && cleanEmail(m.email) !== cleanEmail(user?.email))
+                        .map(([uid, m]) => <option key={uid} value={m.email}>{m.name || m.email}</option>)}
+                    </select>
+                    <input
+                      className={styles.hideInput}
+                      type="email"
+                      value={hideDraft}
+                      placeholder="or an email address"
+                      aria-label="Email address to hide this event from"
+                      onChange={(e) => setHideDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); hideFrom(hideDraft); } }}
+                    />
+                    <button type="button" className={styles.editBtn} disabled={!hideDraft.includes('@')} onClick={() => hideFrom(hideDraft)}>Hide</button>
+                  </div>
+                </div>
+              )}
               {event.cancelled ? (
                 <button
                   className={styles.editBtn}
