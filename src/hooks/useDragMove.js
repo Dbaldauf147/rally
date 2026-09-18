@@ -37,6 +37,9 @@ export function targetAt(x, y) {
     type,
     sectionId: hit.getAttribute('data-section') || '',
     itemId: hit.getAttribute('data-item') || '',
+    // A sub-item's row says which row it belongs to; without it a drop on one
+    // has nowhere to go.
+    parentId: hit.getAttribute('data-parent') || '',
     category: hit.getAttribute('data-category') || '',
     key: `${type}:${hit.getAttribute('data-section') || ''}:${hit.getAttribute('data-item') || ''}:${hit.getAttribute('data-category') || ''}`,
   };

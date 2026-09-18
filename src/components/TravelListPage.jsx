@@ -7,7 +7,7 @@ import { useEvents } from '../hooks/useEvents';
 import { JetLagChecklist } from './JetLagChecklist';
 import styles from './TravelListPage.module.css';
 import { useDragMove } from '../hooks/useDragMove';
-import { applyDrop, nestAllowed, isMiddle } from '../lib/travelMove';
+import { applyDrop, nestAllowed, isMiddle, findNode } from '../lib/travelMove';
 import { isOwnerEmail } from '../lib/pagePrivacy';
 import { DateField } from './DateField';
 
@@ -693,7 +693,7 @@ export function TravelListPage() {
   const { drag, gripProps } = useDragMove((payload, target, point) => {
     if (!payload || !target) return;
     updateList((l) => {
-      const dragged = l.sections.find((s0) => s0.id === payload.sectionId)?.items.find((i) => i.id === payload.itemId);
+      const dragged = findNode(l, payload);
       // The middle of a row nests, its edges reorder — the gesture #260 added,
       // now driven by the pointer so a finger can do it too.
       const nest = target.type === 'item' && nestAllowed(dragged) && isMiddle(point?.y ?? 0, target.rect);
@@ -703,9 +703,7 @@ export function TravelListPage() {
   const dragTargetKey = drag?.target?.key || '';
   // The same question while the drag is still in the air, for the marks on the
   // row under it and for what the hint at the bottom says.
-  const draggedItem = drag?.payload
-    ? (list.sections.find((s0) => s0.id === drag.payload.sectionId)?.items.find((i) => i.id === drag.payload.itemId) || null)
-    : null;
+  const draggedItem = findNode(list, drag?.payload);
   const dropMode = drag?.target?.type === 'item'
     ? (nestAllowed(draggedItem) && isMiddle(drag.y, drag.target.rect) ? 'nest' : 'before')
     : drag?.target?.type || null;
@@ -1274,6 +1272,7 @@ export function TravelListPage() {
               : dropMode === 'header' ? 'Drop into this group'
               : dropMode === 'nest' ? 'Drop inside this item'
               : dropMode === 'before' ? 'Drop above this item'
+              : dropMode === 'child' ? 'Drop above this sub-item'
               : dropMode === 'category' ? `Tag it "${drag.target.category}"`
               : 'Drag onto a list, a group heading or a category'}
           </div>
@@ -1400,21 +1399,13 @@ export function TravelListPage() {
                   if (item.isHeader && emptiedHeaders.has(item.id)) return null; // its items are all switched off
                   const hasChildren = item.children && item.children.length > 0;
                   return (
-                    <div
-                      key={item.id}
-                      className={[
-                        drag?.payload?.itemId === item.id ? styles.itemDragging : '',
-                        dragTargetKey === `item:${section.id}:${item.id}:` && dropMode === 'before' ? styles.itemDropBefore : '',
-                        dragTargetKey === `item:${section.id}:${item.id}:` && dropMode === 'nest' ? styles.itemDropInto : '',
-                        dragTargetKey === `header:${section.id}:${item.id}:` ? styles.headerDropIn : '',
-                      ].filter(Boolean).join(' ')}
-                      data-drop={item.isHeader ? 'header' : 'item'}
-                      data-section={section.id}
-                      data-item={item.id}
-                    >
+                    <div key={item.id}>
                       {item.isHeader ? (
                         <div
-                          className={styles.groupHeader}
+                          className={[styles.groupHeader, dragTargetKey === `header:${section.id}:${item.id}:` ? styles.headerDropIn : ''].filter(Boolean).join(' ')}
+                          data-drop="header"
+                          data-section={section.id}
+                          data-item={item.id}
                           onClick={() => toggleHeaderCollapsed(section.id, item.id)}
                           title="Click to collapse or expand · drop an item here to file it under this heading"
                         >
@@ -1476,7 +1467,18 @@ export function TravelListPage() {
                           </div>
                         </div>
                       ) : (
-                        <label className={`${styles.item} ${item.isGroup ? styles.itemGroup : ''}`}>
+                        <label
+                          className={[
+                            styles.item,
+                            item.isGroup ? styles.itemGroup : '',
+                            drag?.payload?.itemId === item.id ? styles.itemDragging : '',
+                            dragTargetKey === `item:${section.id}:${item.id}:` && dropMode === 'before' ? styles.itemDropBefore : '',
+                            dragTargetKey === `item:${section.id}:${item.id}:` && dropMode === 'nest' ? styles.itemDropInto : '',
+                          ].filter(Boolean).join(' ')}
+                          data-drop="item"
+                          data-section={section.id}
+                          data-item={item.id}
+                        >
                           <span
                             className={styles.grip}
                             title={`Drag "${displayLabel(item.label, section.name)}" to another list, group or category`}
@@ -1550,7 +1552,26 @@ export function TravelListPage() {
                             </div>
                           </div>
                         ) : (
-                          <label key={child.id} className={`${styles.item} ${styles.itemChild}`}>
+                          <label
+                            key={child.id}
+                            className={[
+                              styles.item,
+                              styles.itemChild,
+                              drag?.payload?.itemId === child.id ? styles.itemDragging : '',
+                              dragTargetKey === `child:${section.id}:${child.id}:` ? styles.itemDropBefore : '',
+                            ].filter(Boolean).join(' ')}
+                            data-drop="child"
+                            data-section={section.id}
+                            data-parent={item.id}
+                            data-item={child.id}
+                          >
+                            <span
+                              className={styles.grip}
+                              title={`Drag "${displayLabel(child.label, section.name)}" — reorder it, move it to another item, or take it out on its own`}
+                              aria-label={`Drag ${displayLabel(child.label, section.name)}`}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                              {...gripProps({ sectionId: section.id, parentId: item.id, itemId: child.id }, displayLabel(child.label, section.name))}
+                            >⠿</span>
                             <input
                               type="checkbox"
                               className={styles.checkbox}
