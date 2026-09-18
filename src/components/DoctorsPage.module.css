@@ -614,3 +614,6 @@
 
 /* Delete, and moving a doctor to the former list — side by side on the end of a row. */
 .rowTools { display: flex; align-items: center; justify-content: flex-end; gap: 0.15rem; }
+
+/* The speciality column on Check-ins: narrow, and never wrapped mid-name. */
+.cellType { width: 1%; white-space: nowrap; vertical-align: top; }
