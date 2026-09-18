@@ -965,6 +965,16 @@ export function EventDetail() {
       return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'MMM d')}` : s;
     } catch { return o.note || '—'; }
   };
+  /* Which day of the week that date is — "can you do the 20th?" is really
+     "can you do that Saturday?". It sits on its own line above the date in the
+     vote table's header, because a date column is narrow enough on a phone
+     that "Sat Dec 20" on one line would be clipped. */
+  const fmtOptWeekday = (o) => {
+    try {
+      const s = format(new Date(o.startDate + 'T00:00:00'), 'EEE');
+      return (o.endDate && o.endDate !== o.startDate) ? `${s}–${format(new Date(o.endDate + 'T00:00:00'), 'EEE')}` : s;
+    } catch { return ''; }
+  };
   // Click-to-cycle vote editing, right in the cell. Organizers mostly hear
   // answers by text and fill them in themselves, so cycling beats opening a
   // modal per person per date. Cycles off the person's OWN vote, so clicking
@@ -1146,6 +1156,9 @@ export function EventDetail() {
                 return (
                   <th key={o.id} style={chosen ? { ...th, background: 'linear-gradient(135deg, var(--color-surface) 0%, var(--color-success-light) 100%)', borderBottom: '2px solid var(--color-success)', color: 'var(--color-success)' } : th}>
                     {chosen && <div style={{ fontSize: '0.58rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-success)', marginBottom: '0.1rem' }}>✓ Chosen</div>}
+                    {fmtOptWeekday(o) && (
+                      <div style={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: chosen ? 'var(--color-success)' : 'var(--color-text-muted)' }}>{fmtOptWeekday(o)}</div>
+                    )}
                     <div style={chosen ? { fontWeight: 800, color: 'var(--color-text)' } : undefined}>{fmtOpt(o)}</div>
                     <div title={tallyTitle(t)} style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '0.3rem', fontSize: '0.62rem', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}>
                       <span style={{ color: '#16A34A' }}>Going {t.yes}</span>
