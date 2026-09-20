@@ -95,6 +95,19 @@
 .cellName { width: 20%; }
 .name { font-size: 0.9rem; font-weight: 650; color: var(--color-text); line-height: 1.3; }
 .sub { margin-top: 0.1rem; font-size: 0.78rem; color: var(--color-text-muted); }
+
+/* Replacing the doctor a speciality is seen by, from the row that names them.
+   Quiet until the row is under the cursor: it is an action you take once every
+   few years, and it should not compete with the name beside it. */
+.newDoctorBtn { padding: 0.05rem 0.4rem; border: 1px solid transparent; border-radius: var(--radius-full); background: none; font-family: inherit; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; opacity: 0; cursor: pointer; }
+.row:hover .newDoctorBtn, .newDoctorBtn:focus-visible { opacity: 1; border-color: var(--color-border); color: var(--color-accent); }
+/* A touch screen has no hover to reveal it with, so there it just shows. */
+@media (hover: none) { .newDoctorBtn { opacity: 1; border-color: var(--color-border); } }
+
+/* Who the speciality used to be. A link, not a label: it opens the pop-up at
+   the former doctors, which is where their history is. */
+.wasLine { display: block; max-width: 100%; margin-top: 0.15rem; padding: 0; border: none; background: none; font-family: inherit; font-size: 0.78rem; color: var(--color-text-muted); text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.wasLine:hover, .wasLine:focus-visible { color: var(--color-accent); text-decoration: underline; }
 .muted { margin-top: 0.15rem; font-size: 0.8rem; color: var(--color-text-muted); }
 .cellIssue { width: 20%; }
 .cellMeds { width: 17%; }
@@ -546,6 +559,8 @@
 .recTitle { font-size: 1.05rem; font-weight: 700; line-height: 1.3; color: var(--color-text); overflow-wrap: anywhere; }
 .recHead .badge, .recHead .badgeLive { margin-top: 0.15rem; flex-shrink: 0; }
 .recSub { font-size: 0.85rem; color: var(--color-text-muted); overflow-wrap: anywhere; }
+/* The same "Was:" line on a phone card. */
+.recWas { align-self: flex-start; font-size: 0.82rem; color: var(--color-text-muted); text-decoration: underline; overflow-wrap: anywhere; cursor: pointer; }
 .recIssue { margin-top: 0.15rem; font-size: 0.95rem; line-height: 1.4; color: var(--color-text); overflow-wrap: anywhere; }
 .recLine { font-size: 0.88rem; line-height: 1.4; color: var(--color-text-secondary); overflow-wrap: anywhere; }
 .recKey { margin-right: 0.35rem; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }

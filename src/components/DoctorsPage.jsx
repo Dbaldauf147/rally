@@ -14,7 +14,7 @@ import {
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
   dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
-  isCheckInEntry, isFormerEntry, setEntryFormer, setDoctorCalendar, pendingAppointments, sameType, issueRecord,
+  isCheckInEntry, isFormerEntry, setEntryFormer, formerDoctorsByType, setDoctorCalendar, pendingAppointments, sameType, issueRecord,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts,
   linkAppointment, ignoreAppointment, unignoreAppointment,
@@ -1326,10 +1326,18 @@ function ImageGallery({ uid, entry, title, startId, update, onClose }) {
    it, the questions for all of them in a second table. A doctor's name opens
    their own pop-up, which is where phone, email and address live. A phone
    scrolls the tables sideways, as it does the page's own. */
-function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
+function TypeDetail({ uid, list, type, entries, daysFrom, update, focusFormer, onClose }) {
   const [gallery, setGallery] = useState(null); // { entryId, imageId }
   // Keeps the Former doctors heading up while the first one is being filled in.
   const [addingFormer, setAddingFormer] = useState(false);
+  /* Opened from a row's "Was:" line, the pop-up is being asked for the history
+     rather than for the doctor already on the row above it — so it scrolls
+     there, once, and leaves the scroll alone afterwards. */
+  const formerRef = useRef(null);
+  useEffect(() => {
+    if (!focusFormer) return;
+    formerRef.current?.scrollIntoView?.({ block: 'center' });
+  }, [focusFormer]);
   const [contactId, setContactId] = useState(null); // entry id
   const narrow = useIsNarrow();
 
@@ -1831,7 +1839,7 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
             they sit down here and off the Check-ins tab. */}
         {(former.length > 0 || addingFormer) && (
           <>
-            <div className={styles.modalSection}>
+            <div className={styles.modalSection} ref={formerRef}>
               Former doctors
               <span className={styles.groupCount}>{former.length}</span>
             </div>
@@ -1952,7 +1960,7 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, onClose }) {
    a phone — call, email, get directions — as buttons on the card, and a tap
    opens the whole record full-screen to change anything on it. */
 
-function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImages, onOpenType }) {
+function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImages, onOpenType, onNewDoctor, former, onOpenFormer }) {
   const title = entryTitle(entry, groupType);
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
@@ -1967,7 +1975,7 @@ function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImag
   const scheduled = !!next && !next.overdue;
   const cls = [styles.recCard, resolved && !scheduled && styles.recCardResolved, scheduled && styles.recCardScheduled]
     .filter(Boolean).join(' ');
-  const hasActions = tel || mail || map || link || entry.images.length > 0;
+  const hasActions = tel || mail || map || link || entry.images.length > 0 || onNewDoctor;
 
   return (
     <li className={cls}>
@@ -1989,6 +1997,15 @@ function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImag
           )}
         </span>
         {subtitle ? <span className={styles.recSub}>{subtitle}</span> : null}
+        {former?.length > 0 && (
+          <span
+            className={styles.recWas}
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); onOpenFormer(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenFormer(); } }}
+          >{formerLabel(former, entry.type)} ›</span>
+        )}
         {issue ? <span className={styles.recIssue}>{issue}</span> : null}
         {entry.currentMeds ? <span className={styles.recLine}><span className={styles.recKey}>Meds</span>{entry.currentMeds}</span> : null}
         {entry.notes ? <span className={styles.recNotes}>{entry.notes}</span> : null}
@@ -2006,6 +2023,9 @@ function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImag
       </div>
       {hasActions && (
         <div className={styles.recActions}>
+          {onNewDoctor && (
+            <button type="button" className={styles.recAction} onClick={onNewDoctor}>+ New doctor</button>
+          )}
           {tel && <a className={styles.recAction} href={tel}>Call</a>}
           {mail && <a className={styles.recAction} href={mail}>Email</a>}
           {map && <a className={styles.recAction} href={map} target="_blank" rel="noreferrer">Directions</a>}
@@ -2253,7 +2273,16 @@ function TypeChip({ type, onOpen, className }) {
   );
 }
 
-function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages, onOpenContact, onOpenType }) {
+/* "Was: Dr. Uliasz" — who the speciality used to be, on the row that replaced
+   them. The one filed most recently is last in the list; the rest are a count,
+   because the row has no width for a queue of names and the pop-up the line
+   opens lists them all anyway. */
+function formerLabel(former, type) {
+  const name = entryTitle(former[former.length - 1], type);
+  return former.length > 1 ? `Was: ${name} +${former.length - 1}` : `Was: ${name}`;
+}
+
+function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages, onOpenContact, onOpenType, onNewDoctor, former, onOpenFormer }) {
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
   // Notes live under the issue unless a Notes column is carrying them, in
@@ -2300,7 +2329,26 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
         <>
           <div className={styles.nameLine}>
             <DoctorNameButton className={styles.name} name={entryTitle(entry, groupType)} onOpen={onOpenContact} />
+            {onNewDoctor && (
+              <button
+                type="button"
+                className={styles.newDoctorBtn}
+                title={`Add a new ${typeHeading(entry.type)} doctor — this one moves to the former list`}
+                aria-label={`Add a new ${typeHeading(entry.type)} doctor`}
+                onClick={(e) => { e.stopPropagation(); onNewDoctor(); }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >+ New doctor</button>
+            )}
           </div>
+          {former?.length > 0 && (
+            <button
+              type="button"
+              className={styles.wasLine}
+              title={`Show the ${typeHeading(entry.type)} doctors you used to see`}
+              onClick={(e) => { e.stopPropagation(); onOpenFormer(); }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >{formerLabel(former, entry.type)} ›</button>
+          )}
           {subtitle ? <div className={styles.sub}>{subtitle}</div> : null}
           {entry.images.length > 0 && (
             <button
@@ -2552,12 +2600,20 @@ export function DoctorsPage() {
   // the check-ins lane, where a row is a schedule or a number worth keeping.
   // Neither the column nor the filter pills show there.
   const showStatus = lane !== 'checkins';
+  // The record just added here, which holds its speciality's row on Check-ins
+  // until it has something to say for itself. Kept for the session, not stored:
+  // once it has a name or a cadence it earns the row on its own.
+  const [justAdded, setJustAdded] = useState('');
   const groups = useMemo(
     // A status picked on Issues must not go on quietly hiding rows once the
     // pills that set it are gone, so the filter lifts with them.
-    () => groupByType(safeList, { query, status: showStatus ? status : 'all', lane }),
-    [safeList, query, status, showStatus, lane],
+    () => groupByType(safeList, { query, status: showStatus ? status : 'all', lane, pinned: justAdded }),
+    [safeList, query, status, showStatus, lane, justAdded],
   );
+  // The doctors each speciality used to see, for the "Was:" line under the one
+  // it sees now.
+  const formerByType = useMemo(() => formerDoctorsByType(safeList), [safeList]);
+  const formerFor = (type) => formerByType.get(String(type || '').trim().toLowerCase()) || null;
   const lanes = useMemo(() => laneCounts(safeList), [safeList]);
   // Every column, for the manager; the showing ones, for the table.
   const allColumns = useMemo(() => resolveColumns(safeList), [safeList]);
@@ -2580,6 +2636,9 @@ export function DoctorsPage() {
   // edit syncing in from another device shows in it, and a type that has
   // emptied out closes it.
   const [detailType, setDetailType] = useState(null);
+  // Opened from a "Was:" line, so the pop-up should land on the history rather
+  // than on the doctor you already had in front of you.
+  const [detailFocus, setDetailFocus] = useState('');
   // Every record under the speciality, not just the check-ins the heading sat
   // over: the issues filed there belong in the same pop-up. Read from the whole
   // list rather than the filtered groups, so a search doesn't hide half of it.
@@ -2587,18 +2646,39 @@ export function DoctorsPage() {
     () => (detailType === null ? [] : entries.filter((e) => sameType(e.type, detailType))),
     [entries, detailType],
   );
-  const closeDetail = useCallback(() => setDetailType(null), []);
+  const closeDetail = useCallback(() => { setDetailType(null); setDetailFocus(''); }, []);
 
   function handleAdd() {
     const blank = emptyEntry();
     update((l) => addEntry(l, blank));
     setManagingTypes(false);
     setManagingColumns(false);
+    setJustAdded(blank.id);
     // Open the new row's first cell, so adding a record lands you in it rather
     // than leaving you to find the empty line. On a phone, open it full-screen.
     if (narrow) setSheet({ id: blank.id, added: true });
     else setOpenCell({ id: blank.id, col: 'name' });
   }
+
+  /* A new doctor for a speciality you already see someone for.
+   *
+   * The one being replaced moves to the speciality's former list rather than
+   * being edited over: what they treated, prescribed and were asked is the
+   * history you keep a page like this for, and it stays under the speciality
+   * where the new doctor will want it. The new record takes the row — pinned,
+   * since a blank one would otherwise lose it back to the doctor it replaced —
+   * and opens for typing, the same way + Add does. */
+  function handleNewDoctor(entry) {
+    const blank = normalizeEntry({ id: makeId(), type: entry.type, status: STATUS.NONE });
+    update((l) => addEntry(setEntryFormer(l, entry.id, true), blank));
+    setManagingTypes(false);
+    setManagingColumns(false);
+    setJustAdded(blank.id);
+    if (narrow) setSheet({ id: blank.id, added: true });
+    else setOpenCell({ id: blank.id, col: 'name' });
+  }
+
+  const openFormer = (type) => { setOpenCell(null); setDetailType(type); setDetailFocus('former'); };
 
   const sheetEntry = sheet ? entries.find((e) => e.id === sheet.id) : null;
   const closeSheet = useCallback(() => {
@@ -2796,6 +2876,9 @@ export function DoctorsPage() {
                     onOpen={() => setSheet({ id: entry.id, added: false })}
                     onOpenImages={() => setPageGallery(entry.id)}
                     onOpenType={lane === 'checkins' ? () => setDetailType(entry.type) : null}
+                    onNewDoctor={lane === 'checkins' && entry.type ? () => handleNewDoctor(entry) : null}
+                    former={lane === 'checkins' ? formerFor(entry.type) : null}
+                    onOpenFormer={() => openFormer(entry.type)}
                   />
                 ))}
               </ul>
@@ -2859,6 +2942,9 @@ export function DoctorsPage() {
                     onOpenImages={() => setPageGallery(entry.id)}
                     onOpenContact={() => { setOpenCell(null); setContactFor(entry.id); }}
                     onOpenType={lane === 'checkins' ? () => { setOpenCell(null); setDetailType(entry.type); } : null}
+                    onNewDoctor={lane === 'checkins' && entry.type ? () => handleNewDoctor(entry) : null}
+                    former={lane === 'checkins' ? formerFor(entry.type) : null}
+                    onOpenFormer={() => openFormer(entry.type)}
                   />
                 ))}
               </tbody>
@@ -2910,6 +2996,7 @@ export function DoctorsPage() {
           entries={detailEntries}
           daysFrom={daysFrom}
           update={update}
+          focusFormer={detailFocus === 'former'}
           onClose={closeDetail}
         />
       )}
