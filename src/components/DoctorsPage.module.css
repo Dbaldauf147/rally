@@ -318,21 +318,33 @@
    greyed out — it reads as a row that failed to load. */
 .rowResolved .name { color: var(--color-text-muted); }
 
-/* Booked: an actual date on the calendar, not a cadence saying you are due.
-   The tint is deliberately faint — a whole row of solid green would shout over
-   the numbers it is meant to be framing — and the left edge carries the signal
-   so it still reads on a row that is also greyed out. */
-.rowBooked td, .rowBooked th { background: #f0fdf4; }
+/* Scheduled: a next visit still ahead, whether it is on the calendar or
+   counted from a cadence. The tint is deliberately faint — a whole row of
+   solid green would shout over the numbers it is meant to be framing — and the
+   left edge carries the signal so it still reads on a row that is also greyed
+   out. An overdue row gets none of this: its date is red in the column, and a
+   green row would say the opposite of what it means. */
+.rowScheduled td, .rowScheduled th { background: #f0fdf4; }
 /* --color-success-light IS #dcfce7, so using the token for the resting state
-   would leave a booked row with no hover feedback at all. The faint tint is
+   would leave a scheduled row with no hover feedback at all. The faint tint is
    where it rests; the token is what it brightens to. */
-.rowBooked:hover td, .rowBooked:hover th { background: var(--color-success-light); }
-.rowBooked td:first-child, .rowBooked th:first-child { box-shadow: inset 3px 0 0 var(--color-success, #16a34a); }
+.rowScheduled:hover td, .rowScheduled:hover th { background: var(--color-success-light); }
+.rowScheduled td:first-child, .rowScheduled th:first-child { box-shadow: inset 3px 0 0 var(--color-success, #16a34a); }
 /* Green wins over grey on a row that is both: the follow-up is the live fact. */
-.rowBooked td, .rowBooked th { font-style: normal; }
-/* And back to full strength on a row that is also booked: a resolved issue
-   with a follow-up on the calendar is a live thing, not history. */
-.rowBooked .cellName, .rowBooked .name { color: var(--color-text); }
+.rowScheduled td, .rowScheduled th { font-style: normal; }
+/* And back to full strength there too: a resolved issue with a follow-up still
+   ahead of it is a live thing, not history. */
+.rowScheduled .cellName, .rowScheduled .name { color: var(--color-text); }
+
+/* Check-ins, flush left.
+
+   The counters sit right-aligned everywhere else so a column of numbers lines
+   up on its digits. Check-ins is read a row at a time rather than down a
+   column — "when am I next due for this?" — and there the ragged gap between a
+   heading and its number is just a gap. Every cell starts where the one above
+   it starts. */
+.table.tableLeft th, .table.tableLeft td { text-align: left; }
+.table.tableLeft thead th.cellDays { text-align: left; }
 
 /* Questions: what you mean to ask, under whoever you mean to ask it. */
 .questions { margin-bottom: 2rem; }
@@ -527,7 +539,7 @@
 .recCards { display: flex; flex-direction: column; gap: 0.6rem; }
 .recCard { overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); }
 .recCardResolved .recTitle, .recCardResolved .recIssue { color: var(--color-text-muted); }
-.recCardBooked { border-color: var(--color-success); box-shadow: inset 4px 0 0 var(--color-success); }
+.recCardScheduled { border-color: var(--color-success); box-shadow: inset 4px 0 0 var(--color-success); }
 .recMain { display: flex; flex-direction: column; gap: 0.25rem; width: 100%; padding: 0.8rem 0.9rem 0.75rem; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .recMain:active { background: var(--color-surface-alt); }
 .recHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
