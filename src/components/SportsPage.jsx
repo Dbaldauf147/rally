@@ -270,11 +270,15 @@ export function SportsPage() {
 
   // What the preview actually depends on. Keyed as a string so the effect below
   // re-runs on a real content change rather than on every new config object.
+  // Frequency counts: it sets how far back recent scores reach (3 days daily,
+  // a week on weekly and monthly), so switching it changes what the preview
+  // shows.
   const previewKey = useMemo(() => JSON.stringify({
     teams: (config.teams || []).map((t) => `${t.leagueKey}:${t.teamId}`),
     topics: config.topics,
     tz: config.timezone,
-  }), [config.teams, config.topics, config.timezone]);
+    frequency: config.frequency,
+  }), [config.teams, config.topics, config.timezone, config.frequency]);
 
   // Keep the preview on screen without anyone asking for it, and rebuild it when
   // the settings change. Debounced because toggling topics saves on every click
