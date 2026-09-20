@@ -9,6 +9,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { fetchSeasonWithPhases, fetchDraftPicks } from '../lib/espnSeason.js';
 import { fetchKeyPlayers } from '../lib/espnPlayers.js';
+import { fetchGameHighlights, fmtClipLength } from '../lib/espnHighlights.js';
 import { senderAddress } from '../lib/emailSender.js';
 
 if (!getApps().length) {
@@ -152,6 +153,18 @@ async function fetchScheduleEvents(team, seasonType) {
   return data.events || [];
 }
 
+/* How far back "recent scores" reaches, by how often the digest goes out.
+ *
+ * A daily email only has to cover yesterday, so three days is plenty of
+ * overlap. A weekly one arriving with three days of scores left most of the
+ * week it's reporting on unmentioned — and, now, unwatchable. A month of box
+ * scores would swamp the email instead, so monthly stops at a week too: the
+ * part of the month still worth catching up on.
+ */
+export function resultWindowDays(frequency) {
+  return frequency === 'weekly' || frequency === 'monthly' ? 7 : 3;
+}
+
 // Recent results + upcoming games from the team's schedule endpoint, exhibition
 // games excluded. The endpoint defaults to whichever phase the league is in
 // right now, so through August an NFL team comes back with nothing BUT
@@ -161,7 +174,7 @@ async function fetchScheduleEvents(team, seasonType) {
 // alongside week 1) keeps its real games. If the regular season isn't published
 // yet (the NBA in August), there's genuinely nothing to show and the team falls
 // away, which is the right answer.
-async function fetchTeamSchedule(team) {
+async function fetchTeamSchedule(team, resultDays = 3) {
   const scheduled = await fetchScheduleEvents(team);
   const isExhibition = (ev) => isPreseasonEvent(ev, team.sportPath);
   let events = scheduled.filter((ev) => !isExhibition(ev));
@@ -187,8 +200,8 @@ async function fetchTeamSchedule(team) {
       score: c.score?.displayValue ?? (c.score != null ? String(c.score) : ''),
       winner: !!c.winner,
     }));
-    if (completed && when >= now - 3 * DAY) {
-      results.push({ when, iso: ev.date, competitors });
+    if (completed && when >= now - resultDays * DAY) {
+      results.push({ when, iso: ev.date, eventId: String(ev.id ?? ''), competitors });
     } else if (!completed && when >= now - 6 * 3600000) {
       upcoming.push({ when, iso: ev.date, competitors });
     }
@@ -367,15 +380,31 @@ function fmtSeasonDate(iso, tz) {
    wrong with the numbers; they were just answers to a question nobody asked.
    Standings now follow the same rule the games sections do: skipped entirely
    until the phase that counts starts, with a line saying when that is. */
-async function fetchTeamDigest(team, topics, standingsCache, season) {
+// Highlights cost one summary fetch per game, and those payloads are heavy
+// (every play of the game rides along), so a week of a daily sport is where it
+// stops. Older games in the window still show their score, just no link.
+const HIGHLIGHT_GAMES = 7;
+
+// Best-effort, and per game: a summary that fails or has no usable video costs
+// that game its link and nothing else.
+async function attachHighlights(team, results) {
+  const recent = results.slice(-HIGHLIGHT_GAMES);
+  await Promise.all(recent.map(async (g) => {
+    if (!g.eventId) return;
+    g.highlights = await fetchGameHighlights(team.sportPath, g.eventId).catch(() => []);
+  }));
+}
+
+async function fetchTeamDigest(team, topics, standingsCache, season, resultDays = 3) {
   const out = { name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null, keyPlayers: null };
   // Started alongside the schedule rather than after it; best-effort, so a
   // failure here costs the players block and nothing else.
   const players = topics.players ? fetchKeyPlayers(team, season).catch(() => null) : null;
   if (topics.scores || topics.upcoming) {
-    const sched = await fetchTeamSchedule(team);
+    const sched = await fetchTeamSchedule(team, resultDays);
     out.results = sched.results;
     out.upcoming = sched.upcoming;
+    if (topics.scores) await attachHighlights(team, out.results);
   }
   if (players) out.keyPlayers = await players;
   if (topics.standings) {
@@ -402,24 +431,50 @@ const TABLE_OPEN = '<table role="presentation" cellpadding="0" cellspacing="0" b
 const TH = 'font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;color:#9ca3af;font-weight:600;padding:0 0 4px;border-bottom:1px solid #e5e7eb;';
 const CELL = 'padding:5px 0;border-bottom:1px solid #f1f0ed;';
 
+// Team names come from a fixed league list, but clip headlines are free text
+// ESPN wrote ("D-backs walk-off on Smith's 2-run homer"), so they get escaped.
+const escapeHtml = (s) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* The watch-this line under a final score: one link when ESPN cut a reel, or
+ * the plays themselves when it didn't, never more than two minutes of footage
+ * either way. Exported for tests.
+ *
+ * The reel is labelled "Game highlights" rather than by its headline, which is
+ * just the matchup again ("Yankees vs. Diamondbacks: Game Highlights") one line
+ * under the scoreboard that said so.
+ */
+export function highlightsLinks(clips) {
+  if (!clips || clips.length === 0) return '';
+  const link = (c) =>
+    `<a href="${escapeHtml(c.href)}" style="color:#4f46e5;text-decoration:none;font-weight:600;">${c.kind === 'reel' ? 'Game highlights' : escapeHtml(c.title)}</a>` +
+    `<span style="color:#9ca3af;font-weight:400;"> ${fmtClipLength(c.duration)}</span>`;
+  return `<span style="color:#9ca3af;">▶</span> ${clips.map(link).join('<span style="color:#d1d5db;"> · </span>')}`;
+}
+
 // Recent results as a scoreboard: two rows per game, winner bolded, with the
-// day carried in a narrow left column that spans both.
-function resultsTable(games, tz) {
+// day carried in a narrow left column that spans them — and the game's
+// highlights, where there are any, on a third row underneath.
+export function resultsTable(games, tz) {
   const rows = games.map((g) => {
     const away = g.competitors.find((c) => !c.home) || g.competitors[0];
     const home = g.competitors.find((c) => c.home) || g.competitors[1];
+    const watch = highlightsLinks(g.highlights);
     const side = (c, last) => {
       const weight = c?.winner ? 700 : 400;
       const border = last ? CELL : 'padding:5px 0 0;';
       return `<td style="${border}color:#1f2937;font-weight:${weight};">${logoImg(c?.logo, c?.abbrev || '')} ${c?.name || c?.abbrev || '?'}</td>
         <td align="right" style="${border}color:#111827;font-weight:${weight};white-space:nowrap;">${c?.score ?? ''}</td>`;
     };
+    // The rule under a game belongs below everything it covers, so the links
+    // row carries it and the home row gives it up.
     return `
       <tr>
-        <td rowspan="2" width="86" valign="middle" style="${CELL}color:#9ca3af;font-size:0.72rem;white-space:nowrap;">${fmtGameDay(g.iso, tz)}</td>
+        <td rowspan="${watch ? 3 : 2}" width="86" valign="middle" style="${CELL}color:#9ca3af;font-size:0.72rem;white-space:nowrap;">${fmtGameDay(g.iso, tz)}</td>
         ${side(away, false)}
       </tr>
-      <tr>${side(home, true)}</tr>`;
+      <tr>${side(home, !watch)}</tr>
+      ${watch ? `<tr><td colspan="2" style="${CELL}padding-top:3px;font-size:0.76rem;line-height:1.5;">${watch}</td></tr>` : ''}`;
   }).join('');
   return `${TABLE_OPEN}${rows}</table>`;
 }
@@ -740,7 +795,7 @@ function buildOffSeasonBlock(offSeason, tz) {
     </div>`;
 }
 
-function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams, openers) {
+function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams, openers, resultDays = 3) {
   // The banner rides with the season calendars: both answer "where is this
   // league in its year", so turning that topic off turns off both.
   const bannerBlock = topics.seasons ? buildSeasonBanner(openers, tz) : '';
@@ -774,7 +829,7 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams,
       const first = blocks.length === 0;
       const scores = topics.scores && `${sectionLabel('Recent scores', first)}${t.results.length
         ? resultsTable(t.results, tz)
-        : '<div style="color:#9ca3af;">No games in the last few days.</div>'}`;
+        : `<div style="color:#9ca3af;">No games in the last ${resultDays} days.</div>`}`;
       const upcoming = topics.upcoming && `${sectionLabel('Upcoming', first)}${t.upcoming.length
         ? upcomingTable(t.upcoming, tz)
         : '<div style="color:#9ca3af;">No upcoming games scheduled.</div>'}`;
@@ -832,6 +887,9 @@ async function buildDigestForUser(userData) {
   }
 
   const tz = cfg.timezone || 'America/New_York';
+  // How much of the recent past this send is responsible for — a weekly digest
+  // reports on a week, so its scores (and their highlights) cover one.
+  const resultDays = resultWindowDays(cfg.frequency);
 
   // Seasons are league-level: one per distinct league among the teams. Fetched
   // even when the calendars topic is off, because they decide which teams are
@@ -856,7 +914,7 @@ async function buildDigestForUser(userData) {
   const digests = [];
   for (const team of inSeasonTeams) {
     try {
-      digests.push(await fetchTeamDigest(team, topics, standingsCache, seasonByPath.get(team.sportPath)));
+      digests.push(await fetchTeamDigest(team, topics, standingsCache, seasonByPath.get(team.sportPath), resultDays));
     } catch (err) {
       digests.push({ name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null, error: err.message });
     }
@@ -908,7 +966,7 @@ async function buildDigestForUser(userData) {
     lookbackDays: OPENER_LOOKBACK_DAYS[cfg.frequency || 'daily'] ?? 8,
   });
 
-  const html = buildEmailHtml(digests, tz, topics, seasons, offSeason, draftTeams, openers);
+  const html = buildEmailHtml(digests, tz, topics, seasons, offSeason, draftTeams, openers, resultDays);
   const subject = inSeasonTeams.length
     ? `🏟️ Your Sports digest — ${inSeasonTeams.length} team${inSeasonTeams.length === 1 ? '' : 's'} in season`
     : '🏟️ Your Sports digest — all your leagues are out of season';
