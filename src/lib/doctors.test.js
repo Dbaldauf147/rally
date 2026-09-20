@@ -9,7 +9,7 @@ import {
   BUILTIN_COLUMNS, resolveColumns, visibleColumns, renameColumn, setColumnHidden, moveColumn,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
-  isCheckInEntry, isIssueEntry, isFormerEntry, setEntryFormer, laneCounts,
+  isCheckInEntry, isIssueEntry, isFormerEntry, setEntryFormer, laneCounts, checkInEntries,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts, questionMatches, normalizeQuestion,
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
@@ -1553,6 +1553,87 @@ describe('questions', () => {
     l = toggleQuestionTag(l, l.questions[0].id, 'Follow up');
     expect(normalizeList(renameType(l, 'Skin', 'Dermatology')).questions).toHaveLength(1);
     expect(normalizeList(removeType(l, 'Skin')).questionTags).toContain('Follow up');
+  });
+});
+
+/* One row per speciality on Check-ins: "when am I next due for Skin?" is a
+   question about the speciality, and a second skin doctor is an answer to a
+   different one. */
+describe('checkInEntries', () => {
+  const NOW = new Date(2026, 8, 20); // 2026-09-20
+  // A list with a Last visit column, and a date written into whichever rows
+  // are given one — which is what a next visit gets counted from.
+  const build = (entries, lastVisits = {}) => {
+    let l = addField(normalizeList({ types: ['Skin', 'Hair'], entries }), { label: 'Last visit', type: 'date' });
+    const fieldId = l.fields[0].id;
+    for (const [id, value] of Object.entries(lastVisits)) l = setCustomValue(l, id, fieldId, value);
+    return l;
+  };
+  const ids = (l) => checkInEntries(l, NOW).map((e) => e.id);
+
+  it('keeps the speciality once, on the record with a visit ahead of it', () => {
+    const l = build([
+      { id: 'urgent', type: 'Skin', doctor: 'City MD Williamsburg' },
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' },
+    ], { derm: '2026-09-15' });
+    expect(ids(l)).toEqual(['derm']);
+    // Nothing is gone: the speciality's pop-up reads the whole list.
+    expect(l.entries.filter((e) => sameType(e.type, 'Skin'))).toHaveLength(2);
+  });
+
+  it('prefers a booked appointment to a counted one', () => {
+    const l = build([
+      { id: 'counted', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 1 year(s)' },
+      { id: 'booked', type: 'Skin', doctor: 'Dr. Chen', appointments: [{ eventId: 'e1', date: '2026-10-01', title: 'Dr Chen' }] },
+    ], { counted: '2026-09-15' });
+    expect(ids(l)).toEqual(['booked']);
+  });
+
+  it('shows an overdue row rather than one with nothing to say', () => {
+    const l = build([
+      { id: 'bare', type: 'Hair', doctor: '' },
+      { id: 'late', type: 'Hair', doctor: 'Hims', cadence: 'Every 3 months' },
+    ], { late: '2026-01-01' });
+    expect(ids(l)).toEqual(['late']);
+  });
+
+  it('falls back to a cadence, then to whoever has a name', () => {
+    expect(ids(build([
+      { id: 'empty', type: 'Hair' },
+      { id: 'named', type: 'Hair', doctor: 'Hims' },
+    ]))).toEqual(['named']);
+    expect(ids(build([
+      { id: 'named', type: 'Hair', doctor: 'Hims' },
+      { id: 'cadenced', type: 'Hair', doctor: 'Dr. Follicle', cadence: 'Every 6 months' },
+    ]))).toEqual(['cadenced']);
+  });
+
+  it('reads the speciality the way the headings do, whatever the typing', () => {
+    const l = build([
+      { id: 'a', type: 'Skin', doctor: 'Dr. Uliasz' },
+      { id: 'b', type: ' skin ', doctor: 'City MD' },
+    ]);
+    expect(ids(l)).toHaveLength(1);
+  });
+
+  it('leaves records with no speciality a row each', () => {
+    const l = build([
+      { id: 'a', doctor: 'Dr. One' },
+      { id: 'b', doctor: 'Dr. Two' },
+    ]);
+    expect(ids(l)).toEqual(['a', 'b']);
+  });
+
+  it('is what the tab counts and what the tab shows', () => {
+    const l = build([
+      { id: 'urgent', type: 'Skin', doctor: 'City MD' },
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' },
+      { id: 'hair', type: 'Hair', doctor: 'Hims' },
+    ], { derm: '2026-09-15' });
+    expect(laneCounts(l).checkins).toBe(2);
+    expect(groupByType(l, { lane: 'checkins' }).flatMap((g) => g.entries.map((e) => e.id))).toEqual(['derm', 'hair']);
+    // Everything still lists both skin records.
+    expect(groupByType(l, { lane: 'all' }).flatMap((g) => g.entries).length).toBe(3);
   });
 });
 

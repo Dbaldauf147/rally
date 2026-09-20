@@ -515,6 +515,51 @@ export function isCheckInEntry(e, entries = null) {
   return (same.filter((x) => !isFormerEntry(x))[0]?.id ?? e.id) === e.id;
 }
 
+/* The Check-ins rows: the records above, one per speciality.
+ *
+ * Check-ins answers "when am I next due for this?", and that question belongs
+ * to the speciality rather than to each doctor filed under it. Skin carrying
+ * both the dermatologist seen every two years and the urgent-care place walked
+ * into once printed "Skin" twice, and the tab stopped reading as a schedule
+ * and started reading as a list of visits.
+ *
+ * So one row stands for the speciality, and it is the one that answers the
+ * question best: an appointment on the calendar, then a date counted from a
+ * cadence, then one that has gone past (overdue is still a schedule, and the
+ * thing most worth seeing), then a cadence with no last visit to count from,
+ * then a doctor with a name. Nothing is hidden for good — the speciality's
+ * pop-up, which the type opens, still holds every record under it.
+ *
+ * Records with no speciality keep a row each: there is no type for them to be
+ * a duplicate of, and collapsing them would stack unrelated records on top of
+ * one another.
+ */
+export function checkInEntries(list, today = new Date()) {
+  const l = normalizeList(list);
+  const from = daysSinceField(l);
+  const rankOf = (e) => {
+    const next = upcomingVisit(e, from ? customValueOf(e, from) : '', today);
+    if (next?.booked) return 0;
+    if (next && !next.overdue) return 1;
+    if (next) return 2;
+    if (String(e?.cadence || '').trim()) return 3;
+    return hasDoctorName(e) ? 4 : 5;
+  };
+
+  const shown = l.entries.filter((e) => isCheckInEntry(e, l.entries));
+  const rank = new Map(shown.map((e) => [e.id, rankOf(e)]));
+  const best = new Map();
+  for (const e of shown) {
+    const key = String(e.type || '').trim().toLowerCase();
+    if (!key) continue;
+    const held = best.get(key);
+    if (!held || rank.get(e.id) < rank.get(held.id)) best.set(key, e);
+  }
+  const winners = new Set([...best.values()].map((e) => e.id));
+  // Original order, so the grouping below still arranges the page.
+  return shown.filter((e) => !String(e.type || '').trim() || winners.has(e.id));
+}
+
 /* Mark a doctor as one you used to see, or bring them back.
 
    Their records stay exactly as they are — the issues they treated, the meds,
@@ -539,7 +584,8 @@ export function laneCounts(list) {
   const { entries, questions } = normalizeList(list);
   return {
     all: entries.length,
-    checkins: entries.filter((e) => isCheckInEntry(e, entries)).length,
+    // What the tab actually shows: one row per speciality (see checkInEntries).
+    checkins: checkInEntries(list).length,
     issues: entries.filter(isIssueEntry).length,
     // Only the ones still to ask. A tab reading "Questions 34" when 30 of them
     // were answered years ago is a number you learn to ignore.
@@ -571,8 +617,11 @@ const settled = (group) => group.entries.every((e) => e.status === STATUS.RESOLV
 
 export function groupByType(list, { query = '', status = 'all', lane = 'all' } = {}) {
   const { types, fields, entries } = normalizeList(list);
-  const visible = entries.filter((e) =>
-    (status === 'all' || e.status === status) && inLane(e, lane, entries) && matchesQuery(e, query, fields));
+  // Check-ins picks its rows as a set — one per speciality — where the other
+  // lanes test each record on its own.
+  const pool = lane === 'checkins' ? checkInEntries(list) : entries.filter((e) => inLane(e, lane, entries));
+  const visible = pool.filter((e) =>
+    (status === 'all' || e.status === status) && matchesQuery(e, query, fields));
 
   const byStatusThenName = (type) => (a, b) =>
     statusRank(a) - statusRank(b)

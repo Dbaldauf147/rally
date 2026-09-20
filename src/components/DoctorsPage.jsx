@@ -1964,7 +1964,8 @@ function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImag
   const map = mapHref(entry.location);
   const link = safeLink(entry.link);
   const resolved = entry.status === STATUS.RESOLVED;
-  const cls = [styles.recCard, resolved && !next?.booked && styles.recCardResolved, next?.booked && styles.recCardBooked]
+  const scheduled = !!next && !next.overdue;
+  const cls = [styles.recCard, resolved && !scheduled && styles.recCardResolved, scheduled && styles.recCardScheduled]
     .filter(Boolean).join(' ');
   const hasActions = tel || mail || map || link || entry.images.length > 0;
 
@@ -2387,18 +2388,21 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
      up the angular cheilitis is exactly what you want three years later — just
      visibly done with.
 
-     A booked appointment goes green. Not a cadence that says you are due, but
-     an actual date on the calendar, which is the difference between "I should
-     sort this out" and "it is sorted". That is what `booked` distinguishes, and
-     it is worth being the loudest thing on the row.
+     A next visit still ahead goes green — an appointment on the calendar or a
+     date counted from a cadence, either way. Green is the row saying it is
+     taken care of, which is the difference between "I should sort this out"
+     and "it is sorted", and it is worth being the loudest thing on the row.
+     One that has gone past is not: an overdue row is the opposite of sorted,
+     and its date says so in red where the column can be read.
 
-     Both can be true at once, and there the booking wins: an issue that
-     resolved but has a follow-up on the calendar is a live thing, not history,
-     so it comes back to full strength on a green row rather than staying grey
-     and italic underneath it. */
+     Both can be true at once, and there the schedule wins: an issue that
+     resolved but has a follow-up ahead of it is a live thing, not history, so
+     it comes back to full strength on a green row rather than staying grey and
+     italic underneath it. */
   const resolved = entry.status === STATUS.RESOLVED;
-  const booked = !!upcomingVisit(entry, daysFrom ? customValueOf(entry, daysFrom) : '')?.booked;
-  const rowClass = [styles.row, resolved && styles.rowResolved, booked && styles.rowBooked]
+  const next = upcomingVisit(entry, daysFrom ? customValueOf(entry, daysFrom) : '');
+  const scheduled = !!next && !next.overdue;
+  const rowClass = [styles.row, resolved && styles.rowResolved, scheduled && styles.rowScheduled]
     .filter(Boolean).join(' ');
 
   return (
@@ -2802,7 +2806,7 @@ export function DoctorsPage() {
 
       {groups.length > 0 && !narrow && (
         <div className={styles.tableWrap}>
-          <table className={styles.table}>
+          <table className={lane === 'checkins' ? `${styles.table} ${styles.tableLeft}` : styles.table}>
             <thead>
               <tr>
                 {shownColumns.map((col) => (
