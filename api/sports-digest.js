@@ -643,41 +643,276 @@ export function buildSeasonBanner(openers, tz) {
     </div>`;
 }
 
-// Where each in-season league stands today — one line per league, under a
-// small label rather than a heading, since it's a glance before the teams and
-// not a section of its own. The full phase-by-phase calendar stays on the
-// Sports page; the email only answers "what part of the season is this, and
-// how much of it is left". Exported for tests.
-export function buildSeasonBlock(seasons, tz) {
-  if (!seasons || seasons.length === 0) return '';
-  const rows = seasons.map(({ label, season }) => {
-    const phase = currentPhase(season);
-    // Exhibitions are left out of the games sections, so the status line doesn't
-    // announce them either — a league sitting in its preseason counts down to
-    // the phase that does play games instead.
-    const counting = phase && isPreseasonPhase(phase) ? nextCountingPhase(season) : null;
-    let detail;
-    let status = seasonStatusText(season).replace(/^In season · /, '');
-    if (counting) {
-      detail = `${counting.name} starts ${fmtSeasonDate(counting.startDate, tz)}`;
-      status = `in ${daysUntil(counting.startDate)} days`;
-    } else if (phase && !isPreseasonPhase(phase)) {
-      detail = `${phase.name} through ${fmtSeasonDate(phase.endDate, tz)}`;
+/* Where each followed league sits in the year — the season status as a chart.
+ *
+ * A list of end dates answers "how long has this one got left" one league at a
+ * time and never answers the question you actually had, which is what the year
+ * looks like: which sports overlap, where the gaps are, and how far into all of
+ * it today is. So the block is a twelve-month track with a bar per league, and
+ * the dates stay beside it for the reader who wants the exact day.
+ *
+ * The window starts two months before this one rather than in January, because
+ * a calendar year cuts every autumn league in half — the NFL's regular season
+ * runs into the next January and would have nowhere to go. Two months of
+ * hindsight puts today near the left edge and gives the rest of the width to
+ * the part of the year that hasn't happened yet.
+ */
+const TIMELINE_MONTHS = 12;
+const TIMELINE_LEAD_MONTHS = 2;
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const POSTSEASON_LABEL = /post[-\s]?season|playoff|finals|world series|stanley cup|championship/i;
+
+/* How a phase is drawn, or null for one that isn't.
+ *
+ * The draft is a single day, which at a year's width is thinner than the line
+ * it would be drawn with — it stays in the banner and the draft block, where
+ * it has room to be read.
+ */
+function phaseKind(name) {
+  const phase = { name: name || '' };
+  if (isDraftPhase(phase)) return null;
+  if (isOffSeasonPhase(phase)) return 'off';
+  if (isPreseasonPhase(phase)) return 'pre';
+  if (POSTSEASON_LABEL.test(phase.name)) return 'post';
+  return 'regular';
+}
+
+// Each kind in two tones: the one it's drawn in ahead of today, and a faded one
+// behind, so a bar shows how much of itself has already been played without
+// needing a second row to say so.
+const PHASE_TONE = {
+  off: { ahead: '#c9ced7', behind: '#d5d9e0', label: 'Between seasons' },
+  pre: { ahead: '#c7d2fe', behind: '#e0e7ff', label: 'Preseason' },
+  regular: { ahead: '#4f46e5', behind: '#a5b4fc', label: 'Regular season' },
+  post: { ahead: '#312e81', behind: '#818cf8', label: 'Postseason' },
+};
+
+// The empty track either side of a season, in the same before/after pair. The
+// step between the two runs down every row at today's position, which is what
+// makes "we are here" readable across leagues without drawing a line over the
+// bars — email clients have no reliable way to lay one on top.
+const GAP_TONE = { behind: '#e2e5ea', ahead: '#f3f4f6' };
+
+// The twelve months the track covers, each as wide as it really is. Equal
+// twelfths would drift a bar up to three days away from the month label above
+// it, which is exactly the misreading a chart like this exists to prevent.
+function monthTicks(start, end) {
+  const span = end - start;
+  const out = [];
+  let year = new Date(start).getUTCFullYear();
+  let month = new Date(start).getUTCMonth();
+  for (;;) {
+    const from = Date.UTC(year, month, 1);
+    if (from >= end) break;
+    const to = Math.min(Date.UTC(year, month + 1, 1), end);
+    out.push({ label: MONTH_LABELS[month], year, month, width: ((to - from) / span) * 100 });
+    month += 1;
+    if (month > 11) { month = 0; year += 1; }
+  }
+  return out;
+}
+
+/* The chart as numbers: a window, a position for today, and one row of
+ * percentage spans per league.
+ *
+ * Every league asked for comes back, including any whose season falls entirely
+ * outside the window — that row renders as an empty track rather than
+ * disappearing, because a league silently missing from the chart reads as a
+ * league you no longer follow. Exported for tests, which is the only way to
+ * check a layout whose whole job is arithmetic.
+ */
+export function seasonYearSpans(leagues, { now = Date.now() } = {}) {
+  const today = new Date(now);
+  const first = today.getUTCMonth() - TIMELINE_LEAD_MONTHS;
+  const start = Date.UTC(today.getUTCFullYear(), first, 1);
+  const end = Date.UTC(today.getUTCFullYear(), first + TIMELINE_MONTHS, 1);
+  const span = end - start;
+  const pct = (t) => Math.max(0, Math.min(100, ((t - start) / span) * 100));
+
+  const rows = (leagues || []).map(({ label, season }) => {
+    // Leagues ESPN has no phase breakdown for still have a season window, drawn
+    // as one undifferentiated regular season — the only honest reading of the
+    // single pair of dates there is.
+    const source = (season?.phases || []).length
+      ? season.phases.map((p) => ({ kind: phaseKind(p.name), from: Date.parse(p.startDate), to: Date.parse(p.endDate) }))
+      : [{ kind: 'regular', from: Date.parse(season?.startDate), to: Date.parse(season?.endDate) }];
+
+    const clamped = [];
+    for (const s of source) {
+      if (!s.kind || !Number.isFinite(s.from) || !Number.isFinite(s.to) || s.to <= s.from) continue;
+      // An off season is normally the gap between the bars, so drawing it would
+      // double the ink and say nothing. The exception is the one a league is
+      // sitting in right now: without it a dark league gets an empty track,
+      // which reads as a league nobody has any dates for rather than one whose
+      // year hasn't come round yet. Drawn, the bar ends on the day it returns.
+      if (s.kind === 'off' && !(s.from <= now && now < s.to)) continue;
+      const from = Math.max(s.from, start);
+      const to = Math.min(s.to, end);
+      if (to > from) clamped.push({ kind: s.kind, from, to });
+    }
+    clamped.sort((a, b) => a.from - b.from);
+
+    const segments = [];
+    let filled = start;
+    for (const s of clamped) {
+      // ESPN occasionally hands back phases that overlap by a day. Trimming the
+      // later one keeps a row's widths adding up to the track.
+      const from = Math.max(s.from, filled);
+      if (s.to <= from) continue;
+      filled = s.to;
+      // Split at today so the part already played can be drawn faded.
+      const cuts = from < now && now < s.to ? [[from, now], [now, s.to]] : [[from, s.to]];
+      for (const [a, b] of cuts) {
+        segments.push({ kind: s.kind, behind: b <= now, start: pct(a), end: pct(b) });
+      }
+    }
+    return { label, segments };
+  });
+
+  // Read as a cascade: leagues ordered by when they start playing, so the chart
+  // runs top-left to bottom-right instead of in whatever order the teams were
+  // added. Leagues with no games in the window at all — a dark one, or one ESPN
+  // has no dates for — fall to the bottom, since they have no place in the
+  // cascade and the top of the chart belongs to the sport that's on.
+  const opensAt = (row) => row.segments.find((s) => s.kind !== 'off')?.start ?? 101;
+  rows.sort((a, b) => opensAt(a) - opensAt(b) || a.label.localeCompare(b.label));
+  return { start, end, nowPct: pct(now), months: monthTicks(start, end), rows };
+}
+
+const BAR_TABLE = '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;table-layout:fixed;">';
+
+// Bars are empty cells with a background, so they need a height and something
+// inside them to stop Outlook collapsing the row to nothing.
+const barCell = (width, bg) =>
+  `<td width="${width.toFixed(3)}%" style="width:${width.toFixed(3)}%;height:12px;line-height:12px;font-size:0;background:${bg};">&nbsp;</td>`;
+
+// One league's track: its phases in order, with the empty stretches either side
+// drawn too, split at today so the whole row carries the before/after step.
+function timelineBar(segments, nowPct) {
+  const cells = [];
+  const gap = (from, to) => {
+    if (to - from < 0.01) return;
+    if (from < nowPct && nowPct < to) {
+      cells.push(barCell(nowPct - from, GAP_TONE.behind));
+      cells.push(barCell(to - nowPct, GAP_TONE.ahead));
+    } else {
+      cells.push(barCell(to - from, to <= nowPct ? GAP_TONE.behind : GAP_TONE.ahead));
+    }
+  };
+  let cursor = 0;
+  for (const s of segments) {
+    gap(cursor, s.start);
+    cells.push(barCell(s.end - s.start, PHASE_TONE[s.kind][s.behind ? 'behind' : 'ahead']));
+    cursor = s.end;
+  }
+  gap(cursor, 100);
+  return `${BAR_TABLE}<tr>${cells.join('')}</tr></table>`;
+}
+
+// The month scale over the track. January carries its year, since the window
+// crosses one and a bare "Jan" is the one label that could mean either side.
+function timelineMonths(months) {
+  const cells = months.map((m) => {
+    const turn = m.month === 0;
+    const year = turn ? `&nbsp;&rsquo;${String(m.year).slice(2)}` : '';
+    return `<td width="${m.width.toFixed(3)}%" style="width:${m.width.toFixed(3)}%;font-size:0.58rem;letter-spacing:0.03em;color:${turn ? '#4b5563' : '#9ca3af'};font-weight:${turn ? 700 : 600};padding:0 0 3px 3px;border-left:1px solid ${turn ? '#c7cbd3' : '#e5e7eb'};white-space:nowrap;">${m.label}${year}</td>`;
+  }).join('');
+  return `${BAR_TABLE}<tr>${cells}</tr></table>`;
+}
+
+// Today, called out over the track. The label sits to the right of its own
+// position until that would push it off the end, at which point it flips and
+// points back — the caret stays on the date either way.
+function timelineToday(nowPct) {
+  const left = nowPct <= 55;
+  const pad = (left ? nowPct : 100 - nowPct).toFixed(3);
+  const spacer = `<td width="${pad}%" style="width:${pad}%;font-size:0;line-height:0;">&nbsp;</td>`;
+  const label = `<td align="${left ? 'left' : 'right'}" style="white-space:nowrap;font-size:0.58rem;line-height:1;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#111827;padding:0 0 2px;">${left ? '&#9660; Today' : 'Today &#9660;'}</td>`;
+  return `${BAR_TABLE}<tr>${left ? spacer + label : label + spacer}</tr></table>`;
+}
+
+const legendSwatch = (bg, text) =>
+  `<span style="white-space:nowrap;margin-right:10px;"><span style="display:inline-block;width:9px;height:9px;background:${bg};vertical-align:middle;">&nbsp;</span> <span style="color:#6b7280;">${text}</span></span>`;
+
+/* Where a season stands in words, for the columns either side of the bar.
+ *
+ * Unchanged for a league that's playing: the phase and the day it runs to, with
+ * the days left beside it. Out-of-season leagues are in the chart now as well,
+ * so there's a third answer — when the league comes back — that the old
+ * in-season-only block never had to give.
+ */
+function seasonStatusParts(season, tz) {
+  const phase = currentPhase(season);
+  // Exhibitions are left out of the games sections, so the status line doesn't
+  // announce them either — a league sitting in its preseason counts down to
+  // the phase that does play games instead.
+  const counting = phase && isPreseasonPhase(phase) ? nextCountingPhase(season) : null;
+  let status = seasonStatusText(season).replace(/^In season · /, '');
+  let detail;
+  if (counting) {
+    detail = `${counting.name} starts ${fmtSeasonDate(counting.startDate, tz)}`;
+    status = `in ${daysUntil(counting.startDate)} days`;
+  } else if (phase && !isPreseasonPhase(phase) && !isOffSeasonPhase(phase)) {
+    detail = `${phase.name} through ${fmtSeasonDate(phase.endDate, tz)}`;
+  } else {
+    const next = nextSeasonStart(season);
+    if (next) {
+      detail = `Season starts ${fmtSeasonDate(next, tz)}`;
+      status = `in ${daysUntil(next)} days`;
     } else {
       detail = season?.endDate ? `Season ends ${fmtSeasonDate(season.endDate, tz)}` : '';
     }
-    const cell = 'padding:2px 0;';
+  }
+  return { detail, status };
+}
+
+/* The season block: a year of sport as a chart, with the dates alongside.
+ *
+ * Takes every followed league, in season or not, because "what's happening
+ * when" is a question about the year and not about today — an empty winter is
+ * as much a part of the answer as a full autumn. The full phase-by-phase
+ * calendar stays on the Sports page; this still only answers what part of the
+ * season each league is in and how much of it is left. Exported for tests.
+ */
+export function buildSeasonBlock(leagues, tz, now = Date.now()) {
+  if (!leagues || leagues.length === 0) return '';
+  const chart = seasonYearSpans(leagues, { now });
+  const seasonByLabel = new Map(leagues.map((l) => [l.label, l.season]));
+  const rows = chart.rows.map(({ label, segments }) => {
+    const { detail, status } = seasonStatusParts(seasonByLabel.get(label), tz);
+    const cell = 'padding:4px 0;vertical-align:middle;';
     return `
       <tr>
-        <td style="${cell}color:#111827;font-weight:700;white-space:nowrap;width:1%;padding-right:12px;">${label}</td>
-        <td style="${cell}color:#4b5563;">${detail}</td>
-        <td align="right" style="${cell}color:#4f46e5;font-weight:600;white-space:nowrap;padding-left:12px;">${status}</td>
+        <td width="124" style="${cell}width:124px;padding-right:10px;">
+          <div style="color:#111827;font-weight:700;font-size:0.85rem;line-height:1.2;">${label}</div>
+          <div style="color:#9ca3af;font-size:0.68rem;line-height:1.3;">${detail}</div>
+        </td>
+        <td style="${cell}">${timelineBar(segments, chart.nowPct)}</td>
+        <td align="right" width="96" style="${cell}width:96px;padding-left:10px;color:#4f46e5;font-weight:600;font-size:0.78rem;white-space:nowrap;">${status}</td>
       </tr>`;
   }).join('');
+  const edge = (m) => `${MONTH_LABELS[m.month]} ${m.year}`;
+  const range = `${edge(chart.months[0])} – ${edge(chart.months[chart.months.length - 1])}`;
+  // Only the tones actually on the chart get a key. "Between seasons" in
+  // particular is there for the reader looking at a grey bar and wondering
+  // what it means, so in a week when nothing is dark it has nothing to explain.
+  const drawn = new Set(chart.rows.flatMap((r) => r.segments.map((s) => s.kind)));
+  const keys = ['off', 'pre', 'regular', 'post'].filter((k) => drawn.has(k));
   return `
-    <div style="background:#eef2ff;border-radius:10px;padding:0.55rem 1rem;margin:0 0 1rem;">
-      <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;font-weight:600;margin:0 0 2px;">Season status</div>
-      ${TABLE_OPEN}${rows}</table>
+    <div style="background:#eef2ff;border-radius:10px;padding:0.7rem 1rem 0.6rem;margin:0 0 1rem;">
+      <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;font-weight:600;margin:0 0 4px;">Season status<span style="color:#9ca3af;font-weight:500;"> · ${range}</span></div>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+        <tr>
+          <td width="124" style="width:124px;padding-right:10px;"></td>
+          <td>${timelineToday(chart.nowPct)}${timelineMonths(chart.months)}</td>
+          <td width="96" style="width:96px;padding-left:10px;"></td>
+        </tr>
+        ${rows}
+      </table>
+      <div style="font-size:0.62rem;margin:8px 0 0;">
+        ${keys.map((k) => legendSwatch(PHASE_TONE[k].ahead, PHASE_TONE[k].label)).join('')}<span style="color:#9ca3af;white-space:nowrap;">Faded = already played</span>
+      </div>
     </div>`;
 }
 
@@ -744,7 +979,10 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams,
   // The banner rides with the season calendars: both answer "where is this
   // league in its year", so turning that topic off turns off both.
   const bannerBlock = topics.seasons ? buildSeasonBanner(openers, tz) : '';
-  const seasonBlock = topics.seasons ? buildSeasonBlock(seasons, tz) : '';
+  // Both lists, because the chart is a picture of the year rather than of
+  // today: a league that's dark until March is exactly what explains the empty
+  // stretch of track beside it.
+  const seasonBlock = topics.seasons ? buildSeasonBlock([...seasons, ...offSeason], tz) : '';
   const draftBlock = topics.draft ? buildDraftBlock(draftTeams) : '';
   const sections = teamDigests
     .map((t) => {
