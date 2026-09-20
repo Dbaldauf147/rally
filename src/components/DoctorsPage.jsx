@@ -1357,17 +1357,23 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, focusFormer, o
   const [issueWith, setIssueWith] = useState(null); // entry id, '' = nobody, null = default
   const [addedId, setAddedId] = useState(null);
 
-  // Who a new issue can be with: each doctor or practice already filed under
-  // this speciality, once, however many records they appear on.
+  /* Who a new issue can be with: each doctor or practice already filed under
+     this speciality, once, however many records they appear on.
+
+     The ones you still see come first, so the picker opens on one of them. A
+     former doctor is a fair answer — an issue they treated is filed under them
+     — but they are not who the next complaint goes to, and after a doctor is
+     replaced they would otherwise be the name sitting in the box. */
   const doctors = useMemo(() => {
     const seen = new Set();
-    return entries.filter((e) => {
+    const named = entries.filter((e) => {
       if (!String(e.doctor || e.place || '').trim()) return false;
       const key = `${e.doctor}|${e.place}`.toLowerCase();
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
+    return [...named.filter((e) => !isFormerEntry(e)), ...named.filter(isFormerEntry)];
   }, [entries]);
   const withId = issueWith ?? (doctors[0]?.id || '');
 
@@ -1415,7 +1421,9 @@ function TypeDetail({ uid, list, type, entries, daysFrom, update, focusFormer, o
       : a.answered ? 1 : -1));
   const openCount = questions.filter((q) => !q.answered).length;
   const openFor = (id) => questions.filter((q) => q.entryId === id && !q.answered).length;
-  const qForId = qFor && entryIndex.has(qFor) ? qFor : (entries[0]?.id || '');
+  // Defaults to a doctor you still see, for the same reason the issue picker
+  // does: a question you are writing down now is one you mean to ask them.
+  const qForId = qFor && entryIndex.has(qFor) ? qFor : (doctors[0]?.id || entries[0]?.id || '');
   const commit = (id, key) => (value) => update((l) => updateEntry(l, id, { [key]: value }));
 
   function addQ(e) {
