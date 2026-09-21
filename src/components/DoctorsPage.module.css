@@ -123,6 +123,12 @@
 /* The date the counter is counting towards. Tabular like its neighbour so the
    two read as one pair, and coloured only once it has gone past — a column
    where every cell is red is a column nobody looks at. */
+/* How late, beside when. Empty on a row that is not — a column of dashes
+   would be as loud as a column of numbers, and the point of this one is that
+   anything in it needs doing. */
+.cellOverdue { width: 6%; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+.cellOverdueLate { composes: cellOverdue; color: var(--color-danger); font-weight: 650; }
+
 .cellNext { width: 8%; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
 .cellNextOverdue { composes: cellNext; color: var(--color-danger); font-weight: 650; }
 /* Booked on the calendar rather than worked out from the cadence — the one

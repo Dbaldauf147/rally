@@ -724,11 +724,11 @@ const statusRank = (e) => {
 };
 const settled = (group) => group.entries.every((e) => e.status === STATUS.RESOLVED);
 
-export function groupByType(list, { query = '', status = 'all', lane = 'all', pinned = '' } = {}) {
+export function groupByType(list, { query = '', status = 'all', lane = 'all', pinned = '', today = new Date() } = {}) {
   const { types, fields, entries } = normalizeList(list);
   // Check-ins picks its rows as a set — one per speciality — where the other
   // lanes test each record on its own.
-  const pool = lane === 'checkins' ? checkInEntries(list, new Date(), { pinned }) : entries.filter((e) => inLane(e, lane, entries));
+  const pool = lane === 'checkins' ? checkInEntries(list, today, { pinned }) : entries.filter((e) => inLane(e, lane, entries));
   const visible = pool.filter((e) =>
     (status === 'all' || e.status === status) && matchesQuery(e, query, fields));
 
@@ -749,7 +749,38 @@ export function groupByType(list, { query = '', status = 'all', lane = 'all', pi
   // Stable within each half, so the owner's type order still decides everything
   // except whether a heading has anything left open.
   const shown = groups.filter((g) => g.entries.length > 0);
+  // Check-ins reads as a queue instead: what is late, what is next, what has
+  // nothing arranged. See dueSort.
+  if (lane === 'checkins') return sortByDue(shown, list, today);
   return [...shown.filter((g) => !settled(g)), ...shown.filter(settled)];
+}
+
+/* The Check-ins order: days until the next visit, ascending.
+ *
+ * Which reads, in one number, as the order the tab is useful in — the most
+ * overdue first (furthest below zero), then due soonest, then the ones
+ * scheduled further out, and last the records with no date to be due on at
+ * all. It replaces the status ordering the other tabs use, where "settled
+ * sinks" is the useful question; here nothing is settled and everything is a
+ * schedule.
+ *
+ * One queue, not one per speciality: the tab shows no headings and the type
+ * rides in a column of its own, so a group is only a box that would hold two
+ * rows apart for no reason a reader could see. The records with no speciality
+ * take their places in it like everything else.
+ */
+function sortByDue(groups, list, today) {
+  const from = daysSinceField(list);
+  const days = new Map();
+  const dueIn = (e) => {
+    if (!days.has(e.id)) {
+      const next = upcomingVisit(e, from ? customValueOf(e, from) : '', today);
+      days.set(e.id, next ? next.daysAway : Infinity);
+    }
+    return days.get(e.id);
+  };
+  const entries = groups.flatMap((g) => g.entries).sort((a, b) => dueIn(a) - dueIn(b));
+  return entries.length > 0 ? [{ type: NO_TYPE, entries }] : [];
 }
 
 export function countByStatus(entries) {
