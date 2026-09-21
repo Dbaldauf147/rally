@@ -123,9 +123,9 @@
 /* The date the counter is counting towards. Tabular like its neighbour so the
    two read as one pair, and coloured only once it has gone past — a column
    where every cell is red is a column nobody looks at. */
-/* How late, beside when. Empty on a row that is not — a column of dashes
-   would be as loud as a column of numbers, and the point of this one is that
-   anything in it needs doing. */
+/* How late, beside when: days past the next visit, negative while it is still
+   ahead. Only the positive ones are coloured — the whole column is a number
+   line, and the red marks the part of it that needs doing. */
 .cellOverdue { width: 6%; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
 .cellOverdueLate { composes: cellOverdue; color: var(--color-danger); font-weight: 650; }
 
