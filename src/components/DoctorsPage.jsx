@@ -9,7 +9,7 @@ import {
   normalizeEntry, normalizeList, entryTitle, entrySubtitle, entryPickerLabel,
   groupByType, countByStatus, issueCell, typeUsage,
   LANES, laneCounts,
-  addEntry, updateEntry, removeEntry, isBlank, addEntryImage, removeEntryImage,
+  addEntry, updateEntry, removeEntry, isBlank, successorRecord, addEntryImage, removeEntryImage,
   addType, renameType, removeType, moveType,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   columnsFor, renameColumn, setColumnHidden, moveColumn,
@@ -2713,13 +2713,18 @@ export function DoctorsPage() {
    * since a blank one would otherwise lose it back to the doctor it replaced —
    * and opens for typing, the same way + Add does. */
   function handleNewDoctor(entry) {
-    const blank = normalizeEntry({ id: makeId(), type: entry.type, status: STATUS.NONE });
-    update((l) => addEntry(setEntryFormer(l, entry.id, true), blank));
+    // The successor inherits the speciality's schedule — see successorRecord.
+    const next = successorRecord(safeList, entry);
+    update((l) => addEntry(setEntryFormer(l, entry.id, true), next));
     setManagingTypes(false);
     setManagingColumns(false);
-    setJustAdded(blank.id);
-    if (narrow) setSheet({ id: blank.id, added: true });
-    else setOpenCell({ id: blank.id, col: 'name' });
+    setJustAdded(next.id);
+    // The sheet carries what the record looked like when it was handed over,
+    // so backing out without naming anybody can still tell "untouched" from
+    // "filled in". It is not blank any more — it is carrying a cadence — so
+    // isBlank alone would leave an unnamed doctor holding the speciality's row.
+    if (narrow) setSheet({ id: next.id, added: true, asGiven: JSON.stringify(next) });
+    else setOpenCell({ id: next.id, col: 'name' });
   }
 
   const openFormer = (type) => { setOpenCell(null); setDetailType(type); setDetailFocus('former'); };
@@ -2731,7 +2736,9 @@ export function DoctorsPage() {
       // closed the sheet counts.
       update((l) => {
         const e = l.entries.find((x) => x.id === sheet.id);
-        return e && isBlank(e) ? removeEntry(l, sheet.id) : l;
+        if (!e) return l;
+        const untouched = !!sheet.asGiven && JSON.stringify(e) === sheet.asGiven;
+        return isBlank(e) || untouched ? removeEntry(l, sheet.id) : l;
       });
     }
     setSheet(null);

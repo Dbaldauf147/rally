@@ -17,7 +17,7 @@ import {
   linkAppointment, unlinkAppointment, ignoreAppointment, unignoreAppointment,
   settledEventIds, suggestEntryFor, pendingAppointments, setDoctorCalendar,
   checkInsNeedingScheduling, normalizeImages, addEntryImage, removeEntryImage,
-  isOffCheckIns, setCheckInRowOff, offCheckInRows,
+  isOffCheckIns, setCheckInRowOff, offCheckInRows, successorRecord,
 } from './doctors';
 
 const entry = (o) => normalizeEntry(o);
@@ -2192,5 +2192,139 @@ describe('columnsFor', () => {
       expect(shown(l, 'checkins')).toContain('cadence');
       expect(shown(l, 'all')).not.toContain('cadence');
     });
+  });
+});
+
+/* Replacing a speciality's doctor.
+ *
+ * The complaint these pin: "+ New doctor" handed over a record carrying only
+ * the speciality, so the Check-ins row it immediately became lost its Cadence,
+ * Days since, Overdue and Next visit all at once. A change of name is not a
+ * change of schedule. */
+describe('successorRecord', () => {
+  // A list with a Last visit date column, which is what the counter counts from.
+  const build = (entry) => {
+    let l = addField(normalizeList({ types: ['Skin'], entries: [{ id: 'derm', ...entry }] }), {
+      label: 'Last visit', type: 'date',
+    });
+    return { list: l, fieldId: l.fields[0].id };
+  };
+  const withLastVisit = (entry, value) => {
+    const { list, fieldId } = build(entry);
+    return { list: setCustomValue(list, 'derm', fieldId, value), fieldId };
+  };
+
+  it('carries the speciality and the cadence', () => {
+    const { list } = build({ type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' });
+    const next = successorRecord(list, list.entries[0]);
+    expect(next).toMatchObject({ type: 'Skin', cadence: 'Every 2 year(s)' });
+  });
+
+  it('carries the date the counter counts from', () => {
+    const { list, fieldId } = withLastVisit({ type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 1 year(s)' }, '2025-09-15');
+    const next = successorRecord(list, list.entries[0]);
+    expect(next.custom[fieldId]).toBe('2025-09-15');
+  });
+
+  // The whole point: the row that answers "when am I next due" still answers it.
+  it('keeps the next visit the row was showing', () => {
+    const { list, fieldId } = withLastVisit({ type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 1 year(s)' }, '2025-09-15');
+    const before = upcomingVisit(list.entries[0], '2025-09-15');
+    const next = successorRecord(list, list.entries[0]);
+    expect(upcomingVisit(next, next.custom[fieldId])).toEqual(before);
+  });
+
+  it('does not carry what happened with the doctor who is leaving', () => {
+    const { list } = build({
+      type: 'Skin',
+      doctor: 'Dr. Uliasz',
+      place: 'Sinai',
+      phone: '555-0100',
+      email: 'a@b.c',
+      issue: 'Angular cheilitis',
+      currentMeds: 'Terrasil',
+      notes: 'Bring the old chart',
+      status: STATUS.RESOLVED,
+    });
+    const next = successorRecord(list, list.entries[0]);
+    expect(next).toMatchObject({
+      doctor: '', place: '', phone: '', email: '', issue: '', currentMeds: '', notes: '',
+    });
+    expect(next.status).toBe(STATUS.NONE);
+  });
+
+  // A copay or a member number is about the doctor who is leaving.
+  it('carries no added column but the counter’s own', () => {
+    let { list, fieldId } = withLastVisit({ type: 'Skin', doctor: 'Dr. Uliasz' }, '2025-09-15');
+    list = addField(list, { label: 'Copay', type: 'text' });
+    const copay = list.fields.find((f) => f.label === 'Copay').id;
+    list = setCustomValue(list, 'derm', copay, '$40');
+    const next = successorRecord(list, list.entries[0]);
+    expect(next.custom[fieldId]).toBe('2025-09-15');
+    expect(next.custom[copay]).toBeUndefined();
+  });
+
+  it('is its own record, not the old one wearing a new id', () => {
+    const { list } = build({ type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' });
+    const next = successorRecord(list, list.entries[0]);
+    expect(next.id).not.toBe('derm');
+    expect(next.images).toEqual([]);
+  });
+
+  it('copes with a list that has no date column to count from', () => {
+    const list = normalizeList({ types: ['Skin'], entries: [{ id: 'derm', type: 'Skin', cadence: 'Every 6 months' }] });
+    const next = successorRecord(list, list.entries[0]);
+    expect(next).toMatchObject({ type: 'Skin', cadence: 'Every 6 months' });
+    expect(next.custom).toEqual({});
+  });
+
+  it('copes with a record that has nothing to hand over', () => {
+    const list = normalizeList({ types: ['Skin'], entries: [{ id: 'derm', type: 'Skin' }] });
+    const next = successorRecord(list, list.entries[0]);
+    expect(next).toMatchObject({ type: 'Skin', cadence: '' });
+  });
+});
+
+/* The swap as the page performs it: the old doctor becomes a former doctor and
+   the successor is added beside them. */
+describe('replacing the doctor on a Check-ins row', () => {
+  const NOW = new Date(2026, 8, 21);
+  const setup = () => {
+    let l = addField(normalizeList({
+      types: ['Skin'],
+      entries: [{ id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 1 year(s)' }],
+    }), { label: 'Last visit', type: 'date' });
+    const fieldId = l.fields[0].id;
+    l = setCustomValue(l, 'derm', fieldId, '2026-03-15');
+    return { list: l, fieldId };
+  };
+  const swap = (l, id) => {
+    const next = successorRecord(l, l.entries.find((e) => e.id === id));
+    return { list: addEntry(setEntryFormer(l, id, true), next), next };
+  };
+
+  it('hands the row to the successor, with the schedule intact', () => {
+    const { list, fieldId } = setup();
+    const before = checkInEntries(list, NOW)[0];
+    const { list: after, next } = swap(list, 'derm');
+    const row = checkInEntries(after, NOW)[0];
+    expect(row.id).toBe(next.id);
+    expect(row.cadence).toBe(before.cadence);
+    expect(row.custom[fieldId]).toBe(before.custom[fieldId]);
+    expect(row.doctor).toBe('');
+  });
+
+  it('still leaves exactly one Skin row', () => {
+    const { list } = setup();
+    expect(checkInEntries(swap(list, 'derm').list, NOW)).toHaveLength(1);
+  });
+
+  it('keeps the old doctor, off Check-ins and under Former doctors', () => {
+    const { list } = setup();
+    const after = swap(list, 'derm').list;
+    const old = after.entries.find((e) => e.id === 'derm');
+    expect(old.doctor).toBe('Dr. Uliasz');
+    expect(isFormerEntry(old)).toBe(true);
+    expect(formerDoctorsByType(after).get('skin').map((e) => e.id)).toEqual(['derm']);
   });
 });

@@ -869,6 +869,38 @@ export function removeEntry(list, id) {
 // away rather than leaving a line of dashes behind.
 export const isBlank = (entry) => !hasContent(entry) && !(entry.images || []).length;
 
+/* The record that takes over a speciality when its doctor is replaced.
+ *
+ * It carries what belongs to the speciality rather than to the person: the
+ * cadence, and the date the counter counts from. You still see a
+ * dermatologist every two years, and you were last seen when you were last
+ * seen — swapping the person changes neither. Starting the successor empty
+ * blanked the Check-ins row's Cadence, Days since, Overdue and Next visit all
+ * at once, which is a whole schedule lost to a change of name.
+ *
+ * What stays with the doctor being replaced: the issue they treated, what
+ * they prescribed, the notes, the status, and how to reach them. Those
+ * happened with that person and are still filed under them — the speciality's
+ * pop-up lists them under Former doctors.
+ *
+ * Exported for tests, and because what carries over is the whole decision
+ * here rather than an implementation detail of the button.
+ */
+export function successorRecord(list, entry) {
+  const l = normalizeList(list);
+  const from = daysSinceField(l);
+  const lastVisit = from ? customValueOf(entry, from) : '';
+  return normalizeEntry({
+    id: makeId(),
+    type: entry?.type || '',
+    status: STATUS.NONE,
+    cadence: entry?.cadence || '',
+    // Only the counter's own column. Another added column — a copay, a member
+    // number — is about the doctor who is leaving, not about the speciality.
+    custom: from && lastVisit ? { [from.id]: lastVisit } : {},
+  });
+}
+
 // --- editing the type list -------------------------------------------------
 //
 // All of these take the whole document and hand back a new one, so a rename
