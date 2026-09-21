@@ -17,6 +17,7 @@ import {
   linkAppointment, unlinkAppointment, ignoreAppointment, unignoreAppointment,
   settledEventIds, suggestEntryFor, pendingAppointments, setDoctorCalendar,
   checkInsNeedingScheduling, normalizeImages, addEntryImage, removeEntryImage,
+  isOffCheckIns, setCheckInRowOff, offCheckInRows,
 } from './doctors';
 
 const entry = (o) => normalizeEntry(o);
@@ -1719,5 +1720,205 @@ describe('issueRecord', () => {
   it('can be with nobody yet', async () => {
     const { issueRecord } = await import('./doctors.js');
     expect(issueRecord('Skin', 'Rash', null)).toMatchObject({ type: 'Skin', issue: 'Rash', doctor: '', place: '' });
+  });
+});
+
+/* Taking a row off the Check-ins tab.
+ *
+ * The bug these pin: the row's × called removeEntry, so clearing the dentist
+ * off a schedule also destroyed the issues, pictures and questions filed under
+ * the dentist, on every other tab. Nothing here may delete anything. */
+describe('setCheckInRowOff', () => {
+  const NOW = new Date(2026, 8, 20);
+  const list = (entries) => normalizeList({ types: ['Skin', 'Hair'], entries });
+  const shown = (l) => checkInEntries(l, NOW).map((e) => e.id);
+
+  it('takes the row off Check-ins', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' },
+      { id: 'hair', type: 'Hair', doctor: 'Hims' },
+    ]);
+    expect(shown(l)).toEqual(['derm', 'hair']);
+    const after = setCheckInRowOff(l, l.entries[0], true);
+    expect(shown(after)).toEqual(['hair']);
+  });
+
+  it('deletes nothing — the record and everything on it survives', () => {
+    const l = list([{
+      id: 'derm',
+      type: 'Skin',
+      doctor: 'Dr. Uliasz',
+      issue: 'Angular cheilitis',
+      status: STATUS.RESOLVED,
+      images: [{ id: 'img1', name: 'rash.jpg' }],
+      custom: { f1: 'noted' },
+    }]);
+    const after = setCheckInRowOff(l, l.entries[0], true);
+    expect(after.entries).toHaveLength(1);
+    expect(after.entries[0]).toMatchObject({
+      id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', issue: 'Angular cheilitis', custom: { f1: 'noted' },
+    });
+    expect(after.entries[0].images).toHaveLength(1);
+  });
+
+  // The whole complaint, as one assertion.
+  it('leaves the record on every other tab', () => {
+    const l = list([{ id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', issue: 'Rash', status: STATUS.TREATING }]);
+    const after = setCheckInRowOff(l, l.entries[0], true);
+    expect(isIssueEntry(after.entries[0])).toBe(true);
+    expect(laneCounts(after).issues).toBe(1);
+    expect(laneCounts(after).all).toBe(1);
+    expect(laneCounts(after).checkins).toBe(0);
+  });
+
+  /* A Check-ins row stands for the speciality, not for the record behind it.
+     Flagging only the record the tab happened to pick would hand the row to
+     the next-best one under the same heading, and Skin would still be there. */
+  it('takes the whole speciality, not just the record the row showed', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' },
+      { id: 'urgent', type: 'Skin', doctor: 'City MD' },
+    ]);
+    expect(shown(l)).toEqual(['derm']);
+    const after = setCheckInRowOff(l, l.entries[0], true);
+    expect(shown(after)).toEqual([]);
+    expect(after.entries.every(isOffCheckIns)).toBe(true);
+  });
+
+  it('matches the speciality the way the headings do, whatever the typing', () => {
+    const l = list([
+      { id: 'a', type: 'Skin', doctor: 'Dr. Uliasz' },
+      { id: 'b', type: ' skin ', doctor: 'City MD' },
+    ]);
+    expect(shown(setCheckInRowOff(l, l.entries[0], true))).toEqual([]);
+  });
+
+  it('takes only that record when it has no speciality to stand for', () => {
+    const l = list([
+      { id: 'loose', type: '', doctor: 'Dr. Nobody' },
+      { id: 'other', type: '', doctor: 'Dr. Somebody' },
+    ]);
+    const after = setCheckInRowOff(l, l.entries[0], true);
+    expect(shown(after)).toEqual(['other']);
+  });
+
+  it('puts the row back, exactly as it was', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' },
+      { id: 'urgent', type: 'Skin', doctor: 'City MD' },
+    ]);
+    const back = setCheckInRowOff(setCheckInRowOff(l, l.entries[0], true), l.entries[0], false);
+    expect(shown(back)).toEqual(shown(l));
+    expect(back.entries.some(isOffCheckIns)).toBe(false);
+  });
+
+  /* Putting a row back must not add rows that were never on it. A former
+     doctor under the same heading was off Check-ins for her own reason, and
+     bringing Skin back is not a decision to start seeing her again. */
+  it('does not drag a former doctor onto the tab when the row comes back', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' },
+      { id: 'old', type: 'Skin', doctor: 'Dr. Gone', former: true },
+    ]);
+    const back = setCheckInRowOff(setCheckInRowOff(l, l.entries[0], true), l.entries[0], false);
+    expect(shown(back)).toEqual(['derm']);
+    expect(isOffCheckIns(back.entries[1])).toBe(false);
+  });
+
+  it('is a no-op on a list that has no such speciality', () => {
+    const l = list([{ id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz' }]);
+    expect(setCheckInRowOff(l, { id: 'nope', type: 'Teeth' }, true).entries.some(isOffCheckIns)).toBe(false);
+  });
+
+  it('survives a round trip through normalizeList', () => {
+    const l = list([{ id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz' }]);
+    const after = normalizeList(JSON.parse(JSON.stringify(setCheckInRowOff(l, l.entries[0], true))));
+    expect(isOffCheckIns(after.entries[0])).toBe(true);
+  });
+});
+
+describe('offCheckInRows', () => {
+  const list = (entries) => normalizeList({ types: ['Skin', 'Hair'], entries });
+
+  it('lists a held-back speciality once, by its heading', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz' },
+      { id: 'urgent', type: 'Skin', doctor: 'City MD' },
+      { id: 'hair', type: 'Hair', doctor: 'Hims' },
+    ]);
+    const after = setCheckInRowOff(l, l.entries[0], true);
+    expect(offCheckInRows(after).map((r) => r.label)).toEqual(['Skin']);
+  });
+
+  it('names a record with no speciality after itself', () => {
+    const l = list([{ id: 'loose', type: '', doctor: 'Dr. Nobody' }]);
+    const after = setCheckInRowOff(l, l.entries[0], true);
+    expect(offCheckInRows(after)[0].label).toBe(entryPickerLabel(after.entries[0]));
+  });
+
+  it('is empty when nothing is held back', () => {
+    expect(offCheckInRows(list([{ id: 'a', type: 'Skin', doctor: 'Dr. Uliasz' }]))).toEqual([]);
+  });
+
+  // A former doctor is off Check-ins already, for a reason of her own, and
+  // listing her here would offer to "put back" a row nobody took away.
+  it('leaves out a former doctor', () => {
+    const l = list([{ id: 'old', type: 'Skin', doctor: 'Dr. Gone', former: true, offCheckins: true }]);
+    expect(offCheckInRows(l)).toEqual([]);
+  });
+});
+
+describe('a held-back row and the rest of the page', () => {
+  const NOW = new Date(2026, 8, 20);
+  const list = (entries) => normalizeList({ types: ['Skin'], entries });
+
+  // The weekly digest nags you to book the check-ins with no date. A row you
+  // have said you are not booking is not one of them.
+  it('stops the weekly digest nagging you to book it', () => {
+    const l = list([{ id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' }]);
+    expect(checkInsNeedingScheduling(l, NOW)).toHaveLength(1);
+    expect(checkInsNeedingScheduling(setCheckInRowOff(l, l.entries[0], true), NOW)).toHaveLength(0);
+  });
+
+  /* But an appointment with her is still hers. Matching a calendar event to a
+     record asks which record it belongs to, not what's on the tab, so taking
+     the row off must not cost the record its appointments as well. */
+  it('still matches a calendar appointment to the record', () => {
+    const l = list([{ id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz' }]);
+    const event = { id: 'e1', title: 'Dr. Uliasz', start: '2026-10-01' };
+    const before = pendingAppointments(l, [event])[0];
+    const after = pendingAppointments(setCheckInRowOff(l, l.entries[0], true), [event])[0];
+    expect(before.suggestion?.entryId).toBe('derm');
+    expect(after.suggestion?.entryId).toBe('derm');
+  });
+});
+
+/* Adding a doctor under a held-back speciality puts its row back — the flag is
+   on the records that were there, not a standing rule about the name. What must
+   not happen is the speciality reading as both: a row on the tab and a chip
+   underneath saying the tab isn't showing it. */
+describe('offCheckInRows and a speciality that has come back', () => {
+  const NOW = new Date(2026, 8, 20);
+  const list = (entries) => normalizeList({ types: ['Skin'], entries });
+
+  it('stops listing a speciality the tab is showing again', () => {
+    const l = list([{ id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' }]);
+    const held = setCheckInRowOff(l, l.entries[0], true);
+    expect(offCheckInRows(held).map((r) => r.label)).toEqual(['Skin']);
+
+    // A new doctor filed under Skin: the row is back, so the chip must go.
+    const withNew = addEntry(held, { id: 'new', type: 'Skin', doctor: 'Dr. Fresh' });
+    expect(checkInEntries(withNew, NOW).map((e) => e.id)).toEqual(['new']);
+    expect(offCheckInRows(withNew)).toEqual([]);
+  });
+
+  it('still lists one whose records are all held back', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz' },
+      { id: 'urgent', type: 'Skin', doctor: 'City MD' },
+    ]);
+    const held = setCheckInRowOff(l, l.entries[0], true);
+    expect(checkInEntries(held, NOW)).toEqual([]);
+    expect(offCheckInRows(held).map((r) => r.label)).toEqual(['Skin']);
   });
 });

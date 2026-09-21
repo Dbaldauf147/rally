@@ -14,7 +14,9 @@ import {
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   resolveColumns, renameColumn, setColumnHidden, moveColumn,
   dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
-  isCheckInEntry, isFormerEntry, setEntryFormer, formerDoctorsByType, setDoctorCalendar, pendingAppointments, sameType, issueRecord,
+  isCheckInEntry, isFormerEntry, setEntryFormer, formerDoctorsByType,
+  setCheckInRowOff, offCheckInRows,
+  setDoctorCalendar, pendingAppointments, sameType, issueRecord,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts,
   linkAppointment, ignoreAppointment, unignoreAppointment,
@@ -582,7 +584,12 @@ function AppointmentsPanel({ list, update, daysFrom }) {
   }, [load]);
 
   const pending = useMemo(() => pendingAppointments(list, events), [list, events]);
-  const checkIns = useMemo(() => list.entries.filter((e) => isCheckInEntry(e, list.entries)), [list.entries]);
+  // Held-back rows included: this is the pool an appointment gets matched
+  // against, and an appointment belongs to its record either way.
+  const checkIns = useMemo(
+    () => list.entries.filter((e) => isCheckInEntry(e, list.entries, { includeHeld: true })),
+    [list.entries],
+  );
   const waved = useMemo(
     () => events.filter((e) => list.ignoredEvents.includes(e.id)),
     [events, list.ignoredEvents],
@@ -2123,7 +2130,7 @@ function SheetCustomField({ entry, field, onCommit }) {
 }
 
 /* One record, full-screen, every field of it editable. */
-function RecordSheet({ uid, entry, list, daysFrom, update, onClose, onDelete, onOpenImages }) {
+function RecordSheet({ uid, entry, list, daysFrom, update, onClose, onDelete, holdBack, onOpenImages }) {
   const commit = (key) => (value) => update((l) => updateEntry(l, entry.id, { [key]: value }));
   // A record with nothing typed into it yet is just that, not "No doctor recorded yet".
   const title = isBlank({ ...entry, type: '' }) ? 'New record' : entryTitle(entry);
@@ -2228,7 +2235,11 @@ function RecordSheet({ uid, entry, list, daysFrom, update, onClose, onDelete, on
           <ImagesCell uid={uid} entry={entry} title={title} update={update} onOpen={onOpenImages} />
         </div>
 
-        <button type="button" className={styles.sheetDelete} onClick={onDelete}>Delete this record</button>
+        {/* Same rule as the table row's ×: on Check-ins this clears the row
+            off the tab, so it says so rather than saying "delete". */}
+        <button type="button" className={styles.sheetDelete} onClick={onDelete}>
+          {holdBack ? `Take ${rowName(entry)} off Check-ins` : 'Delete this record'}
+        </button>
       </div>
     </div>
   );
@@ -2290,7 +2301,7 @@ function formerLabel(former, type) {
   return former.length > 1 ? `Was: ${name} +${former.length - 1}` : `Was: ${name}`;
 }
 
-function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onOpenImages, onOpenContact, onOpenType, onNewDoctor, former, onOpenFormer }) {
+function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, holdBack, onOpenImages, onOpenContact, onOpenType, onNewDoctor, former, onOpenFormer }) {
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
   // Notes live under the issue unless a Notes column is carrying them, in
@@ -2478,16 +2489,26 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
       ))}
 
       <td className={styles.cellEdit}>
+        {/* On Check-ins the × clears the row off the tab and nothing more, so
+            it doesn't wear the colour the page uses for destroying things. */}
         <button
           type="button"
-          className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-          title={`Delete ${entryTitle(entry, groupType)}`}
+          className={`${styles.iconBtn} ${holdBack ? '' : styles.iconBtnDanger}`}
+          title={holdBack
+            ? `Take ${rowName(entry, groupType)} off Check-ins — the records stay`
+            : `Delete ${entryTitle(entry, groupType)}`}
           onClick={onDelete}
         >×</button>
       </td>
     </tr>
   );
 }
+
+// What a Check-ins row is called when it's being talked about rather than
+// read: the speciality, since that is what a row there stands for, and the
+// record's own title only when it has no speciality to stand for.
+const rowName = (entry, groupType) => String(entry?.type || groupType || '').trim()
+  || entryTitle(entry, groupType);
 
 /* Renaming, reordering and deleting the headings themselves.
 
@@ -2623,6 +2644,10 @@ export function DoctorsPage() {
   const formerByType = useMemo(() => formerDoctorsByType(safeList), [safeList]);
   const formerFor = (type) => formerByType.get(String(type || '').trim().toLowerCase()) || null;
   const lanes = useMemo(() => laneCounts(safeList), [safeList]);
+  // The rows the Check-ins tab is holding back, listed under it so each has a
+  // way back. Not filtered by the search box: a row you can't see is exactly
+  // the one you'd go looking for.
+  const heldBack = useMemo(() => offCheckInRows(safeList), [safeList]);
   // Every column, for the manager; the showing ones, for the table.
   const allColumns = useMemo(() => resolveColumns(safeList), [safeList]);
   // Dropped from the table rather than hidden for good: the Columns manager
@@ -2717,6 +2742,20 @@ export function DoctorsPage() {
     update((l) => removeEntry(l, entry.id));
     // Its pictures go with it; nothing else names them.
     entry.images.forEach((img) => deleteImage(user.uid, img.id).catch(() => {}));
+    setOpenCell(null);
+    setSheet(null);
+  }
+
+  /* What the row's × does on Check-ins.
+   *
+   * The tab is a schedule, and clearing something off a schedule is not the
+   * same as destroying it. Deleting the record took the issues, pictures and
+   * questions filed under it off every other tab as well, which is never what
+   * clearing a row means — so here × holds the row back instead, reversibly,
+   * and the list underneath says what is being held. Deleting for real is
+   * still a click away on the other tabs and in the speciality pop-up. */
+  function handleHoldBack(entry) {
+    update((l) => setCheckInRowOff(l, entry, true));
     setOpenCell(null);
     setSheet(null);
   }
@@ -2946,7 +2985,8 @@ export function DoctorsPage() {
                     onCloseCell={() => setOpenCell(null)}
                     onCommit={(patch) => update((l) => updateEntry(l, entry.id, patch))}
                     onCommitCustom={(fieldId, value) => update((l) => setCustomValue(l, entry.id, fieldId, value))}
-                    onDelete={() => handleDelete(entry)}
+                    onDelete={() => (lane === 'checkins' ? handleHoldBack(entry) : handleDelete(entry))}
+                    holdBack={lane === 'checkins'}
                     onOpenImages={() => setPageGallery(entry.id)}
                     onOpenContact={() => { setOpenCell(null); setContactFor(entry.id); }}
                     onOpenType={lane === 'checkins' ? () => { setOpenCell(null); setDetailType(entry.type); } : null}
@@ -2958,6 +2998,24 @@ export function DoctorsPage() {
               </tbody>
             ))}
           </table>
+        </div>
+      )}
+
+      {/* What the tab is holding back, and the way to put it back. Sits under
+          the table rather than in it: these are rows you said you didn't want
+          to see, so they're a footnote, not a section. */}
+      {lane === 'checkins' && heldBack.length > 0 && (
+        <div className={styles.heldBack}>
+          <span className={styles.heldBackLabel}>Not on check-ins:</span>
+          {heldBack.map((row) => (
+            <button
+              key={row.key}
+              type="button"
+              className={styles.heldBackChip}
+              title={`Put ${row.label} back on Check-ins`}
+              onClick={() => update((l) => setCheckInRowOff(l, row.entry, false))}
+            >{row.label} ↺</button>
+          ))}
         </div>
       )}
 
@@ -2980,7 +3038,8 @@ export function DoctorsPage() {
           daysFrom={daysFrom}
           update={update}
           onClose={closeSheet}
-          onDelete={() => handleDelete(sheetEntry)}
+          onDelete={() => (lane === 'checkins' ? handleHoldBack(sheetEntry) : handleDelete(sheetEntry))}
+          holdBack={lane === 'checkins'}
           onOpenImages={() => setPageGallery(sheetEntry.id)}
         />
       )}

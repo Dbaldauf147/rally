@@ -266,6 +266,8 @@ export function normalizeEntry(raw) {
   out.images = normalizeImages(raw?.images);
   // A doctor you used to see. See isFormerEntry.
   out.former = !!raw?.former;
+  // Held back from the Check-ins tab by hand. See isOffCheckIns.
+  out.offCheckins = !!raw?.offCheckins;
   return out;
 }
 
@@ -483,6 +485,21 @@ export const isIssueEntry = (e) => !!String(e?.issue || '').trim()
    Nothing is deleted, and un-marking one brings it straight back. */
 export const isFormerEntry = (e) => !!e?.former;
 
+/* A record the owner has taken off the Check-ins tab by hand.
+ *
+ * Check-ins is a schedule, and not everything that qualifies for it belongs on
+ * one: the walk-in clinic you used once, the speciality you have no intention
+ * of booking again. Those rows were being cleared with the row's ×, which
+ * deleted the record — and with it the issues, pictures and questions filed
+ * under it, on every other tab. This flag is what × means there instead.
+ *
+ * Nothing about the record changes. It still shows on Issues, on Everything
+ * and in its speciality's pop-up, and the Check-ins tab lists what it is
+ * holding back so it can be put straight back. Distinct from `former`, which
+ * says something about the doctor ("I don't see them any more"); this says
+ * something about the tab ("don't schedule this"). */
+export const isOffCheckIns = (e) => !!e?.offCheckins;
+
 export const isScheduledOrContact = (e) => !isFormerEntry(e)
   && (!!String(e?.cadence || '').trim() || !isIssueEntry(e));
 
@@ -503,9 +520,17 @@ const doctorKey = (e) => [e?.type, e?.doctor, e?.place].map((v) => String(v || '
  * already has a scheduled or contact record is shown by that one, and one who
  * has only issues is shown by the first of them. Without `entries` there's no
  * way to know, and a named record counts. */
-export function isCheckInEntry(e, entries = null) {
+/* `includeHeld` asks the question the tab doesn't: which records WOULD be
+ * check-ins, held-back ones included. Matching a calendar appointment to a
+ * record is that question — an appointment with the dermatologist is still
+ * hers whether or not her row is on the tab — so taking a row off must not
+ * quietly cost the record its appointments too. */
+export function isCheckInEntry(e, entries = null, { includeHeld = false } = {}) {
   // Somebody you used to see is not somebody you're due to see.
   if (isFormerEntry(e)) return false;
+  // Taken off the tab by hand. Checked before anything else, because the whole
+  // point is that it outranks every reason the record would otherwise qualify.
+  if (!includeHeld && isOffCheckIns(e)) return false;
   if (isScheduledOrContact(e)) return true;
   if (!hasDoctorName(e)) return false;
   if (!entries) return true;
@@ -564,6 +589,66 @@ export function checkInEntries(list, today = new Date(), { pinned = '' } = {}) {
   const winners = new Set([...best.values()].map((e) => e.id));
   // Original order, so the grouping below still arranges the page.
   return shown.filter((e) => !String(e.type || '').trim() || winners.has(e.id));
+}
+
+/* Take a Check-ins row off the tab, or put it back.
+ *
+ * Scoped to the row as the tab draws it, which is the speciality and not the
+ * record: Skin shows one row chosen from everything filed under Skin, so
+ * flagging only the record behind it would hand the row to the next-best one
+ * and leave Skin sitting there. Every Skin record that qualifies goes, and the
+ * row goes with them. A record with no speciality is its own row, so it is the
+ * only thing flagged.
+ *
+ * Adding a new doctor under a speciality that was taken off brings the row
+ * back, which is the right reading of adding one: the flag is on the records
+ * that were there, not a standing rule about the name.
+ *
+ * Nothing is deleted and nothing else on the records changes — see
+ * isOffCheckIns. Takes the row's record rather than an id so the caller can
+ * hand over exactly what the tab drew. */
+export function setCheckInRowOff(list, entry, off) {
+  const l = normalizeList(list);
+  const type = String(entry?.type || '').trim().toLowerCase();
+  const hit = (e) => (type
+    ? String(e.type || '').trim().toLowerCase() === type
+    : e.id === entry?.id);
+  return normalizeList({
+    ...l,
+    // Putting a row back only has to clear the flag; taking one off should not
+    // drag in records that were never on the tab for other reasons (a former
+    // doctor, an issue under the same speciality), or bringing it back would
+    // add rows that were never removed.
+    entries: l.entries.map((e) => (hit(e) && (!off || isCheckInEntry(e, l.entries))
+      ? { ...e, offCheckins: !!off }
+      : e)),
+  });
+}
+
+/* The specialities currently held back, in the order the tab would have shown
+   them — what the Check-ins tab lists underneath so a removed row has a way
+   back. A record with no speciality is listed under its own name. */
+export function offCheckInRows(list) {
+  const l = normalizeList(list);
+  // A speciality the tab is showing again isn't being held back, whatever its
+  // older records still say. Adding a doctor under one that was taken off
+  // brings its row back, and the footnote has to stop claiming otherwise —
+  // Skin listed as a row and as held back at the same time is a page arguing
+  // with itself.
+  const showing = new Set(checkInEntries(l)
+    .map((e) => String(e.type || '').trim().toLowerCase())
+    .filter(Boolean));
+  const out = [];
+  const seen = new Set();
+  for (const e of l.entries) {
+    if (!isOffCheckIns(e) || isFormerEntry(e)) continue;
+    const type = String(e.type || '').trim();
+    const key = type ? type.toLowerCase() : `id:${e.id}`;
+    if (seen.has(key) || (type && showing.has(key))) continue;
+    seen.add(key);
+    out.push({ key, type, label: type || entryPickerLabel(e), entry: e });
+  }
+  return out;
 }
 
 /* Mark a doctor as one you used to see, or bring them back.
@@ -1264,7 +1349,7 @@ export function suggestEntryFor(event, entries) {
 export function pendingAppointments(list, events) {
   const l = normalizeList(list);
   const settled = settledEventIds(l);
-  const checkIns = l.entries.filter((e) => isCheckInEntry(e, l.entries));
+  const checkIns = l.entries.filter((e) => isCheckInEntry(e, l.entries, { includeHeld: true }));
   return (events || [])
     .map((e) => ({
       eventId: String(e?.id ?? e?.eventId ?? '').trim(),
@@ -1368,7 +1453,9 @@ export function checkInsNeedingScheduling(list, today = new Date()) {
   const l = normalizeList(list);
   const from = daysSinceField(l);
   return l.entries
-    .filter((e) => hasContent(e) && isScheduledOrContact(e))
+    // A row taken off the Check-ins tab is a row you have said you are not
+    // booking, so the digest has no business nagging you to book it.
+    .filter((e) => hasContent(e) && isScheduledOrContact(e) && !isOffCheckIns(e))
     .filter((e) => !upcomingVisit(e, from ? customValueOf(e, from) : '', today))
     .map((e) => {
       const p = parseLooseDate(from ? customValueOf(e, from) : '');
