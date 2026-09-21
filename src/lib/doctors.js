@@ -532,12 +532,18 @@ export function isCheckInEntry(e, entries = null) {
  *
  * Records with no speciality keep a row each: there is no type for them to be
  * a duplicate of, and collapsing them would stack unrelated records on top of
- * one another.
+ * one another. `pinned` is the record the owner has just added and is typing
+ * into, which holds its speciality's row however little it says so far.
  */
-export function checkInEntries(list, today = new Date()) {
+export function checkInEntries(list, today = new Date(), { pinned = '' } = {}) {
   const l = normalizeList(list);
   const from = daysSinceField(l);
   const rankOf = (e) => {
+    // A record just added on the tab holds the row while it is being filled
+    // in. It has nothing to say for itself yet — no name, no cadence — so on
+    // the ranking below it would lose to the doctor it was added to replace
+    // and vanish the moment it was typed into.
+    if (e.id === pinned) return -1;
     const next = upcomingVisit(e, from ? customValueOf(e, from) : '', today);
     if (next?.booked) return 0;
     if (next && !next.overdue) return 1;
@@ -570,6 +576,24 @@ export function setEntryFormer(list, id, former) {
     ...l,
     entries: l.entries.map((e) => (e.id === id ? { ...e, former: !!former } : e)),
   });
+}
+
+/* The doctors you used to see, by speciality.
+ *
+ * What the "Was:" line on a Check-ins row reads: a speciality whose doctor has
+ * been replaced still knows who came before, and their records — issues, meds,
+ * pictures, questions — are all still filed under it. Keyed the way the
+ * headings match types, so " skin " finds Skin.
+ */
+export function formerDoctorsByType(list) {
+  const l = normalizeList(list);
+  const out = new Map();
+  for (const e of l.entries) {
+    const key = String(e.type || '').trim().toLowerCase();
+    if (!key || !isFormerEntry(e)) continue;
+    out.set(key, [...(out.get(key) || []), e]);
+  }
+  return out;
 }
 
 export function inLane(entry, lane, entries = null) {
@@ -615,11 +639,11 @@ const statusRank = (e) => {
 };
 const settled = (group) => group.entries.every((e) => e.status === STATUS.RESOLVED);
 
-export function groupByType(list, { query = '', status = 'all', lane = 'all' } = {}) {
+export function groupByType(list, { query = '', status = 'all', lane = 'all', pinned = '' } = {}) {
   const { types, fields, entries } = normalizeList(list);
   // Check-ins picks its rows as a set — one per speciality — where the other
   // lanes test each record on its own.
-  const pool = lane === 'checkins' ? checkInEntries(list) : entries.filter((e) => inLane(e, lane, entries));
+  const pool = lane === 'checkins' ? checkInEntries(list, new Date(), { pinned }) : entries.filter((e) => inLane(e, lane, entries));
   const visible = pool.filter((e) =>
     (status === 'all' || e.status === status) && matchesQuery(e, query, fields));
 

@@ -10,6 +10,7 @@ import {
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
   isCheckInEntry, isIssueEntry, isFormerEntry, setEntryFormer, laneCounts, checkInEntries,
+  formerDoctorsByType,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts, questionMatches, normalizeQuestion,
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
@@ -1634,6 +1635,57 @@ describe('checkInEntries', () => {
     expect(groupByType(l, { lane: 'checkins' }).flatMap((g) => g.entries.map((e) => e.id))).toEqual(['derm', 'hair']);
     // Everything still lists both skin records.
     expect(groupByType(l, { lane: 'all' }).flatMap((g) => g.entries).length).toBe(3);
+  });
+});
+
+/* Getting a new doctor for a speciality you already see someone for: the new
+   record takes the row, and the one it replaces keeps everything it had. */
+describe('a new doctor for a speciality', () => {
+  const NOW = new Date(2026, 8, 20);
+  const list = () => normalizeList({
+    types: ['Skin'],
+    entries: [
+      { id: 'old', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)', issue: 'Mole', currentMeds: 'Tretinoin' },
+      { id: 'other', type: 'Skin', doctor: 'City MD' },
+    ],
+  });
+
+  it('holds the row for the record just added, blank as it is', () => {
+    const l = addEntry(setEntryFormer(list(), 'old', true), { id: 'new', type: 'Skin' });
+    // Without the pin, the doctor who still has a name would take the row back.
+    expect(checkInEntries(l, NOW).map((e) => e.id)).toEqual(['other']);
+    expect(checkInEntries(l, NOW, { pinned: 'new' }).map((e) => e.id)).toEqual(['new']);
+    expect(groupByType(l, { lane: 'checkins', pinned: 'new' }).flatMap((g) => g.entries.map((e) => e.id))).toEqual(['new']);
+  });
+
+  it('will not pull a former doctor back onto the tab', () => {
+    const l = setEntryFormer(list(), 'old', true);
+    expect(checkInEntries(l, NOW, { pinned: 'old' }).map((e) => e.id)).toEqual(['other']);
+  });
+
+  it('keeps what the replaced doctor treated, under the same speciality', () => {
+    const l = setEntryFormer(list(), 'old', true);
+    const gone = l.entries.find((e) => e.id === 'old');
+    expect(gone).toMatchObject({ type: 'Skin', doctor: 'Dr. Uliasz', issue: 'Mole', currentMeds: 'Tretinoin', former: true });
+    expect(formerDoctorsByType(l).get('skin').map((e) => e.id)).toEqual(['old']);
+  });
+});
+
+describe('formerDoctorsByType', () => {
+  it('reads the speciality the way the headings do, and leaves the untyped out', () => {
+    const l = normalizeList({
+      types: ['Skin'],
+      entries: [
+        { id: 'a', type: 'Skin', doctor: 'Dr. One', former: true },
+        { id: 'b', type: ' skin ', doctor: 'Dr. Two', former: true },
+        { id: 'c', type: 'Skin', doctor: 'Dr. Now' },
+        { id: 'd', doctor: 'Nobody in particular', former: true },
+      ],
+    });
+    const m = formerDoctorsByType(l);
+    expect(m.get('skin').map((e) => e.id)).toEqual(['a', 'b']);
+    expect(m.has('')).toBe(false);
+    expect(m.get('hair')).toBeUndefined();
   });
 });
 
