@@ -123,9 +123,9 @@
 /* The date the counter is counting towards. Tabular like its neighbour so the
    two read as one pair, and coloured only once it has gone past — a column
    where every cell is red is a column nobody looks at. */
-/* How late, beside when. Empty on a row that is not — a column of dashes
-   would be as loud as a column of numbers, and the point of this one is that
-   anything in it needs doing. */
+/* How late, beside when: days past the next visit, negative while it is still
+   ahead. Only the positive ones are coloured — the whole column is a number
+   line, and the red marks the part of it that needs doing. */
 .cellOverdue { width: 6%; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
 .cellOverdueLate { composes: cellOverdue; color: var(--color-danger); font-weight: 650; }
 
@@ -134,6 +134,16 @@
 /* Booked on the calendar rather than worked out from the cadence — the one
    date in this column that isn't arithmetic. */
 .cellNextBooked { composes: cellNext; color: var(--color-accent); font-weight: 650; }
+/* `.table td` sets a colour of its own, and a class on the cell alone never
+   outweighed it — so every one of the colours above has been quietly losing:
+   an overdue date has been bold but grey, and a booked one bold but grey too.
+   Restated here against the cell inside the table, which is what it takes for
+   the column's own colour to reach the page. */
+.table td.cellDays { color: var(--color-text); }
+.table td.cellNext, .table td.cellOverdue { color: var(--color-text-secondary); }
+.table td.cellNextOverdue, .table td.cellOverdueLate { color: var(--color-danger); }
+.table td.cellNextBooked { color: var(--color-accent); }
+
 .cellStatus { width: 8%; white-space: nowrap; }
 .cellEdit { width: 1%; text-align: right; white-space: nowrap; }
 
@@ -344,6 +354,10 @@
    not reach it, and a dark bold name on an otherwise grey row does not read as
    greyed out — it reads as a row that failed to load. */
 .rowResolved .name { color: var(--color-text-muted); }
+/* And the same weight as the column colours above, after them, so a resolved
+   row still greys the dates rather than keeping a red one. */
+.table .rowResolved td { color: var(--color-text-muted); }
+.table .rowResolved:hover td { color: var(--color-text-secondary); }
 
 /* Scheduled: a next visit still ahead, whether it is on the calendar or
    counted from a cadence. The tint is deliberately faint — a whole row of

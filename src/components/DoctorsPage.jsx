@@ -2418,17 +2418,20 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
           >{counted || null}</td>
         );
       }
-      /* How far past due, in days — the number the tab is sorted by. Blank
-         unless the date has actually gone by, so the column is empty on a
-         list with nothing late on it, which is the answer you want at a
-         glance. Due today reads as today rather than as 0 days. */
+      /* The day counter between the next visit and today, and the number the
+         tab is sorted by. Positive is days past due; negative is days still to
+         go, which is the same measurement read the other way and keeps the
+         column comparable all the way down — a row at -3 and a row at -300 are
+         not the same kind of "not yet". Zero is today. Blank only when there
+         is no next visit to count to. */
       case 'overdue': {
         if (!next) return <td key="overdue" className={styles.cellOverdue} />;
-        if (next.due) return <td key="overdue" className={styles.cellOverdueLate}>Today</td>;
-        if (!next.overdue) return <td key="overdue" className={styles.cellOverdue} />;
-        const late = -next.daysAway;
+        const past = -next.daysAway;
+        const title = past > 0 ? `${past} days past ${next.label}`
+          : past === 0 ? `Due today, ${next.label}`
+          : `${-past} days until ${next.label}`;
         return (
-          <td key="overdue" className={styles.cellOverdueLate}>{late} day{late === 1 ? '' : 's'}</td>
+          <td key="overdue" className={past > 0 ? styles.cellOverdueLate : styles.cellOverdue} title={title}>{past}</td>
         );
       }
       /* Also counted: the last visit plus the cadence beside it. Empty unless
