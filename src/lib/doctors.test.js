@@ -1672,6 +1672,62 @@ describe('a new doctor for a speciality', () => {
   });
 });
 
+/* Check-ins is a queue: what is late, then what is next, then what has
+   nothing arranged. */
+describe('the Check-ins order', () => {
+  const NOW = new Date(2026, 8, 20); // 2026-09-20
+  const ids = (l) => groupByType(l, { lane: 'checkins', today: NOW }).flatMap((g) => g.entries.map((e) => e.id));
+
+  const build = (rows) => {
+    let l = addField(normalizeList({
+      types: ['Skin', 'Hair', 'Dentist', 'Ear', 'Primary'],
+      entries: rows, // `last` is not a record field; normalizeEntry drops it
+    }), { label: 'Last visit', type: 'date' });
+    const fieldId = l.fields[0].id;
+    for (const r of rows) if (r.last) l = setCustomValue(l, r.id, fieldId, r.last);
+    return l;
+  };
+
+  it('runs most overdue first, then soonest, then the ones with no date', () => {
+    const l = build([
+      { id: 'skin', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)', last: '2026-09-15' },
+      { id: 'primary', type: 'Primary', doctor: 'Mount Sinai' },
+      { id: 'dentist', type: 'Dentist', place: '34th St Dental', cadence: 'Every 6 months', last: '2026-03-08' },
+      { id: 'ear', type: 'Ear', doctor: 'Dr. Kim', cadence: 'Every 1 year(s)', last: '2025-10-02' },
+      { id: 'hair', type: 'Hair', doctor: 'Hims', cadence: 'Every 3 months', last: '2025-08-19' },
+    ]);
+    // hair 13 months late, dentist 12 days late, ear due in 12 days, skin in
+    // two years, primary never.
+    expect(ids(l)).toEqual(['hair', 'dentist', 'ear', 'skin', 'primary']);
+  });
+
+  it('puts a booked appointment in the queue by its own date', () => {
+    const l = build([
+      { id: 'counted', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 1 year(s)', last: '2026-09-01' },
+      { id: 'booked', type: 'Hair', doctor: 'Hims', appointments: [{ eventId: 'e1', date: '2026-09-25', title: 'Hims' }] },
+    ]);
+    expect(ids(l)).toEqual(['booked', 'counted']);
+  });
+
+  it('takes the records with no speciality into the same queue', () => {
+    const l = build([
+      { id: 'late', doctor: 'Dr. Late', cadence: 'Every 1 year(s)', last: '2024-01-01' },
+      { id: 'soon', doctor: 'Dr. Soon', cadence: 'Every 1 year(s)', last: '2026-09-01' },
+      { id: 'typed', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 1 year(s)', last: '2026-06-01' },
+    ]);
+    expect(ids(l)).toEqual(['late', 'typed', 'soon']);
+  });
+
+  it('leaves the other tabs in the order they had', () => {
+    const l = build([
+      { id: 'late', type: 'Hair', doctor: 'Hims', cadence: 'Every 3 months', last: '2025-08-19' },
+      { id: 'skin', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)', last: '2026-09-15' },
+    ]);
+    // Skin before Hair, which is the owner's type order.
+    expect(groupByType(l, { lane: 'all', today: NOW }).flatMap((g) => g.entries.map((e) => e.id))).toEqual(['skin', 'late']);
+  });
+});
+
 describe('formerDoctorsByType', () => {
   it('reads the speciality the way the headings do, and leaves the untyped out', () => {
     const l = normalizeList({

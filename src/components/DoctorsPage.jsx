@@ -178,6 +178,13 @@ const NOTES_COLUMN = { key: 'notes', kind: 'builtin', field: null, label: 'Notes
    on this tab, and the headings it replaces were never hidable either. */
 const TYPE_COLUMN = { key: 'type', kind: 'builtin', field: null, label: 'Type', hidden: false };
 
+/* How late a visit is, as its own column — also Check-ins only, and for the
+   same reason the tab is sorted by it: "am I behind on anything?" is the
+   question the tab answers first, and reading it out of a date in a column of
+   dates means doing the arithmetic yourself. The Next visit column still
+   carries the date; this one carries what the date means today. */
+const OVERDUE_COLUMN = { key: 'overdue', kind: 'builtin', field: null, label: 'Overdue', hidden: false };
+
 /* One field inside an open cell.
 
    Uncontrolled, committing on blur or Enter: the stored shape trims its
@@ -2028,7 +2035,7 @@ function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImag
           <span className={styles.recChips}>
             {next && (
               <span className={next.booked ? styles.chipBooked : next.overdue ? styles.chipOverdue : styles.chip}>
-                {next.booked ? '📅 ' : ''}Next {next.label}{next.overdue ? ' · overdue' : ''}
+                {next.booked ? '📅 ' : ''}Next {next.label}{next.overdue ? ` · ${-next.daysAway} days overdue` : ''}
               </span>
             )}
             {/^\d+$/.test(counted) && <span className={styles.chip}>{counted} days since</span>}
@@ -2186,7 +2193,7 @@ function RecordSheet({ uid, entry, list, daysFrom, update, onClose, onDelete, ho
           <div className={styles.recChips}>
             {next && (
               <span className={next.booked ? styles.chipBooked : next.overdue ? styles.chipOverdue : styles.chip}>
-                {next.booked ? '📅 ' : ''}Next {next.label}{next.overdue ? ' · overdue' : ''}
+                {next.booked ? '📅 ' : ''}Next {next.label}{next.overdue ? ` · ${-next.daysAway} days overdue` : ''}
               </span>
             )}
             {/^\d+$/.test(counted) && <span className={styles.chip}>{counted} days since {daysFrom.label.toLowerCase()}</span>}
@@ -2268,7 +2275,7 @@ function PhoneMenu({ onTypes, onColumns }) {
   );
 }
 
-const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays, type: styles.cellType };
+const HEAD_CLASS = { name: styles.cellName, daysSince: styles.cellDays, type: styles.cellType, overdue: styles.cellOverdue };
 
 /* The speciality, on the row rather than in a heading over it.
 
@@ -2304,6 +2311,10 @@ function formerLabel(former, type) {
 function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, holdBack, onOpenImages, onOpenContact, onOpenType, onNewDoctor, former, onOpenFormer }) {
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
+  // Once for the row: the Overdue column, the Next visit column and the row's
+  // own colour are three readings of the same date.
+  const lastVisit = daysFrom ? customValueOf(entry, daysFrom) : '';
+  const next = upcomingVisit(entry, lastVisit);
   // Notes live under the issue unless a Notes column is carrying them, in
   // which case the Issue cell neither shows nor edits them — one field, one
   // place to type it.
@@ -2398,14 +2409,26 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
       // Counted, not typed: there is nothing to open here, and the number
       // carries the date it counted from as its tooltip.
       case 'daysSince': {
-        const since = daysFrom ? customValueOf(entry, daysFrom) : '';
-        const counted = daysSinceLabel(since);
+        const counted = daysSinceLabel(lastVisit);
         return (
           <td
             key="daysSince"
             className={styles.cellDays}
-            title={counted ? `${daysFrom.label}: ${formatCustomValue(daysFrom, since)}` : undefined}
+            title={counted ? `${daysFrom.label}: ${formatCustomValue(daysFrom, lastVisit)}` : undefined}
           >{counted || null}</td>
+        );
+      }
+      /* How far past due, in days — the number the tab is sorted by. Blank
+         unless the date has actually gone by, so the column is empty on a
+         list with nothing late on it, which is the answer you want at a
+         glance. Due today reads as today rather than as 0 days. */
+      case 'overdue': {
+        if (!next) return <td key="overdue" className={styles.cellOverdue} />;
+        if (next.due) return <td key="overdue" className={styles.cellOverdueLate}>Today</td>;
+        if (!next.overdue) return <td key="overdue" className={styles.cellOverdue} />;
+        const late = -next.daysAway;
+        return (
+          <td key="overdue" className={styles.cellOverdueLate}>{late} day{late === 1 ? '' : 's'}</td>
         );
       }
       /* Also counted: the last visit plus the cadence beside it. Empty unless
@@ -2414,8 +2437,6 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
          marked, because a date that has quietly gone past is the one thing
          this column exists to catch. */
       case 'nextVisit': {
-        const since = daysFrom ? customValueOf(entry, daysFrom) : '';
-        const next = upcomingVisit(entry, since);
         if (!next) return <td key="nextVisit" className={styles.cellNext} />;
         const when = next.overdue ? ` — ${-next.daysAway} days ago`
           : next.due ? ' — today'
@@ -2426,7 +2447,7 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
             className={next.booked ? styles.cellNextBooked : next.overdue ? styles.cellNextOverdue : styles.cellNext}
             title={(next.booked
               ? `Booked: ${next.title || 'on your calendar'}`
-              : `${entry.cadence} after ${daysFrom.label} ${formatCustomValue(daysFrom, since)}`) + when}
+              : `${entry.cadence} after ${daysFrom.label} ${formatCustomValue(daysFrom, lastVisit)}`) + when}
           >{next.booked ? `${next.label} 📅` : next.label}</td>
         );
       }
@@ -2467,7 +2488,6 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
      it comes back to full strength on a green row rather than staying grey and
      italic underneath it. */
   const resolved = entry.status === STATUS.RESOLVED;
-  const next = upcomingVisit(entry, daysFrom ? customValueOf(entry, daysFrom) : '');
   const scheduled = !!next && !next.overdue;
   const rowClass = [styles.row, resolved && styles.rowResolved, scheduled && styles.rowScheduled]
     .filter(Boolean).join(' ');
@@ -2661,7 +2681,14 @@ export function DoctorsPage() {
         .filter((c) => c && !c.hidden);
     }
     const shown = allColumns.filter((c) => !c.hidden && (showStatus || c.key !== 'status'));
-    return lane === 'checkins' ? [TYPE_COLUMN, ...shown] : shown;
+    if (lane !== 'checkins') return shown;
+    // Overdue reads next to the date it is counted from, and falls to the end
+    // if that column has been hidden.
+    const at = shown.findIndex((c) => c.key === 'nextVisit');
+    const withOverdue = at === -1
+      ? [...shown, OVERDUE_COLUMN]
+      : [...shown.slice(0, at), OVERDUE_COLUMN, ...shown.slice(at)];
+    return [TYPE_COLUMN, ...withOverdue];
   }, [allColumns, showStatus, lane]);
   // Resolved once for the whole table rather than per row.
   const daysFrom = useMemo(() => daysSinceField(safeList), [safeList]);
@@ -2917,7 +2944,7 @@ export function DoctorsPage() {
                   <RecordCard
                     key={entry.id}
                     entry={entry}
-                    groupType={group.type}
+                    groupType={lane === 'checkins' ? entry.type : group.type}
                     daysFrom={daysFrom}
                     showStatus={showStatus}
                     onOpen={() => setSheet({ id: entry.id, added: false })}
@@ -2976,7 +3003,7 @@ export function DoctorsPage() {
                   <EntryRow
                     key={entry.id}
                     entry={entry}
-                    groupType={group.type}
+                    groupType={lane === 'checkins' ? entry.type : group.type}
                     types={safeList.types}
                     columns={shownColumns}
                     daysFrom={daysFrom}
