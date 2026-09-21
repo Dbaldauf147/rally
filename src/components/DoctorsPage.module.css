@@ -387,6 +387,72 @@
 .table.tableLeft th, .table.tableLeft td { text-align: left; }
 .table.tableLeft thead th.cellDays { text-align: left; }
 
+/* Treatments: courses of something, drawn across the months they run.
+
+   A table again, but read the other way round — the rows are spans and the
+   columns are time, so the only thing that matters about a cell is whether the
+   bar is in it. Hence fixed narrow month columns, a name column that stays put
+   while the years scroll under it, and a rule down the month it is now. */
+.treatments { margin-bottom: 2rem; }
+.trtForm { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.85rem; margin-bottom: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.trtName { flex: 1 1 240px; min-width: 200px; padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.92rem; color: var(--color-text); }
+.trtWho { flex: 0 1 180px; min-width: 140px; padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.88rem; color: var(--color-text); }
+.trtNotes { flex: 1 1 200px; min-width: 160px; padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.88rem; color: var(--color-text); }
+.trtName:focus, .trtWho:focus, .trtNotes:focus, .trtSelect:focus { outline: none; border-color: var(--color-accent); }
+.trtSelect { padding: 0.5rem 0.4rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.85rem; color: var(--color-text); }
+.trtWhen { display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.trtLabel { font-size: 0.8rem; color: var(--color-text-muted); }
+.trtOngoing, .trtOngoingOn { padding: 0.4rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface); font-family: inherit; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; }
+.trtOngoingOn { border-color: var(--color-accent); background: var(--color-accent-light); color: var(--color-accent); }
+.trtAdd { padding: 0.5rem 0.9rem; border: none; border-radius: var(--radius-sm); background: var(--color-accent); color: #fff; font-family: inherit; font-size: 0.88rem; font-weight: 600; cursor: pointer; }
+.trtAdd:disabled { opacity: 0.5; cursor: not-allowed; }
+.trtModal { height: auto; max-height: 90vh; max-width: min(820px, 96vw); }
+
+.trtLegend { display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; font-size: 0.75rem; color: var(--color-text-secondary); }
+.trtKey { display: inline-block; width: 1.4rem; height: 0.55rem; border-radius: 999px; }
+.trtKey + .trtKey, .trtLegendNote { margin-left: 0.6rem; }
+.trtLegendNote { margin-left: auto; color: var(--color-text-muted); }
+
+.trtGridWrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.trtGrid { border-collapse: collapse; table-layout: fixed; }
+.trtHeadName, .trtRowName { position: sticky; left: 0; z-index: 2; width: 15rem; min-width: 15rem; text-align: left; background: var(--color-surface); border-right: 1px solid var(--color-border); }
+.trtHeadName { padding: 0.5rem 0.7rem; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); }
+.trtYear { padding: 0.35rem 0.4rem; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); border-left: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border-light); }
+.trtMonth, .trtMonthNow { width: 1.35rem; min-width: 1.35rem; padding: 0.2rem 0; font-size: 0.6rem; font-weight: 600; color: var(--color-text-muted); text-align: center; border-bottom: 1px solid var(--color-border); }
+/* This month, in the header and all the way down the grid. */
+.trtMonthNow { color: var(--color-accent); border-left: 2px solid var(--color-accent); }
+/* No horizontal padding: the months of one course have to touch, or the bar
+   reads as a dashed line of separate slabs. The ends are inset by their own
+   margins instead. */
+.trtCell { height: 2.1rem; padding: 0; border-bottom: 1px solid var(--color-border-light); }
+.trtCellNow { composes: trtCell; border-left: 2px solid var(--color-accent); }
+.trtRowName { position: relative; padding: 0.35rem 1.4rem 0.35rem 0.7rem; border-bottom: 1px solid var(--color-border-light); vertical-align: middle; }
+.trtRowBtn { display: block; width: 100%; padding: 0; border: none; background: none; font: inherit; text-align: left; color: inherit; cursor: pointer; }
+.trtRowTitle { display: block; font-size: 0.86rem; font-weight: 600; color: var(--color-text); overflow-wrap: anywhere; }
+.trtRowBtn:hover .trtRowTitle { color: var(--color-accent); }
+.trtRowMeta { display: block; font-size: 0.72rem; font-weight: 400; color: var(--color-text-muted); }
+.trtRowNotes { display: block; font-size: 0.72rem; font-weight: 400; color: var(--color-text-secondary); font-style: italic; overflow-wrap: anywhere; }
+.trtDelete { position: absolute; top: 0.35rem; right: 0.3rem; width: 1.2rem; height: 1.2rem; padding: 0; border: none; border-radius: var(--radius-sm); background: none; font-family: inherit; font-size: 0.95rem; line-height: 1; color: var(--color-text-muted); cursor: pointer; opacity: 0; }
+.trtRowName:hover .trtDelete, .trtDelete:focus-visible { opacity: 1; }
+.trtDelete:hover { background: var(--color-danger-light, #fee2e2); color: var(--color-danger); }
+/* A touch screen has no hover to reveal it with. */
+@media (hover: none) { .trtDelete { opacity: 1; } }
+
+/* The bar itself. A month is a slab; the ends of the run are rounded, so what
+   you see is one course of treatment rather than a row of separate boxes. */
+.trtBar { display: block; height: 0.85rem; background: var(--color-text-muted); }
+.trtBarStart { border-top-left-radius: 999px; border-bottom-left-radius: 999px; margin-left: 2px; }
+.trtBarEnd { border-top-right-radius: 999px; border-bottom-right-radius: 999px; margin-right: 2px; }
+.trtFill_current { background: var(--color-success, #16a34a); }
+.trtFill_upcoming { background: var(--color-accent); }
+.trtFill_past { background: #cbd5e1; }
+.trtFill_unplaced { background: transparent; }
+
+@media (max-width: 700px) {
+  .trtHeadName, .trtRowName { width: 9.5rem; min-width: 9.5rem; }
+  .trtMonth, .trtMonthNow { width: 1.1rem; min-width: 1.1rem; }
+}
+
 /* Questions: what you mean to ask, under whoever you mean to ask it. */
 .questions { margin-bottom: 2rem; }
 .qAdd { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.85rem; margin-bottom: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }

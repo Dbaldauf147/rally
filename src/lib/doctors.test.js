@@ -1035,7 +1035,7 @@ describe('check-ins and issues', () => {
     // Still a complaint that was treated, and still in the list.
     expect(isIssueEntry(old)).toBe(true);
     const list = { types: [], entries: [physical, old] };
-    expect(laneCounts(list)).toEqual({ all: 2, checkins: 1, issues: 1, questions: 0 });
+    expect(laneCounts(list)).toEqual({ all: 2, checkins: 1, issues: 1, treatments: 0, questions: 0 });
     expect(checkInsNeedingScheduling(list).map((c) => c.id)).toEqual(['2']);
   });
 
@@ -1061,7 +1061,7 @@ describe('check-ins and issues', () => {
 
   it('counts each lane, and says so even when they overlap', () => {
     const list = { types: [], entries: [dentist, physical, sprain, treating, contact] };
-    expect(laneCounts(list)).toEqual({ all: 5, checkins: 3, issues: 3, questions: 0 });
+    expect(laneCounts(list)).toEqual({ all: 5, checkins: 3, issues: 3, treatments: 0, questions: 0 });
   });
 
   it('filters the grouped list down to one lane', () => {

@@ -32,6 +32,10 @@ import {
   POPUP_COLUMNS, STORAGE_KEY as POPUP_COLUMNS_KEY, normalizePrefs, shownColumns, toggleColumn,
   setColumnWidth, cycleSort, sortEntries,
 } from '../lib/doctorsPopupColumns';
+import {
+  MONTHS_SHORT, monthKey, parseMonth, coversMonth, gridYears, describeSpan,
+  treatmentState, thisMonthKey, addTreatment, updateTreatment, removeTreatment,
+} from '../lib/doctorTreatments';
 import styles from './DoctorsPage.module.css';
 
 /* The owner's doctor list: who was seen for what, and how to reach them again.
@@ -748,6 +752,267 @@ function AppointmentsPanel({ list, update, daysFrom }) {
    Grouped under the record each question is for, because that's how they get
    used — you're about to see the dentist and you want the dentist's four, not
    everything you've ever wondered in date order. */
+/* Treatments: a course of something, drawn across the months it runs for.
+ *
+ * The other tabs are tables of records — one row, one doctor, one complaint.
+ * A treatment is a span, and the only question worth asking of a span is which
+ * months it covers and what else it overlaps, so this tab is a calendar rather
+ * than a table: years across the top, a bar per course, and a line down the
+ * month you are standing in.
+ */
+const MONTH_INITIALS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+
+// Enough of a range either side of now to cover a course already running and
+// one being booked a few years out.
+const YEAR_SPAN = 8;
+
+const blankDraft = (start) => ({ name: '', type: '', doctor: '', start, end: '', notes: '' });
+
+function TreatmentFields({ draft, setDraft, types, doctors, yearOptions }) {
+  const part = (key) => parseMonth(draft[key]) || null;
+  const setPart = (key, patch) => {
+    const cur = part(key) || parseMonth(draft.start) || { year: yearOptions[0], month: 0 };
+    setDraft((d) => ({ ...d, [key]: monthKey(patch.year ?? cur.year, patch.month ?? cur.month) }));
+  };
+  const monthSelect = (key, label) => {
+    const p = part(key);
+    return (
+      <>
+        <select
+          className={styles.trtSelect}
+          aria-label={`${label} month`}
+          value={p ? p.month : ''}
+          onChange={(e) => setPart(key, { month: Number(e.target.value) })}
+        >
+          {!p && <option value="">Month</option>}
+          {MONTHS_SHORT.map((m, i) => <option key={m} value={i}>{m}</option>)}
+        </select>
+        <select
+          className={styles.trtSelect}
+          aria-label={`${label} year`}
+          value={p ? p.year : ''}
+          onChange={(e) => setPart(key, { year: Number(e.target.value) })}
+        >
+          {!p && <option value="">Year</option>}
+          {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </>
+    );
+  };
+  return (
+    <>
+      <input
+        className={styles.trtName}
+        value={draft.name}
+        onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+        placeholder="What the treatment is — physio, Invisalign, a course of antibiotics…"
+        aria-label="Treatment"
+      />
+      <select
+        className={styles.trtSelect}
+        value={draft.type}
+        aria-label="Speciality"
+        onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value }))}
+      >
+        <option value="">Speciality…</option>
+        {types.map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
+      <input
+        className={styles.trtWho}
+        list="doctors-treating"
+        value={draft.doctor}
+        onChange={(e) => setDraft((d) => ({ ...d, doctor: e.target.value }))}
+        placeholder="Who is treating it"
+        aria-label="Who is treating it"
+      />
+      <datalist id="doctors-treating">
+        {doctors.map((d) => <option key={d} value={d} />)}
+      </datalist>
+      <span className={styles.trtWhen}>
+        <span className={styles.trtLabel}>From</span>
+        {monthSelect('start', 'Start')}
+        <span className={styles.trtLabel}>to</span>
+        {monthSelect('end', 'End')}
+        {/* An open-ended course is the normal case for anything you are simply
+            on, so clearing the end is one click rather than a date you have to
+            invent. */}
+        <button
+          type="button"
+          className={draft.end ? styles.trtOngoing : styles.trtOngoingOn}
+          onClick={() => setDraft((d) => ({ ...d, end: '' }))}
+          title="No end date — it is still going"
+        >{draft.end ? 'Ongoing?' : '✓ Ongoing'}</button>
+      </span>
+      <input
+        className={styles.trtNotes}
+        value={draft.notes}
+        onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+        placeholder="Notes"
+        aria-label="Notes"
+      />
+    </>
+  );
+}
+
+function TreatmentsPanel({ list, update }) {
+  // Memoised so the grid below isn't rebuilt on every keystroke in the form:
+  // `list.treatments || []` is a fresh array each render when there are none.
+  const treatments = useMemo(() => list.treatments || [], [list.treatments]);
+  // Frozen per mount, so the "this month" line and every state badge agree.
+  const today = useMemo(() => new Date(), []);
+  const now = thisMonthKey(today);
+  const years = useMemo(() => gridYears(treatments, today), [treatments, today]);
+  const yearOptions = useMemo(() => {
+    const first = today.getFullYear() - YEAR_SPAN;
+    return Array.from({ length: YEAR_SPAN * 2 + 1 }, (_, i) => first + i);
+  }, [today]);
+  const [draft, setDraft] = useState(() => blankDraft(now));
+  const [editing, setEditing] = useState(null); // { id, draft }
+
+  const types = list.types || [];
+  const doctors = useMemo(() => {
+    const seen = new Set();
+    for (const e of list.entries || []) {
+      const name = String(e.doctor || e.place || '').trim();
+      if (name) seen.add(name);
+    }
+    return [...seen].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [list.entries]);
+
+  function submit(e) {
+    e.preventDefault();
+    if (!draft.name.trim()) return;
+    update((l) => addTreatment(l, draft));
+    // The dates stay put: a course usually gets added beside another one.
+    setDraft(blankDraft(draft.start || now));
+  }
+
+  function saveEdit(e) {
+    e.preventDefault();
+    update((l) => updateTreatment(l, editing.id, editing.draft));
+    setEditing(null);
+  }
+
+  function remove(t) {
+    if (!window.confirm(`Remove ${t.name || 'this treatment'}?`)) return;
+    update((l) => removeTreatment(l, t.id));
+    if (editing?.id === t.id) setEditing(null);
+  }
+
+  const months = years.flatMap((y) => MONTHS_SHORT.map((_, m) => ({ key: monthKey(y, m), year: y, month: m })));
+
+  return (
+    <section className={styles.treatments}>
+      <form className={styles.trtForm} onSubmit={submit}>
+        <TreatmentFields draft={draft} setDraft={setDraft} types={types} doctors={doctors} yearOptions={yearOptions} />
+        <button type="submit" className={styles.trtAdd} disabled={!draft.name.trim()}>Add treatment</button>
+      </form>
+
+      {treatments.length === 0 ? (
+        <div className={styles.empty}>No treatments yet. Add the first one — what it is, and the months it runs.</div>
+      ) : (
+        <>
+          <div className={styles.trtLegend}>
+            <span className={`${styles.trtKey} ${styles.trtFill_current}`} /> On it now
+            <span className={`${styles.trtKey} ${styles.trtFill_upcoming}`} /> Still to come
+            <span className={`${styles.trtKey} ${styles.trtFill_past}`} /> Finished
+            <span className={styles.trtLegendNote}>Click a treatment to edit it. The line marks this month.</span>
+          </div>
+          <div className={styles.trtGridWrap}>
+            <table className={styles.trtGrid}>
+              <thead>
+                <tr>
+                  <th className={styles.trtHeadName} rowSpan={2}>Treatment</th>
+                  {years.map((y) => <th key={y} colSpan={12} className={styles.trtYear}>{y}</th>)}
+                </tr>
+                <tr>
+                  {months.map((m) => (
+                    <th
+                      key={m.key}
+                      className={m.key === now ? styles.trtMonthNow : styles.trtMonth}
+                      title={`${MONTHS_SHORT[m.month]} ${m.year}`}
+                    >{MONTH_INITIALS[m.month]}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {treatments.map((t) => {
+                  const state = treatmentState(t, today);
+                  const covered = months.map((m) => coversMonth(t, m.key));
+                  return (
+                    <tr key={t.id}>
+                      <th className={styles.trtRowName} scope="row">
+                        <button
+                          type="button"
+                          className={styles.trtRowBtn}
+                          onClick={() => setEditing({ id: t.id, draft: { name: t.name, type: t.type, doctor: t.doctor, start: t.start, end: t.end, notes: t.notes } })}
+                          title="Edit this treatment"
+                        >
+                          <span className={styles.trtRowTitle}>{t.name || 'Untitled'}</span>
+                          <span className={styles.trtRowMeta}>
+                            {describeSpan(t)}
+                            {t.type ? ` · ${t.type}` : ''}
+                            {t.doctor ? ` · ${t.doctor}` : ''}
+                          </span>
+                          {t.notes ? <span className={styles.trtRowNotes}>{t.notes}</span> : null}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.trtDelete}
+                          onClick={() => remove(t)}
+                          aria-label={`Remove ${t.name || 'this treatment'}`}
+                          title="Remove"
+                        >×</button>
+                      </th>
+                      {months.map((m, i) => {
+                        const cls = [styles.trtCell, m.key === now ? styles.trtCellNow : ''].filter(Boolean).join(' ');
+                        if (!covered[i]) return <td key={m.key} className={cls} />;
+                        // Rounded where the course starts and stops, square in
+                        // between, so a run of months reads as one bar rather
+                        // than a row of boxes.
+                        const open = i > 0 && covered[i - 1];
+                        const close = i < covered.length - 1 && covered[i + 1];
+                        const bar = [styles.trtBar, styles[`trtFill_${state}`], open ? '' : styles.trtBarStart, close ? '' : styles.trtBarEnd]
+                          .filter(Boolean).join(' ');
+                        return (
+                          <td key={m.key} className={cls} title={`${t.name} — ${MONTHS_SHORT[m.month]} ${m.year}`}>
+                            <span className={bar} />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {editing && (
+        <div className={styles.modalOverlay} onClick={() => setEditing(null)}>
+          <div className={`${styles.modal} ${styles.trtModal}`} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHead}>
+              <h2 className={styles.modalTitle}>Edit treatment</h2>
+              <button type="button" className={styles.modalClose} onClick={() => setEditing(null)} aria-label="Close">×</button>
+            </div>
+            <form className={styles.trtForm} onSubmit={saveEdit}>
+              <TreatmentFields
+                draft={editing.draft}
+                setDraft={(fn) => setEditing((c) => ({ ...c, draft: typeof fn === 'function' ? fn(c.draft) : fn }))}
+                types={types}
+                doctors={doctors}
+                yearOptions={yearOptions}
+              />
+              <button type="submit" className={styles.trtAdd} disabled={!editing.draft.name.trim()}>Save</button>
+            </form>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function QuestionsPanel({ list, update }) {
   const [text, setText] = useState('');
   const [forEntry, setForEntry] = useState('');
@@ -2665,7 +2930,7 @@ export function DoctorsPage() {
   // Every column, for the manager; the showing ones, for the table.
   /* The tab being arranged. Questions has no table of its own, so the manager
      opened from it arranges Everything — the tab it sends you back to. */
-  const columnLane = lane === 'questions' ? 'all' : lane;
+  const columnLane = lane === 'questions' || lane === 'treatments' ? 'all' : lane;
   // Every column this tab could show, for the manager, in this tab's order.
   const allColumns = useMemo(() => columnsFor(safeList, columnLane), [safeList, columnLane]);
   // What the table draws. Status is the one column the tab's own choice does
@@ -2816,18 +3081,21 @@ export function DoctorsPage() {
           ? 'Whoever you see on a schedule, and anyone you just keep the number for.'
           : lane === 'issues'
             ? 'What was wrong, and who sorted it. A doctor you also see regularly shows in both tabs.'
-            : lane === 'questions'
-              ? 'What you mean to ask, filed under whoever you mean to ask it.'
-              : 'Every record, check-ins and issues together.'}
+            : lane === 'treatments'
+              ? 'Courses of treatment across the months they run for — what you are on now, what has finished, what is still to come.'
+              : lane === 'questions'
+                ? 'What you mean to ask, filed under whoever you mean to ask it.'
+                : 'Every record, check-ins and issues together.'}
       </p>
 
       {lane === 'checkins' && (
         <AppointmentsPanel list={safeList} update={update} daysFrom={daysFrom} />
       )}
 
-      {/* Questions are the one tab that isn't a slice of the records table, so
-          it replaces the table rather than filtering it. */}
-      {lane === 'questions' ? <QuestionsPanel list={safeList} update={update} /> : <>
+      {/* Questions and Treatments are the tabs that aren't a slice of the
+          records table, so they replace it rather than filtering it. */}
+      {lane === 'questions' ? <QuestionsPanel list={safeList} update={update} />
+        : lane === 'treatments' ? <TreatmentsPanel list={safeList} update={update} /> : <>
 
       <div className={styles.toolbar}>
         <div className={styles.searchRow}>

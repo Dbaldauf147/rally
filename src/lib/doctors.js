@@ -19,6 +19,7 @@
 import {
   normalizeFieldDefs, newFieldId, coerceCustomValue, formatCustomValue,
 } from './customFields.js';
+import { normalizeTreatments } from './doctorTreatments.js';
 
 // The extensions are for api/weekly-digest.js, which imports this file under
 // plain Node ESM — Vite resolves either spelling, Node only the full one.
@@ -399,6 +400,9 @@ export function normalizeList(raw) {
     // Declared tags and used tags together, so a tag survives being taken off
     // the last question wearing it — the same bargain the speciality list makes.
     questionTags: dedupeTypes([...strings(raw?.questionTags), ...questions.flatMap((q) => q.tags)]),
+    // Courses of treatment, with the months they run for. Their own tab; see
+    // lib/doctorTreatments.
+    treatments: normalizeTreatments(raw?.treatments),
     entries,
   };
 }
@@ -486,6 +490,9 @@ export function matchesQuery(entry, query, fields = []) {
 export const LANES = [
   { key: 'checkins', label: 'Check-ins' },
   { key: 'issues', label: 'Issues' },
+  // Also not a slice of the records: a course of treatment is a span of months
+  // rather than a row about a doctor, so it gets a calendar instead of a table.
+  { key: 'treatments', label: 'Treatments' },
   // Not a slice of the records like the other two — it's the questions you
   // mean to ask them. It sits here because it's the same question as the tabs
   // beside it ("what about this doctor?"), asked from the other side.
@@ -714,12 +721,13 @@ export function inLane(entry, lane, entries = null) {
 // For the numbers on the tabs. They add up to more than the list when a record
 // is in both, which is the honest total for a tab that says what it holds.
 export function laneCounts(list) {
-  const { entries, questions } = normalizeList(list);
+  const { entries, questions, treatments } = normalizeList(list);
   return {
     all: entries.length,
     // What the tab actually shows: one row per speciality (see checkInEntries).
     checkins: checkInEntries(list).length,
     issues: entries.filter(isIssueEntry).length,
+    treatments: treatments.length,
     // Only the ones still to ask. A tab reading "Questions 34" when 30 of them
     // were answered years ago is a number you learn to ignore.
     questions: questions.filter((q) => !q.answered).length,
