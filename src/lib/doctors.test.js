@@ -17,7 +17,7 @@ import {
   linkAppointment, unlinkAppointment, ignoreAppointment, unignoreAppointment,
   settledEventIds, suggestEntryFor, pendingAppointments, setDoctorCalendar,
   checkInsNeedingScheduling, normalizeImages, addEntryImage, removeEntryImage,
-  isOffCheckIns, setCheckInRowOff, offCheckInRows, successorRecord,
+  isOffCheckIns, setCheckInRowOff, offCheckInRows, successorRecord, siblingRecords,
 } from './doctors';
 
 const entry = (o) => normalizeEntry(o);
@@ -2326,5 +2326,72 @@ describe('replacing the doctor on a Check-ins row', () => {
     expect(old.doctor).toBe('Dr. Uliasz');
     expect(isFormerEntry(old)).toBe(true);
     expect(formerDoctorsByType(after).get('skin').map((e) => e.id)).toEqual(['derm']);
+  });
+});
+
+/* What survives deleting one record — the thing the delete prompt says out
+   loud on Check-ins, where a row stands for a speciality and "delete" would
+   otherwise read as if the speciality went with it. */
+describe('siblingRecords', () => {
+  const list = (entries) => normalizeList({ types: ['Skin', 'Dentist'], entries });
+
+  it('finds the other records under the same speciality', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz' },
+      { id: 'urgent', type: 'Skin', doctor: 'City MD' },
+      { id: 'rash', type: 'Skin', issue: 'Rash' },
+      { id: 'dds', type: 'Dentist', place: '34th St Dental' },
+    ]);
+    expect(siblingRecords(l, l.entries[0]).map((e) => e.id)).toEqual(['urgent', 'rash']);
+  });
+
+  it('does not count the record itself', () => {
+    const l = list([{ id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz' }]);
+    expect(siblingRecords(l, l.entries[0])).toEqual([]);
+  });
+
+  it('reads the speciality the way the headings do, whatever the typing', () => {
+    const l = list([
+      { id: 'a', type: 'Skin', doctor: 'Dr. Uliasz' },
+      { id: 'b', type: ' skin ', doctor: 'City MD' },
+    ]);
+    expect(siblingRecords(l, l.entries[0]).map((e) => e.id)).toEqual(['b']);
+  });
+
+  // Former doctors and held-back records are still records under the heading:
+  // they are exactly what "the speciality keeps its history" means.
+  it('counts former and held-back records too', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz' },
+      { id: 'old', type: 'Skin', doctor: 'Dr. Gone', former: true },
+      { id: 'held', type: 'Skin', doctor: 'City MD', offCheckins: true },
+    ]);
+    expect(siblingRecords(l, l.entries[0]).map((e) => e.id)).toEqual(['old', 'held']);
+  });
+
+  it('gives a record with no speciality no kin', () => {
+    const l = list([
+      { id: 'loose', type: '', doctor: 'Dr. Nobody' },
+      { id: 'other', type: '', doctor: 'Dr. Somebody' },
+    ]);
+    expect(siblingRecords(l, l.entries[0])).toEqual([]);
+  });
+
+  it('copes with nothing to look at', () => {
+    expect(siblingRecords(normalizeList({ entries: [] }), null)).toEqual([]);
+    expect(siblingRecords(normalizeList({ entries: [] }), { id: 'x', type: 'Skin' })).toEqual([]);
+  });
+
+  /* Deleting the doctor a Check-ins row is showing hands the row to the next
+     record under that speciality rather than taking the speciality away. */
+  it('is what the speciality still has after its doctor is deleted', () => {
+    const l = list([
+      { id: 'derm', type: 'Skin', doctor: 'Dr. Uliasz', cadence: 'Every 2 year(s)' },
+      { id: 'urgent', type: 'Skin', doctor: 'City MD' },
+    ]);
+    const kin = siblingRecords(l, l.entries[0]);
+    const after = removeEntry(l, 'derm');
+    expect(after.entries.map((e) => e.id)).toEqual(kin.map((e) => e.id));
+    expect(checkInEntries(after, new Date(2026, 8, 21)).map((e) => e.id)).toEqual(['urgent']);
   });
 });
