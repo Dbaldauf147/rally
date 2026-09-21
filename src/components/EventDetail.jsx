@@ -13,6 +13,7 @@ import { pickPhoneContacts, contactsSource, NeedsFileFallback, SOURCE } from '..
 import { parseVCards } from '../lib/vcard';
 import { isOwnerEmail } from '../lib/pagePrivacy';
 import { smsLink, recipientsFor, togglePicked, textProgress } from '../lib/textDraft';
+import { noteOf, voteUpdate, noteUpdate } from '../lib/voteNotes';
 import { fetchEventClimate, normalFor, SPREAD } from '../lib/climate';
 import { geocode } from '../lib/weather';
 import { WEB_ORIGIN } from '../native';
@@ -111,6 +112,9 @@ export function EventDetail() {
   const [titleDraft, setTitleDraft] = useState(null);
   const [savingTitle, setSavingTitle] = useState(false);
   const [editMember, setEditMember] = useState(null); // { uid, name, email, rsvp, role }
+  // The answer whose note is open, from holding its cell in the Invited table:
+  // { uid, name, optId, optLabel, vote, note, draft }.
+  const [noteCell, setNoteCell] = useState(null);
   const [editMemberFields, setEditMemberFields] = useState({});
   const [friendLinkSearch, setFriendLinkSearch] = useState('');
   const [showFriendLink, setShowFriendLink] = useState(false);
@@ -986,14 +990,67 @@ export function EventDetail() {
   const setCellVote = async (uid, o, next, name) => {
     const ref = doc(db, 'events', eventId, 'dateOptions', o.id);
     try {
-      if (next === 'none') await updateDoc(ref, { [`votes.${uid}`]: deleteField() });
-      else await updateDoc(ref, { [`votes.${uid}`]: { vote: next, name: name || '' } });
+      // Merged, not replaced, so a note on this answer survives the tap — see
+      // lib/voteNotes.
+      await updateDoc(ref, voteUpdate(uid, next, name, o.votes?.[uid], deleteField()));
     } catch (err) {
       console.error('Failed to update vote:', err);
       setResult({ type: 'error', message: `Couldn't save that vote: ${err.message || err}` });
       setTimeout(() => setResult(null), 3500);
     }
   };
+
+  // The note about one person's answer on one date.
+  const saveCellNote = async (uid, optId, text, name) => {
+    const ref = doc(db, 'events', eventId, 'dateOptions', optId);
+    const entry = allDateOptions.find(o => o.id === optId)?.votes?.[uid];
+    try {
+      await updateDoc(ref, noteUpdate(uid, text, name, entry, deleteField()));
+      setNoteCell(null);
+    } catch (err) {
+      console.error('Failed to save note:', err);
+      setResult({ type: 'error', message: `Couldn't save that note: ${err.message || err}` });
+      setTimeout(() => setResult(null), 3500);
+    }
+  };
+
+  /* Hold a cell to annotate the answer in it.
+   *
+   * A press that lasts is a different intention from a tap, and the cell
+   * already spends its tap cycling the vote. `fired` suppresses the click the
+   * browser sends after the finger comes up, so holding never also moves
+   * somebody's answer on the way to writing about it. Moving mid-press is a
+   * scroll — the table scrolls sideways on a phone — so that cancels. */
+  const holdToNote = (open) => {
+    let timer = null;
+    let fired = false;
+    const start = () => {
+      fired = false;
+      clearTimeout(timer);
+      timer = setTimeout(() => { fired = true; open(); }, 450);
+    };
+    const cancel = () => clearTimeout(timer);
+    return {
+      onPointerDown: start,
+      onPointerUp: cancel,
+      onPointerLeave: cancel,
+      onPointerCancel: cancel,
+      onPointerMove: cancel,
+      onClickCapture: (e) => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; } },
+      // The long-press callout on iOS, and the right-click menu on a desktop,
+      // both land on top of the note editor otherwise.
+      onContextMenu: (e) => { e.preventDefault(); if (!fired) { fired = true; open(); } },
+      style: { WebkitTouchCallout: 'none', userSelect: 'none' },
+    };
+  };
+  // A cell with something written about the answer in it. Small and quiet: the
+  // vote is the fact, the note is the footnote.
+  const noteMark = (
+    <span
+      aria-label="has a note"
+      style={{ marginLeft: '0.2rem', fontSize: '0.62rem', color: 'var(--color-text-muted)', verticalAlign: 'super', lineHeight: 1 }}
+    >✎</span>
+  );
   const pill = (vote, inherited) => {
     const p = VOTE_STYLE[vote];
     if (!p) return <span title="No vote on this date" style={{ color: 'var(--color-text-muted)' }}>–</span>;
@@ -1135,7 +1192,7 @@ export function EventDetail() {
         )}
         {canManageMembers && (
           <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
-            Tap a cell to set a vote: – → ✓ Works → ? Maybe → ✗ Can’t
+            Tap a cell to set a vote: – → ✓ Works → ? Maybe → ✗ Can’t · Hold one to note why
           </div>
         )}
         <div style={{ overflowX: 'auto', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
@@ -1256,21 +1313,37 @@ export function EventDetail() {
                     }
                     const chosen = isChosenOption(o);
                     const cellStyle = { ...td, ...topBorder, ...(chosen ? { background: 'var(--color-success-light)' } : {}) };
+                    // The note belongs to this person's own answer, so a cell
+                    // showing a linked partner's vote doesn't show their note.
+                    const note = noteOf(o.votes?.[uid]);
                     if (!canManageMembers) {
-                      return <td key={o.id} style={cellStyle}>{pill(voteVal, inherited)}</td>;
+                      return (
+                        <td key={o.id} style={cellStyle} title={note || undefined}>
+                          {pill(voteVal, inherited)}{note ? noteMark : null}
+                        </td>
+                      );
                     }
                     const next = VOTE_CYCLE[ownActive ? own : 'none'];
+                    const openNote = () => setNoteCell({
+                      uid,
+                      name: m.name || 'Guest',
+                      optId: o.id,
+                      optLabel: fmtOpt(o),
+                      vote: ownActive ? own : 'none',
+                      draft: note,
+                    });
                     return (
                       <td key={o.id} style={{ ...cellStyle, padding: 0 }}>
                         <button
                           type="button"
+                          {...holdToNote(openNote)}
                           onClick={() => setCellVote(uid, o, next, m.name)}
-                          title={`${m.name || 'Guest'} — ${fmtOpt(o)}${inherited ? ' (assumed via linked person)' : ''}\nClick to set: ${VOTE_LABEL[next]}`}
+                          title={`${m.name || 'Guest'} — ${fmtOpt(o)}${inherited ? ' (assumed via linked person)' : ''}\nClick to set: ${VOTE_LABEL[next]}\nHold to ${note ? 'edit the note' : 'add a note'}${note ? `:\n“${note}”` : ''}`}
                           style={{ display: 'block', width: '100%', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: isNarrow ? '0.3rem' : '0.35rem 0.6rem' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'none'}
                         >
-                          {pill(voteVal, inherited)}
+                          {pill(voteVal, inherited)}{note ? noteMark : null}
                         </button>
                       </td>
                     );
@@ -4661,6 +4734,41 @@ export function EventDetail() {
                 style={{ padding: '0.6rem 1.25rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.9rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* A note about one person's answer on one date, opened by holding its
+          cell. The answer itself is shown but not editable here: you got to
+          this box by holding the thing that changes it. */}
+      {noteCell && (
+        <div className={styles.modalOverlay} onClick={() => setNoteCell(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '380px' }}>
+            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0 0 0.2rem' }}>Note on this answer</h2>
+            <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', margin: '0 0 0.75rem' }}>
+              {noteCell.name} {'—'} {noteCell.optLabel} {pill(noteCell.vote === 'none' ? null : noteCell.vote, false)}
+            </div>
+            <textarea
+              autoFocus
+              value={noteCell.draft}
+              onChange={e => setNoteCell(c => ({ ...c, draft: e.target.value }))}
+              placeholder="Driving up after work, only if the kids can come, asked twice…"
+              rows={3}
+              style={{ width: '100%', padding: '0.55rem 0.7rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', fontFamily: 'inherit', resize: 'vertical', outline: 'none' }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+              <button
+                onClick={() => saveCellNote(noteCell.uid, noteCell.optId, noteCell.draft, noteCell.name)}
+                style={{ flex: 1, padding: '0.6rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent)', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+              >Save</button>
+              <button
+                onClick={() => setNoteCell(null)}
+                style={{ padding: '0.6rem 0.9rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+              >Cancel</button>
+            </div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.6rem' }}>
+              Saving an empty box removes the note. Notes stay put when the answer changes.
             </div>
           </div>
         </div>
