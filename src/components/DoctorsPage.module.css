@@ -146,6 +146,8 @@
 
 .cellStatus { width: 8%; white-space: nowrap; }
 .cellEdit { width: 1%; text-align: right; white-space: nowrap; }
+/* The second of two buttons in that cell. */
+.iconBtnAfter { margin-left: 0.3rem; }
 
 .link { display: block; color: var(--color-accent); font-size: 0.82rem; text-decoration: none; }
 .link + .link { margin-top: 0.2rem; }
@@ -693,6 +695,13 @@
 .sheetPictures .thumbs { gap: 0.5rem; }
 .sheetDelete { width: 100%; min-height: 48px; margin-top: 1.75rem; border: 1px solid var(--color-danger-light); border-radius: var(--radius-md, 10px); background: none; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--color-danger); cursor: pointer; }
 .sheetDelete:active { background: var(--color-danger-light); }
+/* Clearing the row off Check-ins sits above the delete and in the page's own
+   colours: it is the ordinary thing to want here, and the destructive one
+   below it should be the only button wearing the warning. */
+.sheetHoldBack { width: 100%; min-height: 48px; margin-top: 1.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md, 10px); background: none; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; }
+.sheetHoldBack:active { background: var(--color-surface-alt); }
+/* Two buttons in the row's last cell need a gap; the first has none. */
+.sheetHoldBack + .sheetDelete { margin-top: 0.6rem; }
 
 @media (max-width: 700px) {
   .page { padding: calc(0.9rem + env(safe-area-inset-top)) 0.85rem 7rem; }

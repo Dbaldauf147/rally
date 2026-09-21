@@ -877,6 +877,20 @@ export function removeEntry(list, id) {
 // away rather than leaving a line of dashes behind.
 export const isBlank = (entry) => !hasContent(entry) && !(entry.images || []).length;
 
+/* The other records filed under the same speciality.
+ *
+ * What survives deleting one of them, which is the thing worth saying out loud
+ * on Check-ins: a row there stands for a speciality, so deleting the doctor it
+ * happens to be showing looks like deleting the speciality. It isn't. Records
+ * with no speciality have no heading to be kin under, so they have none.
+ */
+export function siblingRecords(list, entry) {
+  const l = normalizeList(list);
+  const type = String(entry?.type || '').trim();
+  if (!type) return [];
+  return l.entries.filter((e) => e.id !== entry?.id && sameType(e.type, type));
+}
+
 /* The record that takes over a speciality when its doctor is replaced.
  *
  * It carries what belongs to the speciality rather than to the person: the
