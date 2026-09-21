@@ -12,7 +12,7 @@ import {
   addEntry, updateEntry, removeEntry, isBlank, addEntryImage, removeEntryImage,
   addType, renameType, removeType, moveType,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
-  resolveColumns, renameColumn, setColumnHidden, moveColumn,
+  columnsFor, renameColumn, setColumnHidden, moveColumn,
   dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
   isCheckInEntry, isFormerEntry, setEntryFormer, formerDoctorsByType,
   setCheckInRowOff, offCheckInRows,
@@ -169,21 +169,11 @@ const CELL_FIELDS = {
    which is what the space freed up is for. A column hidden from the Columns
    manager stays hidden here too — this narrows the table, it doesn't overrule
    what you asked for. */
-const ISSUE_COLUMNS = ['name', 'issue', 'meds', 'notes'];
-const NOTES_COLUMN = { key: 'notes', kind: 'builtin', field: null, label: 'Notes', hidden: false };
-
-/* Check-ins runs without the speciality headings (see the table below), so the
-   speciality is a column of its own instead — the first one, because that is
-   what you scan the tab by. It is not in the Columns manager: it exists only
-   on this tab, and the headings it replaces were never hidable either. */
-const TYPE_COLUMN = { key: 'type', kind: 'builtin', field: null, label: 'Type', hidden: false };
-
-/* How late a visit is, as its own column — also Check-ins only, and for the
-   same reason the tab is sorted by it: "am I behind on anything?" is the
-   question the tab answers first, and reading it out of a date in a column of
-   dates means doing the arithmetic yourself. The Next visit column still
-   carries the date; this one carries what the date means today. */
-const OVERDUE_COLUMN = { key: 'overdue', kind: 'builtin', field: null, label: 'Overdue', hidden: false };
+/* Type, Notes and Overdue used to be fixed to one tab each and kept out of the
+   Columns manager. They are ordinary columns now — see BUILTIN_COLUMNS — and
+   each tab starts with the ones it always had, so the tables look the same
+   until somebody chooses otherwise. */
+const COLUMN_LANE_LABEL = { all: 'Everything', checkins: 'Check-ins', issues: 'Issues' };
 
 /* One field inside an open cell.
 
@@ -378,7 +368,7 @@ function CustomCell({ entry, field, open, onOpen, onClose, onCommit }) {
    has a type and can be deleted outright, while a built-in one can be hidden
    but never deleted — its values live on every record and are not this
    panel's to throw away. */
-function ColumnManager({ list, columns, onChange, onClose }) {
+function ColumnManager({ list, columns, lane, laneLabel, onChange, onClose }) {
   const [label, setLabel] = useState('');
   const [type, setType] = useState('text');
   // The counter column reads a Date column of the owner's own, so the manager
@@ -405,14 +395,15 @@ function ColumnManager({ list, columns, onChange, onClose }) {
   return (
     <div className={styles.formCard}>
       <div className={styles.typeHead}>
-        <div className={styles.formTitle}>Columns</div>
+        <div className={styles.formTitle}>Columns on {laneLabel}</div>
         <button type="button" className={styles.btn} onClick={onClose}>Done</button>
       </div>
       <p className={styles.hint}>
-        Rename any column, drag the order about with the arrows, and untick Show to
-        take one off the table. Hiding a built-in column keeps its values — untick and
-        tick it back and they are all still there. Deleting a column you added deletes
-        what is in it.
+        Show and the arrows arrange <strong>{laneLabel}</strong> only — each tab keeps its
+        own columns, so taking one off here leaves the others alone. Hiding a built-in
+        column keeps its values: tick it back and they are all still there. Renaming,
+        the type and choices, adding and deleting are the column itself, so those reach
+        every tab — and deleting a column you added deletes what is in it.
       </p>
 
       <ul className={styles.typeList}>
@@ -467,17 +458,17 @@ function ColumnManager({ list, columns, onChange, onClose }) {
                 type="checkbox"
                 checked={!col.hidden}
                 aria-label={`Show ${col.label}`}
-                onChange={(e) => onChange(setColumnHidden(list, col.key, !e.target.checked))}
+                onChange={(e) => onChange(setColumnHidden(list, col.key, !e.target.checked, lane))}
               />
               Show
             </label>
             <button
               type="button" className={styles.iconBtn} title={`Move ${col.label} left`}
-              disabled={i === 0} onClick={() => onChange(moveColumn(list, col.key, -1))}
+              disabled={i === 0} onClick={() => onChange(moveColumn(list, col.key, -1, lane))}
             >←</button>
             <button
               type="button" className={styles.iconBtn} title={`Move ${col.label} right`}
-              disabled={i === columns.length - 1} onClick={() => onChange(moveColumn(list, col.key, 1))}
+              disabled={i === columns.length - 1} onClick={() => onChange(moveColumn(list, col.key, 1, lane))}
             >→</button>
             {col.kind === 'custom' ? (
               <button
@@ -2672,27 +2663,17 @@ export function DoctorsPage() {
   // the one you'd go looking for.
   const heldBack = useMemo(() => offCheckInRows(safeList), [safeList]);
   // Every column, for the manager; the showing ones, for the table.
-  const allColumns = useMemo(() => resolveColumns(safeList), [safeList]);
-  // Dropped from the table rather than hidden for good: the Columns manager
-  // still lists it, and Issues still shows it.
-  const shownColumns = useMemo(() => {
-    // Issues runs its own short set — see ISSUE_COLUMNS.
-    if (lane === 'issues') {
-      const byKey = new Map(allColumns.map((c) => [c.key, c]));
-      return ISSUE_COLUMNS
-        .map((key) => (key === 'notes' ? NOTES_COLUMN : byKey.get(key)))
-        .filter((c) => c && !c.hidden);
-    }
-    const shown = allColumns.filter((c) => !c.hidden && (showStatus || c.key !== 'status'));
-    if (lane !== 'checkins') return shown;
-    // Overdue reads next to the date it is counted from, and falls to the end
-    // if that column has been hidden.
-    const at = shown.findIndex((c) => c.key === 'nextVisit');
-    const withOverdue = at === -1
-      ? [...shown, OVERDUE_COLUMN]
-      : [...shown.slice(0, at), OVERDUE_COLUMN, ...shown.slice(at)];
-    return [TYPE_COLUMN, ...withOverdue];
-  }, [allColumns, showStatus, lane]);
+  /* The tab being arranged. Questions has no table of its own, so the manager
+     opened from it arranges Everything — the tab it sends you back to. */
+  const columnLane = lane === 'questions' ? 'all' : lane;
+  // Every column this tab could show, for the manager, in this tab's order.
+  const allColumns = useMemo(() => columnsFor(safeList, columnLane), [safeList, columnLane]);
+  // What the table draws. Status is the one column the tab's own choice does
+  // not settle: the status pills above it take it off when they go.
+  const shownColumns = useMemo(
+    () => allColumns.filter((c) => !c.hidden && (showStatus || c.key !== 'status')),
+    [allColumns, showStatus],
+  );
   // Resolved once for the whole table rather than per row.
   const daysFrom = useMemo(() => daysSinceField(safeList), [safeList]);
   // The speciality whose pop-up is open, looked up in the live groups so an
@@ -2900,7 +2881,14 @@ export function DoctorsPage() {
       )}
 
       {managingColumns && (
-        <ColumnManager list={safeList} columns={allColumns} onChange={update} onClose={() => setManagingColumns(false)} />
+        <ColumnManager
+          list={safeList}
+          columns={allColumns}
+          lane={columnLane}
+          laneLabel={COLUMN_LANE_LABEL[columnLane]}
+          onChange={update}
+          onClose={() => setManagingColumns(false)}
+        />
       )}
 
       {!loaded && entries.length === 0 && <div className={styles.empty}>Loading…</div>}

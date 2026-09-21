@@ -340,6 +340,24 @@ export function normalizeQuestion(raw) {
   };
 }
 
+/* Each tab's remembered columns, keyed by tab.
+ *
+ * A tab is present only once it has been arranged, and absent means "use the
+ * default" — so this can't be filled in with empty entries, which would read
+ * as a tab that shows no columns at all. */
+function normalizeLaneColumns(raw, strings) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const lane of COLUMN_LANES) {
+    const saved = raw[lane];
+    if (!saved || typeof saved !== 'object') continue;
+    const order = strings(saved.order);
+    const hidden = strings(saved.hidden);
+    if (order.length) out[lane] = { order, hidden };
+  }
+  return out;
+}
+
 export function normalizeList(raw) {
   const rawEntries = Array.isArray(raw?.entries) ? raw.entries : Array.isArray(raw) ? raw : [];
   const entries = rawEntries.map(normalizeEntry);
@@ -360,9 +378,15 @@ export function normalizeList(raw) {
   return {
     types: dedupeTypes([...declared, ...used]),
     fields: normalizeFieldDefs(raw?.fields),
+    // The page-wide order and hidden set. Still the substrate every tab starts
+    // from — see columnsFor — and still what a tab with nothing of its own
+    // remembered reads.
     columnOrder: strings(raw?.columnOrder),
     columnLabels: labels,
     hiddenColumns: strings(raw?.hiddenColumns),
+    // What each tab shows, once it has been arranged. Only the three tabs with
+    // a table; an unknown key is dropped rather than stored for nothing.
+    columnsByLane: normalizeLaneColumns(raw?.columnsByLane, strings),
     daysSinceSource: String(raw?.daysSinceSource ?? '').trim(),
     calendar: {
       id: String(raw?.calendar?.id ?? '').trim(),
@@ -1407,14 +1431,24 @@ export function pendingAppointments(list, events) {
 // order is resolved, so stale entries can't leave a gap.
 
 export const BUILTIN_COLUMNS = [
+  // The speciality. Check-ins runs without the speciality headings, so there
+  // it is a column instead — the first one, because that is what you scan the
+  // tab by. Off by default on the tabs that keep their headings.
+  { key: 'type', label: 'Type' },
   { key: 'name', label: 'Doctor' },
   { key: 'issue', label: 'Issue' },
+  // Notes ride inside the Issue cell unless this column is showing, which is
+  // the one place two columns are aware of each other — see the Issue cell.
+  { key: 'notes', label: 'Notes' },
   { key: 'meds', label: 'Meds' },
   // No Contact column: phone, email, address and link are in the doctor's own
   // pop-up, opened from their name.
   { key: 'cadence', label: 'Cadence' },
   // Computed, not stored: it counts from a Date column of the owner's own.
   { key: 'daysSince', label: 'Days since' },
+  // How late a visit is, counted between the next visit and today. Also
+  // computed, and next to the date it is counted from.
+  { key: 'overdue', label: 'Overdue' },
   // Also computed, from that same date and the cadence beside it. It sits next
   // to the counter because they are the two halves of one question.
   { key: 'nextVisit', label: 'Next visit' },
@@ -1454,7 +1488,104 @@ export function resolveColumns(list) {
   });
 }
 
-export const visibleColumns = (list) => resolveColumns(list).filter((c) => !c.hidden);
+export const visibleColumns = (list, lane) => columnsFor(list, lane).filter((c) => !c.hidden);
+
+/* ── Columns, per tab ────────────────────────────────────────────────
+   The tabs are different questions, so they want different columns. Meds is
+   the point of Issues and clutter on Check-ins; Overdue is the point of
+   Check-ins and meaningless on Issues. One shared set of hidden columns meant
+   every choice was a compromise between three tables, and hiding a column to
+   read one tab quietly took it off the other two.
+
+   So each tab remembers its own. What a tab remembers is what it SHOWS and in
+   what ORDER — the view. What a column IS (its name, its type, its choices,
+   what the counter counts from, whether it exists at all) stays one fact for
+   the whole page: renaming Meds on Issues must not leave it called Meds on
+   Check-ins.
+
+   A tab with nothing remembered for it falls back to a default, and those
+   defaults are today's three tables written down, so nobody's page changes
+   shape on the way past. The first change to a tab writes that whole default
+   down as the tab's own, which is what keeps a change to one tab off the
+   others. */
+export const COLUMN_LANES = ['all', 'checkins', 'issues'];
+
+/* The four Issues has always run: everything a complaint needs and nothing a
+   schedule does. Now a default rather than a rule — Issues can be given any
+   column, and this is only where it starts. */
+const ISSUE_LANE_COLUMNS = ['name', 'issue', 'meds', 'notes'];
+
+// Computed columns that only earn their place on one tab, so they start off
+// everywhere else rather than appearing in three tables at once.
+const OFF_BY_DEFAULT = { all: ['type', 'notes', 'overdue'], checkins: ['notes'], issues: [] };
+
+const hide = (cols, keys) => cols.map((c) => (keys.includes(c.key) ? { ...c, hidden: true } : c));
+const show = (cols, keys) => cols.map((c) => (keys.includes(c.key) ? { ...c, hidden: false } : c));
+
+/* A tab's columns before anyone has chosen for it: the page-wide order and
+   hidden set, with that tab's own arrangement laid over the top. */
+function laneDefaultColumns(base, lane) {
+  if (lane === 'issues') {
+    const byKey = new Map(base.map((c) => [c.key, c]));
+    const chosen = ISSUE_LANE_COLUMNS.map((k) => byKey.get(k)).filter(Boolean);
+    const rest = base.filter((c) => !ISSUE_LANE_COLUMNS.includes(c.key));
+    // The curated four first, in their own order. Then columns the owner added
+    // themselves, showing — a column you add to the page appears on the page,
+    // and a column that turned up on two tabs out of three would be its own
+    // small mystery. Then the built-ins Issues never carried, listed for the
+    // manager to offer but off.
+    const added = rest.filter((c) => c.kind === 'custom');
+    const builtins = rest.filter((c) => c.kind !== 'custom');
+    return [...show(chosen, ['notes']), ...added, ...hide(builtins, builtins.map((c) => c.key))];
+  }
+  if (lane === 'checkins') {
+    const rest = hide(base, OFF_BY_DEFAULT.checkins).filter((c) => c.key !== 'type' && c.key !== 'overdue');
+    const type = base.find((c) => c.key === 'type');
+    const overdue = base.find((c) => c.key === 'overdue');
+    // Overdue reads next to the date it is counted from, and falls to the end
+    // if that column has been hidden.
+    const at = rest.findIndex((c) => c.key === 'nextVisit');
+    const withOverdue = at === -1
+      ? [...rest, overdue]
+      : [...rest.slice(0, at), overdue, ...rest.slice(at)];
+    return show([type, ...withOverdue].filter(Boolean), ['type', 'overdue']);
+  }
+  return hide(base, OFF_BY_DEFAULT.all);
+}
+
+/* One tab's columns, in its order, hidden ones included.
+
+   A column added since the tab was last arranged is appended and showing —
+   the same rule the page-wide order has always used, so adding a column still
+   needs no bookkeeping per tab. One deleted since is skipped. */
+export function columnsFor(list, lane = 'all') {
+  const l = normalizeList(list);
+  const base = resolveColumns(l);
+  const saved = l.columnsByLane[lane];
+  if (!saved) return laneDefaultColumns(base, lane);
+
+  const byKey = new Map(base.map((c) => [c.key, c]));
+  const seen = new Set();
+  const ordered = [];
+  saved.order.forEach((k) => {
+    if (byKey.has(k) && !seen.has(k)) { seen.add(k); ordered.push(byKey.get(k)); }
+  });
+  base.forEach((c) => { if (!seen.has(c.key)) { seen.add(c.key); ordered.push(c); } });
+  const hidden = new Set(saved.hidden);
+  // A key the tab has never seen is not in `hidden`, so it shows — which is
+  // what "appended and showing" means.
+  return ordered.map((c) => ({ ...c, hidden: hidden.has(c.key) }));
+}
+
+// Write a tab's arrangement down as its own, which is what stops it from
+// being read off the page-wide order — and off the other tabs — again.
+const rememberLane = (list, lane, cols) => ({
+  ...list,
+  columnsByLane: {
+    ...list.columnsByLane,
+    [lane]: { order: cols.map((c) => c.key), hidden: cols.filter((c) => c.hidden).map((c) => c.key) },
+  },
+});
 
 /* The Date columns the counter could count from, in display order. */
 export const dateColumns = (list) =>
@@ -1531,24 +1662,25 @@ export function renameColumn(list, key, label) {
    addresses are still on every record, and unhiding brings the column back
    with all of them. Deleting an added column is the destructive one, because
    its values have nowhere else to live — see removeField. */
-export function setColumnHidden(list, key, hidden) {
+export function setColumnHidden(list, key, hidden, lane = 'all') {
   const l = normalizeList(list);
-  const rest = l.hiddenColumns.filter((k) => k !== key);
-  return { ...l, hiddenColumns: hidden ? [...rest, key] : rest };
+  const cols = columnsFor(l, lane);
+  if (!cols.some((c) => c.key === key)) return l;
+  return rememberLane(l, lane, cols.map((c) => (c.key === key ? { ...c, hidden: !!hidden } : c)));
 }
 
 // Move a column along the running order. Off either end is a no-op, so the
 // buttons can stay live without the caller bounds-checking.
-export function moveColumn(list, key, delta) {
+export function moveColumn(list, key, delta, lane = 'all') {
   const l = normalizeList(list);
-  const order = resolveColumns(l).map((c) => c.key);
-  const from = order.indexOf(key);
+  const cols = columnsFor(l, lane);
+  const from = cols.findIndex((c) => c.key === key);
   const to = from + delta;
-  if (from < 0 || to < 0 || to >= order.length) return l;
-  const next = [...order];
+  if (from < 0 || to < 0 || to >= cols.length) return l;
+  const next = [...cols];
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved);
-  return { ...l, columnOrder: next };
+  return rememberLane(l, lane, next);
 }
 
 /* The list as first recorded, used only when the account has none saved yet.
