@@ -6,7 +6,7 @@ import {
   parseCadence, nextVisit,
   addEntry, updateEntry, removeEntry, isBlank,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
-  BUILTIN_COLUMNS, resolveColumns, visibleColumns, renameColumn, setColumnHidden, moveColumn,
+  BUILTIN_COLUMNS, resolveColumns, visibleColumns, columnsFor, renameColumn, setColumnHidden, moveColumn,
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
   isCheckInEntry, isIssueEntry, isFormerEntry, setEntryFormer, laneCounts, checkInEntries,
@@ -751,25 +751,49 @@ describe('the columns, built-in and added alike', () => {
   const base = () => normalizeList({ entries: [{ id: '1', doctor: 'Dr. A' }] });
   const keys = (l) => resolveColumns(l).map((c) => c.key);
   const labels = (l) => resolveColumns(l).map((c) => c.label);
+  const labelOf = (l, key) => resolveColumns(l).find((c) => c.key === key)?.label;
+  // What a tab is arranged as — the order the Columns manager lists, hidden
+  // ones included. Hiding and moving are per tab now, so they read from here.
+  const laneKeys = (l, lane = 'all') => columnsFor(l, lane).map((c) => c.key);
   const addCol = (l, label = 'Copay') => addField(l, { label });
   const lastId = (l) => l.fields[l.fields.length - 1].id;
 
   it('starts with the built-in columns, in their built order', () => {
     expect(keys(base())).toEqual(BUILTIN_COLUMNS.map((c) => c.key));
-    expect(labels(base())).toEqual(['Doctor', 'Issue', 'Meds', 'Cadence', 'Days since', 'Next visit', 'Status']);
+    expect(labels(base())).toEqual([
+      'Type', 'Doctor', 'Issue', 'Notes', 'Meds', 'Cadence', 'Days since', 'Overdue', 'Next visit', 'Status',
+    ]);
+  });
+
+  // Type, Notes and Overdue are ordinary columns now, but each belonged to one
+  // tab, so Everything still opens on exactly the seven it always had.
+  it('shows Everything the same seven columns it always showed', () => {
+    expect(visibleColumns(base()).map((c) => c.label)).toEqual([
+      'Doctor', 'Issue', 'Meds', 'Cadence', 'Days since', 'Next visit', 'Status',
+    ]);
   });
 
   it('puts an added column on the end without any bookkeeping', () => {
     const l = addCol(base());
-    expect(keys(l)).toHaveLength(8);
+    expect(keys(l)).toHaveLength(BUILTIN_COLUMNS.length + 1);
     expect(labels(l).at(-1)).toBe('Copay');
     expect(resolveColumns(l).at(-1).kind).toBe('custom');
   });
 
   it('renames a built-in column', () => {
     const l = renameColumn(base(), 'meds', 'Medication');
-    expect(labels(l)[2]).toBe('Medication');
-    expect(keys(l)[2]).toBe('meds');
+    expect(labelOf(l, 'meds')).toBe('Medication');
+    expect(keys(l)).toContain('meds');
+  });
+
+  /* A rename is a fact about the column, not about a view of it, so it reaches
+     every tab. The alternative is Meds on one tab and Medication on another,
+     which is two columns as far as anyone reading the page is concerned. */
+  it('renames it on every tab at once', () => {
+    const l = renameColumn(base(), 'meds', 'Medication');
+    for (const lane of ['all', 'checkins', 'issues']) {
+      expect(columnsFor(l, lane).find((c) => c.key === 'meds').label).toBe('Medication');
+    }
   });
 
   it('renaming a built-in back to its default drops the override', () => {
@@ -785,7 +809,7 @@ describe('the columns, built-in and added alike', () => {
   });
 
   it('refuses a rename to nothing', () => {
-    expect(labels(renameColumn(base(), 'meds', '   '))[2]).toBe('Meds');
+    expect(labelOf(renameColumn(base(), 'meds', '   '), 'meds')).toBe('Meds');
   });
 
   it('ignores a rename of a column that does not exist', () => {
@@ -807,26 +831,28 @@ describe('the columns, built-in and added alike', () => {
 
   it('hiding twice does not stack up', () => {
     const l = setColumnHidden(setColumnHidden(base(), 'cadence', true), 'cadence', true);
-    expect(l.hiddenColumns).toEqual(['cadence']);
+    expect(l.columnsByLane.all.hidden.filter((k) => k === 'cadence')).toEqual(['cadence']);
   });
 
   it('moves a column along the order, built-in or added', () => {
-    expect(keys(moveColumn(base(), 'issue', -1)).slice(0, 2)).toEqual(['issue', 'name']);
+    expect(laneKeys(moveColumn(base(), 'name', -1)).slice(0, 2)).toEqual(['name', 'type']);
     const l = addCol(base());
     const id = lastId(l);
-    expect(keys(moveColumn(l, id, -1)).at(-2)).toBe(id);
+    expect(laneKeys(moveColumn(l, id, -1)).at(-2)).toBe(id);
   });
 
   it('lets an added column sit between two built-in ones', () => {
     let l = addCol(base());
     const id = lastId(l);
-    l = moveColumn(l, id, -6);
-    expect(keys(l)).toEqual(['name', id, 'issue', 'meds', 'cadence', 'daysSince', 'nextVisit', 'status']);
+    l = moveColumn(l, id, -9);
+    expect(laneKeys(l)).toEqual([
+      'type', id, 'name', 'issue', 'notes', 'meds', 'cadence', 'daysSince', 'overdue', 'nextVisit', 'status',
+    ]);
   });
 
   it('does nothing at either end', () => {
-    expect(keys(moveColumn(base(), 'name', -1))).toEqual(keys(base()));
-    expect(keys(moveColumn(base(), 'status', 1))).toEqual(keys(base()));
+    expect(laneKeys(moveColumn(base(), 'type', -1))).toEqual(laneKeys(base()));
+    expect(laneKeys(moveColumn(base(), 'status', 1))).toEqual(laneKeys(base()));
   });
 
   it('a stored order survives a column being deleted since', () => {
@@ -839,13 +865,17 @@ describe('the columns, built-in and added alike', () => {
 
   it('a stored order naming the retired Contact column skips it', () => {
     const l = normalizeList({ entries: [], columnOrder: ['contact', 'status', 'name'], hiddenColumns: ['contact'] });
-    expect(keys(l)).toEqual(['status', 'name', 'issue', 'meds', 'cadence', 'daysSince', 'nextVisit']);
+    expect(keys(l)).toEqual([
+      'status', 'name', 'type', 'issue', 'notes', 'meds', 'cadence', 'daysSince', 'overdue', 'nextVisit',
+    ]);
     expect(visibleColumns(l)).toHaveLength(7);
   });
 
   it('a stored order missing a column still shows it, on the end', () => {
     const l = normalizeList({ entries: [], columnOrder: ['status', 'name'] });
-    expect(keys(l)).toEqual(['status', 'name', 'issue', 'meds', 'cadence', 'daysSince', 'nextVisit']);
+    expect(keys(l)).toEqual([
+      'status', 'name', 'type', 'issue', 'notes', 'meds', 'cadence', 'daysSince', 'overdue', 'nextVisit',
+    ]);
   });
 
   it('survives a document whose column settings are malformed', () => {
@@ -1976,5 +2006,191 @@ describe('offCheckInRows and a speciality that has come back', () => {
     const held = setCheckInRowOff(l, l.entries[0], true);
     expect(checkInEntries(held, NOW)).toEqual([]);
     expect(offCheckInRows(held).map((r) => r.label)).toEqual(['Skin']);
+  });
+});
+
+/* Columns, per tab.
+ *
+ * The complaint these pin: one shared hidden set meant unticking Meds to read
+ * Check-ins also took it off Issues and off Everything. The tabs are different
+ * questions and want different columns, so each now remembers its own — while
+ * what a column IS stays one fact for the whole page. */
+describe('columnsFor', () => {
+  const base = () => normalizeList({ entries: [{ id: '1', doctor: 'Dr. A' }] });
+  const shown = (l, lane) => columnsFor(l, lane).filter((c) => !c.hidden).map((c) => c.key);
+
+  describe('the defaults are the three tables as they already were', () => {
+    it('Everything: the seven, no Type, Notes or Overdue', () => {
+      expect(shown(base(), 'all')).toEqual(
+        ['name', 'issue', 'meds', 'cadence', 'daysSince', 'nextVisit', 'status'],
+      );
+    });
+
+    it('Check-ins: Type first, Overdue beside the date it counts to', () => {
+      const keys = shown(base(), 'checkins');
+      expect(keys[0]).toBe('type');
+      expect(keys[keys.indexOf('nextVisit') - 1]).toBe('overdue');
+      expect(keys).not.toContain('notes');
+    });
+
+    it('Issues: the curated four, in their order', () => {
+      expect(shown(base(), 'issues')).toEqual(['name', 'issue', 'meds', 'notes']);
+    });
+
+    it('defaults to Everything when no tab is named', () => {
+      expect(shown(base())).toEqual(shown(base(), 'all'));
+    });
+  });
+
+  // The whole point.
+  describe('a choice on one tab stays on that tab', () => {
+    it('hiding a column on Check-ins leaves the other tabs alone', () => {
+      const l = setColumnHidden(base(), 'meds', true, 'checkins');
+      expect(shown(l, 'checkins')).not.toContain('meds');
+      expect(shown(l, 'all')).toContain('meds');
+      expect(shown(l, 'issues')).toContain('meds');
+    });
+
+    it('hiding one on Everything leaves Check-ins and Issues alone', () => {
+      const l = setColumnHidden(base(), 'cadence', true, 'all');
+      expect(shown(l, 'all')).not.toContain('cadence');
+      expect(shown(l, 'checkins')).toContain('cadence');
+    });
+
+    it('moving a column on one tab does not reorder another', () => {
+      const before = columnsFor(base(), 'all').map((c) => c.key);
+      const l = moveColumn(base(), 'status', -1, 'checkins');
+      expect(columnsFor(l, 'all').map((c) => c.key)).toEqual(before);
+      expect(columnsFor(l, 'checkins').map((c) => c.key)).not.toEqual(
+        columnsFor(base(), 'checkins').map((c) => c.key),
+      );
+    });
+
+    it('lets the same column be shown on one tab and hidden on another', () => {
+      let l = setColumnHidden(base(), 'status', true, 'checkins');
+      l = setColumnHidden(l, 'status', false, 'issues');
+      expect(shown(l, 'checkins')).not.toContain('status');
+      expect(shown(l, 'issues')).toContain('status');
+    });
+  });
+
+  /* Every tab can be given any column now — Issues was limited to four, and
+     that is a starting point rather than a rule. */
+  describe('any column can go on any tab', () => {
+    it('puts a scheduling column on Issues', () => {
+      const l = setColumnHidden(base(), 'cadence', false, 'issues');
+      expect(shown(l, 'issues')).toContain('cadence');
+      expect(shown(l, 'all')).not.toContain('notes'); // and nothing else moved
+    });
+
+    it('takes Overdue off Check-ins, which used to be pinned there', () => {
+      expect(shown(setColumnHidden(base(), 'overdue', true, 'checkins'), 'checkins'))
+        .not.toContain('overdue');
+    });
+
+    it('offers every column on every tab, hidden ones included', () => {
+      const all = columnsFor(base(), 'all').map((c) => c.key).sort();
+      for (const lane of ['checkins', 'issues']) {
+        expect(columnsFor(base(), lane).map((c) => c.key).sort()).toEqual(all);
+      }
+    });
+  });
+
+  describe('what a column is stays one fact for the page', () => {
+    it('an added column arrives on every tab, showing, with no bookkeeping', () => {
+      const l = addField(base(), { label: 'Copay' });
+      const id = l.fields[0].id;
+      for (const lane of ['all', 'checkins', 'issues']) expect(shown(l, lane)).toContain(id);
+    });
+
+    it('an added column still arrives on a tab that has been arranged', () => {
+      // Arranging the tab writes its columns down; a column added afterwards
+      // is not in that list and must not fall off the end of the world.
+      const arranged = setColumnHidden(base(), 'meds', true, 'issues');
+      const l = addField(arranged, { label: 'Copay' });
+      expect(shown(l, 'issues')).toContain(l.fields[0].id);
+    });
+
+    it('a deleted column leaves every tab', () => {
+      const added = addField(base(), { label: 'Copay' });
+      const id = added.fields[0].id;
+      const l = removeField(moveColumn(added, id, -2, 'checkins'), id);
+      for (const lane of ['all', 'checkins', 'issues']) {
+        expect(columnsFor(l, lane).map((c) => c.key)).not.toContain(id);
+      }
+    });
+  });
+
+  describe('what is stored', () => {
+    it('remembers nothing until a tab is actually arranged', () => {
+      expect(base().columnsByLane).toEqual({});
+    });
+
+    it('writes down only the tab that was arranged', () => {
+      const l = setColumnHidden(base(), 'meds', true, 'issues');
+      expect(Object.keys(l.columnsByLane)).toEqual(['issues']);
+    });
+
+    // Writing the whole arrangement down, not just the change, is what keeps
+    // the tab off the page-wide order from then on.
+    it('writes the whole arrangement down, not just the change', () => {
+      const l = setColumnHidden(base(), 'meds', true, 'issues');
+      expect(l.columnsByLane.issues.order).toEqual(columnsFor(base(), 'issues').map((c) => c.key));
+    });
+
+    it('survives a round trip through normalizeList', () => {
+      const l = setColumnHidden(base(), 'meds', true, 'checkins');
+      const back = normalizeList(JSON.parse(JSON.stringify(l)));
+      expect(shown(back, 'checkins')).not.toContain('meds');
+      expect(shown(back, 'all')).toContain('meds');
+    });
+
+    it('ignores a malformed or unknown tab rather than showing an empty table', () => {
+      const l = normalizeList({
+        entries: [],
+        columnsByLane: { all: 'nope', checkins: { order: [] }, nonsense: { order: ['name'] } },
+      });
+      expect(l.columnsByLane).toEqual({});
+      expect(shown(l, 'all')).toEqual(columnsFor(normalizeList({ entries: [] }), 'all')
+        .filter((c) => !c.hidden).map((c) => c.key));
+    });
+
+    it('skips a stored key whose column has since gone', () => {
+      const l = normalizeList({
+        entries: [],
+        columnsByLane: { all: { order: ['contact', 'name', 'issue'], hidden: [] } },
+      });
+      expect(columnsFor(l, 'all').map((c) => c.key)).not.toContain('contact');
+      expect(columnsFor(l, 'all')[0].key).toBe('name');
+    });
+
+    it('is a no-op for a column that does not exist', () => {
+      expect(setColumnHidden(base(), 'nope', true, 'all').columnsByLane).toEqual({});
+      expect(moveColumn(base(), 'nope', -1, 'all').columnsByLane).toEqual({});
+    });
+  });
+
+  /* A page arranged before any of this keeps the look it had. The page-wide
+     order and hidden set are still what every unarranged tab reads. */
+  describe('a page arranged before tabs had their own columns', () => {
+    const legacy = () => normalizeList({
+      entries: [],
+      columnOrder: ['status', 'name', 'issue', 'meds', 'cadence', 'daysSince', 'nextVisit'],
+      hiddenColumns: ['cadence'],
+    });
+
+    it('keeps the order it had on Everything', () => {
+      expect(shown(legacy(), 'all')).toEqual(['status', 'name', 'issue', 'meds', 'daysSince', 'nextVisit']);
+    });
+
+    it('carries the hidden column onto the other tabs, as it did before', () => {
+      expect(shown(legacy(), 'checkins')).not.toContain('cadence');
+    });
+
+    it('stops carrying it once that tab has been arranged for itself', () => {
+      const l = setColumnHidden(legacy(), 'cadence', false, 'checkins');
+      expect(shown(l, 'checkins')).toContain('cadence');
+      expect(shown(l, 'all')).not.toContain('cadence');
+    });
   });
 });
