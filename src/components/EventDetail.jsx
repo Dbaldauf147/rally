@@ -1043,14 +1043,6 @@ export function EventDetail() {
       style: { WebkitTouchCallout: 'none', userSelect: 'none' },
     };
   };
-  // A cell with something written about the answer in it. Small and quiet: the
-  // vote is the fact, the note is the footnote.
-  const noteMark = (
-    <span
-      aria-label="has a note"
-      style={{ marginLeft: '0.2rem', fontSize: '0.62rem', color: 'var(--color-text-muted)', verticalAlign: 'super', lineHeight: 1 }}
-    >✎</span>
-  );
   const pill = (vote, inherited) => {
     const p = VOTE_STYLE[vote];
     if (!p) return <span title="No vote on this date" style={{ color: 'var(--color-text-muted)' }}>–</span>;
@@ -1163,7 +1155,18 @@ export function EventDetail() {
     // table width. Fixed layout below makes the widths exact and draggable.
     const nameColW = voteColWidths.name || (isNarrow ? 120 : 200);
     const optColW = (id) => voteColWidths[id] || (isNarrow ? 76 : 100);
-    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0);
+    rowMembers = applyDayFilters(rowMembers);
+    // Notes on answers are gathered into one Comments column at the right
+    // rather than marked in the date cells: a row's notes, date by date, on a
+    // single line that truncates — the cell's tooltip has them in full — so a
+    // long note never makes its row taller than the others. The column only
+    // appears once someone in the table has written something on a date shown.
+    const commentsOf = (uid) => visibleOptions
+      .map(o => [o, noteOf(o.votes?.[uid])])
+      .filter(([, note]) => note);
+    const showComments = rowMembers.some(([uid]) => commentsOf(uid).length > 0);
+    const commentsColW = voteColWidths.comments || (isNarrow ? 160 : 260);
+    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0) + (showComments ? commentsColW : 0);
     const resizeHandle = (key, width) => (
       <div
         onMouseDown={startColResize(key, width)}
@@ -1173,8 +1176,7 @@ export function EventDetail() {
         <span style={{ width: '2px', height: '55%', background: 'var(--color-border)', borderRadius: '1px' }} />
       </div>
     );
-    rowMembers = applyDayFilters(rowMembers);
-    const th = { position: 'relative', textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)', overflow: 'hidden' };
+    const th ={ position: 'relative', textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.4rem 0.6rem', fontSize: isNarrow ? '0.62rem' : '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)', overflow: 'hidden' };
     const thName = { ...th, textAlign: 'left', position: 'sticky', left: 0, zIndex: 1, background: 'var(--color-surface)' };
     const td = { textAlign: 'center', padding: isNarrow ? '0.3rem 0.3rem' : '0.35rem 0.6rem', borderBottom: '1px solid var(--color-border-light)' };
     const tdName = { ...td, textAlign: 'left', fontWeight: 600, fontSize: isNarrow ? '0.76rem' : '0.82rem', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--color-surface)', maxWidth: isNarrow ? '7.5rem' : 'none', overflow: 'hidden', textOverflow: 'ellipsis' };
@@ -1200,6 +1202,7 @@ export function EventDetail() {
           <colgroup>
             <col style={{ width: `${nameColW}px` }} />
             {visibleOptions.map(o => <col key={o.id} style={{ width: `${optColW(o.id)}px` }} />)}
+            {showComments && <col style={{ width: `${commentsColW}px` }} />}
             {/* Spacer absorbs any width beyond the sized columns so their
                 widths stay exact and draggable instead of stretching. */}
             <col />
@@ -1245,6 +1248,9 @@ export function EventDetail() {
                   </th>
                 );
               })}
+              {showComments && (
+                <th style={{ ...th, textAlign: 'left', verticalAlign: 'bottom' }}>Comments{resizeHandle('comments', commentsColW)}</th>
+              )}
               <th style={th} aria-hidden="true" />
             </tr>
             {showWeather && (
@@ -1275,6 +1281,7 @@ export function EventDetail() {
                     </th>
                   );
                 })}
+                {showComments && <th style={th} aria-hidden="true" />}
                 <th style={th} aria-hidden="true" />
               </tr>
             )}
@@ -1319,7 +1326,7 @@ export function EventDetail() {
                     if (!canManageMembers) {
                       return (
                         <td key={o.id} style={cellStyle} title={note || undefined}>
-                          {pill(voteVal, inherited)}{note ? noteMark : null}
+                          {pill(voteVal, inherited)}
                         </td>
                       );
                     }
@@ -1343,11 +1350,27 @@ export function EventDetail() {
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'none'}
                         >
-                          {pill(voteVal, inherited)}{note ? noteMark : null}
+                          {pill(voteVal, inherited)}
                         </button>
                       </td>
                     );
                   })}
+                  {showComments && (() => {
+                    const comments = commentsOf(uid);
+                    return (
+                      <td
+                        style={{ ...td, ...topBorder, textAlign: 'left', fontSize: isNarrow ? '0.7rem' : '0.76rem', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        title={comments.map(([o, note]) => `${fmtOpt(o)}: ${note}`).join('\n') || undefined}
+                      >
+                        {comments.map(([o, note], i) => (
+                          <span key={o.id}>
+                            {i > 0 ? ' · ' : null}
+                            <span style={{ fontWeight: 700, color: 'var(--color-text-muted)' }}>{fmtOpt(o)}</span> {note}
+                          </span>
+                        ))}
+                      </td>
+                    );
+                  })()}
                   <td style={{ ...td, ...topBorder }} aria-hidden="true" />
                 </tr>
               );
