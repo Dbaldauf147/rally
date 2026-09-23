@@ -7,6 +7,7 @@ import { planMemberUpsert } from '../lib/members';
 // uses, so someone added mid-invite is a real contact afterwards, not a
 // one-off row that only exists on this event.
 import { addFriend as writeFriend } from '../lib/friends';
+import { groupTokens, bucketByGroup } from '../lib/peopleGroups';
 // Same three routes the Friends page uses (native plugin, Android's picker, a
 // .vcf file); the rows come back already shaped, so no column mapping here.
 import { pickPhoneContacts, contactsSource, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
@@ -225,6 +226,16 @@ export function EventDetail() {
   // two-column list of people with tappable day chips), 'cards' (grouped cards).
   const [votedView, setVotedView] = useState('table');
   const [showYesMaybeOnly, setShowYesMaybeOnly] = useState(false); // People & Poll: show only likely attendees (Yes/Maybe)
+  // People & Poll: one table per Friends group instead of one long list.
+  // Remembered on this device, across events.
+  const [groupedPeople, setGroupedPeople] = useState(() => {
+    try { return localStorage.getItem('rally.event.groupedPeople') === '1'; } catch { return false; }
+  });
+  function toggleGroupedPeople() {
+    const next = !groupedPeople;
+    setGroupedPeople(next);
+    try { localStorage.setItem('rally.event.groupedPeople', next ? '1' : '0'); } catch { /* private mode */ }
+  }
   const [dayVoteFilter, setDayVoteFilter] = useState({}); // People & Poll: per-day Yes/Maybe column filters { optionId: true }
   const [hiddenDays, setHiddenDays] = useState({}); // People & Poll: date columns hidden from the table view { optionId: true }
   /* Typical weather under each date in the vote table: what the last ten years
@@ -1157,7 +1168,9 @@ export function EventDetail() {
   // date option, each cell showing the person's vote (own or assumed-yes via a
   // linked partner). Rendered for whatever member rows are passed, so it works
   // for the whole guest list before anyone has voted — not just the voted group.
-  const renderVoteTable = (rowMembers) => {
+  // `intro` is the hidden-date chips and hints above the table — drawn once, not
+  // again above every group's table when the list is split.
+  const renderVoteTable = (rowMembers, { intro = true } = {}) => {
     if (openOptions.length === 0) return null;
     // Resolved column widths (saved override → responsive default) and the total
     // table width. Fixed layout below makes the widths exact and draggable.
@@ -1182,15 +1195,15 @@ export function EventDetail() {
     const clusters = clusterMembers(rowMembers);
     return (
       <>
-        {renderHiddenDayChips()}
-        {showWeather && (
+        {intro && renderHiddenDayChips()}
+        {intro && showWeather && (
           <div style={{ fontSize: '0.68rem', color: climate.status === 'error' ? 'var(--color-danger)' : 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
             {climate.status === 'loading' && 'Looking up typical weather…'}
             {climate.status === 'error' && `Typical weather: ${climate.message}`}
             {climate.status === 'ready' && `Typical weather at ${climate.place?.label || eventLocation} — average high and low for the time of year, ${climate.years[0]}–${climate.years[1]}. Not a forecast.`}
           </div>
         )}
-        {canManageMembers && (
+        {intro && canManageMembers && (
           <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
             Tap a cell to set a vote: – → ✓ Works → ? Maybe → ✗ Can’t · Hold one to note why
           </div>
@@ -2793,6 +2806,16 @@ export function EventDetail() {
                         {showYesMaybeOnly ? '✓ ' : ''}Yes / Maybe only ({yesMaybeCount})
                       </button>
                     )}
+                    {votedView !== 'cards' && (
+                      <button
+                        onClick={toggleGroupedPeople}
+                        aria-pressed={groupedPeople}
+                        style={{ fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.7rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: groupedPeople ? 'var(--color-accent)' : 'var(--color-surface)', color: groupedPeople ? '#fff' : 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', marginLeft: '0.4rem' }}
+                        title="Split people into a separate table for each of their Friends groups"
+                      >
+                        {groupedPeople ? '✓ ' : ''}Split by group
+                      </button>
+                    )}
                     {votedView === 'table' && (
                       <button
                         onClick={toggleWeather}
@@ -2805,8 +2828,34 @@ export function EventDetail() {
                       </button>
                     )}
                   </div>
-                  {votedView === 'table' && renderVoteTable(rows)}
-                  {votedView === 'columns' && renderVoteColumns(rows)}
+                  {!groupedPeople && votedView === 'table' && renderVoteTable(rows)}
+                  {!groupedPeople && votedView === 'columns' && renderVoteColumns(rows)}
+                  {groupedPeople && (() => {
+                    // A guest's groups come from their matched Friend. Someone
+                    // who isn't in your Friends (a partner added by name, say)
+                    // sits with the person they're linked to, so couples stay
+                    // together in one table.
+                    const byUid = new Map(members);
+                    const ownGroups = (m) => groupTokens(m?._friendMatch?.group);
+                    const groupsOf = ([uid, m]) => {
+                      const own = ownGroups(m);
+                      if (own.length) return own;
+                      const partner = m.plusOneOf ? byUid.get(m.plusOneOf)
+                        : members.find(([, m2]) => m2.plusOneOf === uid)?.[1];
+                      return ownGroups(partner);
+                    };
+                    const buckets = bucketByGroup(rows, groupsOf)
+                      .filter(b => applyDayFilters(b.items).length > 0);
+                    if (buckets.length === 0) return votedView === 'table' ? renderVoteTable(rows) : renderVoteColumns(rows);
+                    return buckets.map((b, i) => (
+                      <section key={b.label} style={{ marginBottom: '0.9rem' }}>
+                        <h4 style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)', margin: '0 0 0.35rem' }}>
+                          {b.label} <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>({applyDayFilters(b.items).length})</span>
+                        </h4>
+                        {votedView === 'table' ? renderVoteTable(b.items, { intro: i === 0 }) : renderVoteColumns(b.items)}
+                      </section>
+                    ));
+                  })()}
                 </div>
               );
             })()}

@@ -26,6 +26,7 @@ import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
 import { FriendProfileEditor } from './FriendProfileEditor';
 import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
+import { groupTokens, bucketByGroup } from '../lib/peopleGroups';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -1652,10 +1653,16 @@ export function FriendsPage() {
   const activeFilterCount = filters.group.length + filters.tag.length + filters.guest.length + (filters.hasEmail ? 1 : 0) + (filters.hasPhone ? 1 : 0) + (filters.hasInstagram ? 1 : 0) + customFilterCount;
   const clearedFilters = { group: [], tag: [], guest: [], hasEmail: '', hasPhone: '', hasInstagram: '', custom: {} };
 
-  // Groups and tags
-  function groupTokens(value) {
-    return (value || '').split(',').map(g => g.trim()).filter(Boolean);
+  // Contacts split into one table per group. Remembered on this device.
+  const [groupedView, setGroupedView] = useState(() => {
+    try { return localStorage.getItem('rally.friends.groupedView') === '1'; } catch { return false; }
+  });
+  function toggleGroupedView() {
+    const next = !groupedView;
+    setGroupedView(next);
+    try { localStorage.setItem('rally.friends.groupedView', next ? '1' : '0'); } catch { /* private mode */ }
   }
+
   // A custom field filters on its displayed value, with "no value" as its own
   // bucket so you can find the contacts still missing an answer. A Yes/No field
   // has no blank state — unchecked reads as No.
@@ -1747,6 +1754,123 @@ export function FriendsPage() {
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
+  // One contacts table. Drawn once for the whole list, or once per group when
+  // the list is split. The header checkbox selects only this table's rows.
+  function renderContactsTable(rows) {
+    const allSelected = rows.length > 0 && rows.every(f => selectedIds.has(f.id));
+    return (
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th className={styles.thCheckbox}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() => setSelectedIds(prev => {
+                    const next = new Set(prev);
+                    for (const f of rows) { if (allSelected) next.delete(f.id); else next.add(f.id); }
+                    return next;
+                  })}
+                  title="Select all visible"
+                  style={{ accentColor: 'var(--color-accent)' }}
+                />
+              </th>
+              <th className={styles.th} onClick={() => onSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by name">Name{sortArrow('name')}</th>
+              <th className={styles.th} onClick={() => onSort('email')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by email">Email{sortArrow('email')}</th>
+              <th className={styles.th} onClick={() => onSort('phone')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by phone">Phone{sortArrow('phone')}</th>
+              <th className={styles.th} onClick={() => onSort('group')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by group">Group{sortArrow('group')}</th>
+              <th className={styles.th} onClick={() => onSort('guest')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by guest">Guest{sortArrow('guest')}</th>
+              <th className={styles.th} onClick={() => onSort('tags')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by tags">Tags{sortArrow('tags')}</th>
+              <th className={styles.th} onClick={() => onSort('birthday')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by birthday">Birthday{sortArrow('birthday')}</th>
+              <th className={styles.th} onClick={() => onSort('dob')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by date of birth">Date of Birth{sortArrow('dob')}</th>
+              <th className={styles.th} onClick={() => onSort('anniversary')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by anniversary">Anniversary{sortArrow('anniversary')}</th>
+              <th className={styles.th}>Linked</th>
+              {tableCustomFields.map(cf => (
+                <th
+                  key={cf.id}
+                  className={styles.th}
+                  onClick={() => onSort(`custom:${cf.id}`)}
+                  style={{ cursor: 'pointer', userSelect: 'none' }}
+                  title={`Sort by ${cf.label}`}
+                >{cf.label}{sortArrow(`custom:${cf.id}`)}</th>
+              ))}
+              <th className={styles.thAction} />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(f => {
+              const partner = f.linkedTo ? filtered.find(x => x.id === f.linkedTo) : null;
+              const reversePartner = !partner ? friends.find(x => x.linkedTo === f.id) : null;
+              const linked = partner || reversePartner;
+              const tags = (f.tag || '').split(';').map(t => t.trim()).filter(Boolean);
+              const selected = selectedIds.has(f.id);
+              const age = ageFromDob(f.dob);
+              return (
+                <tr
+                  key={f.id}
+                  className={`${styles.tr} ${selected ? styles.trSelected : ''}`}
+                  onClick={() => openEdit(f)}
+                >
+                  <td className={styles.tdCheckbox} onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleSelect(f.id)}
+                      style={{ accentColor: 'var(--color-accent)' }}
+                    />
+                  </td>
+                  <td className={`${styles.td} ${styles.tdName}`}>{f.name || <span className={styles.tdMuted}>—</span>}</td>
+                  <td className={styles.td}>{f.email || <span className={styles.tdMuted}>—</span>}</td>
+                  <td className={styles.td}>{f.phone || <span className={styles.tdMuted}>—</span>}</td>
+                  <td className={styles.td}>
+                    {f.group ? <span className={styles.cardGroup}>{f.group}</span> : <span className={styles.tdMuted}>—</span>}
+                  </td>
+                  <td className={styles.td}>{f.guest || <span className={styles.tdMuted}>—</span>}</td>
+                  <td className={styles.td}>
+                    {tags.length === 0
+                      ? <span className={styles.tdMuted}>—</span>
+                      : tags.map((t, i) => <span key={i} className={styles.tagChip}>{t}</span>)}
+                  </td>
+                  <td className={styles.td}>{fmtBirthday(effectiveBirthday(f)) || <span className={styles.tdMuted}>—</span>}</td>
+                  <td className={styles.td}>
+                    {fmtDob(f.dob)
+                      ? <>{fmtDob(f.dob)}{age != null && <span className={styles.tdMuted}> · {age}</span>}</>
+                      : <span className={styles.tdMuted}>—</span>}
+                  </td>
+                  <td className={styles.td}>{formatAnnualDate(f.anniversary) || <span className={styles.tdMuted}>—</span>}</td>
+                  <td className={styles.td}>
+                    {linked ? <span className={styles.linkedChip}>↔ {linked.name}</span> : <span className={styles.tdMuted}>—</span>}
+                  </td>
+                  {tableCustomFields.map(cf => {
+                    const shown = formatCustomValue(cf, f.custom?.[cf.id]);
+                    return (
+                      <td key={cf.id} className={styles.td}>
+                        {shown
+                          ? (cf.type === 'select'
+                              ? <span className={styles.tagChip}>{shown}</span>
+                              : shown)
+                          : <span className={styles.tdMuted}>—</span>}
+                      </td>
+                    );
+                  })}
+                  <td className={styles.tdAction} onClick={e => e.stopPropagation()}>
+                    <button
+                      className={styles.rowDelete}
+                      onClick={() => removeFriend(f.id)}
+                      title="Remove"
+                      aria-label="Remove"
+                    >&times;</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -1834,6 +1958,14 @@ export function FriendsPage() {
           style={{ padding: '0.35rem 0.75rem', border: activeFilterCount > 0 ? '1px solid var(--color-accent)' : '1px solid var(--color-border)', borderRadius: 'var(--radius-full)', background: activeFilterCount > 0 ? 'var(--color-accent-light)' : 'var(--color-surface)', fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', color: activeFilterCount > 0 ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}
         >
           Filters{activeFilterCount > 0 && ` (${activeFilterCount})`}
+        </button>
+        <button
+          onClick={toggleGroupedView}
+          aria-pressed={groupedView}
+          title="Split contacts into a separate table for each group"
+          style={{ padding: '0.35rem 0.75rem', border: groupedView ? '1px solid var(--color-accent)' : '1px solid var(--color-border)', borderRadius: 'var(--radius-full)', background: groupedView ? 'var(--color-accent-light)' : 'var(--color-surface)', fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', color: groupedView ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}
+        >
+          {groupedView ? '✓ ' : ''}Split by group
         </button>
         {activeFilterCount > 0 && (
           <button onClick={() => setFilters(clearedFilters)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit' }}>Clear all</button>
@@ -2030,116 +2162,16 @@ export function FriendsPage() {
             <button className={styles.uploadBtn} onClick={() => fileRef.current?.click()}>Upload Excel</button>
           </div>
         </div>
-      ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.thCheckbox}>
-                  <input
-                    type="checkbox"
-                    checked={filtered.length > 0 && filtered.every(f => selectedIds.has(f.id))}
-                    onChange={() => {
-                      const allSelected = filtered.length > 0 && filtered.every(f => selectedIds.has(f.id));
-                      if (allSelected) selectNone(); else selectAll();
-                    }}
-                    title="Select all visible"
-                    style={{ accentColor: 'var(--color-accent)' }}
-                  />
-                </th>
-                <th className={styles.th} onClick={() => onSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by name">Name{sortArrow('name')}</th>
-                <th className={styles.th} onClick={() => onSort('email')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by email">Email{sortArrow('email')}</th>
-                <th className={styles.th} onClick={() => onSort('phone')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by phone">Phone{sortArrow('phone')}</th>
-                <th className={styles.th} onClick={() => onSort('group')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by group">Group{sortArrow('group')}</th>
-                <th className={styles.th} onClick={() => onSort('guest')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by guest">Guest{sortArrow('guest')}</th>
-                <th className={styles.th} onClick={() => onSort('tags')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by tags">Tags{sortArrow('tags')}</th>
-                <th className={styles.th} onClick={() => onSort('birthday')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by birthday">Birthday{sortArrow('birthday')}</th>
-                <th className={styles.th} onClick={() => onSort('dob')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by date of birth">Date of Birth{sortArrow('dob')}</th>
-                <th className={styles.th} onClick={() => onSort('anniversary')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by anniversary">Anniversary{sortArrow('anniversary')}</th>
-                <th className={styles.th}>Linked</th>
-                {tableCustomFields.map(cf => (
-                  <th
-                    key={cf.id}
-                    className={styles.th}
-                    onClick={() => onSort(`custom:${cf.id}`)}
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
-                    title={`Sort by ${cf.label}`}
-                  >{cf.label}{sortArrow(`custom:${cf.id}`)}</th>
-                ))}
-                <th className={styles.thAction} />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(f => {
-                const partner = f.linkedTo ? filtered.find(x => x.id === f.linkedTo) : null;
-                const reversePartner = !partner ? friends.find(x => x.linkedTo === f.id) : null;
-                const linked = partner || reversePartner;
-                const tags = (f.tag || '').split(';').map(t => t.trim()).filter(Boolean);
-                const selected = selectedIds.has(f.id);
-                const age = ageFromDob(f.dob);
-                return (
-                  <tr
-                    key={f.id}
-                    className={`${styles.tr} ${selected ? styles.trSelected : ''}`}
-                    onClick={() => openEdit(f)}
-                  >
-                    <td className={styles.tdCheckbox} onClick={e => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => toggleSelect(f.id)}
-                        style={{ accentColor: 'var(--color-accent)' }}
-                      />
-                    </td>
-                    <td className={`${styles.td} ${styles.tdName}`}>{f.name || <span className={styles.tdMuted}>—</span>}</td>
-                    <td className={styles.td}>{f.email || <span className={styles.tdMuted}>—</span>}</td>
-                    <td className={styles.td}>{f.phone || <span className={styles.tdMuted}>—</span>}</td>
-                    <td className={styles.td}>
-                      {f.group ? <span className={styles.cardGroup}>{f.group}</span> : <span className={styles.tdMuted}>—</span>}
-                    </td>
-                    <td className={styles.td}>{f.guest || <span className={styles.tdMuted}>—</span>}</td>
-                    <td className={styles.td}>
-                      {tags.length === 0
-                        ? <span className={styles.tdMuted}>—</span>
-                        : tags.map((t, i) => <span key={i} className={styles.tagChip}>{t}</span>)}
-                    </td>
-                    <td className={styles.td}>{fmtBirthday(effectiveBirthday(f)) || <span className={styles.tdMuted}>—</span>}</td>
-                    <td className={styles.td}>
-                      {fmtDob(f.dob)
-                        ? <>{fmtDob(f.dob)}{age != null && <span className={styles.tdMuted}> · {age}</span>}</>
-                        : <span className={styles.tdMuted}>—</span>}
-                    </td>
-                    <td className={styles.td}>{formatAnnualDate(f.anniversary) || <span className={styles.tdMuted}>—</span>}</td>
-                    <td className={styles.td}>
-                      {linked ? <span className={styles.linkedChip}>↔ {linked.name}</span> : <span className={styles.tdMuted}>—</span>}
-                    </td>
-                    {tableCustomFields.map(cf => {
-                      const shown = formatCustomValue(cf, f.custom?.[cf.id]);
-                      return (
-                        <td key={cf.id} className={styles.td}>
-                          {shown
-                            ? (cf.type === 'select'
-                                ? <span className={styles.tagChip}>{shown}</span>
-                                : shown)
-                            : <span className={styles.tdMuted}>—</span>}
-                        </td>
-                      );
-                    })}
-                    <td className={styles.tdAction} onClick={e => e.stopPropagation()}>
-                      <button
-                        className={styles.rowDelete}
-                        onClick={() => removeFriend(f.id)}
-                        title="Remove"
-                        aria-label="Remove"
-                      >&times;</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      ) : groupedView ? (
+        bucketByGroup(filtered, f => groupTokens(f.group)).map(b => (
+          <section key={b.label} style={{ marginBottom: '1.25rem' }}>
+            <h3 style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)', margin: '0 0 0.4rem' }}>
+              {b.label} <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>({b.items.length})</span>
+            </h3>
+            {renderContactsTable(b.items)}
+          </section>
+        ))
+      ) : renderContactsTable(filtered)}
       </>)}
 
       {viewTab === 'tiers' && (
