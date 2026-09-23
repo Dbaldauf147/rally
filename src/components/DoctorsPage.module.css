@@ -437,6 +437,7 @@
    Tinted like the bar, so it reads as the same fact in words. */
 .trtCounter { display: inline-block; margin-top: 0.15rem; padding: 0.05rem 0.45rem; border-radius: var(--radius-full); font-size: 0.7rem; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--color-border-light); color: var(--color-text-secondary); }
 .trtCounter_current { background: var(--color-success-light); color: var(--color-success); }
+.trtCounter_notstarted { background: none; border: 1px dashed var(--color-text-muted); color: var(--color-text-secondary); }
 .trtCounter_upcoming { background: var(--color-accent-light); color: var(--color-accent); }
 .trtLength { font-size: 0.78rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .trtRowNotes { display: block; font-size: 0.72rem; font-weight: 400; color: var(--color-text-secondary); font-style: italic; overflow-wrap: anywhere; }
@@ -455,6 +456,11 @@
 .trtFill_upcoming { background: var(--color-accent); }
 .trtFill_past { background: #cbd5e1; }
 .trtFill_unplaced { background: transparent; }
+/* The plan, not the fact: an outline where the course is meant to run. */
+.trtFill_notstarted { background: transparent; border: 1.5px dashed var(--color-text-muted); box-sizing: border-box; }
+/* One outline for the whole run, not a dashed box per month. */
+.trtFill_notstarted:not(.trtBarStart) { border-left: none; }
+.trtFill_notstarted:not(.trtBarEnd) { border-right: none; }
 
 @media (max-width: 700px) {
   .trtHeadName, .trtRowName { width: 9.5rem; min-width: 9.5rem; }

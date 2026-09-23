@@ -76,6 +76,11 @@ const makeId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`;
  * 2027" is a fat-fingered pair of pickers, and the honest reading of it is
  * the days between them. A start that isn't a date at all leaves the
  * treatment unplaced — it still lists, it just has no bar to draw.
+ *
+ * `notStarted` is a course you have been given but haven't begun: the
+ * physio referral you haven't booked, the prescription still in the bag.
+ * Its dates, if it has any, are the plan rather than what happened, so it
+ * says "not started" whatever today is until you take the flag off.
  */
 export function normalizeTreatment(raw) {
   const str = (v) => String(v ?? '').trim();
@@ -90,6 +95,7 @@ export function normalizeTreatment(raw) {
     start,
     end,
     notes: str(raw?.notes),
+    notStarted: raw?.notStarted === true,
   };
 }
 
@@ -130,7 +136,7 @@ export function monthCoverage(treatment, key) {
   return { from, to };
 }
 
-export const isOngoing = (t) => !!t?.start && !t?.end;
+export const isOngoing = (t) => !!t?.start && !t?.end && !t?.notStarted;
 
 /* The years the grid draws.
  *
@@ -174,12 +180,14 @@ export function describeSpan(treatment) {
   return `${label(t.start)} – ${label(t.end)}`;
 }
 
-/* Where a treatment sits against today: done, running, or still to come.
+/* Where a treatment sits against today: done, running, or still to come —
+ * or not started, which is your say rather than the calendar's.
  * What the row's colour says before you count columns. To the day: a course
  * that ended yesterday is finished, even with the month not out. */
 export function treatmentState(treatment, today = new Date()) {
   const t = normalizeTreatment(treatment);
   const now = dateKey(today);
+  if (t.notStarted) return 'notstarted';
   if (!t.start) return 'unplaced';
   if (firstDay(t.start) > now) return 'upcoming';
   if (!t.end || lastDay(t.end) >= now) return 'current';
@@ -263,9 +271,24 @@ const withMonths = (n, span) => (span?.months ? `${dayCount(n)} (${formatSpan(sp
  *   running, with an end   "Day 8 of 61 · 54 days left"
  *   running, open-ended    "Day 45 (1 month 14 days)"
  *   still to come          "Starts in 12 days · 61 days (2 months)"
- *   finished               "61 days (2 months)" */
+ *   finished               "61 days (2 months)"
+ *   not started            "Not started · due in 8 days · planned 31 days (1 month)",
+ *                          "Not started · 5 days overdue", or just "Not started" */
 export function describeCounter(treatment, today = new Date()) {
-  const c = treatmentCounts(treatment, today);
+  const t = normalizeTreatment(treatment);
+  if (t.notStarted) {
+    const parts = ['Not started'];
+    if (t.start) {
+      const due = daysBetween(toDate(dateKey(today)), toDate(firstDay(t.start)));
+      if (due > 1) parts.push(`due in ${dayCount(due)}`);
+      else if (due === 1) parts.push('due tomorrow');
+      else if (due === 0) parts.push('due today');
+      else parts.push(`${dayCount(-due)} overdue`);
+    }
+    if (t.start && t.end) parts.push(`planned ${describeLength(t.start, t.end)}`);
+    return parts.join(' · ');
+  }
+  const c = treatmentCounts(t, today);
   if (!c) return '';
   if (c.state === 'upcoming') {
     const starts = c.until === 1 ? 'Starts tomorrow' : `Starts in ${dayCount(c.until)}`;

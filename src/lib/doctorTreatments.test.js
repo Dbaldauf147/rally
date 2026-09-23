@@ -254,3 +254,38 @@ describe('the counter', () => {
     expect(describeCounter({ name: 'Physio' }, TODAY)).toBe('');
   });
 });
+
+describe('not started', () => {
+  // TODAY is 2026-09-21.
+  it('keeps the flag, and only a real true sets it', () => {
+    expect(normalizeTreatment({ name: 'Physio', notStarted: true }).notStarted).toBe(true);
+    expect(normalizeTreatment({ name: 'Physio', notStarted: 'yes' }).notStarted).toBe(false);
+    expect(normalizeTreatment({ name: 'Physio' }).notStarted).toBe(false);
+  });
+
+  it('is its own state whatever the dates say', () => {
+    expect(treatmentState({ name: 'Physio', notStarted: true }, TODAY)).toBe('notstarted');
+    expect(treatmentState({ start: '2026-09-01', end: '2026-12-01', notStarted: true }, TODAY)).toBe('notstarted');
+    expect(treatmentState({ start: '2027-01-01', notStarted: true }, TODAY)).toBe('notstarted');
+    expect(isOngoing({ start: '2026-09-01', notStarted: true })).toBe(false);
+  });
+
+  it('survives normalizeTreatments with no dates at all', () => {
+    expect(normalizeTreatments([{ name: 'Physio', notStarted: true }])).toHaveLength(1);
+  });
+
+  it('counts toward the plan, or past it', () => {
+    expect(describeCounter({ name: 'Physio', notStarted: true }, TODAY)).toBe('Not started');
+    expect(describeCounter({ start: '2026-09-29', end: '2026-10-28', notStarted: true }, TODAY))
+      .toBe('Not started · due in 8 days · planned 30 days (1 month)');
+    expect(describeCounter({ start: '2026-09-22', notStarted: true }, TODAY)).toBe('Not started · due tomorrow');
+    expect(describeCounter({ start: '2026-09-21', notStarted: true }, TODAY)).toBe('Not started · due today');
+    expect(describeCounter({ start: '2026-09-16', notStarted: true }, TODAY)).toBe('Not started · 5 days overdue');
+  });
+
+  it('comes off with an edit, and the course runs as dated', () => {
+    const list = { treatments: [{ id: 't1', name: 'Physio', start: '2026-09-14', end: '2026-11-13', notStarted: true }] };
+    const started = updateTreatment(list, 't1', { notStarted: false });
+    expect(treatmentState(started.treatments[0], TODAY)).toBe('current');
+  });
+});

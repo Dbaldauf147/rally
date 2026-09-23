@@ -762,7 +762,7 @@ function AppointmentsPanel({ list, update, daysFrom }) {
  */
 const MONTH_INITIALS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
-const blankDraft = (start) => ({ name: '', type: '', doctor: '', start, end: '', notes: '' });
+const blankDraft = (start) => ({ name: '', type: '', doctor: '', start, end: '', notes: '', notStarted: false });
 
 function TreatmentFields({ draft, setDraft, types, doctors }) {
   // A treatment saved before the tab took days holds a bare month; the picker
@@ -821,6 +821,15 @@ function TreatmentFields({ draft, setDraft, types, doctors }) {
           onClick={() => setDraft((d) => ({ ...d, end: '' }))}
           title="No end date — it is still going"
         >{draft.end ? 'Ongoing?' : '✓ Ongoing'}</button>
+        {/* Given it, haven't begun it. The dates can stay as the plan, or be
+            cleared if there isn't one yet. */}
+        <button
+          type="button"
+          className={draft.notStarted ? styles.trtOngoingOn : styles.trtOngoing}
+          onClick={() => setDraft((d) => ({ ...d, notStarted: !d.notStarted }))}
+          aria-pressed={!!draft.notStarted}
+          title="You have this treatment but haven't begun it yet"
+        >{draft.notStarted ? '✓ Not started' : 'Not started?'}</button>
         {describeLength(draft.start, draft.end) && (
           <span className={styles.trtLength}>{describeLength(draft.start, draft.end)}</span>
         )}
@@ -894,6 +903,7 @@ function TreatmentsPanel({ list, update }) {
             <span className={`${styles.trtKey} ${styles.trtFill_current}`} /> On it now
             <span className={`${styles.trtKey} ${styles.trtFill_upcoming}`} /> Still to come
             <span className={`${styles.trtKey} ${styles.trtFill_past}`} /> Finished
+            <span className={`${styles.trtKey} ${styles.trtFill_notstarted}`} /> Not started
             <span className={styles.trtLegendNote}>Click a treatment to edit it. The line marks this month.</span>
           </div>
           <div className={styles.trtGridWrap}>
@@ -923,7 +933,7 @@ function TreatmentsPanel({ list, update }) {
                         <button
                           type="button"
                           className={styles.trtRowBtn}
-                          onClick={() => setEditing({ id: t.id, draft: { name: t.name, type: t.type, doctor: t.doctor, start: t.start, end: t.end, notes: t.notes } })}
+                          onClick={() => setEditing({ id: t.id, draft: { name: t.name, type: t.type, doctor: t.doctor, start: t.start, end: t.end, notes: t.notes, notStarted: t.notStarted } })}
                           title="Edit this treatment"
                         >
                           <span className={styles.trtRowTitle}>{t.name || 'Untitled'}</span>
@@ -932,7 +942,7 @@ function TreatmentsPanel({ list, update }) {
                             {t.type ? ` · ${t.type}` : ''}
                             {t.doctor ? ` · ${t.doctor}` : ''}
                           </span>
-                          {t.start ? (
+                          {t.start || t.notStarted ? (
                             <span className={`${styles.trtCounter} ${styles[`trtCounter_${state}`]}`}>
                               {describeCounter(t, today)}
                             </span>
