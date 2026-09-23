@@ -1,8 +1,8 @@
 // Treatments: a course of something, across the months it covers.
 import { describe, it, expect } from 'vitest';
 import {
-  monthKey, parseMonth, coversMonth, isOngoing, gridYears, describeSpan,
-  treatmentState, normalizeTreatment, normalizeTreatments,
+  monthKey, parseMonth, parseWhen, coversMonth, monthCoverage, isOngoing, gridYears, describeSpan,
+  treatmentState, firstDay, lastDay, normalizeTreatment, normalizeTreatments,
   addTreatment, updateTreatment, removeTreatment,
 } from './doctorTreatments.js';
 
@@ -137,5 +137,68 @@ describe('editing', () => {
   it('will not let a patch change the id out from under the row', () => {
     const edited = updateTreatment(list, 't1', { id: 'nope', name: 'Physio II' });
     expect(edited.treatments[0]).toMatchObject({ id: 't1', name: 'Physio II' });
+  });
+});
+
+describe('days as well as months', () => {
+  it('reads a day, a bare month, and refuses a day the month hasn’t got', () => {
+    expect(parseWhen('2026-03-14')).toEqual({ year: 2026, month: 2, day: 14 });
+    expect(parseWhen('2026-03')).toEqual({ year: 2026, month: 2, day: null });
+    expect(parseWhen('2026-02-30')).toBeNull();
+    expect(parseWhen('2028-02-29')).toEqual({ year: 2028, month: 1, day: 29 });
+  });
+
+  it('widens a bare month to the day it stands for at each end', () => {
+    expect(firstDay('2026-02')).toBe('2026-02-01');
+    expect(lastDay('2026-02')).toBe('2026-02-28');
+    expect(firstDay('2026-02-10')).toBe('2026-02-10');
+    expect(lastDay('')).toBe('');
+  });
+
+  it('keeps a day-precise range and swaps one typed backwards', () => {
+    expect(normalizeTreatment({ name: 'Cast', start: '2026-03-14', end: '2026-04-02' }))
+      .toMatchObject({ start: '2026-03-14', end: '2026-04-02' });
+    expect(normalizeTreatment({ name: 'Cast', start: '2026-04-02', end: '2026-03-14' }))
+      .toMatchObject({ start: '2026-03-14', end: '2026-04-02' });
+    // A month and a day inside it are not backwards.
+    expect(normalizeTreatment({ name: 'Cast', start: '2026-03-20', end: '2026-03' }))
+      .toMatchObject({ start: '2026-03-20', end: '2026-03' });
+  });
+
+  it('covers the months its days fall in', () => {
+    const cast = { name: 'Cast', start: '2026-03-14', end: '2026-05-02' };
+    expect(coversMonth(cast, '2026-02')).toBe(false);
+    expect(coversMonth(cast, '2026-03')).toBe(true);
+    expect(coversMonth(cast, '2026-05')).toBe(true);
+    expect(coversMonth(cast, '2026-06')).toBe(false);
+  });
+
+  it('fills part of the month a course starts or stops in', () => {
+    const cast = { name: 'Cast', start: '2026-04-16', end: '2026-06-15' };
+    expect(monthCoverage(cast, '2026-04')).toEqual({ from: 0.5, to: 1 });
+    expect(monthCoverage(cast, '2026-05')).toEqual({ from: 0, to: 1 });
+    expect(monthCoverage(cast, '2026-06')).toEqual({ from: 0, to: 0.5 });
+    expect(monthCoverage(cast, '2026-07')).toBeNull();
+    expect(monthCoverage({ start: '2026-04', end: '2026-06' }, '2026-04')).toEqual({ from: 0, to: 1 });
+  });
+
+  it('says finished the day after it ends, not at the end of the month', () => {
+    expect(treatmentState({ start: '2026-09-01', end: '2026-09-20' }, TODAY)).toBe('past');
+    expect(treatmentState({ start: '2026-09-01', end: '2026-09-21' }, TODAY)).toBe('current');
+    expect(treatmentState({ start: '2026-09-22' }, TODAY)).toBe('upcoming');
+  });
+
+  it('reads the days in words', () => {
+    expect(describeSpan({ start: '2026-03-14', end: '2026-04-02' })).toBe('Mar 14, 2026 – Apr 2, 2026');
+    expect(describeSpan({ start: '2026-03-14' })).toBe('From Mar 14, 2026');
+    expect(describeSpan({ start: '2026-03-14', end: '2026-03-14' })).toBe('Mar 14, 2026');
+  });
+
+  it('sorts a day and a bare month by when they actually start', () => {
+    const out = normalizeTreatments([
+      { id: 'b', name: 'Cast', start: '2026-03-14' },
+      { id: 'a', name: 'Physio', start: '2026-03' },
+    ]);
+    expect(out.map((t) => t.id)).toEqual(['a', 'b']);
   });
 });

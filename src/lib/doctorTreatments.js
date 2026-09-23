@@ -7,10 +7,13 @@
  * about November; on a row of months you can see what overlaps what, and which
  * side of the finish line you are on.
  *
- * Months, not days. The question a course of treatment answers is "which
- * months am I in this?", and a start of "the 14th" is precision the answer
- * cannot use. So the ends are month keys — `YYYY-MM` — and an empty end means
- * it is still going.
+ * The ends are dates — `YYYY-MM-DD` — because a course of antibiotics or a
+ * cast has a day it starts and a day it comes off, and "March" doesn't say
+ * whether you're still in it on the 20th. Month keys — `YYYY-MM` — still
+ * read, since that is how the tab first stored them: a month-only start means
+ * the 1st and a month-only end the last day. An empty end means it is still
+ * going. The grid stays a row of months; a bar just starts and stops part of
+ * the way across the month a day falls in.
  */
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -27,8 +30,38 @@ export function parseMonth(key) {
   return { year, month };
 }
 
-// Month keys sort as strings, which is the whole reason for the format.
-const isMonth = (key) => !!parseMonth(key);
+/** `YYYY-MM-DD` or `YYYY-MM` → { year, month, day } (day null for a bare
+ *  month), or null for anything else, including a day the month hasn't got. */
+export function parseWhen(key) {
+  const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(String(key || '').trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  if (month < 0 || month > 11) return null;
+  if (m[3] == null) return { year, month, day: null };
+  const day = Number(m[3]);
+  if (day < 1 || day > daysInMonth(year, month)) return null;
+  return { year, month, day };
+}
+
+export const daysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+
+export const dateKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+// Both formats sort as strings once a bare month is widened to the day it
+// stands for at that end: the 1st as a start, the last day as an end.
+const isWhen = (key) => !!parseWhen(key);
+export function firstDay(key) {
+  const p = parseWhen(key);
+  if (!p) return '';
+  return p.day ? String(key).trim() : `${monthKey(p.year, p.month)}-01`;
+}
+export function lastDay(key) {
+  const p = parseWhen(key);
+  if (!p) return '';
+  return p.day ? String(key).trim() : `${monthKey(p.year, p.month)}-${pad2(daysInMonth(p.year, p.month))}`;
+}
+const monthOf = (key) => String(key).trim().slice(0, 7);
 
 export const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -40,15 +73,15 @@ const makeId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`;
 /* One treatment, repaired.
  *
  * A range typed backwards is swapped rather than dropped: "Mar 2027 to Jan
- * 2027" is a fat-fingered pair of dropdowns, and the honest reading of it is
- * the months between them. A start that isn't a month at all leaves the
+ * 2027" is a fat-fingered pair of pickers, and the honest reading of it is
+ * the days between them. A start that isn't a date at all leaves the
  * treatment unplaced — it still lists, it just has no bar to draw.
  */
 export function normalizeTreatment(raw) {
   const str = (v) => String(v ?? '').trim();
-  let start = isMonth(raw?.start) ? str(raw.start) : '';
-  let end = isMonth(raw?.end) ? str(raw.end) : '';
-  if (start && end && end < start) [start, end] = [end, start];
+  let start = isWhen(raw?.start) ? str(raw.start) : '';
+  let end = isWhen(raw?.end) ? str(raw.end) : '';
+  if (start && end && lastDay(end) < firstDay(start)) [start, end] = [end, start];
   return {
     id: str(raw?.id) || makeId(),
     name: str(raw?.name),
@@ -60,10 +93,10 @@ export function normalizeTreatment(raw) {
   };
 }
 
-// Soonest first, and within a month the one that ends first — a short course
-// reads as a short course when it sits above an open-ended one.
-const byWhen = (a, b) => (a.start || '9999').localeCompare(b.start || '9999')
-  || (a.end || '9999-99').localeCompare(b.end || '9999-99')
+// Soonest first, and from the same day the one that ends first — a short
+// course reads as a short course when it sits above an open-ended one.
+const byWhen = (a, b) => (firstDay(a.start) || '9999').localeCompare(firstDay(b.start) || '9999')
+  || (lastDay(a.end) || '9999-99').localeCompare(lastDay(b.end) || '9999-99')
   || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 
 export function normalizeTreatments(raw) {
@@ -76,9 +109,25 @@ export function normalizeTreatments(raw) {
 /** Whether a treatment is running in the given month key. */
 export function coversMonth(treatment, key) {
   const t = normalizeTreatment(treatment);
-  if (!t.start || !isMonth(key)) return false;
-  if (key < t.start) return false;
-  return !t.end || key <= t.end;
+  if (!t.start || !parseMonth(key)) return false;
+  if (key < monthOf(t.start)) return false;
+  return !t.end || key <= monthOf(t.end);
+}
+
+/* How much of a month's cell a treatment's bar fills, as fractions from the
+ * left: { from, to }, or null when it isn't running that month. A month in
+ * the middle of a course is 0 → 1; the month it starts on the 15th begins
+ * about halfway across. A bare-month end fills its month, as it always did. */
+export function monthCoverage(treatment, key) {
+  if (!coversMonth(treatment, key)) return null;
+  const t = normalizeTreatment(treatment);
+  const { year, month } = parseMonth(key);
+  const dim = daysInMonth(year, month);
+  const s = parseWhen(t.start);
+  const e = parseWhen(t.end);
+  const from = monthOf(t.start) === key && s.day ? (s.day - 1) / dim : 0;
+  const to = e && monthOf(t.end) === key && e.day ? e.day / dim : 1;
+  return { from, to };
 }
 
 export const isOngoing = (t) => !!t?.start && !t?.end;
@@ -96,8 +145,8 @@ export function gridYears(treatments, today = new Date()) {
   const years = [];
   for (const raw of treatments || []) {
     const t = normalizeTreatment(raw);
-    const s = parseMonth(t.start);
-    const e = parseMonth(t.end);
+    const s = parseWhen(t.start);
+    const e = parseWhen(t.end);
     if (s) years.push(s.year);
     if (e) years.push(e.year);
   }
@@ -108,13 +157,17 @@ export function gridYears(treatments, today = new Date()) {
   return out;
 }
 
-/* How a treatment reads in words: "Mar 2027 – Jun 2027", "From Mar 2027". */
+/* How a treatment reads in words: "Mar 14, 2027 – Jun 2, 2027",
+ * "From Mar 14, 2027" — or "Mar 2027" for one stored as a bare month. */
+export function whenLabel(key) {
+  const p = parseWhen(key);
+  if (!p) return '';
+  return p.day ? `${MONTHS_SHORT[p.month]} ${p.day}, ${p.year}` : `${MONTHS_SHORT[p.month]} ${p.year}`;
+}
+
 export function describeSpan(treatment) {
   const t = normalizeTreatment(treatment);
-  const label = (key) => {
-    const p = parseMonth(key);
-    return p ? `${MONTHS_SHORT[p.month]} ${p.year}` : '';
-  };
+  const label = whenLabel;
   if (!t.start) return 'No dates yet';
   if (!t.end) return `From ${label(t.start)}`;
   if (t.start === t.end) return label(t.start);
@@ -122,13 +175,14 @@ export function describeSpan(treatment) {
 }
 
 /* Where a treatment sits against today: done, running, or still to come.
- * What the row's colour says before you count columns. */
+ * What the row's colour says before you count columns. To the day: a course
+ * that ended yesterday is finished, even with the month not out. */
 export function treatmentState(treatment, today = new Date()) {
   const t = normalizeTreatment(treatment);
-  const now = thisMonthKey(today);
+  const now = dateKey(today);
   if (!t.start) return 'unplaced';
-  if (t.start > now) return 'upcoming';
-  if (!t.end || t.end >= now) return 'current';
+  if (firstDay(t.start) > now) return 'upcoming';
+  if (!t.end || lastDay(t.end) >= now) return 'current';
   return 'past';
 }
 
