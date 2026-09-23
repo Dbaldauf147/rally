@@ -1160,8 +1160,11 @@ export function EventDetail() {
   // date option, each cell showing the person's vote (own or assumed-yes via a
   // linked partner). Rendered for whatever member rows are passed, so it works
   // for the whole guest list before anyone has voted — not just the voted group.
-  // Split-by-group: which tables a guest lands in (see eventGroupsOf), the
-  // groups on offer when assigning one for this event, and the write.
+  // Split-by-group: which tables a guest lands in (see eventGroupsOf), and the
+  // groups on offer when assigning one for this event. The assigning happens
+  // in the edit-person popup ("Group for this event"), not under each name in
+  // the table: every split table is already headed by its group, so the name
+  // cell repeating it was noise.
   const memberGroupsOf = ([uid, m]) => {
     const partner = m.plusOneOf ? members.find(([u]) => u === m.plusOneOf)?.[1]
       : members.find(([, m2]) => m2.plusOneOf === uid)?.[1];
@@ -1170,32 +1173,6 @@ export function EventDetail() {
   const eventGroupOptions = [...new Set(members.flatMap(e => [
     ...memberGroupsOf(e), ...groupTokens(e[1]._friendMatch?.group),
   ]))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  function setMemberEventGroup(uid, value) {
-    const v = String(value || '').trim();
-    return updateEvent(eventId, { [`members.${uid}.eventGroup`]: v || deleteField() });
-  }
-  // Compact picker under a name in the split table. "Friends group" clears the
-  // override; "New group…" asks for a name.
-  const renderGroupPicker = (uid, m) => (
-    <select
-      value={m.eventGroup || ''}
-      onClick={e => e.stopPropagation()}
-      onChange={e => {
-        let v = e.target.value;
-        if (v === '__new__') {
-          v = (window.prompt(`New group for ${m.name || 'this guest'} on this event:`) || '').trim();
-          if (!v) { e.target.value = m.eventGroup || ''; return; }
-        }
-        setMemberEventGroup(uid, v);
-      }}
-      title="Group for this event only — overrides their Friends group"
-      style={{ display: 'block', marginTop: '0.15rem', maxWidth: '100%', fontSize: '0.64rem', fontWeight: 500, padding: '0.05rem 0.2rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm, 4px)', background: 'var(--color-surface)', color: m.eventGroup ? 'var(--color-accent)' : 'var(--color-text-muted)', fontFamily: 'inherit', cursor: 'pointer' }}
-    >
-      <option value="">Friends group</option>
-      {[...new Set([...eventGroupOptions, ...(m.eventGroup ? [m.eventGroup] : [])])].map(g => <option key={g} value={g}>{g}</option>)}
-      <option value="__new__">+ New group…</option>
-    </select>
-  );
 
   // `intro` is the hidden-date chips and hints above the table — drawn once, not
   // again above every group's table when the list is split.
@@ -1357,9 +1334,7 @@ export function EventDetail() {
                       >
                         {mutual ? '⇄' : '↳'} {target.name || 'Guest'}
                       </span>
-                    )}
-                    {groupedPeople && canManageMembers && renderGroupPicker(uid, m)}
-                  </td>
+                    )}                  </td>
                   {visibleOptions.map(o => {
                     const own = o.votes?.[uid]?.vote;
                     const ownActive = own && own !== 'none';
