@@ -7,7 +7,7 @@ import { planMemberUpsert } from '../lib/members';
 // uses, so someone added mid-invite is a real contact afterwards, not a
 // one-off row that only exists on this event.
 import { addFriend as writeFriend } from '../lib/friends';
-import { groupTokens, bucketByGroup } from '../lib/peopleGroups';
+import { groupTokens, bucketByGroup, eventGroupsOf } from '../lib/peopleGroups';
 // Same three routes the Friends page uses (native plugin, Android's picker, a
 // .vcf file); the rows come back already shaped, so no column mapping here.
 import { pickPhoneContacts, contactsSource, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
@@ -1160,6 +1160,43 @@ export function EventDetail() {
   // date option, each cell showing the person's vote (own or assumed-yes via a
   // linked partner). Rendered for whatever member rows are passed, so it works
   // for the whole guest list before anyone has voted — not just the voted group.
+  // Split-by-group: which tables a guest lands in (see eventGroupsOf), the
+  // groups on offer when assigning one for this event, and the write.
+  const memberGroupsOf = ([uid, m]) => {
+    const partner = m.plusOneOf ? members.find(([u]) => u === m.plusOneOf)?.[1]
+      : members.find(([, m2]) => m2.plusOneOf === uid)?.[1];
+    return eventGroupsOf(m, m._friendMatch?.group, partner, partner?._friendMatch?.group);
+  };
+  const eventGroupOptions = [...new Set(members.flatMap(e => [
+    ...memberGroupsOf(e), ...groupTokens(e[1]._friendMatch?.group),
+  ]))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  function setMemberEventGroup(uid, value) {
+    const v = String(value || '').trim();
+    return updateEvent(eventId, { [`members.${uid}.eventGroup`]: v || deleteField() });
+  }
+  // Compact picker under a name in the split table. "Friends group" clears the
+  // override; "New group…" asks for a name.
+  const renderGroupPicker = (uid, m) => (
+    <select
+      value={m.eventGroup || ''}
+      onClick={e => e.stopPropagation()}
+      onChange={e => {
+        let v = e.target.value;
+        if (v === '__new__') {
+          v = (window.prompt(`New group for ${m.name || 'this guest'} on this event:`) || '').trim();
+          if (!v) { e.target.value = m.eventGroup || ''; return; }
+        }
+        setMemberEventGroup(uid, v);
+      }}
+      title="Group for this event only — overrides their Friends group"
+      style={{ display: 'block', marginTop: '0.15rem', maxWidth: '100%', fontSize: '0.64rem', fontWeight: 500, padding: '0.05rem 0.2rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm, 4px)', background: 'var(--color-surface)', color: m.eventGroup ? 'var(--color-accent)' : 'var(--color-text-muted)', fontFamily: 'inherit', cursor: 'pointer' }}
+    >
+      <option value="">Friends group</option>
+      {[...new Set([...eventGroupOptions, ...(m.eventGroup ? [m.eventGroup] : [])])].map(g => <option key={g} value={g}>{g}</option>)}
+      <option value="__new__">+ New group…</option>
+    </select>
+  );
+
   // `intro` is the hidden-date chips and hints above the table — drawn once, not
   // again above every group's table when the list is split.
   const renderVoteTable = (rowMembers, { intro = true } = {}) => {
@@ -1308,7 +1345,7 @@ export function EventDetail() {
               return (
                 <tr key={uid}>
                   <td
-                    onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
+                    onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '', eventGroup: m.eventGroup || '' }); } : undefined}
                     title={canManageMembers ? 'Click to edit this person’s votes' : undefined}
                     style={{ ...tdName, ...topBorder, ...(canManageMembers ? { cursor: 'pointer' } : {}) }}
                   >
@@ -1321,6 +1358,7 @@ export function EventDetail() {
                         {mutual ? '⇄' : '↳'} {target.name || 'Guest'}
                       </span>
                     )}
+                    {groupedPeople && canManageMembers && renderGroupPicker(uid, m)}
                   </td>
                   {visibleOptions.map(o => {
                     const own = o.votes?.[uid]?.vote;
@@ -1544,7 +1582,7 @@ export function EventDetail() {
                   }}
                 >
                   <span
-                    onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } : undefined}
+                    onClick={canManageMembers ? () => { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '', eventGroup: m.eventGroup || '' }); } : undefined}
                     title={`${m.name || 'Guest'}${target ? (mutual ? ` — mutually linked with ${target.name || 'Guest'}` : ` — assumed yes by way of ${target.name || 'Guest'}`) : ''}${canManageMembers ? '\nClick to edit this person’s votes' : ''}`}
                     style={{ flex: '1 1 0%', minWidth: '2.5rem', fontWeight: 600, fontSize: '0.76rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(canManageMembers ? { cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' } : {}) }}
                   >
@@ -2854,20 +2892,9 @@ export function EventDetail() {
                   {!groupedPeople && votedView === 'table' && renderVoteTable(rows)}
                   {!groupedPeople && votedView === 'columns' && renderVoteColumns(rows)}
                   {groupedPeople && (() => {
-                    // A guest's groups come from their matched Friend. Someone
-                    // who isn't in your Friends (a partner added by name, say)
-                    // sits with the person they're linked to, so couples stay
-                    // together in one table.
-                    const byUid = new Map(members);
-                    const ownGroups = (m) => groupTokens(m?._friendMatch?.group);
-                    const groupsOf = ([uid, m]) => {
-                      const own = ownGroups(m);
-                      if (own.length) return own;
-                      const partner = m.plusOneOf ? byUid.get(m.plusOneOf)
-                        : members.find(([, m2]) => m2.plusOneOf === uid)?.[1];
-                      return ownGroups(partner);
-                    };
-                    const buckets = bucketByGroup(rows, groupsOf)
+                    // A group set for this event wins; otherwise their Friends
+                    // groups, or their linked partner's (see eventGroupsOf).
+                    const buckets = bucketByGroup(rows, memberGroupsOf)
                       .filter(b => applyDayFilters(b.items).length > 0);
                     if (buckets.length === 0) return votedView === 'table' ? renderVoteTable(rows) : renderVoteColumns(rows);
                     return buckets.map((b, i) => (
@@ -2989,7 +3016,7 @@ export function EventDetail() {
                         onDragLeave={() => { if (dropTargetUid === uid) setDropTargetUid(null); }}
                         onDrop={e => { e.preventDefault(); e.stopPropagation(); if (dragMemberUid && dragMemberUid !== uid) handleDragMerge(dragMemberUid, uid); setDragMemberUid(null); setDropTargetUid(null); }}
                         onDragEnd={() => { setDragMemberUid(null); setDropTargetUid(null); }}
-                        onClick={canManageMembers ? () => { if (!dragMemberUid) { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '' }); } } : undefined}
+                        onClick={canManageMembers ? () => { if (!dragMemberUid) { setEditMember({ uid, ...m }); setEditMemberFields({ name: m.name || '', email: m.email || '', email2: m.email2 || '', phone: m.phone || '', rsvp: m.rsvp || 'pending', role: m.role || 'viewer', plusOneOf: m.plusOneOf || '', eventGroup: m.eventGroup || '' }); } } : undefined}
                         style={{ ...(isOwner ? { cursor: dragMemberUid ? 'grabbing' : 'grab' } : {}), ...(isDupe ? { background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 'var(--radius-md)' } : {}), ...(dropTargetUid === uid ? { background: '#DBEAFE', border: '2px solid #3B82F6', borderRadius: 'var(--radius-md)' } : {}), ...(dragMemberUid === uid ? { opacity: 0.4 } : {}) }}
                       >
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -4901,6 +4928,20 @@ export function EventDetail() {
                   ))}
                 </select>
               </label>
+              {/* Group for this event only — used by People & Poll's "Split by group" */}
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                Group for this event
+                <input
+                  list="event-group-options"
+                  value={editMemberFields.eventGroup || ''}
+                  onChange={e => setEditMemberFields(p => ({ ...p, eventGroup: e.target.value }))}
+                  placeholder="Blank = use their Friends group"
+                  style={{ padding: '0.55rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', fontFamily: 'inherit', background: 'var(--color-surface)', textTransform: 'none', fontWeight: 400 }}
+                />
+                <datalist id="event-group-options">
+                  {eventGroupOptions.map(g => <option key={g} value={g} />)}
+                </datalist>
+              </label>
 
 
               {/* Date Option Votes — editable */}
@@ -4979,7 +5020,7 @@ export function EventDetail() {
                   const selfUid = editMember.uid;
                   const newPartner = editMemberFields.plusOneOf || null;
                   const prevPartner = editMember.plusOneOf || null;
-                  const memberUpdates = { [`members.${selfUid}`]: editMemberFields };
+                  const memberUpdates = { [`members.${selfUid}`]: { ...editMemberFields, eventGroup: (editMemberFields.eventGroup || '').trim() } };
                   // "Assumed yes by way of" is mutual: if A comes by way of B,
                   // make B come by way of A too, so both inherit each other's vote.
                   if (newPartner) {
