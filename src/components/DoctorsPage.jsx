@@ -34,7 +34,7 @@ import {
 } from '../lib/doctorsPopupColumns';
 import {
   MONTHS_SHORT, monthKey, monthCoverage, gridYears, describeSpan, firstDay, lastDay,
-  dateKey, treatmentState, thisMonthKey, addTreatment, updateTreatment, removeTreatment,
+  dateKey, treatmentState, thisMonthKey, describeCounter, describeLength, addTreatment, updateTreatment, removeTreatment,
 } from '../lib/doctorTreatments';
 import styles from './DoctorsPage.module.css';
 
@@ -821,6 +821,9 @@ function TreatmentFields({ draft, setDraft, types, doctors }) {
           onClick={() => setDraft((d) => ({ ...d, end: '' }))}
           title="No end date — it is still going"
         >{draft.end ? 'Ongoing?' : '✓ Ongoing'}</button>
+        {describeLength(draft.start, draft.end) && (
+          <span className={styles.trtLength}>{describeLength(draft.start, draft.end)}</span>
+        )}
       </span>
       <input
         className={styles.trtNotes}
@@ -929,6 +932,11 @@ function TreatmentsPanel({ list, update }) {
                             {t.type ? ` · ${t.type}` : ''}
                             {t.doctor ? ` · ${t.doctor}` : ''}
                           </span>
+                          {t.start ? (
+                            <span className={`${styles.trtCounter} ${styles[`trtCounter_${state}`]}`}>
+                              {describeCounter(t, today)}
+                            </span>
+                          ) : null}
                           {t.notes ? <span className={styles.trtRowNotes}>{t.notes}</span> : null}
                         </button>
                         <button

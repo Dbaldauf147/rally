@@ -186,6 +186,109 @@ export function treatmentState(treatment, today = new Date()) {
   return 'past';
 }
 
+// --- counting ----------------------------------------------------------------
+// How long a course runs, in days and in months. Both ends count: the 1st to
+// the 3rd is three days on it. A month is a calendar month — the 16th to the
+// 15th — so "2 months" means what it says rather than 60 days.
+
+const toDate = (key) => {
+  const [y, m, d] = String(key).split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+// Local midnight to local midnight, rounded, so a clock change in the middle
+// doesn't lose an hour and with it a day.
+const daysBetween = (a, b) => Math.round((b - a) / 86400000);
+
+// The date `n` calendar months after `d`, held to the month's last day when
+// the day doesn't exist there (Jan 31 + 1 month is Feb 28, not Mar 3).
+function addMonths(d, n) {
+  const y = d.getFullYear();
+  const m = d.getMonth() + n;
+  const day = Math.min(d.getDate(), daysInMonth(y + Math.floor(m / 12), ((m % 12) + 12) % 12));
+  return new Date(y, m, day);
+}
+
+/** The whole months and leftover days from `from` up to (not including) `to`,
+ *  both `YYYY-MM-DD`. */
+export function monthsAndDays(from, to) {
+  const a = toDate(from);
+  const b = toDate(to);
+  if (!(b > a)) return { months: 0, days: 0 };
+  let months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (addMonths(a, months) > b) months -= 1;
+  return { months, days: daysBetween(addMonths(a, months), b) };
+}
+
+const nextDay = (key) => { const d = toDate(key); d.setDate(d.getDate() + 1); return dateKey(d); };
+
+/* The counts behind a treatment's counter, all inclusive of both ends:
+ *   total    — days it runs, start to end (null when it has no end)
+ *   elapsed  — days on it so far, today included (null before it starts)
+ *   left     — days still to go after today (null with no end, or once done)
+ *   until    — days until it starts (null once it has)
+ * and the same spans as { months, days } for the ones worth saying in months. */
+export function treatmentCounts(treatment, today = new Date()) {
+  const t = normalizeTreatment(treatment);
+  if (!t.start) return null;
+  const start = firstDay(t.start);
+  const end = t.end ? lastDay(t.end) : '';
+  const now = dateKey(today);
+  const total = end ? daysBetween(toDate(start), toDate(end)) + 1 : null;
+  const begun = now >= start;
+  const stopAt = end && end < now ? end : now;
+  return {
+    state: treatmentState(t, today),
+    total,
+    totalSpan: end ? monthsAndDays(start, nextDay(end)) : null,
+    elapsed: begun ? daysBetween(toDate(start), toDate(stopAt)) + 1 : null,
+    elapsedSpan: begun ? monthsAndDays(start, nextDay(stopAt)) : null,
+    left: end && begun && end >= now ? daysBetween(toDate(now), toDate(end)) : null,
+    until: begun ? null : daysBetween(toDate(now), toDate(start)),
+  };
+}
+
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const dayCount = (n) => plural(n, 'day');
+
+/** "2 months 3 days", "1 month", "12 days". */
+export function formatSpan({ months, days }) {
+  if (!months) return dayCount(days);
+  return days ? `${plural(months, 'month')} ${dayCount(days)}` : plural(months, 'month');
+}
+
+// A span of under a month says nothing the day count hasn't.
+const withMonths = (n, span) => (span?.months ? `${dayCount(n)} (${formatSpan(span)})` : dayCount(n));
+
+/* The counter, in words, for where the course stands today:
+ *   running, with an end   "Day 8 of 61 · 54 days left"
+ *   running, open-ended    "Day 45 (1 month 14 days)"
+ *   still to come          "Starts in 12 days · 61 days (2 months)"
+ *   finished               "61 days (2 months)" */
+export function describeCounter(treatment, today = new Date()) {
+  const c = treatmentCounts(treatment, today);
+  if (!c) return '';
+  if (c.state === 'upcoming') {
+    const starts = c.until === 1 ? 'Starts tomorrow' : `Starts in ${dayCount(c.until)}`;
+    return c.total ? `${starts} · ${withMonths(c.total, c.totalSpan)}` : starts;
+  }
+  if (c.state === 'past') return withMonths(c.total, c.totalSpan);
+  if (c.total == null) {
+    return c.elapsedSpan.months ? `Day ${c.elapsed} (${formatSpan(c.elapsedSpan)})` : `Day ${c.elapsed}`;
+  }
+  const left = c.left === 0 ? 'last day' : `${dayCount(c.left)} left`;
+  return `Day ${c.elapsed} of ${c.total} · ${left}`;
+}
+
+/* The length of a start and end as typed, for the form: "61 days (2 months)",
+ * or '' until both ends are there. */
+export function describeLength(start, end) {
+  const t = normalizeTreatment({ start, end });
+  if (!t.start || !t.end) return '';
+  const from = firstDay(t.start);
+  const to = lastDay(t.end);
+  return withMonths(daysBetween(toDate(from), toDate(to)) + 1, monthsAndDays(from, nextDay(to)));
+}
+
 // --- editing ---------------------------------------------------------------
 // The same shape as the rest of this page's editors: take the document, hand
 // back a new one, and let the caller write it.

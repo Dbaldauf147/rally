@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   monthKey, parseMonth, parseWhen, coversMonth, monthCoverage, isOngoing, gridYears, describeSpan,
-  treatmentState, firstDay, lastDay, normalizeTreatment, normalizeTreatments,
+  treatmentState, firstDay, lastDay, monthsAndDays, formatSpan, treatmentCounts, describeCounter, describeLength, normalizeTreatment, normalizeTreatments,
   addTreatment, updateTreatment, removeTreatment,
 } from './doctorTreatments.js';
 
@@ -200,5 +200,57 @@ describe('days as well as months', () => {
       { id: 'a', name: 'Physio', start: '2026-03' },
     ]);
     expect(out.map((t) => t.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('the counter', () => {
+  // TODAY is 2026-09-21.
+  it('counts months as calendar months, both ends included', () => {
+    expect(monthsAndDays('2026-09-16', '2026-11-16')).toEqual({ months: 2, days: 0 });
+    expect(monthsAndDays('2026-01-31', '2026-03-01')).toEqual({ months: 1, days: 1 });
+    expect(monthsAndDays('2026-03-01', '2026-03-13')).toEqual({ months: 0, days: 12 });
+    expect(formatSpan({ months: 1, days: 1 })).toBe('1 month 1 day');
+    expect(formatSpan({ months: 2, days: 0 })).toBe('2 months');
+  });
+
+  it('crosses a clock change without losing a day', () => {
+    // US DST ends 2026-11-01.
+    expect(treatmentCounts({ start: '2026-10-25', end: '2026-11-07' }, TODAY).total).toBe(14);
+  });
+
+  it('says how far in you are on a course that is running', () => {
+    expect(describeCounter({ start: '2026-09-14', end: '2026-11-13' }, TODAY)).toBe('Day 8 of 61 · 53 days left');
+    expect(describeCounter({ start: '2026-09-01', end: '2026-09-21' }, TODAY)).toBe('Day 21 of 21 · last day');
+    expect(describeCounter({ start: '2026-09-21', end: '2026-09-21' }, TODAY)).toBe('Day 1 of 1 · last day');
+  });
+
+  it('counts up with no end in sight', () => {
+    expect(describeCounter({ start: '2026-09-10' }, TODAY)).toBe('Day 12');
+    expect(describeCounter({ start: '2026-08-07' }, TODAY)).toBe('Day 46 (1 month 15 days)');
+  });
+
+  it('counts down to one that hasn’t started', () => {
+    expect(describeCounter({ start: '2026-10-01', end: '2026-10-31' }, TODAY)).toBe('Starts in 10 days · 31 days (1 month)');
+    expect(describeCounter({ start: '2026-09-22' }, TODAY)).toBe('Starts tomorrow');
+  });
+
+  it('gives the length of one that is done', () => {
+    expect(describeCounter({ start: '2026-06-16', end: '2026-08-15' }, TODAY)).toBe('61 days (2 months)');
+    expect(describeCounter({ start: '2026-09-01', end: '2026-09-10' }, TODAY)).toBe('10 days');
+  });
+
+  it('reads a bare month as the whole month', () => {
+    expect(describeCounter({ start: '2026-03', end: '2026-05' }, TODAY)).toBe('92 days (3 months)');
+  });
+
+  it('shows the form the length of what is typed, once both ends are there', () => {
+    expect(describeLength('2026-09-16', '2026-11-15')).toBe('61 days (2 months)');
+    expect(describeLength('2026-09-16', '')).toBe('');
+    expect(describeLength('2026-09-16', '2026-09-16')).toBe('1 day');
+  });
+
+  it('has nothing to count without a start', () => {
+    expect(treatmentCounts({ name: 'Physio' }, TODAY)).toBeNull();
+    expect(describeCounter({ name: 'Physio' }, TODAY)).toBe('');
   });
 });

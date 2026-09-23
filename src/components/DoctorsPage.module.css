@@ -433,6 +433,12 @@
 .trtRowTitle { display: block; font-size: 0.86rem; font-weight: 600; color: var(--color-text); overflow-wrap: anywhere; }
 .trtRowBtn:hover .trtRowTitle { color: var(--color-accent); }
 .trtRowMeta { display: block; font-size: 0.72rem; font-weight: 400; color: var(--color-text-muted); }
+/* How long it runs, or how far in you are: "Day 8 of 61 · 54 days left".
+   Tinted like the bar, so it reads as the same fact in words. */
+.trtCounter { display: inline-block; margin-top: 0.15rem; padding: 0.05rem 0.45rem; border-radius: var(--radius-full); font-size: 0.7rem; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--color-border-light); color: var(--color-text-secondary); }
+.trtCounter_current { background: var(--color-success-light); color: var(--color-success); }
+.trtCounter_upcoming { background: var(--color-accent-light); color: var(--color-accent); }
+.trtLength { font-size: 0.78rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .trtRowNotes { display: block; font-size: 0.72rem; font-weight: 400; color: var(--color-text-secondary); font-style: italic; overflow-wrap: anywhere; }
 .trtDelete { position: absolute; top: 0.35rem; right: 0.3rem; width: 1.2rem; height: 1.2rem; padding: 0; border: none; border-radius: var(--radius-sm); background: none; font-family: inherit; font-size: 0.95rem; line-height: 1; color: var(--color-text-muted); cursor: pointer; opacity: 0; }
 .trtRowName:hover .trtDelete, .trtDelete:focus-visible { opacity: 1; }
