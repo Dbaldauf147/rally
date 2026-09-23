@@ -33,7 +33,7 @@ import {
   setColumnWidth, cycleSort, sortEntries,
 } from '../lib/doctorsPopupColumns';
 import {
-  MONTHS_SHORT, monthKey, monthCoverage, gridYears, describeSpan, firstDay, lastDay,
+  MONTHS_SHORT, monthCoverage, fitRange, monthsBetween, overlapsRange, parseMonth, describeSpan, firstDay, lastDay,
   dateKey, treatmentState, thisMonthKey, describeCounter, describeLength, addTreatment, updateTreatment, removeTreatment,
 } from '../lib/doctorTreatments';
 import styles from './DoctorsPage.module.css';
@@ -764,6 +764,23 @@ const MONTH_INITIALS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', '
 
 const blankDraft = (start) => ({ name: '', type: '', doctor: '', start, end: '', notes: '', notStarted: false });
 
+/* The time frame the grid shows. Left alone it fits the treatments; set by hand
+   it's { from, to } in `YYYY-MM` and stays put on this device — a way of
+   looking, not a fact about the treatments, so it isn't written to the list. */
+const TRT_RANGE_KEY = 'rally.doctors.treatmentRange';
+function readTrtRange() {
+  try {
+    const r = JSON.parse(localStorage.getItem(TRT_RANGE_KEY) || 'null');
+    return r && parseMonth(r.from) && parseMonth(r.to) ? { from: r.from, to: r.to } : null;
+  } catch { return null; }
+}
+function writeTrtRange(r) {
+  try {
+    if (r) localStorage.setItem(TRT_RANGE_KEY, JSON.stringify(r));
+    else localStorage.removeItem(TRT_RANGE_KEY);
+  } catch { /* private mode */ }
+}
+
 function TreatmentFields({ draft, setDraft, types, doctors }) {
   // A treatment saved before the tab took days holds a bare month; the picker
   // shows it as the 1st (start) or the last day (end) — what it always meant —
@@ -852,7 +869,28 @@ function TreatmentsPanel({ list, update }) {
   // Frozen per mount, so the "this month" line and every state badge agree.
   const today = useMemo(() => new Date(), []);
   const now = thisMonthKey(today);
-  const years = useMemo(() => gridYears(treatments, today), [treatments, today]);
+  // The months across the top: the treatments' own span unless a time frame
+  // has been picked. A picked frame shows only the courses that run in it.
+  const fit = useMemo(() => fitRange(treatments, today), [treatments, today]);
+  const [custom, setCustom] = useState(readTrtRange);
+  const range = custom || fit;
+  const setRange = (next) => {
+    // Picking the fitted span by hand is the same as not picking one.
+    const r = next && !(next.from === fit.from && next.to === fit.to) ? next : null;
+    setCustom(r);
+    writeTrtRange(r);
+  };
+  const months = useMemo(() => monthsBetween(range.from, range.to), [range.from, range.to]);
+  const first = months[0]?.key;
+  const last = months[months.length - 1]?.key;
+  const years = months.reduce((acc, m) => {
+    const y = acc[acc.length - 1];
+    if (y && y.year === m.year) y.span += 1;
+    else acc.push({ year: m.year, span: 1 });
+    return acc;
+  }, []);
+  const shown = custom ? treatments.filter((t) => !t.start || overlapsRange(t, first, last)) : treatments;
+  const hidden = treatments.length - shown.length;
   const [draft, setDraft] = useState(() => blankDraft(dateKey(today)));
   const [editing, setEditing] = useState(null); // { id, draft }
 
@@ -886,8 +924,6 @@ function TreatmentsPanel({ list, update }) {
     if (editing?.id === t.id) setEditing(null);
   }
 
-  const months = years.flatMap((y) => MONTHS_SHORT.map((_, m) => ({ key: monthKey(y, m), year: y, month: m })));
-
   return (
     <section className={styles.treatments}>
       <form className={styles.trtForm} onSubmit={submit}>
@@ -904,14 +940,56 @@ function TreatmentsPanel({ list, update }) {
             <span className={`${styles.trtKey} ${styles.trtFill_upcoming}`} /> Still to come
             <span className={`${styles.trtKey} ${styles.trtFill_past}`} /> Finished
             <span className={`${styles.trtKey} ${styles.trtFill_notstarted}`} /> Not started
-            <span className={styles.trtLegendNote}>Click a treatment to edit it. The line marks this month.</span>
+            <span className={styles.trtLegendNote}>
+              Click a treatment to edit it.{now >= first && now <= last ? ' The line marks this month.' : ''}
+            </span>
+          </div>
+          <div className={styles.trtRange}>
+            <span className={styles.trtLabel}>Showing</span>
+            {/* Either end can be dragged past the other; the grid reads the
+                pair forwards rather than refusing it. */}
+            <input
+              type="month"
+              className={styles.trtSelect}
+              aria-label="Show from month"
+              value={first}
+              onChange={(e) => e.target.value && setRange({ from: e.target.value, to: last })}
+            />
+            <span className={styles.trtLabel}>to</span>
+            <input
+              type="month"
+              className={styles.trtSelect}
+              aria-label="Show to month"
+              value={last}
+              onChange={(e) => e.target.value && setRange({ from: first, to: e.target.value })}
+            />
+            {custom ? (
+              <button type="button" className={styles.trtOngoing} onClick={() => setRange(null)} title="Snap back to the months the treatments cover">
+                Fit to treatments
+              </button>
+            ) : (
+              <span className={styles.trtRangeNote}>Fitted to the treatments</span>
+            )}
+            {hidden > 0 && (
+              <span className={styles.trtRangeNote}>
+                {hidden} {hidden === 1 ? 'treatment falls' : 'treatments fall'} outside this time frame
+              </span>
+            )}
           </div>
           <div className={styles.trtGridWrap}>
-            <table className={styles.trtGrid}>
+            {/* A short span stretches its months across the width; a long one
+                keeps them at their narrowest and scrolls. */}
+            <table className={styles.trtGrid} style={{ '--trt-months': months.length }}>
               <thead>
                 <tr>
                   <th className={styles.trtHeadName} rowSpan={2}>Treatment</th>
-                  {years.map((y) => <th key={y} colSpan={12} className={styles.trtYear}>{y}</th>)}
+                  {/* A year the frame only clips a month or two of hasn't room for
+                      four digits. */}
+                  {years.map((y) => (
+                    <th key={y.year} colSpan={y.span} className={styles.trtYear} title={String(y.year)}>
+                      {y.span < 3 ? `’${String(y.year).slice(2)}` : y.year}
+                    </th>
+                  ))}
                 </tr>
                 <tr>
                   {months.map((m) => (
@@ -924,7 +1002,7 @@ function TreatmentsPanel({ list, update }) {
                 </tr>
               </thead>
               <tbody>
-                {treatments.map((t) => {
+                {shown.map((t) => {
                   const state = treatmentState(t, today);
                   const covered = months.map((m) => monthCoverage(t, m.key));
                   return (

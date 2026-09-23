@@ -1,7 +1,7 @@
 // Treatments: a course of something, across the months it covers.
 import { describe, it, expect } from 'vitest';
 import {
-  monthKey, parseMonth, parseWhen, coversMonth, monthCoverage, isOngoing, gridYears, describeSpan,
+  monthKey, parseMonth, parseWhen, coversMonth, monthCoverage, isOngoing, fitRange, monthsBetween, overlapsRange, describeSpan,
   treatmentState, firstDay, lastDay, monthsAndDays, formatSpan, treatmentCounts, describeCounter, describeLength, normalizeTreatment, normalizeTreatments,
   addTreatment, updateTreatment, removeTreatment,
 } from './doctorTreatments.js';
@@ -83,20 +83,54 @@ describe('coversMonth', () => {
   });
 });
 
-describe('gridYears', () => {
-  it('always includes this year', () => {
-    expect(gridYears([], TODAY)).toEqual([2026]);
+describe('fitRange', () => {
+  it('falls back to this year with nothing placed', () => {
+    expect(fitRange([], TODAY)).toEqual({ from: '2026-01', to: '2026-12' });
+    expect(fitRange([{ name: 'Undated' }], TODAY)).toEqual({ from: '2026-01', to: '2026-12' });
   });
 
-  it('reaches back to the earliest start and on to the latest end', () => {
-    expect(gridYears([
-      { name: 'Physio', start: '2024-06', end: '2024-08' },
-      { name: 'Invisalign', start: '2026-01', end: '2028-06' },
-    ], TODAY)).toEqual([2024, 2025, 2026, 2027, 2028]);
+  it('snaps to the months the treatments cover, and no further', () => {
+    expect(fitRange([
+      { name: 'Physio', start: '2024-06-10', end: '2024-08-02' },
+      { name: 'Antibiotics', start: '2024-07-01', end: '2024-07-14' },
+    ], TODAY)).toEqual({ from: '2024-06', to: '2024-08' });
   });
 
-  it('makes room for a course that has not started yet', () => {
-    expect(gridYears([{ name: 'Knee', start: '2027-04' }], TODAY)).toEqual([2026, 2027]);
+  it('runs an ongoing course up to this month', () => {
+    expect(fitRange([{ name: 'Statin', start: '2025-11-03' }], TODAY)).toEqual({ from: '2025-11', to: '2026-09' });
+  });
+
+  it('keeps a course that has not started yet, without reaching back to today', () => {
+    expect(fitRange([{ name: 'Knee', start: '2027-04-01', end: '2027-06-30' }], TODAY)).toEqual({ from: '2027-04', to: '2027-06' });
+    expect(fitRange([{ name: 'Knee', start: '2027-04' }], TODAY)).toEqual({ from: '2027-04', to: '2027-04' });
+  });
+});
+
+describe('monthsBetween', () => {
+  it('lists every month, both ends included, across a year boundary', () => {
+    expect(monthsBetween('2025-11', '2026-02').map((m) => m.key)).toEqual(['2025-11', '2025-12', '2026-01', '2026-02']);
+    expect(monthsBetween('2026-03', '2026-03')).toEqual([{ key: '2026-03', year: 2026, month: 2 }]);
+  });
+
+  it('reads a backwards range forwards, and nothing from nonsense', () => {
+    expect(monthsBetween('2026-02', '2025-12').map((m) => m.key)).toEqual(['2025-12', '2026-01', '2026-02']);
+    expect(monthsBetween('', '2026-01')).toEqual([]);
+  });
+});
+
+describe('overlapsRange', () => {
+  const physio = { name: 'Physio', start: '2024-06-10', end: '2024-08-02' };
+  it('is true when any month of the course falls in the range', () => {
+    expect(overlapsRange(physio, '2024-08', '2024-12')).toBe(true);
+    expect(overlapsRange(physio, '2024-01', '2024-06')).toBe(true);
+    expect(overlapsRange(physio, '2024-09', '2025-01')).toBe(false);
+    expect(overlapsRange(physio, '2024-01', '2024-05')).toBe(false);
+  });
+
+  it('counts an ongoing course from its start onwards, and never an undated one', () => {
+    expect(overlapsRange({ start: '2025-11' }, '2030-01', '2030-12')).toBe(true);
+    expect(overlapsRange({ start: '2025-11' }, '2025-01', '2025-10')).toBe(false);
+    expect(overlapsRange({ name: 'Undated' }, '2000-01', '2100-12')).toBe(false);
   });
 });
 
