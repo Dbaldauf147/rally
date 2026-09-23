@@ -33,8 +33,8 @@ import {
   setColumnWidth, cycleSort, sortEntries,
 } from '../lib/doctorsPopupColumns';
 import {
-  MONTHS_SHORT, monthKey, parseMonth, coversMonth, gridYears, describeSpan,
-  treatmentState, thisMonthKey, addTreatment, updateTreatment, removeTreatment,
+  MONTHS_SHORT, monthKey, monthCoverage, gridYears, describeSpan, firstDay, lastDay,
+  dateKey, treatmentState, thisMonthKey, addTreatment, updateTreatment, removeTreatment,
 } from '../lib/doctorTreatments';
 import styles from './DoctorsPage.module.css';
 
@@ -762,43 +762,22 @@ function AppointmentsPanel({ list, update, daysFrom }) {
  */
 const MONTH_INITIALS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
-// Enough of a range either side of now to cover a course already running and
-// one being booked a few years out.
-const YEAR_SPAN = 8;
-
 const blankDraft = (start) => ({ name: '', type: '', doctor: '', start, end: '', notes: '' });
 
-function TreatmentFields({ draft, setDraft, types, doctors, yearOptions }) {
-  const part = (key) => parseMonth(draft[key]) || null;
-  const setPart = (key, patch) => {
-    const cur = part(key) || parseMonth(draft.start) || { year: yearOptions[0], month: 0 };
-    setDraft((d) => ({ ...d, [key]: monthKey(patch.year ?? cur.year, patch.month ?? cur.month) }));
-  };
-  const monthSelect = (key, label) => {
-    const p = part(key);
-    return (
-      <>
-        <select
-          className={styles.trtSelect}
-          aria-label={`${label} month`}
-          value={p ? p.month : ''}
-          onChange={(e) => setPart(key, { month: Number(e.target.value) })}
-        >
-          {!p && <option value="">Month</option>}
-          {MONTHS_SHORT.map((m, i) => <option key={m} value={i}>{m}</option>)}
-        </select>
-        <select
-          className={styles.trtSelect}
-          aria-label={`${label} year`}
-          value={p ? p.year : ''}
-          onChange={(e) => setPart(key, { year: Number(e.target.value) })}
-        >
-          {!p && <option value="">Year</option>}
-          {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
-        </select>
-      </>
-    );
-  };
+function TreatmentFields({ draft, setDraft, types, doctors }) {
+  // A treatment saved before the tab took days holds a bare month; the picker
+  // shows it as the 1st (start) or the last day (end) — what it always meant —
+  // and it only becomes a day once you pick one.
+  const dateInput = (key, label) => (
+    <input
+      type="date"
+      className={styles.trtSelect}
+      aria-label={`${label} date`}
+      value={key === 'start' ? firstDay(draft.start) : lastDay(draft.end)}
+      min={key === 'end' ? firstDay(draft.start) || undefined : undefined}
+      onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+    />
+  );
   return (
     <>
       <input
@@ -830,9 +809,9 @@ function TreatmentFields({ draft, setDraft, types, doctors, yearOptions }) {
       </datalist>
       <span className={styles.trtWhen}>
         <span className={styles.trtLabel}>From</span>
-        {monthSelect('start', 'Start')}
+        {dateInput('start', 'Start')}
         <span className={styles.trtLabel}>to</span>
-        {monthSelect('end', 'End')}
+        {dateInput('end', 'End')}
         {/* An open-ended course is the normal case for anything you are simply
             on, so clearing the end is one click rather than a date you have to
             invent. */}
@@ -862,11 +841,7 @@ function TreatmentsPanel({ list, update }) {
   const today = useMemo(() => new Date(), []);
   const now = thisMonthKey(today);
   const years = useMemo(() => gridYears(treatments, today), [treatments, today]);
-  const yearOptions = useMemo(() => {
-    const first = today.getFullYear() - YEAR_SPAN;
-    return Array.from({ length: YEAR_SPAN * 2 + 1 }, (_, i) => first + i);
-  }, [today]);
-  const [draft, setDraft] = useState(() => blankDraft(now));
+  const [draft, setDraft] = useState(() => blankDraft(dateKey(today)));
   const [editing, setEditing] = useState(null); // { id, draft }
 
   const types = list.types || [];
@@ -884,7 +859,7 @@ function TreatmentsPanel({ list, update }) {
     if (!draft.name.trim()) return;
     update((l) => addTreatment(l, draft));
     // The dates stay put: a course usually gets added beside another one.
-    setDraft(blankDraft(draft.start || now));
+    setDraft(blankDraft(draft.start || dateKey(today)));
   }
 
   function saveEdit(e) {
@@ -904,12 +879,12 @@ function TreatmentsPanel({ list, update }) {
   return (
     <section className={styles.treatments}>
       <form className={styles.trtForm} onSubmit={submit}>
-        <TreatmentFields draft={draft} setDraft={setDraft} types={types} doctors={doctors} yearOptions={yearOptions} />
+        <TreatmentFields draft={draft} setDraft={setDraft} types={types} doctors={doctors} />
         <button type="submit" className={styles.trtAdd} disabled={!draft.name.trim()}>Add treatment</button>
       </form>
 
       {treatments.length === 0 ? (
-        <div className={styles.empty}>No treatments yet. Add the first one — what it is, and the months it runs.</div>
+        <div className={styles.empty}>No treatments yet. Add the first one — what it is, and the dates it runs.</div>
       ) : (
         <>
           <div className={styles.trtLegend}>
@@ -938,7 +913,7 @@ function TreatmentsPanel({ list, update }) {
               <tbody>
                 {treatments.map((t) => {
                   const state = treatmentState(t, today);
-                  const covered = months.map((m) => coversMonth(t, m.key));
+                  const covered = months.map((m) => monthCoverage(t, m.key));
                   return (
                     <tr key={t.id}>
                       <th className={styles.trtRowName} scope="row">
@@ -974,9 +949,15 @@ function TreatmentsPanel({ list, update }) {
                         const close = i < covered.length - 1 && covered[i + 1];
                         const bar = [styles.trtBar, styles[`trtFill_${state}`], open ? '' : styles.trtBarStart, close ? '' : styles.trtBarEnd]
                           .filter(Boolean).join(' ');
+                        // A course that starts or stops mid-month starts or
+                        // stops part of the way across that month's cell.
+                        const { from, to } = covered[i];
+                        const inset = from > 0 || to < 1
+                          ? { marginLeft: `${(from * 100).toFixed(1)}%`, marginRight: `${((1 - to) * 100).toFixed(1)}%` }
+                          : undefined;
                         return (
                           <td key={m.key} className={cls} title={`${t.name} — ${MONTHS_SHORT[m.month]} ${m.year}`}>
-                            <span className={bar} />
+                            <span className={bar} style={inset} />
                           </td>
                         );
                       })}
@@ -1002,7 +983,6 @@ function TreatmentsPanel({ list, update }) {
                 setDraft={(fn) => setEditing((c) => ({ ...c, draft: typeof fn === 'function' ? fn(c.draft) : fn }))}
                 types={types}
                 doctors={doctors}
-                yearOptions={yearOptions}
               />
               <button type="submit" className={styles.trtAdd} disabled={!editing.draft.name.trim()}>Save</button>
             </form>
