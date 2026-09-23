@@ -138,29 +138,49 @@ export function monthCoverage(treatment, key) {
 
 export const isOngoing = (t) => !!t?.start && !t?.end && !t?.notStarted;
 
-/* The years the grid draws.
- *
- * Everything the treatments touch, and this year whatever they touch, so the
- * page always has a column for the month you are standing in. An open-ended
- * course runs to the end of the range rather than off the edge of it, so the
- * last year shown is the latest of: this year, the latest end, and the latest
- * start (a course starting next spring is worth seeing before it begins).
+/* The months the grid draws when left to itself: from the month the earliest
+ * course starts to the month the last one stops, and nothing either side — the
+ * grid is for seeing the treatments, not the calendar. An open-ended course
+ * is still going, so it reaches this month (or its own start, if that is
+ * later). With nothing placed there is no span to fit, and this year stands in.
+ * Both ends are `YYYY-MM`.
  */
-export function gridYears(treatments, today = new Date()) {
-  const now = today.getFullYear();
-  const years = [];
+export function fitRange(treatments, today = new Date()) {
+  const now = thisMonthKey(today);
+  let from = '';
+  let to = '';
   for (const raw of treatments || []) {
     const t = normalizeTreatment(raw);
-    const s = parseWhen(t.start);
-    const e = parseWhen(t.end);
-    if (s) years.push(s.year);
-    if (e) years.push(e.year);
+    if (!t.start) continue;
+    const s = monthOf(t.start);
+    const e = t.end ? monthOf(t.end) : (now > s ? now : s);
+    if (!from || s < from) from = s;
+    if (!to || e > to) to = e;
   }
-  const from = Math.min(now, ...years);
-  const to = Math.max(now, ...years);
+  if (!from) return { from: `${today.getFullYear()}-01`, to: `${today.getFullYear()}-12` };
+  return { from, to };
+}
+
+/** Every month from one `YYYY-MM` to another, both included, as
+ *  { key, year, month } — in order whichever way round they're given. */
+export function monthsBetween(from, to) {
+  let a = parseMonth(from);
+  let b = parseMonth(to);
+  if (!a || !b) return [];
+  if (monthKey(b.year, b.month) < monthKey(a.year, a.month)) [a, b] = [b, a];
   const out = [];
-  for (let y = from; y <= to; y++) out.push(y);
+  for (let y = a.year, m = a.month; y < b.year || (y === b.year && m <= b.month); m === 11 ? (y++, m = 0) : m++) {
+    out.push({ key: monthKey(y, m), year: y, month: m });
+  }
   return out;
+}
+
+/** Whether a treatment runs in any month from `from` to `to` (`YYYY-MM`). */
+export function overlapsRange(treatment, from, to) {
+  const t = normalizeTreatment(treatment);
+  if (!t.start) return false;
+  if (from > to) [from, to] = [to, from];
+  return monthOf(t.start) <= to && (!t.end || monthOf(t.end) >= from);
 }
 
 /* How a treatment reads in words: "Mar 14, 2027 – Jun 2, 2027",

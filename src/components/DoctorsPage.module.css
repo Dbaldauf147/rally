@@ -414,13 +414,19 @@
 .trtKey { display: inline-block; width: 1.4rem; height: 0.55rem; border-radius: 999px; }
 .trtKey + .trtKey, .trtLegendNote { margin-left: 0.6rem; }
 .trtLegendNote { margin-left: auto; color: var(--color-text-muted); }
+/* The time frame: fitted to the treatments unless picked by hand. */
+.trtRange { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+.trtRange .trtSelect { padding: 0.3rem 0.4rem; font-size: 0.8rem; }
+.trtRangeNote { font-size: 0.75rem; color: var(--color-text-muted); }
 
 .trtGridWrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
-.trtGrid { border-collapse: collapse; table-layout: fixed; }
+/* Full width, so a few months' span stretches across the page; never
+   narrower than every month at its slimmest, so a long one scrolls. */
+.trtGrid { width: 100%; min-width: calc(15rem + var(--trt-months, 12) * 1.35rem); border-collapse: collapse; table-layout: fixed; }
 .trtHeadName, .trtRowName { position: sticky; left: 0; z-index: 2; width: 15rem; min-width: 15rem; text-align: left; background: var(--color-surface); border-right: 1px solid var(--color-border); }
 .trtHeadName { padding: 0.5rem 0.7rem; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); }
-.trtYear { padding: 0.35rem 0.4rem; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); border-left: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border-light); }
-.trtMonth, .trtMonthNow { width: 1.35rem; min-width: 1.35rem; padding: 0.2rem 0; font-size: 0.6rem; font-weight: 600; color: var(--color-text-muted); text-align: center; border-bottom: 1px solid var(--color-border); }
+.trtYear { overflow: hidden; white-space: nowrap; padding: 0.35rem 0.4rem; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); border-left: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border-light); }
+.trtMonth, .trtMonthNow { padding: 0.2rem 0; font-size: 0.6rem; font-weight: 600; color: var(--color-text-muted); text-align: center; border-bottom: 1px solid var(--color-border); }
 /* This month, in the header and all the way down the grid. */
 .trtMonthNow { color: var(--color-accent); border-left: 2px solid var(--color-accent); }
 /* No horizontal padding: the months of one course have to touch, or the bar
@@ -464,7 +470,7 @@
 
 @media (max-width: 700px) {
   .trtHeadName, .trtRowName { width: 9.5rem; min-width: 9.5rem; }
-  .trtMonth, .trtMonthNow { width: 1.1rem; min-width: 1.1rem; }
+  .trtGrid { min-width: calc(9.5rem + var(--trt-months, 12) * 1.1rem); }
 }
 
 /* Questions: what you mean to ask, under whoever you mean to ask it. */
