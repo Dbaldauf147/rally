@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupTokens, bucketByGroup, NO_GROUP } from './peopleGroups';
+import { groupTokens, bucketByGroup, eventGroupsOf, NO_GROUP } from './peopleGroups';
 
 describe('groupTokens', () => {
   it('splits and trims a comma list', () => {
@@ -32,5 +32,24 @@ describe('bucketByGroup', () => {
   });
   it('does not double-list a repeated token', () => {
     expect(bucketByGroup([{ group: 'A, A' }], p => groupTokens(p.group))[0].items).toHaveLength(1);
+  });
+});
+
+describe('eventGroupsOf', () => {
+  it('an event group overrides Friends groups', () => {
+    expect(eventGroupsOf({ eventGroup: ' Wedding party ' }, 'Family, College')).toEqual(['Wedding party']);
+  });
+  it('falls back to Friends groups', () => {
+    expect(eventGroupsOf({ eventGroup: '' }, 'Family, College')).toEqual(['Family', 'College']);
+  });
+  it('someone not in Friends follows their partner, event group first', () => {
+    expect(eventGroupsOf({}, '', { eventGroup: 'Drivers' }, 'College')).toEqual(['Drivers']);
+    expect(eventGroupsOf({}, '', { }, 'College')).toEqual(['College']);
+  });
+  it('a Friends group of your own beats your partner’s event group', () => {
+    expect(eventGroupsOf({}, 'Family', { eventGroup: 'Drivers' })).toEqual(['Family']);
+  });
+  it('nothing anywhere → no groups', () => {
+    expect(eventGroupsOf({}, undefined, null, undefined)).toEqual([]);
   });
 });

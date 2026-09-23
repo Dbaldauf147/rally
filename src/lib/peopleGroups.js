@@ -29,3 +29,18 @@ export function bucketByGroup(items, tokensOf) {
   if (ungrouped.length) out.push({ label: NO_GROUP, items: ungrouped });
   return out;
 }
+
+// An event guest's tables when the People & Poll list is split. A group set on
+// this event (`eventGroup`) wins outright — it's how you put someone somewhere
+// other than their Friends group, and it puts them in that one table only.
+// Otherwise their Friends groups; failing that, whatever their linked partner
+// lands in, so someone who isn't in Friends follows the person they came with.
+export function eventGroupsOf(member, friendGroup, partner, partnerFriendGroup) {
+  const own = String(member?.eventGroup || '').trim();
+  if (own) return [own];
+  const fromFriends = groupTokens(friendGroup);
+  if (fromFriends.length) return fromFriends;
+  const partnerOwn = String(partner?.eventGroup || '').trim();
+  if (partnerOwn) return [partnerOwn];
+  return groupTokens(partnerFriendGroup);
+}
