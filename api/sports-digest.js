@@ -9,8 +9,11 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { fetchSeasonWithPhases, fetchDraftPicks } from '../lib/espnSeason.js';
 import { fetchKeyPlayers } from '../lib/espnPlayers.js';
-import { fetchGameHighlights, fmtClipLength } from '../lib/espnHighlights.js';
+import { fmtClipLength } from '../lib/espnHighlights.js';
+import { attachStoredHighlights, reelSummary, teamKey } from '../lib/sportsHighlightStore.js';
 import { senderAddress } from '../lib/emailSender.js';
+
+const APP_URL = 'https://rally-seven-theta.vercel.app';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -195,6 +198,7 @@ async function fetchTeamSchedule(team, resultDays = 3) {
     const competitors = (comp.competitors || []).map((c) => ({
       abbrev: c.team?.abbreviation || c.team?.shortDisplayName || '?',
       name: c.team?.displayName || c.team?.shortDisplayName || c.team?.abbreviation || '',
+      id: c.team?.id ? String(c.team.id) : null,
       logo: pickLogo(c.team),
       home: c.homeAway === 'home',
       score: c.score?.displayValue ?? (c.score != null ? String(c.score) : ''),
@@ -386,17 +390,30 @@ function fmtSeasonDate(iso, tz) {
 const HIGHLIGHT_GAMES = 7;
 
 // Best-effort, and per game: a summary that fails or has no usable video costs
-// that game its link and nothing else.
-async function attachHighlights(team, results) {
-  const recent = results.slice(-HIGHLIGHT_GAMES);
-  await Promise.all(recent.map(async (g) => {
-    if (!g.eventId) return;
-    g.highlights = await fetchGameHighlights(team.sportPath, g.eventId).catch(() => []);
-  }));
+// that game its link and nothing else. Clips kept from earlier runs come from
+// the store, which is what gives a weekly digest the start of its week.
+async function attachHighlights(db, team, results) {
+  await attachStoredHighlights(db, team, results.slice(-HIGHLIGHT_GAMES));
 }
 
-async function fetchTeamDigest(team, topics, standingsCache, season, resultDays = 3) {
-  const out = { name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null, keyPlayers: null };
+/* The team's one link: a page that plays every game in the email's window back
+ * to back, each game under two minutes. The window rides in the link so it
+ * plays what the email reported on, whenever it's opened. Exported for tests.
+ */
+export function teamReelHref(team, fromMs, toMs) {
+  const q = new URLSearchParams({ team: teamKey(team.sportPath, team.teamId), from: String(fromMs), to: String(toMs) });
+  return `${APP_URL}/api/sports-highlights?${q}`;
+}
+
+export function teamReelLink(href, summary) {
+  if (!href || !summary?.games) return '';
+  const games = `${summary.games} game${summary.games === 1 ? '' : 's'}`;
+  return `<a href="${escapeHtml(href)}" style="display:inline-block;background:#4f46e5;color:#fff;border-radius:999px;padding:3px 11px;font-size:0.78rem;font-weight:600;text-decoration:none;">▶ Watch the highlights</a>` +
+    `<span style="color:#9ca3af;font-size:0.75rem;"> ${games} · ${fmtClipLength(summary.seconds)}</span>`;
+}
+
+async function fetchTeamDigest(db, team, topics, standingsCache, season, resultDays = 3) {
+  const out = { name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null, keyPlayers: null, reel: null };
   // Started alongside the schedule rather than after it; best-effort, so a
   // failure here costs the players block and nothing else.
   const players = topics.players ? fetchKeyPlayers(team, season).catch(() => null) : null;
@@ -404,7 +421,12 @@ async function fetchTeamDigest(team, topics, standingsCache, season, resultDays 
     const sched = await fetchTeamSchedule(team, resultDays);
     out.results = sched.results;
     out.upcoming = sched.upcoming;
-    if (topics.scores) await attachHighlights(team, out.results);
+    if (topics.scores) {
+      await attachHighlights(db, team, out.results);
+      const summary = reelSummary(out.results);
+      const now = Date.now();
+      if (summary.games) out.reel = { href: teamReelHref(team, now - resultDays * 86400000, now), ...summary };
+    }
   }
   if (players) out.keyPlayers = await players;
   if (topics.standings) {
@@ -1082,6 +1104,7 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams,
       return `
         <div style="background:#f5f3ef;border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem;">
           <h2 style="font-size:1.05rem;margin:0 0 0.5rem;color:#111827;">${t.name}${rankPill}</h2>
+          ${t.reel ? `<div style="margin:-0.15rem 0 0.6rem;">${teamReelLink(t.reel.href, t.reel)}</div>` : ''}
           ${blocks.join('')}
         </div>`;
     })
@@ -1112,7 +1135,7 @@ function buildEmailHtml(teamDigests, tz, topics, seasons, offSeason, draftTeams,
 // Assembles a user's digest and returns the finished email. Split out from the
 // send so the Sports page can preview exactly what would arrive without one
 // being sent — same config, same fetches, same HTML.
-async function buildDigestForUser(userData) {
+async function buildDigestForUser(db, userData) {
   const cfg = userData.sportsConfig || {};
   const email = cfg.email || userData.email;
   const teams = Array.isArray(cfg.teams) ? cfg.teams : [];
@@ -1152,7 +1175,7 @@ async function buildDigestForUser(userData) {
   const digests = [];
   for (const team of inSeasonTeams) {
     try {
-      digests.push(await fetchTeamDigest(team, topics, standingsCache, seasonByPath.get(team.sportPath), resultDays));
+      digests.push(await fetchTeamDigest(db, team, topics, standingsCache, seasonByPath.get(team.sportPath), resultDays));
     } catch (err) {
       digests.push({ name: team.name, teamId: String(team.teamId), results: [], upcoming: [], record: '', standing: '', table: null, standingsFrom: null, error: err.message });
     }
@@ -1212,7 +1235,7 @@ async function buildDigestForUser(userData) {
 }
 
 async function sendDigestForUser(db, resendKey, uid, userData) {
-  const built = await buildDigestForUser(userData);
+  const built = await buildDigestForUser(db, userData);
   if (built.skipped) return { uid, skipped: built.skipped };
 
   const response = await fetch('https://api.resend.com/emails', {
@@ -1230,6 +1253,24 @@ async function sendDigestForUser(db, resendKey, uid, userData) {
     return { uid, success: false, error: err.message || `HTTP ${response.status}` };
   }
   return { uid, success: true, teams: built.teams };
+}
+
+/* Every run, sending or not, keeps the last few days' clips for every followed
+ * team — ESPN only answers for about two days, and a weekly digest needs the
+ * whole week. Games already stored cost one read and no fetch. */
+async function harvestHighlights(db, users) {
+  const teams = new Map();
+  for (const u of users) {
+    const cfg = u.sportsConfig;
+    if (!cfg?.enabled || !normalizeTopics(cfg).scores) continue;
+    for (const t of Array.isArray(cfg.teams) ? cfg.teams : []) teams.set(teamKey(t.sportPath, t.teamId), t);
+  }
+  await Promise.all([...teams.values()].map(async (team) => {
+    try {
+      const { results } = await fetchTeamSchedule(team, 3);
+      await attachHighlights(db, team, results);
+    } catch { /* one team's schedule failing doesn't stop the rest */ }
+  }));
 }
 
 export default async function handler(req, res) {
@@ -1255,7 +1296,7 @@ export default async function handler(req, res) {
     try {
       const snap = await db.collection('users').doc(uid).get();
       if (!snap.exists) return res.status(404).json({ error: 'user not found' });
-      const built = await buildDigestForUser(snap.data());
+      const built = await buildDigestForUser(db, snap.data());
       if (built.skipped) return res.status(200).json({ skipped: built.skipped });
       return res.status(200).json({ html: built.html, subject: built.subject });
     } catch (err) {
@@ -1290,6 +1331,7 @@ export default async function handler(req, res) {
   const results = [];
   try {
     const usersSnap = await db.collection('users').get();
+    await harvestHighlights(db, usersSnap.docs.map((d) => d.data()));
     for (const userDoc of usersSnap.docs) {
       const data = userDoc.data();
       const cfg = data.sportsConfig;
