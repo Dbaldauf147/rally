@@ -28,6 +28,8 @@ import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
 import { groupTokens, bucketByGroup } from '../lib/peopleGroups';
 import { kidsForEditing, kidsForSaving, kidLabel } from '../lib/friendKids';
+import { findDuplicateGroups, mergeFriends, repointFriendIds } from '../lib/friendMerge';
+import { DuplicatesModal, MergeModal } from './MergeContacts';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -1248,6 +1250,38 @@ export function FriendsPage() {
     setSelectedIds(new Set());
   }
 
+  /* Fold `others` into `primary`. The kept contact is written first and the
+   * duplicates deleted last, so a failure part-way leaves an extra contact
+   * rather than a lost one. In between, everything that points at a removed
+   * contact by id is moved to the kept one: other friends' "comes with" link,
+   * and the Reach Out and wedding lists on the user doc. */
+  async function mergeContacts(primary, others, choices) {
+    if (!user) return;
+    const removedIds = others.map(f => f.id);
+    const merged = mergeFriends(primary, others, choices);
+    await setDoc(doc(db, 'users', user.uid, 'friends', primary.id), merged);
+    for (const f of friends) {
+      if (f.id !== primary.id && removedIds.includes(f.linkedTo)) {
+        await updateDoc(doc(db, 'users', user.uid, 'friends', f.id), { linkedTo: primary.id }).catch(() => {});
+      }
+    }
+    const userSnap = await getDoc(doc(db, 'users', user.uid));
+    const data = userSnap.data() || {};
+    const patch = {};
+    for (const key of ['reachOuts', 'weddingContacts']) {
+      const { next, changed } = repointFriendIds(data[key], removedIds, primary.id);
+      if (changed) patch[key] = next;
+    }
+    if (Object.keys(patch).length) await setDoc(doc(db, 'users', user.uid), patch, { merge: true });
+    for (const id of removedIds) {
+      await deleteDoc(doc(db, 'users', user.uid, 'friends', id));
+    }
+    setMerging(null);
+    setSelectedIds(new Set());
+    setResult({ type: 'success', message: `Merged ${others.length + 1} contacts into ${merged.name || 'one'}` });
+    setTimeout(() => setResult(null), 3000);
+  }
+
   async function bulkDelete() {
     if (!user || !window.confirm(`Delete ${selectedIds.size} contacts? This cannot be undone.`)) return;
     for (const id of selectedIds) {
@@ -1611,6 +1645,10 @@ export function FriendsPage() {
   }
 
   const [selectedIds, setSelectedIds] = useState(new Set());
+  // Merge: the contacts on the merge screen, and whether the suggested
+  // duplicates list is open.
+  const [merging, setMerging] = useState(null);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   const [showBulkAction, setShowBulkAction] = useState(null); // null | 'delete' | 'group' | 'tag'
   const [bulkValue, setBulkValue] = useState('');
   const [showAddToTrip, setShowAddToTrip] = useState(false);
@@ -1958,6 +1996,11 @@ export function FriendsPage() {
             onClick={() => setShowCustomFields(true)}
             title="Add your own fields — shirt size, how you met, anything you want to track"
           >⚙ Custom Fields{customFields.length > 0 && ` (${customFields.length})`}</button>
+          <button
+            className={styles.templateBtn}
+            onClick={() => setShowDuplicates(true)}
+            title="Find contacts that share an email, phone number or name, and merge them"
+          >⧉ Find Duplicates</button>
           <button className={styles.templateBtn} onClick={downloadTemplate}>Download Template</button>
           <button className={styles.templateBtn} onClick={exportFriendsExcel} title="Download all visible contacts as a polished Excel file">⬇ Export Excel</button>
         </div>
@@ -2116,6 +2159,7 @@ export function FriendsPage() {
             <button onClick={() => { setShowAddToTrip(true); loadEvents(); }} disabled={selectedIds.size === 0} style={{ padding: '0.3rem 0.65rem', border: '1px solid var(--color-accent)', borderRadius: '6px', background: 'var(--color-accent)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', color: '#fff', opacity: selectedIds.size === 0 ? 0.4 : 1 }}>Add to Event</button>
             <button onClick={() => setShowBulkAction('group')} disabled={selectedIds.size === 0} style={{ padding: '0.3rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: '6px', background: 'var(--color-surface)', fontSize: '0.75rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--color-text-secondary)', opacity: selectedIds.size === 0 ? 0.4 : 1 }}>Set Group</button>
             <button onClick={() => setShowBulkAction('tag')} disabled={selectedIds.size === 0} style={{ padding: '0.3rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: '6px', background: 'var(--color-surface)', fontSize: '0.75rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--color-text-secondary)', opacity: selectedIds.size === 0 ? 0.4 : 1 }}>Add Tag</button>
+            <button onClick={() => setMerging(friends.filter(f => selectedIds.has(f.id)))} disabled={selectedIds.size < 2} title={selectedIds.size < 2 ? 'Select two or more contacts to merge' : 'Merge the selected contacts into one'} style={{ padding: '0.3rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: '6px', background: 'var(--color-surface)', fontSize: '0.75rem', fontWeight: 500, cursor: selectedIds.size < 2 ? 'default' : 'pointer', fontFamily: 'inherit', color: 'var(--color-text-secondary)', opacity: selectedIds.size < 2 ? 0.4 : 1 }}>Merge</button>
             <button onClick={bulkDelete} disabled={selectedIds.size === 0} style={{ padding: '0.3rem 0.65rem', border: '1px solid var(--color-danger)', borderRadius: '6px', background: 'var(--color-surface)', fontSize: '0.75rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--color-danger)', opacity: selectedIds.size === 0 ? 0.4 : 1 }}>Delete</button>
           </div>
         </div>
@@ -2412,6 +2456,22 @@ export function FriendsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {showDuplicates && !merging && (
+        <DuplicatesModal
+          groups={findDuplicateGroups(friends)}
+          onReview={group => setMerging(group)}
+          onClose={() => setShowDuplicates(false)}
+        />
+      )}
+      {merging && (
+        <MergeModal
+          contacts={merging}
+          friendsById={new Map(friends.map(f => [f.id, f]))}
+          onCancel={() => setMerging(null)}
+          onConfirm={mergeContacts}
+        />
       )}
 
       {/* Edit contact modal */}

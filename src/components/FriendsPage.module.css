@@ -98,3 +98,22 @@
   .addressRow { grid-template-columns: 1fr auto; }
   .addressLabelInput { grid-column: 1 / -1; }
 }
+
+/* Merge duplicates */
+.mergeMuted { color: var(--color-text-muted); font-size: 0.82rem; font-weight: 400; }
+.mergeHint { color: var(--color-text-muted); font-size: 0.78rem; margin: 0.35rem 0 0; }
+.mergeSection { border-top: 1px solid var(--color-border); padding: 0.75rem 0; }
+.mergeHeading { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); font-weight: 700; margin-bottom: 0.4rem; }
+.mergeOption { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.88rem; cursor: pointer; color: var(--color-text); }
+.mergeOption input { accent-color: var(--color-accent); }
+.mergeConflict + .mergeConflict { margin-top: 0.5rem; }
+.mergeField { font-size: 0.8rem; font-weight: 600; color: var(--color-text-secondary); }
+.mergeResult { font-size: 0.9rem; color: var(--color-text); }
+.dupList { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.75rem 0; max-height: 60vh; overflow-y: auto; }
+.dupGroup { display: flex; align-items: center; gap: 0.75rem; justify-content: space-between; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.75rem; background: var(--color-surface); }
+.dupPeople { min-width: 0; font-size: 0.88rem; }
+.dupName { font-weight: 600; color: var(--color-text); }
+.dupWhy { font-size: 0.72rem; color: var(--color-accent); margin-top: 0.2rem; font-weight: 600; }
+@media (max-width: 480px) {
+  .dupGroup { flex-direction: column; align-items: stretch; }
+}
