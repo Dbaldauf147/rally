@@ -121,6 +121,13 @@ function unvisitedFirst(r) {
 // than sorted down — unlike `visited`, which only ranks, because somewhere I
 // have been without her is still a date I could take her on. The flag is only
 // ever written as true, so absent means no.
+// Prep Day's "Hold off" status: a spot deliberately parked for now. Dropped
+// outright, same as a Joanne spot — suggesting it as a date would contradict
+// the one thing that status says.
+function onHold(r) {
+  return r?.status === 'hold-off';
+}
+
 function alreadyTakenJoanne(r) {
   return r?.takenJoanne === true;
 }
@@ -228,7 +235,7 @@ export default async function handler(req, res) {
 
     const matching = dedupe(
       restaurants
-        .filter(r => r && isDateSpot(r) && !alreadyTakenJoanne(r))
+        .filter(r => r && isDateSpot(r) && !alreadyTakenJoanne(r) && !onHold(r))
         .sort((a, b) => unvisitedFirst(a) - unvisitedFirst(b) || byPriority(a, b)),
     );
     const spots = matching
