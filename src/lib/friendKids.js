@@ -42,3 +42,19 @@ export function kidLabel(kid, today = new Date()) {
   }
   return parts.join(' · ');
 }
+
+// The kids whose birthday is today, each with the age they turn — null when
+// the year was never recorded. Reach Out's "kid's birthday" card is built on
+// this.
+export function kidsWithBirthdayToday(kids, today = new Date()) {
+  return (Array.isArray(kids) ? kids : [])
+    .filter((k) => k?.name)
+    .map((k) => ({ name: k.name, info: annualDateInfo(k.birthday, today) }))
+    .filter((k) => k.info?.isToday)
+    .map((k) => ({ name: k.name, turns: k.info.year ? k.info.years : null }));
+}
+
+// "Emma turns 7 today", or just "Emma's birthday is today" without a year.
+export function kidBirthdayLine(kid) {
+  return kid.turns != null && kid.turns > 0 ? `${kid.name} turns ${kid.turns} today` : `${kid.name}'s birthday is today`;
+}
