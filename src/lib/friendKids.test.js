@@ -52,3 +52,19 @@ describe('kidLabel', () => {
     expect(kidLabel({ name: 'Ava', birthday: '' }, TODAY)).toBe('Ava');
   });
 });
+
+describe('kidsWithBirthdayToday', () => {
+  it('finds the kids born on today’s date, with the age they turn', async () => {
+    const { kidsWithBirthdayToday, kidBirthdayLine } = await import('./friendKids');
+    const kids = [
+      { name: 'Emma', birthday: '2019-09-28' },
+      { name: 'Liam', birthday: '09-28' },
+      { name: 'Ava', birthday: '2020-03-14' },
+      { name: '', birthday: '09-28' },
+    ];
+    const out = kidsWithBirthdayToday(kids, TODAY);
+    expect(out).toEqual([{ name: 'Emma', turns: 7 }, { name: 'Liam', turns: null }]);
+    expect(out.map(kidBirthdayLine)).toEqual(['Emma turns 7 today', "Liam's birthday is today"]);
+    expect(kidsWithBirthdayToday(undefined, TODAY)).toEqual([]);
+  });
+});

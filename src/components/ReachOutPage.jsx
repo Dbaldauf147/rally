@@ -9,6 +9,7 @@ import { isNativeApp } from '../native';
 import styles from './ReachOutPage.module.css';
 import { DateField } from './DateField';
 import { annualDateInfo, formatAnnualDate } from '../lib/looseDate';
+import { kidsWithBirthdayToday, kidBirthdayLine } from '../lib/friendKids';
 
 const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -361,7 +362,7 @@ export function ReachOutPage() {
     if (!user) return;
     const unsub = onSnapshot(collection(db, 'users', user.uid, 'friends'), (snap) => {
       setFriendsList(snap.docs
-        .map(d => ({ id: d.id, name: d.data().name || '', anniversary: d.data().anniversary || '' }))
+        .map(d => ({ id: d.id, name: d.data().name || '', anniversary: d.data().anniversary || '', kids: Array.isArray(d.data().kids) ? d.data().kids : [] }))
         .sort((a, b) => a.name.localeCompare(b.name)));
     }, () => setFriendsList([]));
     return unsub;
@@ -519,9 +520,24 @@ export function ReachOutPage() {
     () => new Map(friendsList.filter(f => f.anniversary).map(f => [f.id, f.anniversary])),
     [friendsList],
   );
+  // Friends with a kid whose birthday is today → those kids, with the age they
+  // turn. Kids live on the Friends record, so like anniversaries they reach a
+  // row only through its linked friend.
+  const kidsTodayByFriend = useMemo(() => {
+    const map = new Map();
+    for (const f of friendsList) {
+      const kids = kidsWithBirthdayToday(f.kids, today);
+      if (kids.length) map.set(f.id, kids);
+    }
+    return map;
+  }, [friendsList, today]);
   const decorated = useMemo(
-    () => (contacts || []).map(c => decorate(c, today, annivByFriend.get(c.friendId) || '')),
-    [contacts, today, annivByFriend],
+    () => (contacts || []).map(c => {
+      const row = decorate(c, today, annivByFriend.get(c.friendId) || '');
+      // Retired means stop nudging — kids' birthdays included.
+      return { ...row, _kidsToday: row._retired ? [] : (kidsTodayByFriend.get(c.friendId) || []) };
+    }),
+    [contacts, today, annivByFriend, kidsTodayByFriend],
   );
   const categories = useMemo(() => {
     const set = new Set(decorated.map(c => c.category).filter(Boolean));
@@ -537,6 +553,11 @@ export function ReachOutPage() {
       // Phone layout: today's birthdays ride above everything else, whatever
       // the chosen sort — they're the one reach-out that can't slip a day.
       if (isMobile && !!a._bdayToday !== !!b._bdayToday) return a._bdayToday ? -1 : 1;
+      // Then anyone whose kid has a birthday today, on every layout — the
+      // call is today's or it's late.
+      const ak = a._kidsToday.length > 0;
+      const bk = b._kidsToday.length > 0;
+      if (ak !== bk) return ak ? -1 : 1;
       return compareRows(a, b, sortKey, sortDir);
     });
   }, [decorated, categoryFilter, dueOnly, sortKey, sortDir, isMobile]);
@@ -563,6 +584,21 @@ export function ReachOutPage() {
       // covers their anniversary as much as their cadence.
       .filter(x => x.info?.isToday && !x.contact?._retired);
   }, [friendsList, decorated, today]);
+
+  // Every friend with a kid's birthday today, paired with their reach-out row
+  // when they have one — the anniversary card's rules exactly: read off the
+  // Friends list so a friend outside the rotation still shows, and a retired
+  // row keeps its person out.
+  const kidBirthdaysToday = useMemo(() => {
+    const rowByFriend = new Map();
+    for (const c of decorated) {
+      if (c.friendId && !rowByFriend.has(c.friendId)) rowByFriend.set(c.friendId, c);
+    }
+    return friendsList
+      .filter(f => kidsTodayByFriend.has(f.id))
+      .map(f => ({ friend: f, kids: kidsTodayByFriend.get(f.id), contact: rowByFriend.get(f.id) || null }))
+      .filter(x => !x.contact?._retired);
+  }, [friendsList, decorated, kidsTodayByFriend]);
 
   // Fuzzy-predicted Friends match for each unlinked person (id -> friend).
   const predictions = useMemo(() => {
@@ -670,6 +706,43 @@ export function ReachOutPage() {
                   ? <button className={styles.bdayName} onClick={() => openDetails(contact)}>{friend.name}</button>
                   : <Link className={styles.bdayName} to={`/friends?open=${friend.id}`}>{friend.name}</Link>}
                 {meta && <p className={styles.bdayMeta}>{meta}</p>}
+                {contact?.note && <p className={styles.bdayNote}>{contact.note}</p>}
+                <div className={styles.bdayActions}>
+                  {contact && (reachedAlready
+                    ? <span className={styles.bdayDone}>✅ Reached out today</span>
+                    : <button className={styles.bdayBtn} onClick={() => setConfirmReach(contact)}>Reach out now</button>)}
+                  {contact
+                    ? <button className={styles.bdayBtnGhost} onClick={() => openDetails(contact)}>Details</button>
+                    : <Link className={styles.bdayBtnGhost} to={`/friends?open=${friend.id}`}>Open in Contacts</Link>}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
+
+      {/* A friend's kid's birthday — shown on every layout, like anniversaries,
+          since the parent may have no reach-out row to hang it on. */}
+      {kidBirthdaysToday.length > 0 && (
+        <section className={`${styles.bdayHero} ${styles.kidsHero}`} aria-label="Kids' birthdays today">
+          <div className={styles.bdayHeroTop}>
+            <span className={styles.bdayHeroCake} aria-hidden="true">🎈</span>
+            <span className={styles.bdayHeroKicker}>
+              {kidBirthdaysToday.length === 1 ? "Their kid's birthday is today" : `${kidBirthdaysToday.length} friends' kids have birthdays today`}
+            </span>
+          </div>
+          {kidBirthdaysToday.map(({ friend, kids, contact }) => {
+            const reachedAlready = contact?.lastReachOut === todayK;
+            const meta = [
+              kids.map(kidBirthdayLine).join(' · '),
+              contact?.method ? `${contact.method} them` : null,
+            ].filter(Boolean).join(' · ');
+            return (
+              <div key={friend.id} className={styles.bdayCard}>
+                {contact
+                  ? <button className={styles.bdayName} onClick={() => openDetails(contact)}>{friend.name}</button>
+                  : <Link className={styles.bdayName} to={`/friends?open=${friend.id}`}>{friend.name}</Link>}
+                <p className={styles.bdayMeta}>{meta}</p>
                 {contact?.note && <p className={styles.bdayNote}>{contact.note}</p>}
                 <div className={styles.bdayActions}>
                   {contact && (reachedAlready
@@ -832,6 +905,7 @@ export function ReachOutPage() {
           <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swRetired}`} />Retired</span>
           <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swBdaySoon}`} />Birthday within 2 weeks</span>
           <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swAnniv}`} />Anniversary today</span>
+          <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swKids}`} />Kid's birthday today</span>
           <span className={styles.legendItem}><span className={`${styles.sw} ${styles.swAnnivSoon}`} />Anniversary within 2 weeks</span>
           <span className={styles.legendItem}><b className={styles.over}>+N</b> Overdue</span>
           <span className={styles.legendItem}><b className={styles.overToday}>0</b> Due today</span>
@@ -869,17 +943,18 @@ export function ReachOutPage() {
                 : styles.under;
               const rowClass = c._bdayToday ? styles.trBday
                 : c._annivToday ? styles.trAnniv
+                : c._kidsToday.length ? styles.trKids
                 : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
                 <tr key={c.id} className={rowClass} onClick={isMobile ? undefined : () => startEdit(c)} title={isMobile ? undefined : 'Click to edit'}>
-                  {isMobile && <PersonCell name={c._bdayToday ? `🎂 ${c.name}` : c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => openDetails(c)} />}
+                  {isMobile && <PersonCell name={c._bdayToday ? `🎂 ${c.name}` : c._kidsToday.length ? `🎈 ${c.name}` : c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => openDetails(c)} />}
                   {showLast && <td>{fmtMDY(c._last)}</td>}
                   {showCheck && (
                     <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={!!c.done} onChange={() => toggleDone(c.id)} aria-label="Reached out today" title="Reached out today" />
                     </td>
                   )}
-                  {!isMobile && <PersonCell name={c.name} isMobile={false} />}
+                  {!isMobile && <PersonCell name={c._kidsToday.length ? `🎈 ${c.name}` : c.name} isMobile={false} />}
                   {!isMobile && colVis.note !== false && <td className={styles.tdNote}>{c.note}</td>}
                   {!isMobile && colVis.category !== false && <td>{c.category}</td>}
                   {!isMobile && colVis.overdue !== false && <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>}
