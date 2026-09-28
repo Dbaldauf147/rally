@@ -27,6 +27,7 @@ import { FriendProfileEditor } from './FriendProfileEditor';
 import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
 import { groupTokens, bucketByGroup } from '../lib/peopleGroups';
+import { kidsForEditing, kidsForSaving, kidLabel } from '../lib/friendKids';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -187,6 +188,50 @@ function AddressListEditor({ value, onChange }) {
       ))}
       <button type="button" className={styles.addressAddBtn} onClick={add}>
         + Add another address
+      </button>
+    </div>
+  );
+}
+
+// A friend's kids: a name and a birthday per row. The birthday takes a year or
+// not (3/14 or 3/14/2019) — with one, the table shows the kid's age.
+function KidsEditor({ value, onChange }) {
+  const rows = value && value.length > 0 ? value : [{ name: '', birthday: '' }];
+  const update = (i, patch) => onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const remove = (i) => {
+    const next = rows.filter((_, idx) => idx !== i);
+    onChange(next.length > 0 ? next : [{ name: '', birthday: '' }]);
+  };
+  return (
+    <div className={styles.addressList}>
+      {rows.map((row, i) => (
+        <div key={i} className={styles.kidRow}>
+          <input
+            className={styles.addressValueInput}
+            placeholder="Name"
+            aria-label={`Kid ${i + 1} name`}
+            value={row.name}
+            onChange={e => update(i, { name: e.target.value })}
+          />
+          <input
+            className={styles.addressValueInput}
+            placeholder="Birthday — 3/14"
+            aria-label={`Kid ${i + 1} birthday`}
+            value={row.birthday}
+            onChange={e => update(i, { birthday: e.target.value })}
+            onBlur={e => update(i, { birthday: formatAnnualDate(e.target.value) || e.target.value })}
+          />
+          <button
+            type="button"
+            className={styles.addressRemoveBtn}
+            onClick={() => remove(i)}
+            title="Remove kid"
+            aria-label="Remove kid"
+          >×</button>
+        </div>
+      ))}
+      <button type="button" className={styles.addressAddBtn} onClick={() => onChange([...rows, { name: '', birthday: '' }])}>
+        + Add a kid
       </button>
     </div>
   );
@@ -912,6 +957,7 @@ export function FriendsPage() {
   const [newWorkEmail, setNewWorkEmail] = useState('');
   const [newInstagram, setNewInstagram] = useState('');
   const [newBirthday, setNewBirthday] = useState('');
+  const [newKids, setNewKids] = useState([{ name: '', birthday: '' }]);
   const [newAnniversary, setNewAnniversary] = useState('');
   const [newDob, setNewDob] = useState('');
   const [newCustom, setNewCustom] = useState({});
@@ -1009,6 +1055,7 @@ export function FriendsPage() {
       birthday: fmtBirthday(friend.birthday),
       dob: normalizeDob(friend.dob),
       anniversary: formatAnnualDate(friend.anniversary),
+      kids: kidsForEditing(friend.kids),
       notes: friend.notes || '',
       linkedTo: friend.linkedTo || '',
       giftIdeas: Array.isArray(friend.giftIdeas) ? friend.giftIdeas : [],
@@ -1040,6 +1087,7 @@ export function FriendsPage() {
       birthday: normalizeBirthday(editFields.birthday),
       dob: normalizeDob(editFields.dob),
       anniversary: normalizeAnnualDate(editFields.anniversary),
+      kids: kidsForSaving(editFields.kids),
       addresses: cleanedAddresses,
       address: cleanedAddresses[0]?.value || '',
       notes: (editFields.notes || '').trim(),
@@ -1232,8 +1280,8 @@ export function FriendsPage() {
 
   async function handleAddSingle(e) {
     e.preventDefault();
-    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, anniversary: newAnniversary, custom: coerceCustomMap(customFields, newCustom) });
-    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob(''); setNewAnniversary(''); setNewCustom({});
+    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, anniversary: newAnniversary, kids: newKids, custom: coerceCustomMap(customFields, newCustom) });
+    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob(''); setNewAnniversary(''); setNewKids([{ name: '', birthday: '' }]); setNewCustom({});
     setShowAdd(false);
     setResult({ type: 'success', message: 'Contact added!' });
     setTimeout(() => setResult(null), 3000);
@@ -1424,7 +1472,7 @@ export function FriendsPage() {
     // record rather than the current view.
     const headers = [
       'Name', 'Email', 'Work Email', 'Phone', 'Instagram',
-      'Birthday', 'Date of Birth', 'Age', 'Anniversary',
+      'Birthday', 'Date of Birth', 'Age', 'Anniversary', 'Kids',
       'Group', 'Guest', 'Tags', 'Linked To', 'Addresses', 'Created',
       ...customFields.map(f => f.label),
     ];
@@ -1447,6 +1495,7 @@ export function FriendsPage() {
         fmtDob(f.dob),
         ageFromDob(f.dob) ?? '',
         formatAnnualDate(f.anniversary),
+        (Array.isArray(f.kids) ? f.kids : []).map(k => kidLabel(k)).join('\n'),
         f.group || '',
         f.guest || '',
         tags,
@@ -1475,6 +1524,7 @@ export function FriendsPage() {
       { wch: 14 }, // Date of Birth
       { wch: 6 },  // Age
       { wch: 12 }, // Anniversary
+      { wch: 22 }, // Kids
       { wch: 18 }, // Group
       { wch: 18 }, // Guest
       { wch: 22 }, // Tags
@@ -1785,6 +1835,7 @@ export function FriendsPage() {
               <th className={styles.th} onClick={() => onSort('birthday')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by birthday">Birthday{sortArrow('birthday')}</th>
               <th className={styles.th} onClick={() => onSort('dob')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by date of birth">Date of Birth{sortArrow('dob')}</th>
               <th className={styles.th} onClick={() => onSort('anniversary')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Sort by anniversary">Anniversary{sortArrow('anniversary')}</th>
+              <th className={styles.th}>Kids</th>
               <th className={styles.th}>Linked</th>
               {tableCustomFields.map(cf => (
                 <th
@@ -1839,6 +1890,11 @@ export function FriendsPage() {
                       : <span className={styles.tdMuted}>—</span>}
                   </td>
                   <td className={styles.td}>{formatAnnualDate(f.anniversary) || <span className={styles.tdMuted}>—</span>}</td>
+                  <td className={styles.td}>
+                    {Array.isArray(f.kids) && f.kids.length > 0
+                      ? f.kids.map((k, i) => <div key={i} className={styles.kidLine}>{kidLabel(k)}</div>)
+                      : <span className={styles.tdMuted}>—</span>}
+                  </td>
                   <td className={styles.td}>
                     {linked ? <span className={styles.linkedChip}>↔ {linked.name}</span> : <span className={styles.tdMuted}>—</span>}
                   </td>
@@ -2336,6 +2392,10 @@ export function FriendsPage() {
                   placeholder="M/D/YYYY — e.g. 6/2/2015"
                 />
               </label>
+              <div className={styles.label}>
+                Kids
+                <KidsEditor value={newKids} onChange={setNewKids} />
+              </div>
               <label className={styles.label}>
                 Tags
                 <TagPicker value={newTag} onChange={setNewTag} options={allTags} />
@@ -2377,6 +2437,7 @@ export function FriendsPage() {
               <label className={styles.label}>Birthday<input className={styles.input} value={editFields.birthday || ''} onChange={e => editSet('birthday', e.target.value)} onBlur={e => editSet('birthday', fmtBirthday(e.target.value) || e.target.value)} placeholder="M/D — e.g. 7/30" /></label>
               <label className={styles.label}>Date of Birth<DateField className={styles.input} value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
               <label className={styles.label}>Anniversary<input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
+              <div className={styles.label}>Kids<KidsEditor value={editFields.kids} onChange={v => editSet('kids', v)} /></div>
               <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
               <ComesWithPicker
                 friends={friends}
