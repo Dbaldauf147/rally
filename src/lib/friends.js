@@ -14,6 +14,7 @@ import { db } from '../firebase';
 // reached for it through friends.js still can.
 export { pad2, parseLooseDate, validParts, normalizeAnnualDate, formatAnnualDate, annualDateInfo } from './looseDate';
 import { parseLooseDate, validParts, pad2, normalizeAnnualDate } from './looseDate';
+import { kidsForSaving } from './friendKids';
 
 
 // Storage normalizers — anything unparseable becomes '' rather than corrupting
@@ -68,6 +69,9 @@ export async function addFriend(uid, data) {
     // flattened to month and day.
     anniversary: normalizeAnnualDate(data.anniversary),
     custom: cleanCustomValues(data.custom),
+    // Only from the Add form, which has a kids editor; the other callers
+    // (imports, the poll page) have no kids to say anything about.
+    ...(data.kids ? { kids: kidsForSaving(data.kids) } : {}),
     createdAt: new Date().toISOString(),
   });
   return id;
