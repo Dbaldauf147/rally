@@ -532,10 +532,11 @@ export function ReachOutPage() {
     return map;
   }, [friendsList, today]);
   const decorated = useMemo(
-    () => (contacts || []).map(c => ({
-      ...decorate(c, today, annivByFriend.get(c.friendId) || ''),
-      _kidsToday: kidsTodayByFriend.get(c.friendId) || [],
-    })),
+    () => (contacts || []).map(c => {
+      const row = decorate(c, today, annivByFriend.get(c.friendId) || '');
+      // Retired means stop nudging — kids' birthdays included.
+      return { ...row, _kidsToday: row._retired ? [] : (kidsTodayByFriend.get(c.friendId) || []) };
+    }),
     [contacts, today, annivByFriend, kidsTodayByFriend],
   );
   const categories = useMemo(() => {
@@ -554,8 +555,8 @@ export function ReachOutPage() {
       if (isMobile && !!a._bdayToday !== !!b._bdayToday) return a._bdayToday ? -1 : 1;
       // Then anyone whose kid has a birthday today, on every layout — the
       // call is today's or it's late.
-      const ak = a._kidsToday.length > 0 && !a._retired;
-      const bk = b._kidsToday.length > 0 && !b._retired;
+      const ak = a._kidsToday.length > 0;
+      const bk = b._kidsToday.length > 0;
       if (ak !== bk) return ak ? -1 : 1;
       return compareRows(a, b, sortKey, sortDir);
     });
@@ -942,7 +943,7 @@ export function ReachOutPage() {
                 : styles.under;
               const rowClass = c._bdayToday ? styles.trBday
                 : c._annivToday ? styles.trAnniv
-                : c._kidsToday.length && !c._retired ? styles.trKids
+                : c._kidsToday.length ? styles.trKids
                 : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
                 <tr key={c.id} className={rowClass} onClick={isMobile ? undefined : () => startEdit(c)} title={isMobile ? undefined : 'Click to edit'}>
