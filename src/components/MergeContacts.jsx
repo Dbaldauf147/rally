@@ -8,6 +8,11 @@ const contactLine = (f) => [f.email, f.phone, f.group].filter(Boolean).join(' ·
 
 // How complete a record is — the fullest one is offered as the one to keep.
 const filled = (f) => Object.values(f).filter((v) => (Array.isArray(v) ? v.length : v && typeof v === 'object' ? Object.keys(v).length : !!v)).length;
+// Ahead of that, a contact stored under its own email: that's the id adding the
+// same address again writes to, so keeping any other one would let the next
+// import recreate the duplicate.
+const keyedByEmail = (f) => !!f.email && f.id === String(f.email).trim().toLowerCase();
+const keepFirst = (a, b) => (keyedByEmail(b) - keyedByEmail(a)) || (filled(b) - filled(a));
 
 /* The suggested duplicates, one row per group, each opening the merge screen. */
 export function DuplicatesModal({ groups, onReview, onClose }) {
@@ -51,7 +56,7 @@ export function DuplicatesModal({ groups, onReview, onClose }) {
 /* Merging two or more contacts: pick the one to keep, settle the fields they
  * disagree on, see what gets combined, confirm. */
 export function MergeModal({ contacts, friendsById, onCancel, onConfirm }) {
-  const [primaryId, setPrimaryId] = useState(() => [...contacts].sort((a, b) => filled(b) - filled(a))[0].id);
+  const [primaryId, setPrimaryId] = useState(() => [...contacts].sort(keepFirst)[0].id);
   const [choices, setChoices] = useState({});
   const [busy, setBusy] = useState(false);
   const primary = contacts.find((f) => f.id === primaryId);
