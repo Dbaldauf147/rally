@@ -125,7 +125,9 @@ function unvisitedFirst(r) {
 // outright, same as a Joanne spot — suggesting it as a date would contradict
 // the one thing that status says.
 function onHold(r) {
-  return r?.status === 'hold-off';
+  // Either the whole spot is on hold, or just taking Joanne there is
+  // (joanneHoldOff — the third answer to "Taken Joanne?").
+  return r?.status === 'hold-off' || r?.joanneHoldOff === true;
 }
 
 function alreadyTakenJoanne(r) {
