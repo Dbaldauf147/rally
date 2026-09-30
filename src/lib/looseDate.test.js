@@ -70,3 +70,16 @@ describe('annualDateInfo', () => {
     expect(annualDateInfo('next spring', TODAY)).toBe(null);
   });
 });
+
+describe('anniversaryYearsLabel', () => {
+  it('counts whole years, only once the date has come round', async () => {
+    const { anniversaryYearsLabel, yearsSince } = await import('./looseDate');
+    expect(anniversaryYearsLabel('6/2/2015', TODAY)).toBe('11 years');
+    expect(anniversaryYearsLabel('6/3/2015', TODAY)).toBe('10 years');
+    expect(anniversaryYearsLabel('2025-06-02', TODAY)).toBe('1 year');
+    expect(anniversaryYearsLabel('2025-12-01', TODAY)).toBe('First year');
+    expect(anniversaryYearsLabel('6/2', TODAY)).toBe('');
+    expect(anniversaryYearsLabel('', TODAY)).toBe('');
+    expect(yearsSince('2030-01-01', TODAY)).toBeNull();
+  });
+});

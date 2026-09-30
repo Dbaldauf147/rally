@@ -10,7 +10,7 @@ import styles from './FriendsPage.module.css';
 // page can add a friend through exactly the same path this page uses.
 import {
   pad2, parseLooseDate, validParts, normalizeBirthday, normalizeDob, normalizeAnnualDate, formatAnnualDate,
-  addFriend as writeFriend, cleanCustomValues,
+  addFriend as writeFriend, cleanCustomValues, anniversaryYearsLabel,
 } from '../lib/friends';
 // User-defined fields: definitions on the user doc, values in each friend's
 // `custom` map.
@@ -27,7 +27,7 @@ import { FriendProfileEditor } from './FriendProfileEditor';
 import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
 import { groupTokens, bucketByGroup } from '../lib/peopleGroups';
-import { kidsForEditing, kidsForSaving, kidLabel } from '../lib/friendKids';
+import { kidsForEditing, kidsForSaving, kidLabel, kidAgeLabel } from '../lib/friendKids';
 import { findDuplicateGroups, mergeFriends, repointFriendIds } from '../lib/friendMerge';
 import { DuplicatesModal, MergeModal } from './MergeContacts';
 
@@ -195,8 +195,16 @@ function AddressListEditor({ value, onChange }) {
   );
 }
 
+// How long they've been married, next to the Anniversary label — read live off
+// whatever is typed, so it appears as soon as the date has a year.
+function YearsNote({ value }) {
+  const text = anniversaryYearsLabel(value);
+  return text ? <span className={styles.yearsNote}> · {text}</span> : null;
+}
+
 // A friend's kids: a name and a birthday per row. The birthday takes a year or
-// not (3/14 or 3/14/2019) — with one, the table shows the kid's age.
+// not (3/14 or 3/14/2019) — with one, the kid's age shows beside it here and in
+// the table.
 function KidsEditor({ value, onChange }) {
   const rows = value && value.length > 0 ? value : [{ name: '', birthday: '' }];
   const update = (i, patch) => onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -223,6 +231,7 @@ function KidsEditor({ value, onChange }) {
             onChange={e => update(i, { birthday: e.target.value })}
             onBlur={e => update(i, { birthday: formatAnnualDate(e.target.value) || e.target.value })}
           />
+          <span className={styles.kidAge} aria-label={`Kid ${i + 1} age`}>{kidAgeLabel(row.birthday)}</span>
           <button
             type="button"
             className={styles.addressRemoveBtn}
@@ -2427,7 +2436,7 @@ export function FriendsPage() {
                 <DateField className={styles.input} value={newDob} onChange={e => setNewDob(e.target.value)} />
               </label>
               <label className={styles.label}>
-                Anniversary
+                <span>Anniversary<YearsNote value={newAnniversary} /></span>
                 <input
                   className={styles.input}
                   value={newAnniversary}
@@ -2496,7 +2505,7 @@ export function FriendsPage() {
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
               <label className={styles.label}>Birthday<input className={styles.input} value={editFields.birthday || ''} onChange={e => editSet('birthday', e.target.value)} onBlur={e => editSet('birthday', fmtBirthday(e.target.value) || e.target.value)} placeholder="M/D — e.g. 7/30" /></label>
               <label className={styles.label}>Date of Birth<DateField className={styles.input} value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
-              <label className={styles.label}>Anniversary<input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
+              <label className={styles.label}><span>Anniversary<YearsNote value={editFields.anniversary} /></span><input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
               <div className={styles.label}>Kids<KidsEditor value={editFields.kids} onChange={v => editSet('kids', v)} /></div>
               <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
               <ComesWithPicker

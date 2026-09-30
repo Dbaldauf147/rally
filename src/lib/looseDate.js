@@ -69,3 +69,21 @@ export function annualDateInfo(value, today = new Date()) {
     years: p.year ? next.getFullYear() - p.year : null,
   };
 }
+
+// Whole years since a yearly date that carries its year — how long they've been
+// married, how old someone is. Null without a year, or for a date still ahead.
+export function yearsSince(value, today = new Date()) {
+  const info = annualDateInfo(value, today);
+  if (!info?.year) return null;
+  const years = info.isToday ? info.years : info.years - 1;
+  return years >= 0 && years < 150 ? years : null;
+}
+
+// "11 years", "1 year", or "First year" before the first anniversary. Empty
+// when there's no year to count from.
+export function anniversaryYearsLabel(value, today = new Date()) {
+  const years = yearsSince(value, today);
+  if (years == null) return '';
+  if (years === 0) return 'First year';
+  return `${years} year${years === 1 ? '' : 's'}`;
+}

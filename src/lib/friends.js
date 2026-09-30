@@ -12,7 +12,7 @@ import { db } from '../firebase';
 // The loose-date parsing lives in looseDate.js now (customFields.js needs it
 // without Firestore in tow). Re-exported here so the callers that have always
 // reached for it through friends.js still can.
-export { pad2, parseLooseDate, validParts, normalizeAnnualDate, formatAnnualDate, annualDateInfo } from './looseDate';
+export { pad2, parseLooseDate, validParts, normalizeAnnualDate, formatAnnualDate, annualDateInfo, yearsSince, anniversaryYearsLabel } from './looseDate';
 import { parseLooseDate, validParts, pad2, normalizeAnnualDate } from './looseDate';
 import { kidsForSaving } from './friendKids';
 
