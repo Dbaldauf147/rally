@@ -68,3 +68,15 @@ describe('kidsWithBirthdayToday', () => {
     expect(kidsWithBirthdayToday(undefined, TODAY)).toEqual([]);
   });
 });
+
+describe('kidAgeLabel', () => {
+  it('shows years, or months for a baby, and nothing without a year', async () => {
+    const { kidAgeLabel } = await import('./friendKids');
+    expect(kidAgeLabel('3/14/2019', TODAY)).toBe('Age 7');
+    expect(kidAgeLabel('2025-09-28', TODAY)).toBe('Age 1');
+    expect(kidAgeLabel('2026-04-10', TODAY)).toBe('5 mo');
+    expect(kidAgeLabel('2026-09-20', TODAY)).toBe('Newborn');
+    expect(kidAgeLabel('3/14', TODAY)).toBe('');
+    expect(kidAgeLabel('2027-01-01', TODAY)).toBe('');
+  });
+});

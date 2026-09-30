@@ -4,7 +4,7 @@
 // YYYY-MM-DD when the year is known, MM-DD when it isn't — a kid's birthday is
 // often remembered as "the 14th of March" long before anyone knows the year,
 // and the year, when there is one, is what puts an age next to the name.
-import { normalizeAnnualDate, formatAnnualDate, annualDateInfo } from './looseDate';
+import { normalizeAnnualDate, formatAnnualDate, annualDateInfo, parseLooseDate, validParts, yearsSince } from './looseDate';
 
 // For the editor: dates in the short form people type, never an empty list.
 export function kidsForEditing(kids) {
@@ -24,10 +24,21 @@ export function kidsForSaving(kids) {
 
 // Age today, from a birthday that carries its year. Null without one.
 export function kidAge(birthday, today = new Date()) {
-  const info = annualDateInfo(birthday, today);
-  if (!info?.year) return null;
-  const age = info.isToday ? info.years : info.years - 1;
-  return age >= 0 && age < 120 ? age : null;
+  const age = yearsSince(birthday, today);
+  return age != null && age < 120 ? age : null;
+}
+
+// The age beside a kid's birthday in the editor: "Age 7", or months for a
+// baby ("5 mo", "Newborn"). Empty without a birth year, or before the date.
+export function kidAgeLabel(birthday, today = new Date()) {
+  const age = kidAge(birthday, today);
+  if (age == null) return '';
+  if (age > 0) return `Age ${age}`;
+  const p = parseLooseDate(birthday);
+  if (!validParts(p) || !p.year) return '';
+  let months = (today.getFullYear() - p.year) * 12 + (today.getMonth() + 1 - p.month);
+  if (today.getDate() < p.day) months -= 1;
+  return months <= 0 ? 'Newborn' : `${months} mo`;
 }
 
 // "Emma · 3/14 · 6", "Liam · 9/2", "Ava" — one kid as the table shows them.
