@@ -99,6 +99,9 @@
 @media (max-width: 480px) {
   .addressRow { grid-template-columns: 1fr auto; }
   .addressLabelInput { grid-column: 1 / -1; }
+  /* The name takes its own line; birthday, age and the remove button share the next. */
+  .kidRow { grid-template-columns: 1fr 4.5rem auto; }
+  .kidRow > input:first-child { grid-column: 1 / -1; }
 }
 
 /* Merge duplicates */
