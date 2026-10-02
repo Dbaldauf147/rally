@@ -122,3 +122,8 @@
 @media (max-width: 480px) {
   .dupGroup { flex-direction: column; align-items: stretch; }
 }
+
+/* Family tree launcher in the contact pop-up */
+.familyTreeBtn { display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; padding: 0.6rem 0.8rem; border: 1px solid var(--color-accent); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-accent); font: inherit; font-size: 0.88rem; font-weight: 700; cursor: pointer; }
+.familyTreeBtn:hover { background: var(--color-surface-alt); }
+.familyTreeCount { font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); }

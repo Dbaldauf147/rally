@@ -6,11 +6,15 @@
 // and the year, when there is one, is what puts an age next to the name.
 import { normalizeAnnualDate, formatAnnualDate, annualDateInfo, parseLooseDate, validParts, yearsSince } from './looseDate';
 
+// A kid's photo for the family tree rides on the kid, as the id of a picture in
+// users/{uid}/familyPhotos (lib/familyPhotos.js). Carried through untouched.
+const withPhoto = (k, row) => (k?.photoId ? { ...row, photoId: String(k.photoId) } : row);
+
 // For the editor: dates in the short form people type, never an empty list.
 export function kidsForEditing(kids) {
   const rows = (Array.isArray(kids) ? kids : [])
     .filter((k) => k && typeof k === 'object')
-    .map((k) => ({ name: String(k.name || ''), birthday: formatAnnualDate(k.birthday) || String(k.birthday || '') }));
+    .map((k) => withPhoto(k, { name: String(k.name || ''), birthday: formatAnnualDate(k.birthday) || String(k.birthday || '') }));
   return rows.length > 0 ? rows : [{ name: '', birthday: '' }];
 }
 
@@ -18,7 +22,7 @@ export function kidsForEditing(kids) {
 // one), and a date that won't parse is cleared rather than stored half-read.
 export function kidsForSaving(kids) {
   return (Array.isArray(kids) ? kids : [])
-    .map((k) => ({ name: String(k?.name || '').trim(), birthday: normalizeAnnualDate(k?.birthday) }))
+    .map((k) => withPhoto(k, { name: String(k?.name || '').trim(), birthday: normalizeAnnualDate(k?.birthday) }))
     .filter((k) => k.name);
 }
 

@@ -39,9 +39,11 @@ function loadImage(file) {
   });
 }
 
-export async function shrinkImage(file) {
+// `maxSide` and `maxChars` default to what a Doctors picture needs; a family
+// tree face asks for far less (lib/familyPhotos.js).
+export async function shrinkImage(file, maxSide = MAX_SIDE, maxChars = MAX_DATA_URL) {
   const img = await loadImage(file);
-  let { width, height } = fitWithin(img.naturalWidth, img.naturalHeight);
+  let { width, height } = fitWithin(img.naturalWidth, img.naturalHeight, maxSide);
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -53,7 +55,7 @@ export async function shrinkImage(file) {
     ctx.drawImage(img, 0, 0, width, height);
     for (const quality of [0.85, 0.72, 0.6]) {
       const data = canvas.toDataURL('image/jpeg', quality);
-      if (data.length <= MAX_DATA_URL) return { data, width, height };
+      if (data.length <= maxChars) return { data, width, height };
     }
     ({ width, height } = fitWithin(width, height, Math.round(Math.max(width, height) * 0.75)));
   }

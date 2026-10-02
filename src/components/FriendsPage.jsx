@@ -30,6 +30,9 @@ import { groupTokens, bucketByGroup } from '../lib/peopleGroups';
 import { kidsForEditing, kidsForSaving, kidLabel, kidAgeLabel } from '../lib/friendKids';
 import { findDuplicateGroups, mergeFriends, repointFriendIds } from '../lib/friendMerge';
 import { DuplicatesModal, MergeModal } from './MergeContacts';
+import { FamilyTreeModal } from './FamilyTree';
+import { normalizeFamilyTree, treePhotoIds } from '../lib/familyTree';
+import { deleteFamilyPhoto } from '../lib/familyPhotos';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -1039,7 +1042,10 @@ export function FriendsPage() {
 
   async function removeFriend(id) {
     if (!user) return;
+    const gone = friends.find(f => f.id === id);
     await deleteDoc(doc(db, 'users', user.uid, 'friends', id));
+    // The family tree's photos are their own docs; they go with the contact.
+    for (const pid of treePhotoIds(gone?.familyTree, gone?.kids)) deleteFamilyPhoto(user.uid, pid);
   }
 
   // Drag-and-drop tier assignment on the Tiers sub-tab. '' clears the tier.
@@ -1067,6 +1073,7 @@ export function FriendsPage() {
       dob: normalizeDob(friend.dob),
       anniversary: formatAnnualDate(friend.anniversary),
       kids: kidsForEditing(friend.kids),
+      familyTree: normalizeFamilyTree(friend.familyTree),
       notes: friend.notes || '',
       linkedTo: friend.linkedTo || '',
       giftIdeas: Array.isArray(friend.giftIdeas) ? friend.giftIdeas : [],
@@ -1107,7 +1114,11 @@ export function FriendsPage() {
       custom: cleanCustomValues(coerceCustomMap(customFields, editFields.custom)),
       createdAt: editFriend.createdAt || new Date().toISOString(),
     };
-    await setDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), nextFields);
+    // Written over the contact as it stands now, not replacing it: fields this
+    // form doesn't edit — the tier from the Tiers tab, anything an event wrote
+    // back — used to be wiped by every save.
+    const { id: _ignoredId, ...stored } = friends.find(f => f.id === editFriend.id) || editFriend;
+    await setDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), { ...stored, ...nextFields });
 
     // Propagate name/email/phone to any event where this person is a member.
     // Match by the PREVIOUS identity (what the event record currently stores) —
@@ -1289,6 +1300,24 @@ export function FriendsPage() {
     setSelectedIds(new Set());
     setResult({ type: 'success', message: `Merged ${others.length + 1} contacts into ${merged.name || 'one'}` });
     setTimeout(() => setResult(null), 3000);
+  }
+
+  // The family tree writes as it goes — a photo is uploaded the moment it's
+  // picked — so its changes are saved straight away, and copied into the open
+  // form so Save Changes doesn't put the old tree back.
+  async function saveFamilyTree({ tree, kids }) {
+    if (!user || !editFriend) return;
+    const familyTree = normalizeFamilyTree(tree);
+    const savedKids = kidsForSaving(kids);
+    await updateDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), { familyTree, kids: savedKids });
+    setEditFields(prev => ({ ...prev, familyTree, kids: kidsForEditing(savedKids) }));
+  }
+  // The partner the tree shows: the "comes with" contact, either way round,
+  // else whatever's typed in Guest.
+  function partnerNameFor(f) {
+    const linked = (f.linkedTo && friends.find(x => x.id === f.linkedTo))
+      || friends.find(x => x.linkedTo && x.linkedTo === editFriend?.id);
+    return linked?.name || (f.guest || '').trim();
   }
 
   async function bulkDelete() {
@@ -1658,6 +1687,7 @@ export function FriendsPage() {
   // duplicates list is open.
   const [merging, setMerging] = useState(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
+  const [showFamilyTree, setShowFamilyTree] = useState(false);
   const [showBulkAction, setShowBulkAction] = useState(null); // null | 'delete' | 'group' | 'tag'
   const [bulkValue, setBulkValue] = useState('');
   const [showAddToTrip, setShowAddToTrip] = useState(false);
@@ -2483,9 +2513,22 @@ export function FriendsPage() {
         />
       )}
 
+      {editFriend && showFamilyTree && (
+        <FamilyTreeModal
+          uid={user.uid}
+          friendId={editFriend.id}
+          name={editFields.name}
+          partnerName={partnerNameFor(editFields)}
+          tree={editFields.familyTree}
+          kids={kidsForSaving(editFields.kids)}
+          onChange={saveFamilyTree}
+          onClose={() => setShowFamilyTree(false)}
+        />
+      )}
+
       {/* Edit contact modal */}
       {editFriend && (
-        <div className={styles.overlay} onClick={() => setEditFriend(null)}>
+        <div className={styles.overlay} onClick={() => { setEditFriend(null); setShowFamilyTree(false); }}>
           <div className={`${styles.modal} ${styles.modalWide}`} onClick={e => e.stopPropagation()}>
             <h2 className={styles.modalTitle}>Edit Contact</h2>
             <form onSubmit={handleSaveEdit} className={styles.form}>
@@ -2507,6 +2550,10 @@ export function FriendsPage() {
               <label className={styles.label}>Date of Birth<DateField className={styles.input} value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
               <label className={styles.label}><span>Anniversary<YearsNote value={editFields.anniversary} /></span><input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
               <div className={styles.label}>Kids<KidsEditor value={editFields.kids} onChange={v => editSet('kids', v)} /></div>
+              <button type="button" className={styles.familyTreeBtn} onClick={() => setShowFamilyTree(true)}>
+                👪 Family tree
+                {(editFields.familyTree?.people?.length || 0) > 0 && <span className={styles.familyTreeCount}>{editFields.familyTree.people.length} more</span>}
+              </button>
               <label className={styles.label}>Tags<TagPicker value={editFields.tag || ''} onChange={v => editSet('tag', v)} options={allTags} /></label>
               <ComesWithPicker
                 friends={friends}
