@@ -65,6 +65,18 @@ service cloud.firestore {
           && request.resource.data.data.size() <= 900000
           && request.resource.data.entryId is string;
       }
+
+      // Photos of the people in a friend's family tree (src/lib/familyPhotos.js).
+      // Owner only, and a small JPEG data URL — the browser shrinks a face to
+      // 480px before saving, well under this cap.
+      match /familyPhotos/{photoId} {
+        allow read, delete: if request.auth != null && request.auth.uid == userId;
+        allow create, update: if request.auth != null && request.auth.uid == userId
+          && request.resource.data.data is string
+          && request.resource.data.data.matches('^data:image/jpeg;base64,.*')
+          && request.resource.data.data.size() <= 200000
+          && request.resource.data.friendId is string;
+      }
     }
   }
 }

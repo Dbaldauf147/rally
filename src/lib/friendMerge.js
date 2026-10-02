@@ -33,7 +33,7 @@ export const SCALAR_FIELDS = [
   { key: 'tier', label: 'Tier' },
   { key: 'linkedTo', label: 'Comes with' },
 ];
-const LIST_KEYS = new Set(['tag', 'addresses', 'address', 'giftIdeas', 'kids', 'notes', 'profile', 'custom', 'createdAt', 'id']);
+const LIST_KEYS = new Set(['tag', 'addresses', 'address', 'giftIdeas', 'kids', 'notes', 'profile', 'familyTree', 'custom', 'createdAt', 'id']);
 
 /* Groups of contacts that look like the same person: the same email (personal
  * or work), the same phone number (last ten digits), or the same name once case
@@ -183,14 +183,28 @@ export function mergeFriends(primary, others, choices = {}) {
     const name = clean(k?.name);
     if (!name) continue;
     const have = kids.find((x) => x.name.toLowerCase() === name.toLowerCase());
-    if (!have) kids.push({ name, birthday: clean(k.birthday) });
-    else if (!have.birthday && clean(k.birthday)) have.birthday = clean(k.birthday);
+    if (!have) kids.push({ name, birthday: clean(k.birthday), ...(clean(k.photoId) ? { photoId: clean(k.photoId) } : {}) });
+    else {
+      if (!have.birthday && clean(k.birthday)) have.birthday = clean(k.birthday);
+      if (!have.photoId && clean(k.photoId)) have.photoId = clean(k.photoId);
+    }
   }
   out.kids = kids;
 
   out.notes = unionBy(all.map((f) => [clean(f.notes)]), (n) => n.toLowerCase()).join('\n\n');
 
   out.profile = mergeProfiles(all.map((f) => f.profile));
+
+  // Family trees: everyone from every tree, once by name and relation; the
+  // kept contact's own and partner photos, else the first a duplicate had.
+  const trees = all.map((f) => (f.familyTree && typeof f.familyTree === 'object' ? f.familyTree : null)).filter(Boolean);
+  if (trees.length) {
+    out.familyTree = {
+      selfPhoto: trees.map((t) => clean(t.selfPhoto)).find(Boolean) || '',
+      partnerPhoto: trees.map((t) => clean(t.partnerPhoto)).find(Boolean) || '',
+      people: unionBy(trees.map((t) => (Array.isArray(t.people) ? t.people : [])), (p) => `${clean(p?.relation)}|${clean(p?.name).toLowerCase()}`),
+    };
+  }
 
   const custom = {};
   for (const f of [...all].reverse()) {
