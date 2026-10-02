@@ -319,7 +319,7 @@ function seedTravelList() {
   tagItemsBySection(sections);
   return {
     sections,
-    meta: { leaveDate: '', returnDate: '', eventId: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true, hiddenCats: [], tripNotes: [] },
+    meta: { leaveDate: '', returnDate: '', eventId: '', days: '', dayBeforeAdded: true, dayBeforeFronted: true, boatMovedUp: true, categories: DEFAULT_CATEGORIES.slice(), categoriesMigrated: true, hiddenCats: [], hideChecked: false, tripNotes: [] },
   };
 }
 
@@ -420,6 +420,9 @@ function normalizeList(raw) {
       categories,
       categoriesMigrated,
       hiddenCats,
+      // "Hide checked" — kept with the list like hiddenCats, so it holds on
+      // every device.
+      hideChecked: !!raw.meta?.hideChecked,
       tripNotes,
     },
   };
@@ -502,6 +505,16 @@ export function TravelListPage() {
   const shownItems = (section) => section.items.filter((it) => !isHidden(it));
   const hasContent = (items) => items.some((it) => !it.isHeader);
   const sectionShows = (s) => !hasContent(s.items) || hasContent(shownItems(s));
+  /* Hide checked: a ticked item drops out of view, and so does an item whose
+     sub-items are all ticked, a ticked sub-item, and a ticked trip bullet. It
+     only hides — the counts and "Ready to Go!" still read the whole list — and
+     a list open for editing shows everything, so nothing is out of reach. */
+  const hideChecked = !!list.meta?.hideChecked;
+  const isDone = (it) => !it.isHeader && (it.children?.length ? it.children.every((c) => c.checked) : !!it.checked);
+  function toggleHideChecked() {
+    updateList((l) => ({ ...l, meta: { ...l.meta, hideChecked: !l.meta.hideChecked } }));
+  }
+
   function toggleCat(name) {
     updateList((l) => {
       const cur = l.meta.hiddenCats || [];
@@ -1097,6 +1110,7 @@ export function TravelListPage() {
   // leave an empty column on the right — and since the same test decides what
   // renders, a slot can't be handed to a list that then draws nothing.
   const renderableSections = list.sections.filter(sectionShows);
+  const checkedCount = countLeaves(list.sections).done + tripNotes.filter((n) => n.checked).length;
   // Distribute lists into columns, greedily placing each into the currently
   // shortest column (estimated by leaf count) so column bottoms stay roughly
   // even and the full width is used.
@@ -1181,6 +1195,12 @@ export function TravelListPage() {
       <div className={styles.toolbar}>
         <button className={styles.btn} onClick={() => { setAllChecked(true); setAllCats(false); }}>Check all</button>
         <button className={styles.btn} onClick={() => { setAllChecked(false); setAllCats(true); }}>Uncheck all</button>
+        <button
+          className={[styles.btn, hideChecked ? styles.btnActive : ''].filter(Boolean).join(' ')}
+          onClick={toggleHideChecked}
+          aria-pressed={hideChecked}
+          title={hideChecked ? 'Show the checked-off items again' : 'Hide everything that’s checked off'}
+        >{hideChecked ? `Show checked (${checkedCount})` : 'Hide checked'}</button>
         <button className={styles.btn} onClick={addSection}>+ Add list</button>
       </div>
 
@@ -1223,7 +1243,7 @@ export function TravelListPage() {
           </p>
         ) : (
           <ul className={styles.tripList}>
-            {tripNotes.map((note) => (
+            {tripNotes.filter((note) => !(hideChecked && note.checked)).map((note) => (
               <li key={note.id} className={styles.tripItem}>
                 <input
                   type="checkbox"
@@ -1287,6 +1307,7 @@ export function TravelListPage() {
         // Items whose category is toggled off are out. The list itself was
         // already tested by renderableSections above, so it stays.
         const visibleItems = shownItems(section);
+        const hidingDone = hideChecked && !editingSections.has(section.id);
         // Headers the toggles have emptied, which go the same way their items
         // did. Counted over the unfiltered items so a header with nothing under
         // it in the first place isn't caught — see sectionShows above.
@@ -1300,7 +1321,7 @@ export function TravelListPage() {
             if (it.isHeader) { decide(); header = it.id; under = 0; left = 0; continue; }
             if (!header) continue;
             under += 1;
-            if (!isHidden(it)) left += 1;
+            if (!isHidden(it) && !(hidingDone && isDone(it))) left += 1;
           }
           decide();
         }
@@ -1396,6 +1417,7 @@ export function TravelListPage() {
               <div className={styles.sectionBody}>
                 {visibleItems.map((item, iIdx) => {
                   if (!item.isHeader && hiddenItemIds.has(item.id)) return null; // inside a collapsed header
+                  if (hidingDone && isDone(item)) return null; // checked off, and Hide checked is on
                   if (item.isHeader && emptiedHeaders.has(item.id)) return null; // its items are all switched off
                   const hasChildren = item.children && item.children.length > 0;
                   return (
@@ -1530,7 +1552,7 @@ export function TravelListPage() {
                         </label>
                       )}
 
-                      {item.children && item.children.map((child) => (
+                      {item.children && item.children.filter((child) => !(hidingDone && child.checked)).map((child) => (
                         editMode ? (
                           <div key={child.id} className={`${styles.editRow} ${styles.editRowChild}`}>
                             <div className={styles.editFields}>
