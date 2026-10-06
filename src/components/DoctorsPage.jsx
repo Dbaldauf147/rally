@@ -156,7 +156,7 @@ const NEW_TYPE = ' new';
 const CELL_FIELDS = {
   name: ['doctor', 'place'],
   issue: ['issue', 'notes'],
-  meds: ['currentMeds', 'previousMeds'],
+  meds: ['currentMeds'], // + the previous-meds list, see PastMedsEditor
   cadence: ['cadence'],
   notes: ['notes'],
 };
@@ -197,6 +197,56 @@ function CellInput({ value, field, autoFocus, onCommit }) {
       onBlur={(e) => onCommit({ [field.key]: e.target.value })}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
     />
+  );
+}
+
+/* Previous meds, as a list: a name and a note per med, a row each, as many as
+   it took. Kept in local state while you type and handed back whole on blur,
+   like the other fields here — and a row with no name yet stays local until it
+   gets one, so "+ Add" doesn't save an empty med. */
+function PastMedsEditor({ meds, onCommit, autoFocus = false }) {
+  const [rows, setRows] = useState(() => (meds.length ? meds.map((m) => ({ ...m })) : []));
+  const commit = (next = rows) => onCommit(next.filter((r) => r.name.trim()).map((r) => ({ id: r.id, name: r.name.trim(), note: r.note.trim() })));
+  const set = (i, patch) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  // Focus stays in the cell after a row goes — on the add button — or the
+  // cell, which closes when focus leaves it, would be left open with nothing
+  // focused and no blur ever coming to close it.
+  const addRef = useRef(null);
+  const remove = (i) => { const next = rows.filter((_, j) => j !== i); setRows(next); commit(next); addRef.current?.focus(); };
+  return (
+    <div className={styles.pastMeds}>
+      <div className={styles.pastMedsHead}><span>Previous meds</span><span>Notes</span></div>
+      {rows.map((r, i) => (
+        <div key={r.id || i} className={styles.pastMedRow}>
+          <input
+            className={styles.cellInput}
+            value={r.name}
+            placeholder="Med"
+            aria-label={`Previous med ${i + 1}`}
+            autoFocus={autoFocus && i === rows.length - 1 && !r.name}
+            onChange={(e) => set(i, { name: e.target.value })}
+            onBlur={() => commit()}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+          />
+          <input
+            className={styles.cellInput}
+            value={r.note}
+            placeholder="How it went"
+            aria-label={`Note for previous med ${i + 1}`}
+            onChange={(e) => set(i, { note: e.target.value })}
+            onBlur={() => commit()}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+          />
+          <button type="button" className={styles.pastMedRemove} onClick={() => remove(i)} aria-label={`Remove previous med ${i + 1}`} title="Remove">×</button>
+        </div>
+      ))}
+      <button
+        ref={addRef}
+        type="button"
+        className={styles.pastMedAdd}
+        onClick={() => setRows((rs) => [...rs, { id: makeId(), name: '', note: '' }])}
+      >+ Add previous med</button>
+    </div>
   );
 }
 
@@ -2362,6 +2412,9 @@ function RecordCard({ entry, groupType, daysFrom, showStatus, onOpen, onOpenImag
         )}
         {issue ? <span className={styles.recIssue}>{issue}</span> : null}
         {entry.currentMeds ? <span className={styles.recLine}><span className={styles.recKey}>Meds</span>{entry.currentMeds}</span> : null}
+        {entry.pastMeds.map((m) => (
+          <span key={m.id} className={styles.recLine}><span className={styles.recKey}>Was</span>{m.name}{m.note ? ` — ${m.note}` : ''}</span>
+        ))}
         {entry.notes ? <span className={styles.recNotes}>{entry.notes}</span> : null}
         {(next || counted || entry.cadence) && (
           <span className={styles.recChips}>
@@ -2545,7 +2598,13 @@ function RecordSheet({ uid, entry, list, daysFrom, update, onClose, onDelete, on
         <div className={styles.sheetSection}>What for</div>
         {field('issue', { placeholder: "What it's for" })}
         {field('currentMeds')}
-        {field('previousMeds')}
+        <div className={styles.sheetField}>
+          <PastMedsEditor
+            key={`${entry.id}:pastMeds:${entry.pastMeds.map((m) => m.id).join(',')}`}
+            meds={entry.pastMeds}
+            onCommit={(pastMeds) => update((l) => updateEntry(l, entry.id, { pastMeds }))}
+          />
+        </div>
         {field('notes')}
 
         <div className={styles.sheetSection}>Reaching them</div>
@@ -2643,7 +2702,7 @@ function formerLabel(former, type) {
   return former.length > 1 ? `Was: ${name} +${former.length - 1}` : `Was: ${name}`;
 }
 
-function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onHoldBack, onOpenImages, onOpenContact, onOpenType, onNewDoctor, former, onOpenFormer }) {
+function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpenCell, onCloseCell, onCommit, onCommitCustom, onDelete, onHoldBack, onOpenImages, onOpenContact, onOpenType, onNewDoctor, former, onOpenFormer, medRows = false }) {
   const subtitle = entrySubtitle(entry, groupType);
   const issue = issueCell(entry, groupType);
   // Once for the row: the Overdue column, the Next visit column and the row's
@@ -2676,6 +2735,7 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
           onCommit={onCommit}
         />
       ))}
+      {col === 'meds' && <PastMedsEditor meds={entry.pastMeds} onCommit={(pastMeds) => onCommit({ pastMeds })} />}
     </Cell>
   );
 
@@ -2734,10 +2794,14 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
         </>
       ));
       case 'notes': return cell('notes', styles.cellNotes, col.label, entry.notes || null);
+      // With the previous meds on rows of their own (Issues), this is just the
+      // current ones; elsewhere they follow underneath, a line each.
       case 'meds': return cell('meds', styles.cellMeds, col.label, (
         <>
           {entry.currentMeds ? <div>{entry.currentMeds}</div> : null}
-          {entry.previousMeds ? <div className={styles.muted}>Was: {entry.previousMeds}</div> : null}
+          {!medRows && entry.pastMeds.map((m) => (
+            <div key={m.id} className={styles.muted}>Was: {m.name}{m.note ? ` — ${m.note}` : ''}</div>
+          ))}
         </>
       ));
       case 'cadence': return cell('cadence', styles.cellCadence, col.label, entry.cadence || null);
@@ -2830,7 +2894,39 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
   const rowClass = [styles.row, resolved && styles.rowResolved, scheduled && styles.rowScheduled]
     .filter(Boolean).join(' ');
 
+  /* Issues: each previous med on a row of its own under the record, its name
+     in the Meds column and its note in the next column over (Notes, when it's
+     showing; beside the name when it isn't). Clicking either opens the Meds
+     cell above, which is where they're edited. */
+  const hasNotesCol = columns.some((c) => c.key === 'notes');
+  const medSubRows = medRows && columns.some((c) => c.key === 'meds')
+    ? entry.pastMeds.map((m) => (
+      <tr key={`pm-${m.id}`} className={`${rowClass} ${styles.pastMedSubRow}`}>
+        {columns.map((col) => {
+          if (col.key === 'meds') {
+            return (
+              <td key={col.key} className={styles.cellMeds} title="Click to edit the previous meds" onClick={() => onOpenCell('meds')}>
+                <span className={styles.pastMedWas}>Was: {m.name}</span>
+                {!hasNotesCol && m.note ? <span className={styles.muted}> — {m.note}</span> : null}
+              </td>
+            );
+          }
+          if (col.key === 'notes') {
+            return (
+              <td key={col.key} className={styles.cellNotes} title="Click to edit the previous meds" onClick={() => onOpenCell('meds')}>
+                {m.note ? <span className={styles.pastMedNote}>{m.note}</span> : null}
+              </td>
+            );
+          }
+          return <td key={col.key} className={styles.pastMedBlank} />;
+        })}
+        <td className={styles.cellEdit} />
+      </tr>
+    ))
+    : null;
+
   return (
+    <>
     <tr className={rowClass}>
       {columns.map((col) => (
         col.kind === 'custom' ? (
@@ -2868,6 +2964,8 @@ function EntryRow({ entry, groupType, types, columns, daysFrom, openCell, onOpen
         >{onHoldBack ? '\u{1F5D1}' : '\u00D7'}</button>
       </td>
     </tr>
+    {medSubRows}
+    </>
   );
 }
 
@@ -3382,6 +3480,7 @@ export function DoctorsPage() {
                     onNewDoctor={lane === 'checkins' && entry.type ? () => handleNewDoctor(entry) : null}
                     former={lane === 'checkins' ? formerFor(entry.type) : null}
                     onOpenFormer={() => openFormer(entry.type)}
+                    medRows={lane === 'issues'}
                   />
                 ))}
               </tbody>
