@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import styles from './GroupPicker.module.css';
-import { groupTokens, toggleGroup, groupOptions } from '../lib/peopleGroups';
+import { groupTokens, toggleGroup, groupOptions, removeGroup, groupUsage } from '../lib/peopleGroups';
 
 /* A contact's groups as a dropdown: the chosen ones show as chips on the
- * button; open it to tick any number of the groups already in use, or type a
- * new one at the bottom. `value` stays the comma-separated string the rest of
- * Rally reads ("Family, College"); `options` is every contact's group value. */
-export function GroupPicker({ value, onChange, options = [], id }) {
+ * button; open it to tick any number of the groups already in use, type a new
+ * one at the bottom, or delete a group outright. `value` stays the
+ * comma-separated string the rest of Rally reads ("Family, College");
+ * `options` is every contact's group value. `onDeleteGroup(name)` takes the
+ * group off every contact — without it, no delete buttons show. */
+export function GroupPicker({ value, onChange, options = [], id, onDeleteGroup }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const ref = useRef(null);
@@ -22,6 +24,23 @@ export function GroupPicker({ value, onChange, options = [], id }) {
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
   }, [open]);
+
+  const [deleting, setDeleting] = useState('');
+  async function deleteGroup(g) {
+    const n = groupUsage(options, g);
+    const who = n === 0 ? 'No contacts have it yet.' : `It will be removed from ${n} contact${n === 1 ? '' : 's'}.`;
+    if (!window.confirm(`Delete the group “${g}”? ${who}`)) return;
+    setDeleting(g);
+    try {
+      await onDeleteGroup(g);
+      // This form's copy too, or saving it would put the group back.
+      onChange(removeGroup(value, g));
+    } catch (err) {
+      window.alert(`Couldn't delete “${g}”: ${err.message || err}`);
+    } finally {
+      setDeleting('');
+    }
+  }
 
   function addNew() {
     const n = draft.trim();
@@ -58,10 +77,22 @@ export function GroupPicker({ value, onChange, options = [], id }) {
           ) : (
             <div className={styles.list}>
               {all.map((g) => (
-                <label key={g} className={styles.option}>
-                  <input type="checkbox" checked={isOn(g)} onChange={() => onChange(toggleGroup(value, g))} />
-                  <span>{g}</span>
-                </label>
+                <div key={g} className={styles.optionRow}>
+                  <label className={styles.option}>
+                    <input type="checkbox" checked={isOn(g)} onChange={() => onChange(toggleGroup(value, g))} />
+                    <span>{g}</span>
+                  </label>
+                  {onDeleteGroup && (
+                    <button
+                      type="button"
+                      className={styles.deleteBtn}
+                      onClick={() => deleteGroup(g)}
+                      disabled={!!deleting}
+                      title={`Delete “${g}” from every contact`}
+                      aria-label={`Delete group ${g}`}
+                    >{deleting === g ? '…' : '🗑'}</button>
+                  )}
+                </div>
               ))}
             </div>
           )}

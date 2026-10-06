@@ -19,6 +19,18 @@ export function toggleGroup(value, name) {
   return (has ? tokens.filter(t => t.toLowerCase() !== n.toLowerCase()) : [...tokens, n]).join(', ');
 }
 
+// A group taken out of the list, matched without regard to case.
+export function removeGroup(value, name) {
+  const n = String(name || '').trim().toLowerCase();
+  return groupTokens(value).filter(t => t.toLowerCase() !== n).join(', ');
+}
+
+// How many of `values` (each a contact's group string) carry the group.
+export function groupUsage(values, name) {
+  const n = String(name || '').trim().toLowerCase();
+  return values.filter(v => groupTokens(v).some(t => t.toLowerCase() === n)).length;
+}
+
 // Every group to offer in a picker: the ones in use across `values`, plus any
 // already on this contact, once each (first spelling wins), A–Z.
 export function groupOptions(values, current = '') {
