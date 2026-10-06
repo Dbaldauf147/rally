@@ -127,9 +127,10 @@ describe('send dates', () => {
     expect(pollSendDue(r, at('2026-10-20'))).toBe(true);
     expect(pollSendDue({ ...r, pollSentAt: 'x' }, at('2026-10-21'))).toBe(false);
     expect(pollSendDue({ ...r, cancelled: true }, at('2026-10-21'))).toBe(false);
-    // The next round goes by the schedule, finalized or not.
-    expect(nextRoundDue(r, at('2026-11-19'))).toBe(false);
-    expect(nextRoundDue(r, at('2026-11-20'))).toBe(true);
+    // The next round goes by the schedule, finalized or not — opening a week
+    // before its send date, for the organizer's heads-up.
+    expect(nextRoundDue(r, at('2026-11-12'))).toBe(false);
+    expect(nextRoundDue(r, at('2026-11-13'))).toBe(true);
     expect(nextRoundDue({ ...r, nextRoundId: 'n' }, at('2026-11-20'))).toBe(false);
   });
 
@@ -142,5 +143,19 @@ describe('send dates', () => {
     expect(doc.targetMonth).toBeUndefined();
     expect(seedOptionsInRange([{ startDate: '2026-10-24', endDate: '2026-10-24' }], window).map((o) => o.startDate))
       .toEqual(['2026-11-28', '2026-12-05', '2026-12-12', '2026-12-19', '2026-12-26']);
+  });
+});
+
+describe('the organizer’s heads-up', () => {
+  it('is due a week before the send date, once, and never after the guests’ email', async () => {
+    const { pollPreviewDue, previewDate } = await import('./pollSeries');
+    const r = { pollSeries: { everyMonths: 1 }, pollSendDate: '2026-10-20' };
+    expect(previewDate('2026-10-20')).toBe('2026-10-13');
+    expect(pollPreviewDue(r, at('2026-10-12'))).toBe(false);
+    expect(pollPreviewDue(r, at('2026-10-13'))).toBe(true);
+    expect(pollPreviewDue(r, at('2026-10-19'))).toBe(true); // a late-scheduled round still gets one
+    expect(pollPreviewDue({ ...r, pollPreviewSentAt: 'x' }, at('2026-10-14'))).toBe(false);
+    expect(pollPreviewDue({ ...r, pollSentAt: 'x' }, at('2026-10-14'))).toBe(false);
+    expect(pollPreviewDue({ ...r, cancelled: true }, at('2026-10-14'))).toBe(false);
   });
 });
