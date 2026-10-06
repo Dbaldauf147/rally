@@ -2395,3 +2395,34 @@ describe('siblingRecords', () => {
     expect(checkInEntries(after, new Date(2026, 8, 21)).map((e) => e.id)).toEqual(['urgent']);
   });
 });
+
+describe('previous meds, each with a note', () => {
+  it('reads the old single field as the first one', async () => {
+    const { normalizeEntry } = await import('./doctors');
+    const e = normalizeEntry({ id: 'a', issue: 'Eczema', previousMeds: ' Hydrocortisone ' });
+    expect(e.pastMeds).toEqual([{ id: expect.any(String), name: 'Hydrocortisone', note: '' }]);
+    expect(e.previousMeds).toBe('Hydrocortisone');
+    expect(normalizeEntry({ id: 'b' }).pastMeds).toEqual([]);
+  });
+
+  it('keeps the list once there is one, and rewrites the old field from it', async () => {
+    const { normalizeEntry, updateEntry, normalizeList } = await import('./doctors');
+    const e = normalizeEntry({
+      id: 'a', previousMeds: 'stale text',
+      pastMeds: [{ id: 'm1', name: 'Hydrocortisone', note: 'Thinned the skin' }, { id: 'm2', name: ' Prednisone ', note: '' }, { id: 'm3', name: '  ', note: 'orphan note' }],
+    });
+    expect(e.pastMeds).toEqual([{ id: 'm1', name: 'Hydrocortisone', note: 'Thinned the skin' }, { id: 'm2', name: 'Prednisone', note: '' }]);
+    expect(e.previousMeds).toBe('Hydrocortisone, Prednisone');
+    // Emptying the list empties the old field too — it doesn't come back.
+    const list = normalizeList({ entries: [e] });
+    const cleared = updateEntry(list, 'a', { pastMeds: [] }).entries[0];
+    expect(cleared.pastMeds).toEqual([]);
+    expect(cleared.previousMeds).toBe('');
+  });
+
+  it('is searchable by name', async () => {
+    const { normalizeEntry, matchesQuery } = await import('./doctors');
+    const e = normalizeEntry({ id: 'a', issue: 'Eczema', pastMeds: [{ name: 'Prednisone', note: '' }] });
+    expect(matchesQuery(e, 'predni')).toBe(true);
+  });
+});

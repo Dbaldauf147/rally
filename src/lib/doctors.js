@@ -249,9 +249,31 @@ export function nextVisit(lastValue, cadence, today = new Date()) {
 
    Missing beats absent here: the form binds an input per field, and a record
    whose `notes` is undefined would make that input uncontrolled and warn. */
+/* Previous meds: what was tried before, each with its own note — "made it
+   worse", "stopped, too expensive". A list, because a complaint that has been
+   around a while has usually been through more than one.
+
+   It used to be one free-text field, `previousMeds`. A record that has never
+   had the list reads that text as its first entry, so nothing typed there is
+   lost; once the list exists it is the truth, and `previousMeds` is rewritten
+   from it (the names, comma-separated) so search and every surface that still
+   reads the old field keep finding them. */
+export function normalizePastMeds(raw, legacy = '') {
+  if (!Array.isArray(raw)) {
+    const text = String(legacy ?? '').trim();
+    return text ? [{ id: makeId(), name: text, note: '' }] : [];
+  }
+  return raw
+    .filter((m) => m && typeof m === 'object')
+    .map((m) => ({ id: String(m.id || makeId()), name: String(m.name ?? '').trim(), note: String(m.note ?? '').trim() }))
+    .filter((m) => m.name);
+}
+
 export function normalizeEntry(raw) {
   const out = { id: String(raw?.id || makeId()) };
   FIELD_KEYS.forEach((k) => { out[k] = String(raw?.[k] ?? '').trim(); });
+  out.pastMeds = normalizePastMeds(raw?.pastMeds, raw?.previousMeds);
+  out.previousMeds = out.pastMeds.map((m) => m.name).join(', ');
   out.status = parseStatus(raw?.status);
   // Appointments off the calendar this record has been matched to. See the
   // appointments section below for why they're stored rather than re-fetched.
