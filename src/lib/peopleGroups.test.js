@@ -53,3 +53,18 @@ describe('eventGroupsOf', () => {
     expect(eventGroupsOf({}, undefined, null, undefined)).toEqual([]);
   });
 });
+
+describe('group picker helpers', () => {
+  it('toggles a group on and off, ignoring case', async () => {
+    const { toggleGroup } = await import('./peopleGroups');
+    expect(toggleGroup('Family, College', 'Work')).toBe('Family, College, Work');
+    expect(toggleGroup('Family, College', 'college')).toBe('Family');
+    expect(toggleGroup('', 'Family')).toBe('Family');
+    expect(toggleGroup('Family', 'Book, club')).toBe('Family, Book club');
+    expect(toggleGroup('Family', '  ')).toBe('Family');
+  });
+  it('offers every group in use once, A–Z, including this contact’s own', async () => {
+    const { groupOptions } = await import('./peopleGroups');
+    expect(groupOptions(['Family, College', 'college', 'Work'], 'Neighbors')).toEqual(['College', 'Family', 'Neighbors', 'Work']);
+  });
+});

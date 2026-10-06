@@ -31,6 +31,7 @@ import { kidsForEditing, kidsForSaving, kidLabel, kidAgeLabel } from '../lib/fri
 import { findDuplicateGroups, mergeFriends, repointFriendIds } from '../lib/friendMerge';
 import { DuplicatesModal, MergeModal } from './MergeContacts';
 import { FamilyTreeModal } from './FamilyTree';
+import { GroupPicker } from './GroupPicker';
 import { normalizeFamilyTree, treePhotoIds } from '../lib/familyTree';
 import { deleteFamilyPhoto } from '../lib/familyPhotos';
 
@@ -2426,15 +2427,12 @@ export function FriendsPage() {
                 Phone
                 <input className={styles.input} type="tel" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="(555) 123-4567" />
               </label>
-              <label className={styles.label}>
-                Group
-                <input className={styles.input} value={newGroup} onChange={e => setNewGroup(e.target.value)} placeholder="Family, Friends, Work..." list="group-options" />
-                {groups.length > 0 && (
-                  <datalist id="group-options">
-                    {groups.map(g => <option key={g} value={g} />)}
-                  </datalist>
-                )}
-              </label>
+              {/* A div, not a label: a label would hand every click inside the
+                  open dropdown to its button and snap it shut. */}
+              <div className={styles.label}>
+                Groups
+                <GroupPicker value={newGroup} onChange={setNewGroup} options={friends.map(f => f.group)} />
+              </div>
               <label className={styles.label}>
                 Work Email
                 <input className={styles.input} type="email" value={newWorkEmail} onChange={e => setNewWorkEmail(e.target.value)} placeholder="work@company.com" />
@@ -2540,10 +2538,9 @@ export function FriendsPage() {
               <label className={styles.label}>Work Email<input className={styles.input} type="email" value={editFields.workEmail} onChange={e => editSet('workEmail', e.target.value)} /></label>
               <label className={styles.label}>Phone<input className={styles.input} type="tel" value={editFields.phone} onChange={e => editSet('phone', e.target.value)} placeholder="(555) 123-4567" /></label>
               <label className={styles.label}>Addresses<AddressListEditor value={editFields.addresses || [{ label: '', value: '' }]} onChange={v => editSet('addresses', v)} /></label>
-              <label className={styles.label}>Group
-                <input className={styles.input} value={editFields.group} onChange={e => editSet('group', e.target.value)} list="edit-group-options" />
-                {groups.length > 0 && <datalist id="edit-group-options">{groups.map(g => <option key={g} value={g} />)}</datalist>}
-              </label>
+              <div className={styles.label}>Groups
+                <GroupPicker value={editFields.group} onChange={v => editSet('group', v)} options={friends.map(f => f.group)} />
+              </div>
               <label className={styles.label}>Guest<input className={styles.input} value={editFields.guest} onChange={e => editSet('guest', e.target.value)} /></label>
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
               <label className={styles.label}>Birthday<input className={styles.input} value={editFields.birthday || ''} onChange={e => editSet('birthday', e.target.value)} onBlur={e => editSet('birthday', fmtBirthday(e.target.value) || e.target.value)} placeholder="M/D — e.g. 7/30" /></label>
