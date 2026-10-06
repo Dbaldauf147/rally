@@ -32,6 +32,7 @@ import { findDuplicateGroups, mergeFriends, repointFriendIds } from '../lib/frie
 import { DuplicatesModal, MergeModal } from './MergeContacts';
 import { FamilyTreeModal } from './FamilyTree';
 import { GroupPicker } from './GroupPicker';
+import { applyColumnFilters, activeColumnFilters } from '../lib/columnFilters';
 import { normalizeFamilyTree, treePhotoIds } from '../lib/familyTree';
 import { deleteFamilyPhoto } from '../lib/familyPhotos';
 
@@ -946,6 +947,9 @@ export function FriendsPage() {
   const [friends, setFriends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // The boxes under the table's column headers: { columnKey: typed text }.
+  const [colFilters, setColFilters] = useState({});
+  const setColFilter = (key, v) => setColFilters(prev => ({ ...prev, [key]: v }));
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [bulkPreview, setBulkPreview] = useState([]);
@@ -1863,6 +1867,30 @@ export function FriendsPage() {
     }
   };
 
+  // What each column shows for a contact, as text — what its header box
+  // matches against, so "7/30" finds a birthday the way it reads in the table.
+  const linkedOf = (f) => (f.linkedTo && friends.find(x => x.id === f.linkedTo)) || friends.find(x => x.linkedTo === f.id) || null;
+  const columnText = (f, key) => {
+    if (key.startsWith('custom:')) {
+      const cf = customFields.find(c => c.id === key.slice(7));
+      return cf ? formatCustomValue(cf, f.custom?.[cf.id]) : '';
+    }
+    switch (key) {
+      case 'name': return f.name || '';
+      case 'email': return [f.email, f.workEmail].filter(Boolean).join(' ');
+      case 'phone': return f.phone || '';
+      case 'group': return groupTokens(f.group).join(', ');
+      case 'guest': return f.guest || '';
+      case 'tags': return (f.tag || '').split(';').map(t => t.trim()).filter(Boolean).join(', ');
+      case 'birthday': return fmtBirthday(effectiveBirthday(f));
+      case 'dob': { const age = ageFromDob(f.dob); return [fmtDob(f.dob), age != null ? String(age) : ''].join(' '); }
+      case 'anniversary': return formatAnnualDate(f.anniversary);
+      case 'kids': return (Array.isArray(f.kids) ? f.kids : []).map(k => kidLabel(k)).join(' ');
+      case 'linked': return linkedOf(f)?.name || '';
+      default: return '';
+    }
+  };
+
   let filtered = friends;
   // Text search
   if (search.trim()) {
@@ -1898,6 +1926,12 @@ export function FriendsPage() {
     const cmp = va < vb ? -1 : va > vb ? 1 : 0;
     return sortDir === 'asc' ? cmp : -cmp;
   });
+  // The column-header boxes narrow it last. What's left before them decides
+  // whether there's a table at all — the boxes live in its header, so it has
+  // to stay put (empty, if need be) while someone types.
+  const beforeColumnFilters = filtered;
+  const columnFiltersOn = activeColumnFilters(colFilters).length > 0;
+  filtered = applyColumnFilters(filtered, colFilters, columnText, ['phone']);
 
   // One contacts table. Drawn once for the whole list, or once per group when
   // the list is split. The header checkbox selects only this table's rows.
@@ -1943,12 +1977,43 @@ export function FriendsPage() {
               ))}
               <th className={styles.thAction} />
             </tr>
+            <tr className={styles.filterRow}>
+              <th className={styles.thCheckbox} />
+              {[
+                ['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['group', 'Group'], ['guest', 'Guest'],
+                ['tags', 'Tags'], ['birthday', 'Birthday'], ['dob', 'Date of birth'], ['anniversary', 'Anniversary'],
+                ['kids', 'Kids'], ['linked', 'Linked'],
+                ...tableCustomFields.map(cf => [`custom:${cf.id}`, cf.label]),
+              ].map(([key, label]) => (
+                <th key={key} className={styles.thFilter}>
+                  <input
+                    className={`${styles.colFilterInput} ${(colFilters[key] || '').trim() ? styles.colFilterOn : ''}`}
+                    value={colFilters[key] || ''}
+                    onChange={e => setColFilter(key, e.target.value)}
+                    placeholder="Filter…"
+                    aria-label={`Filter by ${label}`}
+                  />
+                </th>
+              ))}
+              <th className={styles.thFilter}>
+                {columnFiltersOn && (
+                  <button type="button" className={styles.colFilterClear} onClick={() => setColFilters({})} title="Clear the column filters" aria-label="Clear column filters">×</button>
+                )}
+              </th>
+            </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td className={styles.td} colSpan={13 + tableCustomFields.length} style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: '1rem' }}>
+                  No contacts match the column filters.
+                </td>
+              </tr>
+            )}
             {rows.map(f => {
-              const partner = f.linkedTo ? filtered.find(x => x.id === f.linkedTo) : null;
-              const reversePartner = !partner ? friends.find(x => x.linkedTo === f.id) : null;
-              const linked = partner || reversePartner;
+              // Their partner from the whole list, not just what's showing —
+              // filtering the partner out shouldn't blank the Linked cell.
+              const linked = linkedOf(f);
               const tags = (f.tag || '').split(';').map(t => t.trim()).filter(Boolean);
               const selected = selectedIds.has(f.id);
               const age = ageFromDob(f.dob);
@@ -2309,7 +2374,7 @@ export function FriendsPage() {
       {/* Contact list */}
       {loading ? (
         <p className={styles.loading}>Loading contacts...</p>
-      ) : filtered.length === 0 ? (
+      ) : beforeColumnFilters.length === 0 ? (
         <div className={styles.empty}>
           <div className={styles.emptyIcon}>👥</div>
           <h2 className={styles.emptyTitle}>No contacts yet</h2>
@@ -2320,14 +2385,20 @@ export function FriendsPage() {
           </div>
         </div>
       ) : groupedView ? (
-        bucketByGroup(filtered, f => groupTokens(f.group)).map(b => (
-          <section key={b.label} style={{ marginBottom: '1.25rem' }}>
-            <h3 style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)', margin: '0 0 0.4rem' }}>
-              {b.label} <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>({b.items.length})</span>
-            </h3>
-            {renderContactsTable(b.items)}
-          </section>
-        ))
+        // Bucketed before the column boxes, then narrowed table by table, so a
+        // group whose rows all filter out keeps its table — and the box being
+        // typed in — on screen.
+        bucketByGroup(beforeColumnFilters, f => groupTokens(f.group)).map(b => {
+          const rows = applyColumnFilters(b.items, colFilters, columnText, ['phone']);
+          return (
+            <section key={b.label} style={{ marginBottom: '1.25rem' }}>
+              <h3 style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)', margin: '0 0 0.4rem' }}>
+                {b.label} <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>({columnFiltersOn ? `${rows.length} of ${b.items.length}` : b.items.length})</span>
+              </h3>
+              {renderContactsTable(rows)}
+            </section>
+          );
+        })
       ) : renderContactsTable(filtered)}
       </>)}
 
