@@ -8,6 +8,27 @@ export function groupTokens(value) {
   return String(value || '').split(',').map(g => g.trim()).filter(Boolean);
 }
 
+// Turning one group on or off in that list, matched without regard to case
+// ("family" ticks "Family"), keeping the rest in the order they were added.
+export function toggleGroup(value, name) {
+  // A comma would split the name into two groups, so it becomes a space.
+  const n = String(name || '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!n) return groupTokens(value).join(', ');
+  const tokens = groupTokens(value);
+  const has = tokens.some(t => t.toLowerCase() === n.toLowerCase());
+  return (has ? tokens.filter(t => t.toLowerCase() !== n.toLowerCase()) : [...tokens, n]).join(', ');
+}
+
+// Every group to offer in a picker: the ones in use across `values`, plus any
+// already on this contact, once each (first spelling wins), A–Z.
+export function groupOptions(values, current = '') {
+  const seen = new Map();
+  for (const t of [...values.flatMap(groupTokens), ...groupTokens(current)]) {
+    if (!seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
+
 // → [{ label, items }], groups A–Z with "No group" last. Someone in two groups
 // shows up in both tables — that's what grouping by a multi-valued field means,
 // and hiding them from one would make that group's table look short.
