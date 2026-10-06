@@ -11,7 +11,7 @@ vi.mock('firebase-admin/firestore', () => ({
 }));
 vi.mock('firebase-admin/auth', () => ({ getAuth: vi.fn() }));
 
-const { openNextRound, sendRoundPoll } = await import('./poll-series.js');
+const { openNextRound, sendRoundPoll, sendOwnerPreview } = await import('./poll-series.js');
 
 const applyPatch = (cur, patch) => {
   const out = { ...cur };
@@ -111,31 +111,31 @@ describe('with a send date', () => {
     const send = vi.fn(async ({ to }) => (to === 'sam@x.com' ? { ok: true } : { ok: false, error: 'refused' }));
     expect(await sendRoundPoll(db, 'ev1', new Date('2026-10-19T15:00:00Z'), { send })).toBeNull(); // not yet
     const r = await sendRoundPoll(db, 'ev1', new Date('2026-10-20T15:00:00Z'), { send });
-    expect(r).toMatchObject({ sent: 1, of: 2, failed: [{ to: 'dan@x.com', error: 'refused' }] });
-    expect(send.mock.calls.map(([m]) => m.to)).toEqual(['dan@x.com', 'sam@x.com']);
-    expect(send.mock.calls[1][0].subject).toContain('Dan is picking a date for Game night');
+    expect(r).toMatchObject({ sent: 1, of: 1, failed: [] });
+    // The organizer isn't on it — they had the heads-up.
+    expect(send.mock.calls.map(([m]) => m.to)).toEqual(['sam@x.com']);
+    expect(send.mock.calls[0][0].subject).toContain('Dan is picking a date for Game night');
     const ev = db.docs.get('events/ev1');
     expect(ev.pollSentAt).toBe('2026-10-20T15:00:00.000Z');
-    expect(ev.pollSendResults).toMatchObject({ sent: 1, failed: 1, of: 2 });
+    expect(ev.pollSendResults).toMatchObject({ sent: 1, failed: 0, of: 1 });
     expect(ev.members.g1.emailed).toBe('2026-10-20T15:00:00.000Z');
-    expect(ev.members.u1.emailed).toBeUndefined();
     expect(await sendRoundPoll(db, 'ev1', new Date('2026-10-21T15:00:00Z'), { send })).toBeNull(); // never twice
-    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('Send poll now goes ahead of the date, but not twice', async () => {
     const db = fakeDb({ ev1: scheduled });
     const send = vi.fn(async () => ({ ok: true }));
     const r = await sendRoundPoll(db, 'ev1', new Date('2026-10-06T15:00:00Z'), { force: true, send });
-    expect(r.sent).toBe(2);
+    expect(r.sent).toBe(1);
     expect(await sendRoundPoll(db, 'ev1', new Date('2026-10-06T16:00:00Z'), { force: true, send })).toBeNull();
   });
 
-  it('opens the next round on the next send date, voting or not, seeded over its window', async () => {
+  it('opens the next round a week before its send date, voting or not, seeded over its window', async () => {
     const db = fakeDb({ ev1: scheduled });
     db.docs.set('events/ev1/dateOptions/o1', { startDate: '2026-10-31', endDate: '2026-10-31', votes: {} }); // a Saturday
-    expect(await openNextRound(db, 'ev1', new Date('2026-11-19T15:00:00Z'))).toBeNull();
-    const r = await openNextRound(db, 'ev1', new Date('2026-11-20T15:00:00Z'));
+    expect(await openNextRound(db, 'ev1', new Date('2026-11-12T15:00:00Z'))).toBeNull();
+    const r = await openNextRound(db, 'ev1', new Date('2026-11-13T15:00:00Z'));
     expect(r).toMatchObject({ round: 2, sendDate: '2026-11-20' });
     const next = db.docs.get(`events/${r.to}`);
     expect(next).toMatchObject({ pollSendDate: '2026-11-20', pollWindow: { from: '2026-11-27', to: '2026-12-26' } });
@@ -143,5 +143,30 @@ describe('with a send date', () => {
     expect(next.date.toDate().toISOString().slice(0, 10)).toBe('2026-11-27');
     const seeded = [...db.docs.entries()].filter(([k]) => k.startsWith(`events/${r.to}/dateOptions/`)).map(([, v]) => v.startDate).sort();
     expect(seeded).toEqual(['2026-11-28', '2026-12-05', '2026-12-12', '2026-12-19', '2026-12-26']);
+  });
+
+  it('sends the organizer a heads-up a week ahead, once', async () => {
+    const db = fakeDb({ ev1: scheduled });
+    db.docs.set('events/ev1/dateOptions/o1', { startDate: '2026-10-31', endDate: '2026-10-31', votes: {} });
+    const send = vi.fn(async () => ({ ok: true }));
+    const emailOf = vi.fn(async () => 'owner@account.com');
+    expect(await sendOwnerPreview(db, 'ev1', new Date('2026-10-12T15:00:00Z'), { send, emailOf })).toBeNull();
+    const r = await sendOwnerPreview(db, 'ev1', new Date('2026-10-13T15:00:00Z'), { send, emailOf });
+    expect(r).toMatchObject({ ok: true, to: 'owner@account.com' });
+    expect(send.mock.calls[0][0].to).toBe('owner@account.com');
+    expect(send.mock.calls[0][0].subject).toBe('Heads up: the Game night poll goes to 1 guest on Tue, Oct 20');
+    expect(send.mock.calls[0][0].html).toContain('Sat, Oct 31');
+    expect(db.docs.get('events/ev1').pollPreviewResult).toMatchObject({ ok: true, to: 'owner@account.com' });
+    expect(await sendOwnerPreview(db, 'ev1', new Date('2026-10-14T15:00:00Z'), { send, emailOf })).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('records it when there’s no organizer address to send to', async () => {
+    const db = fakeDb({ ev1: scheduled });
+    const send = vi.fn();
+    const r = await sendOwnerPreview(db, 'ev1', new Date('2026-10-13T15:00:00Z'), { send, emailOf: async () => '' });
+    expect(r).toMatchObject({ ok: false });
+    expect(send).not.toHaveBeenCalled();
+    expect(db.docs.get('events/ev1').pollPreviewResult).toMatchObject({ ok: false });
   });
 });

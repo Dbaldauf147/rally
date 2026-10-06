@@ -11,13 +11,16 @@
 // goes out, `pollSendDate` (YYYY-MM-DD) — the owner picks the first one, and
 // each round after goes out the same day of the month, one cadence later.
 //
-// The daily job (api/poll-series.js) does two things on those days:
-//   • on a round's send date, emails everyone on its guest list to suggest
-//     dates and vote (`pollSentAt` records that it went);
-//   • on the *next* send date, opens the next round — a new event in Voting,
-//     the same guests, its poll seeded with dates on the same weekdays the last
-//     round's options used — and links the two (`nextRoundId` on the old,
-//     `previousRoundId` on the new). Then that round's email goes the same run.
+// The daily job (api/poll-series.js) works to those dates:
+//   • a week before the next send date, opens the next round — a new event in
+//     Voting, the same guests, its poll seeded with dates on the same weekdays
+//     the last round's options used — and links the two (`nextRoundId` on the
+//     old, `previousRoundId` on the new);
+//   • a week before a round's send date, emails the organizer a heads-up:
+//     who's about to get the poll, the dates on it, and the email itself
+//     (`pollPreviewSentAt`), so there's a week to fix the guest list;
+//   • on the send date, emails the guests to suggest dates and vote
+//     (`pollSentAt`).
 //
 // A round's poll offers dates from a week after it goes out (time to answer)
 // to a week after the next one goes out — one cadence's worth of dates.
@@ -115,6 +118,9 @@ export function nextSendDate(event) {
 // The dates a round's poll offers: from a week after it goes out, to a week
 // after the next one does. { from, to }, both YYYY-MM-DD and inclusive.
 export const WINDOW_LEAD_DAYS = 7;
+// How far ahead of the guests the organizer hears about a round.
+export const PREVIEW_LEAD_DAYS = 7;
+export const previewDate = (sendDate) => (isYmd(sendDate) ? addDaysYmd(sendDate, -PREVIEW_LEAD_DAYS) : '');
 export function pollWindow(sendDate, everyMonths) {
   if (!isYmd(sendDate)) return null;
   return {
@@ -132,6 +138,15 @@ export function sendDateLabel(ymdStr, today = '') {
   return sameYear ? `${month} ${d.getUTCDate()}` : `${month} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
+/* Whether the organizer's heads-up for this round should go now: a week (or
+ * less, for a round scheduled closer than that) before its send date, once,
+ * and not after the guests' email has already gone. */
+export function pollPreviewDue(event, now = new Date(), timeZone = 'America/New_York') {
+  if (!event || !normalizePollSeries(event.pollSeries)) return false;
+  if (event.cancelled || event.pollSentAt || event.pollPreviewSentAt || !isYmd(event.pollSendDate)) return false;
+  return previewDate(event.pollSendDate) <= dayInZone(now, timeZone);
+}
+
 /* Whether this round's poll email should go now: it's in a series, has a
  * send date that's today or past, hasn't gone, and isn't cancelled. */
 export function pollSendDue(event, now = new Date(), timeZone = 'America/New_York') {
@@ -140,14 +155,15 @@ export function pollSendDue(event, now = new Date(), timeZone = 'America/New_Yor
   return event.pollSendDate <= dayInZone(now, timeZone);
 }
 
-/* Whether the next round should open now. With send dates: when the next send
- * date arrives, whatever state this round is in — the schedule is the owner's.
+/* Whether the next round should open now. With send dates: a week before the
+ * next send date — the organizer's heads-up day, so the round has to exist by
+ * then — whatever state this round is in; the schedule is the owner's.
  * Without (older series): once this round is finalized and its last day is
  * behind us. Either way, not if it's cancelled or the next round exists. */
 export function nextRoundDue(event, now = new Date(), timeZone = 'America/New_York') {
   if (!event || !normalizePollSeries(event.pollSeries)) return false;
   if (event.cancelled || event.nextRoundId) return false;
-  if (isYmd(event.pollSendDate)) return nextSendDate(event) <= dayInZone(now, timeZone);
+  if (isYmd(event.pollSendDate)) return previewDate(nextSendDate(event)) <= dayInZone(now, timeZone);
   if ((event.stage || 'voting') !== 'finalized' || event.dateTBD) return false;
   const last = toDate(event.endDate) || toDate(event.date);
   if (!last) return false;

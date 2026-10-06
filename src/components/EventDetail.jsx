@@ -24,7 +24,7 @@ import { format } from 'date-fns';
 import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
 import { isRecurring, describeRecurrence } from '../lib/recurrence';
-import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel } from '../lib/pollSeries';
+import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
@@ -2353,6 +2353,11 @@ export function EventDetail() {
                   <span>
                     📨 Poll emails go out {sendDateLabel(event.pollSendDate, todayYmdLocal())}{event.pollSendDate <= todayYmdLocal() ? ' (next morning run)' : ''} to everyone on the guest list with an email
                     {event.pollWindow && <> — suggesting dates {windowLabel(event.pollWindow)}</>}
+                    {isOwner && (event.pollPreviewSentAt
+                      ? (event.pollPreviewResult?.ok === false
+                          ? <span style={{ color: 'var(--color-danger)' }}> · your heads-up couldn’t be sent ({event.pollPreviewResult.error})</span>
+                          : <> · heads-up emailed to you {sendDateLabel(String(event.pollPreviewSentAt).slice(0, 10), todayYmdLocal())}</>)
+                      : <> · you’ll get a heads-up {previewDate(event.pollSendDate) <= todayYmdLocal() ? 'at the next morning run' : sendDateLabel(previewDate(event.pollSendDate), todayYmdLocal())}</>)}
                   </span>
                   {isOwner && (
                     <button

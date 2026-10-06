@@ -8,7 +8,7 @@ import {
   normalizeRecurrence,
   recurrenceFromDate,
 } from '../lib/recurrence';
-import { CADENCES, normalizePollSeries, addMonthsYmd, sendDateLabel, pollWindow, windowLabel } from '../lib/pollSeries';
+import { CADENCES, normalizePollSeries, addMonthsYmd, sendDateLabel, pollWindow, windowLabel, previewDate } from '../lib/pollSeries';
 import styles from './EventForm.module.css';
 import { DateField } from './DateField';
 
@@ -281,7 +281,7 @@ export function EventForm({ event, onSave, onCancel }) {
                     Poll emails go out {sendDateLabel(pollSendDate, todayYmd)}, then {sendDateLabel(addMonthsYmd(pollSendDate, everyMonths), todayYmd)}, {sendDateLabel(addMonthsYmd(pollSendDate, 2 * everyMonths), todayYmd)}…
                   </p>
                   <p className={styles.repeatHint}>
-                    That morning (about 7am ET) everyone on the guest list gets an email asking them to suggest dates and vote — this round on dates {windowLabel(pollWindow(pollSendDate, everyMonths))}. Each new round opens on its send date with the same guests, its poll starting with dates on the same days of the week this round’s options used.
+                    A week before ({previewDate(pollSendDate) < todayYmd ? 'the next morning, for this one' : sendDateLabel(previewDate(pollSendDate), todayYmd)}) you get a heads-up email: who it’s going to, the dates on it, and the email itself. Then that morning (about 7am ET) your guests get it, asking them to suggest dates and vote — this round on dates {windowLabel(pollWindow(pollSendDate, everyMonths))}. Each new round opens a week before its send date with the same guests, its poll starting with dates on the same days of the week this round’s options used.
                   </p>
                 </>
               )}
