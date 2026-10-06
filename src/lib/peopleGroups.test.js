@@ -68,3 +68,13 @@ describe('group picker helpers', () => {
     expect(groupOptions(['Family, College', 'college', 'Work'], 'Neighbors')).toEqual(['College', 'Family', 'Neighbors', 'Work']);
   });
 });
+
+describe('deleting a group', () => {
+  it('takes it out of a contact, ignoring case, and counts who has it', async () => {
+    const { removeGroup, groupUsage } = await import('./peopleGroups');
+    expect(removeGroup('Family, College, Work', 'college')).toBe('Family, Work');
+    expect(removeGroup('Family', 'Family')).toBe('');
+    expect(removeGroup('Family', 'Work')).toBe('Family');
+    expect(groupUsage(['Family, College', 'college', 'Work', ''], 'College')).toBe(2);
+  });
+});

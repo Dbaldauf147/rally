@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { collection, query, where, getDocs, getDoc, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField, addDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField, addDoc, Timestamp, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { planMemberUpsert, planMemberUpserts, findMemberKey } from '../lib/members';
 import { useAuth } from '../contexts/AuthContext';
@@ -26,7 +26,7 @@ import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
 import { FriendProfileEditor } from './FriendProfileEditor';
 import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
-import { groupTokens, bucketByGroup } from '../lib/peopleGroups';
+import { groupTokens, bucketByGroup, removeGroup } from '../lib/peopleGroups';
 import { kidsForEditing, kidsForSaving, kidLabel, kidAgeLabel } from '../lib/friendKids';
 import { findDuplicateGroups, mergeFriends, repointFriendIds } from '../lib/friendMerge';
 import { DuplicatesModal, MergeModal } from './MergeContacts';
@@ -1321,6 +1321,23 @@ export function FriendsPage() {
     return linked?.name || (f.guest || '').trim();
   }
 
+  // Deleting a group from the Groups dropdown: it comes off every contact that
+  // has it, in one batch (a few hundred contacts at most fits comfortably).
+  async function deleteGroupEverywhere(name) {
+    if (!user) return;
+    const n = String(name || '').trim().toLowerCase();
+    const holders = friends.filter(f => groupTokens(f.group).some(t => t.toLowerCase() === n));
+    for (let i = 0; i < holders.length; i += 400) {
+      const batch = writeBatch(db);
+      for (const f of holders.slice(i, i + 400)) {
+        batch.update(doc(db, 'users', user.uid, 'friends', f.id), { group: removeGroup(f.group, name) });
+      }
+      await batch.commit();
+    }
+    setResult({ type: 'success', message: `Deleted the group “${name}”${holders.length ? ` from ${holders.length} contact${holders.length === 1 ? '' : 's'}` : ''}` });
+    setTimeout(() => setResult(null), 3000);
+  }
+
   async function bulkDelete() {
     if (!user || !window.confirm(`Delete ${selectedIds.size} contacts? This cannot be undone.`)) return;
     for (const id of selectedIds) {
@@ -2431,7 +2448,7 @@ export function FriendsPage() {
                   open dropdown to its button and snap it shut. */}
               <div className={styles.label}>
                 Groups
-                <GroupPicker value={newGroup} onChange={setNewGroup} options={friends.map(f => f.group)} />
+                <GroupPicker value={newGroup} onChange={setNewGroup} options={friends.map(f => f.group)} onDeleteGroup={deleteGroupEverywhere} />
               </div>
               <label className={styles.label}>
                 Work Email
@@ -2539,7 +2556,7 @@ export function FriendsPage() {
               <label className={styles.label}>Phone<input className={styles.input} type="tel" value={editFields.phone} onChange={e => editSet('phone', e.target.value)} placeholder="(555) 123-4567" /></label>
               <label className={styles.label}>Addresses<AddressListEditor value={editFields.addresses || [{ label: '', value: '' }]} onChange={v => editSet('addresses', v)} /></label>
               <div className={styles.label}>Groups
-                <GroupPicker value={editFields.group} onChange={v => editSet('group', v)} options={friends.map(f => f.group)} />
+                <GroupPicker value={editFields.group} onChange={v => editSet('group', v)} options={friends.map(f => f.group)} onDeleteGroup={deleteGroupEverywhere} />
               </div>
               <label className={styles.label}>Guest<input className={styles.input} value={editFields.guest} onChange={e => editSet('guest', e.target.value)} /></label>
               <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
