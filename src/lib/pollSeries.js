@@ -7,11 +7,24 @@
 // everyone that time.
 //
 // So each round is its own ordinary event: polled, finalized, held. Each one
-// carries `pollSeries: { everyMonths, seriesId, round }`. Once a round's
-// finalized date has passed, the daily job (api/poll-series.js) opens the next
-// round — a new event in Voting, the same guests, its poll seeded with dates in
-// the target month on the same weekdays the last round's options used — and
-// links the two (`nextRoundId` on the old, `previousRoundId` on the new).
+// carries `pollSeries: { everyMonths, seriesId, round }` and the day its poll
+// goes out, `pollSendDate` (YYYY-MM-DD) — the owner picks the first one, and
+// each round after goes out the same day of the month, one cadence later.
+//
+// The daily job (api/poll-series.js) does two things on those days:
+//   • on a round's send date, emails everyone on its guest list to suggest
+//     dates and vote (`pollSentAt` records that it went);
+//   • on the *next* send date, opens the next round — a new event in Voting,
+//     the same guests, its poll seeded with dates on the same weekdays the last
+//     round's options used — and links the two (`nextRoundId` on the old,
+//     `previousRoundId` on the new). Then that round's email goes the same run.
+//
+// A round's poll offers dates from a week after it goes out (time to answer)
+// to a week after the next one goes out — one cadence's worth of dates.
+//
+// Series made before send dates existed have no `pollSendDate`; theirs opens
+// the next round once the current round's finalized date has passed, and
+// sends no email.
 //
 // Turning the repeat off on the latest round ends the series there.
 //
@@ -73,12 +86,68 @@ export function dayInZone(date, timeZone = 'America/New_York') {
   }
 }
 
-/* Whether this round's time is up and the next should open: it's in a series,
- * its date was finalized, it isn't cancelled, the next round doesn't exist
- * yet, and the last day of it is before today. */
+const isYmd = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !!parseYmd(v);
+
+// The same day of the month `n` months on, held to the month's last day (a
+// Jan 31 send goes out Feb 28). YYYY-MM-DD in, YYYY-MM-DD out.
+export function addMonthsYmd(ymdStr, n) {
+  const d = parseYmd(ymdStr);
+  if (!d) return '';
+  const y = d.getUTCFullYear();
+  const index = d.getUTCMonth() + n;
+  const ty = y + Math.floor(index / 12);
+  const tm = ((index % 12) + 12) % 12;
+  const last = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate();
+  return ymd(new Date(Date.UTC(ty, tm, Math.min(d.getUTCDate(), last))));
+}
+const addDaysYmd = (ymdStr, n) => {
+  const d = parseYmd(ymdStr);
+  return d ? ymd(new Date(d.getTime() + n * 86400000)) : '';
+};
+
+// When the round after this one goes out, or '' for a series without dates.
+export function nextSendDate(event) {
+  const series = normalizePollSeries(event?.pollSeries);
+  if (!series || !isYmd(event?.pollSendDate)) return '';
+  return addMonthsYmd(event.pollSendDate, series.everyMonths);
+}
+
+// The dates a round's poll offers: from a week after it goes out, to a week
+// after the next one does. { from, to }, both YYYY-MM-DD and inclusive.
+export const WINDOW_LEAD_DAYS = 7;
+export function pollWindow(sendDate, everyMonths) {
+  if (!isYmd(sendDate)) return null;
+  return {
+    from: addDaysYmd(sendDate, WINDOW_LEAD_DAYS),
+    to: addDaysYmd(addMonthsYmd(sendDate, everyMonths), WINDOW_LEAD_DAYS - 1),
+  };
+}
+
+// "Oct 20" / "Oct 20, 2027" — a send date as the page and email say it.
+export function sendDateLabel(ymdStr, today = '') {
+  const d = parseYmd(ymdStr);
+  if (!d) return '';
+  const month = MONTHS[d.getUTCMonth()].slice(0, 3);
+  const sameYear = today && today.slice(0, 4) === ymdStr.slice(0, 4);
+  return sameYear ? `${month} ${d.getUTCDate()}` : `${month} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+
+/* Whether this round's poll email should go now: it's in a series, has a
+ * send date that's today or past, hasn't gone, and isn't cancelled. */
+export function pollSendDue(event, now = new Date(), timeZone = 'America/New_York') {
+  if (!event || !normalizePollSeries(event.pollSeries)) return false;
+  if (event.cancelled || event.pollSentAt || !isYmd(event.pollSendDate)) return false;
+  return event.pollSendDate <= dayInZone(now, timeZone);
+}
+
+/* Whether the next round should open now. With send dates: when the next send
+ * date arrives, whatever state this round is in — the schedule is the owner's.
+ * Without (older series): once this round is finalized and its last day is
+ * behind us. Either way, not if it's cancelled or the next round exists. */
 export function nextRoundDue(event, now = new Date(), timeZone = 'America/New_York') {
   if (!event || !normalizePollSeries(event.pollSeries)) return false;
   if (event.cancelled || event.nextRoundId) return false;
+  if (isYmd(event.pollSendDate)) return nextSendDate(event) <= dayInZone(now, timeZone);
   if ((event.stage || 'voting') !== 'finalized' || event.dateTBD) return false;
   const last = toDate(event.endDate) || toDate(event.date);
   if (!last) return false;
@@ -102,6 +171,13 @@ export const monthLabel = ({ year, month }) => `${MONTHS[month - 1]} ${year}`;
  * the weekday the round actually landed on. Capped at MAX_SEEDED, earliest
  * first. Returns [{ startDate, endDate }] as YYYY-MM-DD. */
 export function seedOptions(lastOptions, { year, month }, fallbackDay = null) {
+  const from = `${year}-${pad(month)}-01`;
+  const to = ymd(new Date(Date.UTC(year, month, 0)));
+  return seedOptionsInRange(lastOptions, { from, to }, fallbackDay);
+}
+
+// The same, over any span of days ({ from, to } inclusive, YYYY-MM-DD).
+export function seedOptionsInRange(lastOptions, { from, to }, fallbackDay = null) {
   const spans = new Map(); // weekday -> span in days (the longest seen)
   for (const o of Array.isArray(lastOptions) ? lastOptions : []) {
     const s = parseYmd(o?.startDate);
@@ -117,9 +193,11 @@ export function seedOptions(lastOptions, { year, month }, fallbackDay = null) {
     spans.set(f.getUTCDay(), 0);
   }
   const out = [];
-  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  for (let d = 1; d <= days && out.length < MAX_SEEDED; d += 1) {
-    const day = new Date(Date.UTC(year, month - 1, d));
+  const first = parseYmd(from);
+  const last = parseYmd(to);
+  if (!first || !last) return [];
+  for (let t = first.getTime(); t <= last.getTime() && out.length < MAX_SEEDED; t += 86400000) {
+    const day = new Date(t);
     if (!spans.has(day.getUTCDay())) continue;
     const end = new Date(day.getTime() + spans.get(day.getUTCDay()) * 86400000);
     out.push({ startDate: ymd(day), endDate: ymd(end) });
@@ -158,7 +236,12 @@ export function nextRoundMembers(members) {
  * one. */
 export function buildNextRound(event, eventId, { timeZone = 'America/New_York', shareToken } = {}) {
   const series = normalizePollSeries(event.pollSeries);
-  const target = targetMonth(event, series.everyMonths, timeZone);
+  const sendDate = nextSendDate(event);
+  const window = sendDate ? pollWindow(sendDate, series.everyMonths) : null;
+  // With send dates the poll covers its window; without, the target month.
+  const target = window
+    ? { year: Number(window.from.slice(0, 4)), month: Number(window.from.slice(5, 7)) }
+    : targetMonth(event, series.everyMonths, timeZone);
   const reminders = event.autoReminders && typeof event.autoReminders === 'object' ? event.autoReminders : null;
   const doc = {
     title: event.title || 'Untitled event',
@@ -174,14 +257,25 @@ export function buildNextRound(event, eventId, { timeZone = 'America/New_York', 
     allDay: false,
     endDate: null,
     recurrence: null,
-    targetMonth: target,
     pollSeries: { everyMonths: series.everyMonths, seriesId: series.seriesId || eventId, round: series.round + 1 },
     previousRoundId: eventId,
   };
+  if (window) {
+    doc.pollSendDate = sendDate;
+    doc.pollWindow = window;
+  } else {
+    doc.targetMonth = target;
+  }
   if (shareToken) doc.shareToken = shareToken;
   if (Array.isArray(event.hiddenFrom)) doc.hiddenFrom = [...event.hiddenFrom];
   if (event.keyConsiderationsEnabled != null) doc.keyConsiderationsEnabled = event.keyConsiderationsEnabled;
   // The reminder schedule carries over, counted from when this round opens.
   if (reminders) doc.autoReminders = { ...reminders, ...(reminders.enabled ? { startedAt: new Date().toISOString() } : {}) };
-  return { doc, target };
+  return { doc, target, window };
+}
+
+// A window as a phrase: "Oct 27 – Nov 26".
+export function windowLabel(window) {
+  if (!window) return '';
+  return `${sendDateLabel(window.from, window.from)} – ${sendDateLabel(window.to, window.from)}`;
 }

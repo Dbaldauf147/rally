@@ -24,7 +24,7 @@ import { format } from 'date-fns';
 import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
 import { isRecurring, describeRecurrence } from '../lib/recurrence';
-import { normalizePollSeries, cadenceLabel, monthLabel } from '../lib/pollSeries';
+import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
@@ -67,12 +67,20 @@ const calMenuItemStyle = {
   cursor: 'pointer',
 };
 
+// Today as YYYY-MM-DD on this device — what poll send dates compare against.
+function todayYmdLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function EventDetail() {
   const { eventId } = useParams();
   const { user } = useAuth();
   // `events` backs the "+ Add from Event" picker — the user's own events, live.
   const { events, updateEvent, deleteEvent, cancelEvent, restoreEvent, rsvp } = useEvents();
   const navigate = useNavigate();
+  // Poll series: "Send poll now" emails this round's guests straight away.
+  const [sendingPoll, setSendingPoll] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Jump from the Itinerary into the focused Day View for a specific date.
@@ -1617,6 +1625,31 @@ export function EventDetail() {
   }
 
 
+  // Email this round's poll to the guest list now rather than on its send
+  // date — the server checks it's the organizer asking.
+  async function sendPollNow() {
+    const n = Object.values(event.members || {}).filter(m => m?.email).length;
+    if (!window.confirm(`Email the date poll to ${n} guest${n === 1 ? '' : 's'} with an email address now?`)) return;
+    setSendingPoll(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/poll-series', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ eventId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      alert(body.failed?.length
+        ? `Sent to ${body.sent} of ${body.of}. Couldn't reach: ${body.failed.map(f => f.to).join(', ')}`
+        : `Poll emailed to ${body.sent} guest${body.sent === 1 ? '' : 's'}.`);
+    } catch (err) {
+      alert(`Couldn't send the poll: ${err.message}`);
+    } finally {
+      setSendingPoll(false);
+    }
+  }
+
   async function toggleStage() {
     if (stage === 'voting') {
       // Open modal with empty dates — user must manually pick
@@ -2300,10 +2333,40 @@ export function EventDetail() {
                 {event.previousRoundId && <>· {roundLink(event.previousRoundId, '← last round')}</>}
                 {event.nextRoundId
                   ? <>· {roundLink(event.nextRoundId, 'next round →')}</>
-                  : <span style={{ fontWeight: 500 }}>· next round opens for voting once this date has passed</span>}
+                  : nextSendDate(event)
+                    ? <span style={{ fontWeight: 500 }}>· next round’s poll goes out {sendDateLabel(nextSendDate(event), todayYmdLocal())}</span>
+                    : <span style={{ fontWeight: 500 }}>· next round opens for voting once this date has passed</span>}
               </p>
             );
           })()}
+          {normalizePollSeries(event.pollSeries) && event.pollSendDate && (
+            // This round's poll email: when it goes, or how it went.
+            <p data-testid="poll-send" style={{ margin: '0.3rem 0 0', fontSize: '0.8rem', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {event.pollSentAt ? (
+                <span>
+                  📨 Poll emailed {sendDateLabel(String(event.pollSentAt).slice(0, 10), todayYmdLocal())}
+                  {event.pollSendResults && ` to ${event.pollSendResults.sent} of ${event.pollSendResults.of} guest${event.pollSendResults.of === 1 ? '' : 's'}`}
+                  {event.pollSendResults?.failed > 0 && <span style={{ color: 'var(--color-danger)' }}> · {event.pollSendResults.failed} couldn’t be sent</span>}
+                </span>
+              ) : (
+                <>
+                  <span>
+                    📨 Poll emails go out {sendDateLabel(event.pollSendDate, todayYmdLocal())}{event.pollSendDate <= todayYmdLocal() ? ' (next morning run)' : ''} to everyone on the guest list with an email
+                    {event.pollWindow && <> — suggesting dates {windowLabel(event.pollWindow)}</>}
+                  </span>
+                  {isOwner && (
+                    <button
+                      type="button"
+                      className={styles.editBtn}
+                      disabled={sendingPoll}
+                      onClick={sendPollNow}
+                      style={{ padding: '0.2rem 0.6rem', fontSize: '0.76rem' }}
+                    >{sendingPoll ? 'Sending…' : 'Send poll now'}</button>
+                  )}
+                </>
+              )}
+            </p>
+          )}
           <p className={styles.datetime}>
             {event.dateTBD
               ? (event.targetMonth?.year && event.targetMonth?.month
