@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
 import { isRecurring, describeRecurrence } from '../lib/recurrence';
+import { normalizePollSeries, cadenceLabel, monthLabel } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
 import { DatePoll } from './DatePoll';
@@ -2274,9 +2275,40 @@ export function EventDetail() {
               🔁 {describeRecurrence(event.recurrence)} · showing {event.occurrenceYear ?? format(date, 'yyyy')}
             </p>
           )}
+          {normalizePollSeries(event.pollSeries) && (() => {
+            // A round of a poll-based repeat: which round, how often, and the
+            // way to the rounds either side of it.
+            const series = normalizePollSeries(event.pollSeries);
+            const roundLink = (id, label) => (
+              <button
+                type="button"
+                onClick={() => navigate(`/event/${id}`)}
+                style={{ border: 0, background: 'none', padding: 0, font: 'inherit', color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
+              >{label}</button>
+            );
+            return (
+              <p
+                data-testid="poll-series"
+                style={{
+                  margin: '0.15rem 0 0', display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem',
+                  fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-accent)',
+                  background: 'var(--color-accent-light)', border: '1px solid var(--color-accent)',
+                  borderRadius: 'var(--radius-full)', padding: '0.15rem 0.6rem',
+                }}
+              >
+                🔁 {cadenceLabel(series.everyMonths)} · round {series.round}
+                {event.previousRoundId && <>· {roundLink(event.previousRoundId, '← last round')}</>}
+                {event.nextRoundId
+                  ? <>· {roundLink(event.nextRoundId, 'next round →')}</>
+                  : <span style={{ fontWeight: 500 }}>· next round opens for voting once this date has passed</span>}
+              </p>
+            );
+          })()}
           <p className={styles.datetime}>
             {event.dateTBD
-              ? 'Date to be determined — based on poll voting'
+              ? (event.targetMonth?.year && event.targetMonth?.month
+                  ? `Date to be determined — poll for ${monthLabel(event.targetMonth)}`
+                  : 'Date to be determined — based on poll voting')
               : (endDate && format(endDate, 'yyyy-MM-dd') !== format(date, 'yyyy-MM-dd'))
                 ? (format(date, 'yyyy') === format(endDate, 'yyyy')
                     ? `${format(date, 'MMM d')} – ${format(endDate, 'MMM d, yyyy')}`

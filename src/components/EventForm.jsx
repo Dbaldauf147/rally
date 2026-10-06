@@ -8,6 +8,7 @@ import {
   normalizeRecurrence,
   recurrenceFromDate,
 } from '../lib/recurrence';
+import { CADENCES, normalizePollSeries } from '../lib/pollSeries';
 import styles from './EventForm.module.css';
 import { DateField } from './DateField';
 
@@ -79,6 +80,13 @@ export function EventForm({ event, onSave, onCancel }) {
   const [ruleTouched, setRuleTouched] = useState(!!savedRule);
   const [endsMode, setEndsMode] = useState(savedRule?.endYear != null ? 'year' : 'never');
   const [endYear, setEndYear] = useState(String(savedRule?.endYear ?? new Date().getFullYear() + 5));
+
+  // --- Poll-based repeat: the same event every so often, its date picked by a
+  // poll each round (lib/pollSeries.js). Offered while the date is to be
+  // decided, and on any round already in a series.
+  const savedSeries = normalizePollSeries(event?.pollSeries);
+  const [pollRepeat, setPollRepeat] = useState(!!savedSeries);
+  const [everyMonths, setEveryMonths] = useState(savedSeries?.everyMonths || 1);
 
   // Local Date for the start field, or null while the day is empty/half-typed.
   function startAsDate(day = startDay) {
@@ -160,11 +168,18 @@ export function EventForm({ event, onSave, onCancel }) {
     }
     // null (not undefined) so saving an edit that turns repeating off actually
     // clears the rule on the stored doc.
-    data.recurrence = dateTBD || !repeats ? null : buildRule();
+    data.recurrence = dateTBD || !repeats || pollRepeat ? null : buildRule();
+    // A round keeps its place in the series; turning the repeat off on the
+    // latest round is how a series ends.
+    data.pollSeries = pollRepeat ? { ...(savedSeries || { seriesId: '', round: 1 }), everyMonths } : null;
     // A yearly rule means the date is settled, so the event skips straight past
     // the date-poll stages — otherwise it would sit in "Voting" forever and
     // never reach the surfaces that only show finalized events.
     if (data.recurrence && event?.stage !== 'finalized') data.stage = 'finalized';
+    // Same for a poll series whose round already has its date (a first round
+    // you know the date of): it's settled, and only a finalized round's passing
+    // opens the next one.
+    if (data.pollSeries && !dateTBD && event?.stage !== 'finalized') data.stage = 'finalized';
     onSave(data);
   }
 
@@ -218,7 +233,33 @@ export function EventForm({ event, onSave, onCancel }) {
         </p>
       )}
 
-      {!dateTBD && (
+      {(dateTBD || pollRepeat || savedSeries) && (
+        <div className={styles.repeatBox}>
+          <label className={styles.repeatToggle} style={{ color: pollRepeat ? '#4f46e5' : '#6b7280' }}>
+            <input type="checkbox" checked={pollRepeat} onChange={e => setPollRepeat(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
+            <span aria-hidden="true">🔁</span>
+            Repeats — poll for a new date each time
+          </label>
+          {pollRepeat && (
+            <div className={styles.repeatBody}>
+              <label className={styles.repeatOption}>
+                <span className={styles.repeatOptionLabel}>How often</span>
+                <select className={styles.repeatSelect} value={everyMonths} onChange={e => setEveryMonths(Number(e.target.value))} aria-label="How often it repeats">
+                  {CADENCES.map(c => <option key={c.months} value={c.months}>{c.label}</option>)}
+                </select>
+              </label>
+              <p className={styles.repeatPreview}>
+                {everyMonths === 1 ? 'Each month' : everyMonths === 12 ? 'Each year' : `Every ${everyMonths} months`}, once this round’s date has passed, the next round opens for voting with the same guests.
+              </p>
+              <p className={styles.repeatHint}>
+                Its poll starts with dates on the same days of the week this round’s options used — add or remove dates as usual.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!dateTBD && !pollRepeat && (
         <div className={styles.repeatBox}>
           <label className={styles.repeatToggle} style={{ color: repeats ? '#4f46e5' : '#6b7280' }}>
             <input type="checkbox" checked={repeats} onChange={e => setRepeats(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
