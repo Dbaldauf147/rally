@@ -105,3 +105,42 @@ describe('buildNextRound', () => {
       .toEqual({ everyMonths: 1, seriesId: 'first', round: 5 });
   });
 });
+
+describe('send dates', () => {
+  it('step on by the cadence, held to the month end', async () => {
+    const { addMonthsYmd, nextSendDate, pollWindow, windowLabel, sendDateLabel } = await import('./pollSeries');
+    expect(addMonthsYmd('2026-10-20', 1)).toBe('2026-11-20');
+    expect(addMonthsYmd('2026-01-31', 1)).toBe('2026-02-28');
+    expect(addMonthsYmd('2026-11-15', 3)).toBe('2027-02-15');
+    expect(nextSendDate({ pollSeries: { everyMonths: 2 }, pollSendDate: '2026-10-20' })).toBe('2026-12-20');
+    expect(nextSendDate({ pollSeries: { everyMonths: 2 } })).toBe('');
+    expect(pollWindow('2026-10-20', 1)).toEqual({ from: '2026-10-27', to: '2026-11-26' });
+    expect(windowLabel({ from: '2026-12-27', to: '2027-01-26' })).toBe('Dec 27 – Jan 26, 2027');
+    expect(sendDateLabel('2026-10-20', '2026-10-06')).toBe('Oct 20');
+    expect(sendDateLabel('2027-01-05', '2026-10-06')).toBe('Jan 5, 2027');
+  });
+
+  it('decide when a round is emailed and when the next one opens', async () => {
+    const { pollSendDue, nextRoundDue } = await import('./pollSeries');
+    const r = { pollSeries: { everyMonths: 1 }, pollSendDate: '2026-10-20', stage: 'voting', dateTBD: true };
+    expect(pollSendDue(r, at('2026-10-19'))).toBe(false);
+    expect(pollSendDue(r, at('2026-10-20'))).toBe(true);
+    expect(pollSendDue({ ...r, pollSentAt: 'x' }, at('2026-10-21'))).toBe(false);
+    expect(pollSendDue({ ...r, cancelled: true }, at('2026-10-21'))).toBe(false);
+    // The next round goes by the schedule, finalized or not.
+    expect(nextRoundDue(r, at('2026-11-19'))).toBe(false);
+    expect(nextRoundDue(r, at('2026-11-20'))).toBe(true);
+    expect(nextRoundDue({ ...r, nextRoundId: 'n' }, at('2026-11-20'))).toBe(false);
+  });
+
+  it('carry into the next round with its window', async () => {
+    const { buildNextRound, seedOptionsInRange } = await import('./pollSeries');
+    const { doc, window } = buildNextRound(round({ pollSendDate: '2026-10-20' }), 'ev1');
+    expect(doc.pollSendDate).toBe('2026-11-20');
+    expect(window).toEqual({ from: '2026-11-27', to: '2026-12-26' });
+    expect(doc.pollWindow).toEqual(window);
+    expect(doc.targetMonth).toBeUndefined();
+    expect(seedOptionsInRange([{ startDate: '2026-10-24', endDate: '2026-10-24' }], window).map((o) => o.startDate))
+      .toEqual(['2026-11-28', '2026-12-05', '2026-12-12', '2026-12-19', '2026-12-26']);
+  });
+});
