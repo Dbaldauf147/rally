@@ -1,10 +1,30 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEvents } from '../hooks/useEvents';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import { getHolidayMap } from '../holidays';
 import { isRecurring, occurrencesInRange, describeRecurrence } from '../lib/recurrence';
 import styles from './CalendarView.module.css';
+
+/* The bottom of the endless week: when it scrolls into view (or nearly — a
+   screen's worth early, so the next weeks are there before you reach them),
+   more days are added. A button too, for the rare browser without
+   IntersectionObserver and for anyone who'd rather tap. */
+function MoreDays({ done, onMore }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (done || !ref.current || typeof IntersectionObserver === 'undefined') return undefined;
+    const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) onMore(); }, { rootMargin: '600px 0px' });
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [done, onMore]);
+  if (done) return <div className={styles.moreDays}>That's two years ahead — use the arrows to jump further.</div>;
+  return (
+    <div ref={ref} className={styles.moreDays}>
+      <button type="button" className={styles.todayBtn} onClick={onMore}>Show more days</button>
+    </div>
+  );
+}
 
 // Phones open on the week — a month grid there is seven slivers of
 // "+2 more" — and anything wider on the month. Whichever you pick after that is
@@ -19,6 +39,26 @@ function initialView() {
   return typeof window !== 'undefined' && window.matchMedia?.(PHONE_QUERY).matches ? 'week' : 'month';
 }
 
+// The phone breakpoint, live — rotating a phone or resizing a window moves
+// between the stacked, endless week and the seven-column one.
+function useIsPhone() {
+  const [phone, setPhone] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(PHONE_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.(PHONE_QUERY);
+    if (!mq) return undefined;
+    const on = (e) => setPhone(e.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return phone;
+}
+
+// On a phone the week view doesn't stop at Saturday: it opens with this many
+// weeks and keeps adding more as you scroll toward the bottom.
+const FIRST_WEEKS = 4;
+const MORE_WEEKS = 4;
+const MAX_WEEKS = 104;
+
 export function CalendarView() {
   const { events } = useEvents();
   const navigate = useNavigate();
@@ -28,6 +68,11 @@ export function CalendarView() {
     setViewState(v);
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage unavailable */ }
   };
+  const isPhone = useIsPhone();
+  const endless = view === 'week' && isPhone;
+  const [weeksShown, setWeeksShown] = useState(FIRST_WEEKS);
+  // The last day the endless list reaches, as a number so it can sit in deps.
+  const agendaEndMs = endless ? addDays(startOfWeek(currentDate), 7 * weeksShown - 1).getTime() : 0;
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleEvents, setGoogleEvents] = useState([]);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
@@ -143,7 +188,9 @@ export function CalendarView() {
       // Every day on screen, not just the calendar month: the grey days either
       // side of a month, and a week that runs into the next month.
       const mStart = startOfWeek(startOfMonth(currentDate));
-      const mEnd = endOfWeek(endOfMonth(currentDate));
+      // …and on a phone, as far down as the list has been scrolled.
+      const gridEnd = endOfWeek(endOfMonth(currentDate));
+      const mEnd = agendaEndMs > gridEnd.getTime() ? endOfWeek(new Date(agendaEndMs)) : gridEnd;
       const allEvents = [];
       for (const calId of selectedCalendarIds) {
         try {
@@ -171,7 +218,7 @@ export function CalendarView() {
       setGoogleEvents(allEvents);
     } catch {}
     setLoadingGoogle(false);
-  }, [currentDate, selectedCalendarIds, googleCalendars]);
+  }, [currentDate, selectedCalendarIds, googleCalendars, agendaEndMs]);
 
   useEffect(() => {
     if (googleConnected && selectedCalendarIds.length > 0) fetchGoogleEvents();
@@ -209,13 +256,18 @@ export function CalendarView() {
   // Trim if last row is entirely next month
   const lastRow = calDays.slice(-7);
   const trimmed = lastRow.every(d => d.getMonth() !== currentDate.getMonth()) ? calDays.slice(0, -7) : calDays;
-  const holidayMap = getHolidayMap([...new Set(trimmed.map(d => d.getFullYear()))]);
+  // The days the week view shows: Sunday to Saturday, or — on a phone — every
+  // week from this one down to as far as the list has been scrolled.
+  const weekStart = startOfWeek(currentDate);
+  const shownDays = Array.from({ length: endless ? 7 * weeksShown : 7 }, (_, i) => addDays(weekStart, i));
+  const holidayMap = getHolidayMap([...new Set([...trimmed, ...shownDays].map(d => d.getFullYear()))]);
 
   // Yearly events are one doc each, so the grid expands their rule across the
   // visible weeks — that's how a repeating event shows up in years other than
-  // the one it was created in.
+  // the one it was created in. The range runs on past the month for a phone's
+  // endless week.
   const gridStartMs = trimmed[0]?.getTime() ?? 0;
-  const gridEndMs = trimmed[trimmed.length - 1]?.getTime() ?? 0;
+  const gridEndMs = Math.max(trimmed[trimmed.length - 1]?.getTime() ?? 0, shownDays[shownDays.length - 1].getTime());
   const recurringByDay = useMemo(() => {
     if (!gridStartMs || !gridEndMs) return {};
     const gridStart = new Date(gridStartMs);
@@ -273,16 +325,14 @@ export function CalendarView() {
   function nextMonth() {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   }
-  // The arrows step by whatever is showing.
-  const prev = () => (view === 'week' ? setCurrentDate(addDays(currentDate, -7)) : prevMonth());
-  const next = () => (view === 'week' ? setCurrentDate(addDays(currentDate, 7)) : nextMonth());
+  // The arrows step by whatever is showing. Moving starts the endless list
+  // afresh from the new week.
+  const goTo = (d) => { setCurrentDate(d); setWeeksShown(FIRST_WEEKS); };
+  const prev = () => (view === 'week' ? goTo(addDays(currentDate, -7)) : prevMonth());
+  const next = () => (view === 'week' ? goTo(addDays(currentDate, 7)) : nextMonth());
 
-  // The week holding `currentDate`, Sunday first like the month grid. It always
-  // sits inside that month's grid, so the repeating events worked out for the
-  // grid cover it too.
-  const weekStart = startOfWeek(currentDate);
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  const weekEnd = weekDays[6];
+  // The week holding `currentDate`, Sunday first like the month grid.
+  const weekEnd = shownDays[6];
   const weekTitle = weekStart.getMonth() === weekEnd.getMonth()
     ? `${format(weekStart, 'MMM d')} – ${format(weekEnd, 'd, yyyy')}`
     : weekStart.getFullYear() === weekEnd.getFullYear()
@@ -319,7 +369,7 @@ export function CalendarView() {
       <div className={styles.topBar}>
         <div className={styles.header}>
           <button className={styles.navBtn} onClick={prev} aria-label={view === 'week' ? 'Previous week' : 'Previous month'}>‹</button>
-          <h2 className={styles.monthTitle}>{view === 'week' ? weekTitle : format(currentDate, 'MMMM yyyy')}</h2>
+          <h2 className={styles.monthTitle}>{endless ? `${format(weekStart, 'MMM d, yyyy')} on` : view === 'week' ? weekTitle : format(currentDate, 'MMMM yyyy')}</h2>
           <button className={styles.navBtn} onClick={next} aria-label={view === 'week' ? 'Next week' : 'Next month'}>›</button>
         </div>
         <div className={styles.viewBar}>
@@ -327,7 +377,7 @@ export function CalendarView() {
             <button type="button" className={view === 'month' ? styles.viewOn : styles.viewBtn} aria-pressed={view === 'month'} onClick={() => setView('month')}>Month</button>
             <button type="button" className={view === 'week' ? styles.viewOn : styles.viewBtn} aria-pressed={view === 'week'} onClick={() => setView('week')}>Week</button>
           </div>
-          <button type="button" className={styles.todayBtn} onClick={() => setCurrentDate(new Date())}>Today</button>
+          <button type="button" className={styles.todayBtn} onClick={() => goTo(new Date())}>Today</button>
         </div>
         <div className={styles.googleBar}>
           {googleConnected ? (
@@ -351,11 +401,16 @@ export function CalendarView() {
 
       {view === 'week' ? (
         <div className={styles.week} data-testid="week-view">
-          {weekDays.map(day => {
+          {shownDays.map((day, i) => {
             const evts = dayEvents(day);
             const holidays = holidayMap[format(day, 'yyyy-MM-dd')] || [];
+            // In the endless list, a heading wherever a new month begins (and
+            // over the first day), so a long scroll still says where you are.
+            const monthBreak = endless && (i === 0 || day.getDate() === 1);
             return (
-              <section key={day.toISOString()} className={`${styles.weekDay} ${isToday(day) ? styles.weekToday : ''}`} aria-label={format(day, 'EEEE, MMMM d')}>
+              <Fragment key={day.toISOString()}>
+              {monthBreak && <h3 className={styles.monthDivider}>{format(day, 'MMMM yyyy')}</h3>}
+              <section className={`${styles.weekDay} ${isToday(day) ? styles.weekToday : ''}`} aria-label={format(day, 'EEEE, MMMM d')}>
                 <div className={styles.weekDayHead}>
                   <span className={styles.weekDow}>{format(day, 'EEE')}</span>
                   <span className={styles.weekDate}>{format(day, 'MMM d')}</span>
@@ -386,8 +441,10 @@ export function CalendarView() {
                   {evts.length === 0 && holidays.length === 0 && <span className={styles.weekEmpty}>Nothing planned</span>}
                 </div>
               </section>
+              </Fragment>
             );
           })}
+          {endless && <MoreDays done={weeksShown >= MAX_WEEKS} onMore={() => setWeeksShown(w => Math.min(w + MORE_WEEKS, MAX_WEEKS))} />}
         </div>
       ) : (
       <div className={styles.grid}>
