@@ -56,3 +56,7 @@
   .weekEvent { flex-direction: row; align-items: baseline; gap: 0.45rem; }
   .weekTime { flex-shrink: 0; }
 }
+
+/* The endless week on a phone: month headings, and the bottom that loads more. */
+.monthDivider { margin: 0; padding: 0.55rem 0.7rem 0.4rem; background: var(--color-surface-alt); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary); position: sticky; top: 0; z-index: 1; }
+.moreDays { background: var(--color-surface); display: flex; justify-content: center; padding: 0.9rem; font-size: 0.78rem; color: var(--color-text-muted); }
