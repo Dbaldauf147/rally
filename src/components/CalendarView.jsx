@@ -4,6 +4,10 @@ import { useEvents } from '../hooks/useEvents';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import { getHolidayMap } from '../holidays';
 import { isRecurring, occurrencesInRange, describeRecurrence } from '../lib/recurrence';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
+import { getVotingEventsForState, VOTING_TYPES } from '../electionDates';
 import styles from './CalendarView.module.css';
 
 /* The bottom of the endless week: when it scrolls into view (or nearly — a
@@ -59,9 +63,57 @@ const FIRST_WEEKS = 4;
 const MORE_WEEKS = 4;
 const MAX_WEEKS = 104;
 
+/* A date off the Voting page — registration deadline, early voting, the
+   election itself — as a chip in its type's colour. Tapping it opens the
+   Voting page, where the date came from and where it's edited. */
+function VotingChip({ v, onOpen, className }) {
+  const meta = VOTING_TYPES[v.type] || VOTING_TYPES.other;
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={onOpen}
+      title={`${v.label || meta.label} — ${meta.label} (from the Voting page)`}
+      style={{ background: `${meta.color}14`, color: meta.color, borderColor: `${meta.color}55` }}
+    >
+      {meta.icon} {v.label || meta.label}
+    </button>
+  );
+}
+
 export function CalendarView() {
   const { events } = useEvents();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // The Voting page's dates: your state's curated deadlines and elections, the
+  // national ones, and any you added. Read from the same saved prefs the
+  // Voting and Plans pages use, through the same helper, so all three agree.
+  const [votingPrefs, setVotingPrefs] = useState(() => {
+    try {
+      return {
+        state: localStorage.getItem('rally.voting.state') || '',
+        customDates: JSON.parse(localStorage.getItem('rally.voting.customDates') || '[]'),
+      };
+    } catch { return { state: '', customDates: [] }; }
+  });
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+    return onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      const v = snap.exists() ? snap.data().voting : null;
+      if (v && typeof v === 'object') {
+        setVotingPrefs({ state: v.state || '', customDates: Array.isArray(v.customDates) ? v.customDates : [] });
+      }
+    }, () => {});
+  }, [user]);
+  const votingByDay = useMemo(() => {
+    const map = {};
+    for (const ev of getVotingEventsForState(votingPrefs.state, votingPrefs.customDates)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || ''))) continue;
+      (map[ev.date] = map[ev.date] || []).push(ev);
+    }
+    return map;
+  }, [votingPrefs]);
+  const openVoting = () => navigate('/voting');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setViewState] = useState(initialView);
   const setView = (v) => {
@@ -420,6 +472,9 @@ export function CalendarView() {
                   {holidays.map((name, i) => (
                     <span key={`h-${i}`} className={styles.weekHoliday}>🎉 {name}</span>
                   ))}
+                  {(votingByDay[format(day, 'yyyy-MM-dd')] || []).map((v, vi) => (
+                    <VotingChip key={`v-${vi}`} v={v} onOpen={openVoting} className={styles.weekVoting} />
+                  ))}
                   {evts.map((e, i) => (
                     e.source === 'rally' ? (
                       <button
@@ -438,7 +493,7 @@ export function CalendarView() {
                       </a>
                     )
                   ))}
-                  {evts.length === 0 && holidays.length === 0 && <span className={styles.weekEmpty}>Nothing planned</span>}
+                  {evts.length === 0 && holidays.length === 0 && !votingByDay[format(day, 'yyyy-MM-dd')] && <span className={styles.weekEmpty}>Nothing planned</span>}
                 </div>
               </section>
               </Fragment>
@@ -468,6 +523,9 @@ export function CalendarView() {
                   🎉 {name}
                 </span>
               ))}
+              {(votingByDay[format(day, 'yyyy-MM-dd')] || []).map((v, vi) => (
+                <VotingChip key={`v-${vi}`} v={v} onOpen={openVoting} className={styles.votingChip} />
+              ))}
               {allEvents.slice(0, 3).map((e, i) => (
                 e.source === 'rally' ? (
                   <button
@@ -493,6 +551,7 @@ export function CalendarView() {
 
       <div style={{ display: 'flex', gap: '1rem', marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: '10px', height: '10px', borderRadius: '2px', background: 'var(--color-accent)' }} /> Rally Events</span>
+        {Object.keys(votingByDay).length > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>🗳️ Voting calendar</span>}
         {googleConnected && <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#4285F4' }} /> Google Calendar</span>}
       </div>
 
