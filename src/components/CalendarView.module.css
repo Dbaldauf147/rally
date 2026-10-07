@@ -48,7 +48,9 @@
 .weekEmpty { font-size: 0.75rem; color: var(--color-text-muted); padding: 0.2rem 0.1rem; }
 
 @media (max-width: 760px) {
-  .week { grid-template-columns: 1fr; }
+  /* overflow: visible so the month headings can stick while you scroll —
+     a clipping ancestor stops position: sticky dead. */
+  .week { grid-template-columns: 1fr; overflow: visible; }
   .weekDay { min-height: 0; flex-direction: row; }
   .weekDayHead { flex-direction: column; align-items: flex-start; gap: 0.1rem; width: 4.6rem; flex-shrink: 0; border-bottom: none; border-right: 1px solid var(--color-border); padding: 0.55rem; }
   .todayPill { margin-left: 0; }
