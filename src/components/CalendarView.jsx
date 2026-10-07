@@ -1,15 +1,33 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEvents } from '../hooks/useEvents';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import { getHolidayMap } from '../holidays';
 import { isRecurring, occurrencesInRange, describeRecurrence } from '../lib/recurrence';
 import styles from './CalendarView.module.css';
+
+// Phones open on the week — a month grid there is seven slivers of
+// "+2 more" — and anything wider on the month. Whichever you pick after that is
+// remembered on this device.
+const VIEW_KEY = 'rally.calendar.view';
+const PHONE_QUERY = '(max-width: 760px)';
+function initialView() {
+  try {
+    const saved = localStorage.getItem(VIEW_KEY);
+    if (saved === 'week' || saved === 'month') return saved;
+  } catch { /* storage unavailable */ }
+  return typeof window !== 'undefined' && window.matchMedia?.(PHONE_QUERY).matches ? 'week' : 'month';
+}
 
 export function CalendarView() {
   const { events } = useEvents();
   const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [view, setViewState] = useState(initialView);
+  const setView = (v) => {
+    setViewState(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage unavailable */ }
+  };
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleEvents, setGoogleEvents] = useState([]);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
@@ -122,8 +140,10 @@ export function CalendarView() {
     if (!token) return;
     setLoadingGoogle(true);
     try {
-      const mStart = startOfMonth(currentDate);
-      const mEnd = endOfMonth(currentDate);
+      // Every day on screen, not just the calendar month: the grey days either
+      // side of a month, and a week that runs into the next month.
+      const mStart = startOfWeek(startOfMonth(currentDate));
+      const mEnd = endOfWeek(endOfMonth(currentDate));
       const allEvents = [];
       for (const calId of selectedCalendarIds) {
         try {
@@ -170,7 +190,6 @@ export function CalendarView() {
     setSelectedCalendarIds([]);
     setGoogleEvents([]);
     setGoogleCalendars([]);
-    setSelectedCalendarId('');
   }
 
   const mStart = startOfMonth(currentDate);
@@ -254,15 +273,61 @@ export function CalendarView() {
   function nextMonth() {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   }
+  // The arrows step by whatever is showing.
+  const prev = () => (view === 'week' ? setCurrentDate(addDays(currentDate, -7)) : prevMonth());
+  const next = () => (view === 'week' ? setCurrentDate(addDays(currentDate, 7)) : nextMonth());
+
+  // The week holding `currentDate`, Sunday first like the month grid. It always
+  // sits inside that month's grid, so the repeating events worked out for the
+  // grid cover it too.
+  const weekStart = startOfWeek(currentDate);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekEnd = weekDays[6];
+  const weekTitle = weekStart.getMonth() === weekEnd.getMonth()
+    ? `${format(weekStart, 'MMM d')} – ${format(weekEnd, 'd, yyyy')}`
+    : weekStart.getFullYear() === weekEnd.getFullYear()
+      ? `${format(weekStart, 'MMM d')} – ${format(weekEnd, 'MMM d, yyyy')}`
+      : `${format(weekStart, 'MMM d, yyyy')} – ${format(weekEnd, 'MMM d, yyyy')}`;
+
+  // A clock time for an event that has one; all-day events show none.
+  function rallyTime(e) {
+    if (e._occurrence) return e.allDay || e.dateTBD ? '' : format(e._occurrence.start, 'h:mm a');
+    if (e.allDay || e.dateTBD) return '';
+    const d = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+    return isNaN(d) ? '' : format(d, 'h:mm a');
+  }
+  function googleTime(e) {
+    if (e.allDay) return '';
+    const d = parseGoogleDate(e.start);
+    return isNaN(d) ? '' : format(d, 'h:mm a');
+  }
+  // A day's events in the order they happen: all-day first, then by the clock.
+  function dayEvents(day) {
+    const rally = getRallyEventsForDay(day).map(e => ({ ...e, source: 'rally', _time: rallyTime(e) }));
+    const google = getGoogleEventsForDay(day).map(e => ({ ...e, source: 'google', _time: googleTime(e) }));
+    const minutes = (t) => {
+      if (!t) return -1;
+      const d = new Date(`2000-01-01 ${t}`);
+      return isNaN(d) ? -1 : d.getHours() * 60 + d.getMinutes();
+    };
+    return [...rally, ...google].sort((a, b) => minutes(a._time) - minutes(b._time));
+  }
 
   return (
     <div className={styles.page}>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 0.75rem' }}>Rally Calendar</h1>
       <div className={styles.topBar}>
         <div className={styles.header}>
-          <button className={styles.navBtn} onClick={prevMonth}>‹</button>
-          <h2 className={styles.monthTitle}>{format(currentDate, 'MMMM yyyy')}</h2>
-          <button className={styles.navBtn} onClick={nextMonth}>›</button>
+          <button className={styles.navBtn} onClick={prev} aria-label={view === 'week' ? 'Previous week' : 'Previous month'}>‹</button>
+          <h2 className={styles.monthTitle}>{view === 'week' ? weekTitle : format(currentDate, 'MMMM yyyy')}</h2>
+          <button className={styles.navBtn} onClick={next} aria-label={view === 'week' ? 'Next week' : 'Next month'}>›</button>
+        </div>
+        <div className={styles.viewBar}>
+          <div className={styles.viewToggle} role="group" aria-label="Calendar view">
+            <button type="button" className={view === 'month' ? styles.viewOn : styles.viewBtn} aria-pressed={view === 'month'} onClick={() => setView('month')}>Month</button>
+            <button type="button" className={view === 'week' ? styles.viewOn : styles.viewBtn} aria-pressed={view === 'week'} onClick={() => setView('week')}>Week</button>
+          </div>
+          <button type="button" className={styles.todayBtn} onClick={() => setCurrentDate(new Date())}>Today</button>
         </div>
         <div className={styles.googleBar}>
           {googleConnected ? (
@@ -284,6 +349,47 @@ export function CalendarView() {
         </div>
       </div>
 
+      {view === 'week' ? (
+        <div className={styles.week} data-testid="week-view">
+          {weekDays.map(day => {
+            const evts = dayEvents(day);
+            const holidays = holidayMap[format(day, 'yyyy-MM-dd')] || [];
+            return (
+              <section key={day.toISOString()} className={`${styles.weekDay} ${isToday(day) ? styles.weekToday : ''}`} aria-label={format(day, 'EEEE, MMMM d')}>
+                <div className={styles.weekDayHead}>
+                  <span className={styles.weekDow}>{format(day, 'EEE')}</span>
+                  <span className={styles.weekDate}>{format(day, 'MMM d')}</span>
+                  {isToday(day) && <span className={styles.todayPill}>Today</span>}
+                </div>
+                <div className={styles.weekEvents}>
+                  {holidays.map((name, i) => (
+                    <span key={`h-${i}`} className={styles.weekHoliday}>🎉 {name}</span>
+                  ))}
+                  {evts.map((e, i) => (
+                    e.source === 'rally' ? (
+                      <button
+                        key={e._occurrence ? `${e.id}-${e._occurrence.year}` : e.id}
+                        className={styles.weekEvent}
+                        onClick={() => navigate(`/event/${e.id}`)}
+                        title={e._occurrence ? `${e.title} — ${describeRecurrence(e.recurrence)}` : e.title}
+                      >
+                        {e._time && <span className={styles.weekTime}>{e._time}</span>}
+                        <span className={styles.weekTitle}>{e._occurrence ? '🔁 ' : ''}{e.title}</span>
+                      </button>
+                    ) : (
+                      <a key={e.id || i} className={`${styles.weekEvent} ${styles.weekGoogle}`} href={e.htmlLink} target="_blank" rel="noopener noreferrer" title={e.title}>
+                        {e._time && <span className={styles.weekTime}>{e._time}</span>}
+                        <span className={styles.weekTitle}>{e.title}</span>
+                      </a>
+                    )
+                  ))}
+                  {evts.length === 0 && holidays.length === 0 && <span className={styles.weekEmpty}>Nothing planned</span>}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
       <div className={styles.grid}>
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
           <div key={d} className={styles.dayLabel}>{d}</div>
@@ -326,6 +432,7 @@ export function CalendarView() {
           );
         })}
       </div>
+      )}
 
       <div style={{ display: 'flex', gap: '1rem', marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: '10px', height: '10px', borderRadius: '2px', background: 'var(--color-accent)' }} /> Rally Events</span>
