@@ -9,6 +9,7 @@ import {
   recurrenceFromDate,
 } from '../lib/recurrence';
 import { CADENCES, normalizePollSeries, addMonthsYmd, sendDateLabel, pollWindow, windowLabel, previewDate } from '../lib/pollSeries';
+import { DEFAULT_REMINDER_INTERVALS } from '../lib/autoReminders';
 import styles from './EventForm.module.css';
 import { DateField } from './DateField';
 
@@ -93,6 +94,10 @@ export function EventForm({ event, onSave, onCancel }) {
   const [pollSendDate, setPollSendDate] = useState(event?.pollSendDate || todayYmd);
   const [sendDateMissing, setSendDateMissing] = useState(false);
   const pollAlreadySent = !!event?.pollSentAt;
+
+  // Automatic email reminders to people who haven't voted. Chosen here only
+  // when creating; an existing event has the full control on its page.
+  const [autoReminders, setAutoReminders] = useState(false);
 
   // Local Date for the start field, or null while the day is empty/half-typed.
   function startAsDate(day = startDay) {
@@ -192,6 +197,11 @@ export function EventForm({ event, onSave, onCancel }) {
     // you know the date of): it's settled, and only a finalized round's passing
     // opens the next one.
     if (data.pollSeries && !dateTBD && event?.stage !== 'finalized') data.stage = 'finalized';
+    // Saved without a startedAt: the daily check starts the clock once the
+    // poll has dates and guests (lib/autoReminders.js).
+    if (!event && dateTBD && autoReminders) {
+      data.autoReminders = { enabled: true, intervals: DEFAULT_REMINDER_INTERVALS, startedAt: '' };
+    }
     onSave(data);
   }
 
@@ -367,6 +377,21 @@ export function EventForm({ event, onSave, onCancel }) {
       {dateTBD && (
         <div style={{ padding: '0.75rem', background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: '8px', fontSize: '0.82rem', color: '#4338CA' }}>
           📊 Date will be decided by poll votes. You can finalize it later.
+        </div>
+      )}
+
+      {dateTBD && !event && (
+        <div className={styles.repeatBox}>
+          <label className={styles.repeatToggle} style={{ color: autoReminders ? '#4f46e5' : '#6b7280' }}>
+            <input type="checkbox" checked={autoReminders} onChange={e => setAutoReminders(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
+            <span aria-hidden="true">📧</span>
+            Automatic email reminders to people who haven’t voted
+          </label>
+          {autoReminders && (
+            <p className={styles.repeatHint} style={{ margin: '0.4rem 0 0' }}>
+              Once your poll has dates and invited guests, anyone who hasn’t voted gets a reminder {DEFAULT_REMINDER_INTERVALS.slice(0, -1).join(', ')} and {DEFAULT_REMINDER_INTERVALS.at(-1)} days later. People who vote are skipped. You can change the days or stop them on the event page.
+            </p>
+          )}
         </div>
       )}
 

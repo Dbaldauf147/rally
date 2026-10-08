@@ -27,6 +27,7 @@ import { isRecurring, describeRecurrence } from '../lib/recurrence';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
+import { DEFAULT_REMINDER_INTERVALS } from '../lib/autoReminders';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
@@ -4414,7 +4415,7 @@ export function EventDetail() {
           {isOwner && stage === 'voting' && (() => {
             const ar = event.autoReminders || {};
             const enabled = !!ar.enabled;
-            const intervals = ar.intervals || [3, 5, 7];
+            const intervals = ar.intervals || DEFAULT_REMINDER_INTERVALS;
             const nonVoterCount = members.filter(([uid, m]) => uid !== user?.uid && !voteStats[uid]?.total && !m.skipVote && m.email).length;
 
             return (
@@ -4461,7 +4462,9 @@ export function EventDetail() {
                 {enabled && (
                   <>
                     <div style={{ fontSize: '0.72rem', color: '#6366F1', fontWeight: 500, marginBottom: '0.65rem' }}>
-                      Active since {new Date(ar.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {nonVoterCount} non-voter{nonVoterCount !== 1 ? 's' : ''} pending · checked daily
+                      {ar.startedAt
+                        ? <>Active since {new Date(ar.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {nonVoterCount} non-voter{nonVoterCount !== 1 ? 's' : ''} pending · checked daily</>
+                        : <>Waiting to start · the countdown begins once the poll has dates and guests with emails</>}
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {[0, 1, 2].map(i => (
@@ -4495,7 +4498,7 @@ export function EventDetail() {
                       ))}
                     </div>
                     <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-                      Reminders sent to non-voters X days after enabling. Members who vote are automatically skipped.
+                      Reminders sent to non-voters X days after {ar.startedAt ? 'enabling' : 'the countdown starts'}. Members who vote are automatically skipped.
                     </div>
                   </>
                 )}
