@@ -3,6 +3,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { senderAddress } from '../lib/emailSender.js';
+import { readyToStartReminders } from '../src/lib/autoReminders.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -44,12 +45,10 @@ export default async function handler(req, res) {
 
       // Skip events without auto reminders enabled
       const ar = event.autoReminders;
-      if (!ar?.enabled || !ar.startedAt || !Array.isArray(ar.intervals) || ar.intervals.length === 0) {
+      if (!ar?.enabled || !Array.isArray(ar.intervals) || ar.intervals.length === 0) {
         continue;
       }
 
-      const startedAt = new Date(ar.startedAt);
-      const daysSinceStart = Math.floor((now - startedAt) / (1000 * 60 * 60 * 24));
       const members = event.members || {};
       // Somebody the event is hidden from doesn't get told about it by email
       // either — that would give the surprise away.
@@ -66,6 +65,23 @@ export default async function handler(req, res) {
           if (v.vote && v.vote !== 'none') voterUids.add(uid);
         }
       }
+
+      // Switched on at creation, the schedule waits with no startedAt until the
+      // poll is something guests can answer; today it starts, and the first
+      // reminder is counted from here.
+      if (!ar.startedAt) {
+        const emailableCount = Object.values(members).filter(m => m && typeof m === 'object' && m.email
+          && m.role !== 'owner' && !m.skipVote
+          && !hiddenFrom.has(String(m.email).trim().toLowerCase())).length;
+        if (readyToStartReminders(event, { openOptionCount: openOpts.length, emailableCount })) {
+          await db.collection('events').doc(eventId).update({ 'autoReminders.startedAt': now.toISOString() });
+          results.push({ event: event.title, started: true });
+        }
+        continue;
+      }
+
+      const startedAt = new Date(ar.startedAt);
+      const daysSinceStart = Math.floor((now - startedAt) / (1000 * 60 * 60 * 24));
 
       // Find non-voters with emails
       for (const [uid, m] of Object.entries(members)) {
