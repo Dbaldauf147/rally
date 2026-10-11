@@ -5,6 +5,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { checkInsNeedingScheduling } from '../src/lib/doctors.js';
+import { nextReminderSend } from '../src/lib/autoReminders.js';
 import { senderAddress } from '../lib/emailSender.js';
 
 if (!getApps().length) {
@@ -115,6 +116,16 @@ export default async function handler(req, res) {
         .filter(([uid]) => !fullyVotedUids.has(uid))
         .map(([, m]) => m.name || m.email || 'Unnamed');
 
+      // Who has voted, counted the way api/check-reminders.js counts it, so the
+      // next-reminder date is the one that cron will actually act on.
+      const reminderVoters = new Set();
+      for (const d of dateOptsSnap.docs) {
+        if (d.data().closed) continue;
+        for (const [uid, v] of Object.entries(d.data().votes || {})) {
+          if (v?.vote && v.vote !== 'none') reminderVoters.add(uid);
+        }
+      }
+
       unscheduled.push({
         id: eventDoc.id,
         title: event.title || 'Untitled event',
@@ -125,6 +136,7 @@ export default async function handler(req, res) {
         votedCount: fullyVotedUids.size,
         totalVoters,
         waitingOn,
+        reminders: nextReminderSend(event, reminderVoters),
         createdAt: event.createdAt?.toDate?.() || null,
       });
     }
@@ -183,12 +195,21 @@ export default async function handler(req, res) {
       const waitingCell = e.waitingOn.length === 0
         ? '<span style="color:#16a34a;">Everyone voted ✓</span>'
         : escapeHtml(e.waitingOn.join(', '));
+      const r = e.reminders;
+      const reminderCell = r.state === 'scheduled'
+        ? `<strong style="color:#4f46e5;">On</strong><div style="color:#6b7280; font-size:0.78rem; margin-top:2px;">Next: ${escapeHtml(formatDate(r.at))}${r.count > 1 ? ` · ${r.count} people` : ''}</div>`
+        : r.state === 'waiting'
+          ? '<strong style="color:#4f46e5;">On</strong><div style="color:#6b7280; font-size:0.78rem; margin-top:2px;">Waiting to start</div>'
+          : r.state === 'done'
+            ? '<strong style="color:#4f46e5;">On</strong><div style="color:#6b7280; font-size:0.78rem; margin-top:2px;">None left to send</div>'
+            : '<span style="color:#9ca3af;">Off</span>';
       return `
         <tr>
           <td style="${cellStyle}">${titleCell}</td>
           <td style="${cellStyle}">${dateCell}</td>
           <td style="${cellStyle} white-space: nowrap;">${voteCell}</td>
           <td style="${cellStyle} color:#374151;">${waitingCell}</td>
+          <td style="${cellStyle} white-space: nowrap;">${reminderCell}</td>
         </tr>`;
     }).join('');
 
@@ -201,6 +222,7 @@ export default async function handler(req, res) {
               <th style="${headStyle}">Closest date</th>
               <th style="${headStyle}">Voted</th>
               <th style="${headStyle}">Waiting on</th>
+              <th style="${headStyle}">Auto reminders</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>

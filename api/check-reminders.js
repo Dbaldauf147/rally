@@ -3,7 +3,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { senderAddress } from '../lib/emailSender.js';
-import { readyToStartReminders } from '../src/lib/autoReminders.js';
+import { readyToStartReminders, pendingReminderMembers } from '../src/lib/autoReminders.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -83,16 +83,9 @@ export default async function handler(req, res) {
       const startedAt = new Date(ar.startedAt);
       const daysSinceStart = Math.floor((now - startedAt) / (1000 * 60 * 60 * 24));
 
-      // Find non-voters with emails
-      for (const [uid, m] of Object.entries(members)) {
-        if (!m || typeof m !== 'object') continue;
-        if (!m.email) continue;
-        if (m.skipVote) continue;
-        if (hiddenFrom.has(String(m.email || '').trim().toLowerCase())) continue;
-        if (voterUids.has(uid)) continue; // already voted
-
+      // Non-voters with emails who still have reminders to come
+      for (const [uid, m] of pendingReminderMembers(event, voterUids)) {
         const sent = m.autoRemindersSent || 0;
-        if (sent >= ar.intervals.length) continue; // all reminders already sent
 
         // Check if it's time for the next reminder
         const nextInterval = ar.intervals[sent]; // days after startedAt
