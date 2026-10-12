@@ -465,11 +465,16 @@ const escapeHtml = (s) =>
  * The reel is labelled "Game highlights" rather than by its headline, which is
  * just the matchup again ("Yankees vs. Diamondbacks: Game Highlights") one line
  * under the scoreboard that said so.
+ *
+ * Each link goes to the video file, not ESPN's clip page: ESPN takes the page
+ * down within a week or so ("Page not found") while the file stays up, and a
+ * weekly digest is mostly week-old games. The page is the fallback for a clip
+ * with no file.
  */
 export function highlightsLinks(clips) {
   if (!clips || clips.length === 0) return '';
   const link = (c) =>
-    `<a href="${escapeHtml(c.href)}" style="color:#4f46e5;text-decoration:none;font-weight:600;">${c.kind === 'reel' ? 'Game highlights' : escapeHtml(c.title)}</a>` +
+    `<a href="${escapeHtml(c.src || c.href)}"style="color:#4f46e5;text-decoration:none;font-weight:600;">${c.kind === 'reel' ? 'Game highlights' : escapeHtml(c.title)}</a>` +
     `<span style="color:#9ca3af;font-weight:400;"> ${fmtClipLength(c.duration)}</span>`;
   return `<span style="color:#9ca3af;">▶</span> ${clips.map(link).join('<span style="color:#d1d5db;"> · </span>')}`;
 }
