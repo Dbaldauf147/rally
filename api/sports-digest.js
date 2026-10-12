@@ -743,7 +743,7 @@ const TIMELINE_MONTHS = 12;
 const TIMELINE_LEAD_MONTHS = 2;
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const POSTSEASON_LABEL = /post[-\s]?season|playoff|finals|world series|stanley cup|championship/i;
+const POSTSEASON_LABEL = /post[-\s]?season|playoff|play-in|finals|world series|stanley cup|championship/i;
 
 /* How a phase is drawn, or null for one that isn't.
  *
@@ -765,9 +765,7 @@ function phaseKind(name) {
 // needing a second row to say so.
 const PHASE_TONE = {
   off: { ahead: '#c9ced7', behind: '#d5d9e0', label: 'Between seasons' },
-  pre: { ahead: '#c7d2fe', behind: '#e0e7ff', label: 'Preseason' },
   regular: { ahead: '#4f46e5', behind: '#a5b4fc', label: 'Regular season' },
-  post: { ahead: '#312e81', behind: '#818cf8', label: 'Postseason' },
 };
 
 // The empty track either side of a season, in the same before/after pair. The
@@ -829,6 +827,9 @@ export function seasonYearSpans(leagues, { now = Date.now() } = {}) {
       // which reads as a league nobody has any dates for rather than one whose
       // year hasn't come round yet. Drawn, the bar ends on the day it returns.
       if (s.kind === 'off' && !(s.from <= now && now < s.to)) continue;
+      // Exhibitions and playoffs aren't drawn: the chart is the regular season,
+      // and the bars either side of it were noise.
+      if (s.kind === 'pre' || s.kind === 'post') continue;
       const from = Math.max(s.from, start);
       const to = Math.min(s.to, end);
       if (to > from) clamped.push({ kind: s.kind, from, to });
@@ -935,8 +936,16 @@ function seasonStatusParts(season, tz) {
   if (counting) {
     detail = `${counting.name} starts ${fmtSeasonDate(counting.startDate, tz)}`;
     status = `in ${daysUntil(counting.startDate)} days`;
-  } else if (phase && !isPreseasonPhase(phase) && !isOffSeasonPhase(phase)) {
+  } else if (phase && phaseKind(phase.name) === 'regular') {
     detail = `${phase.name} through ${fmtSeasonDate(phase.endDate, tz)}`;
+    // To the end of this phase, not the season, which would count the playoffs.
+    status = `${daysUntil(phase.endDate)} days left`;
+  } else if (phase && phaseKind(phase.name) === 'post') {
+    // Playoffs aren't shown, and the off season's end is the next preseason —
+    // so the one date left to give is the day the regular season finished.
+    const regular = [...(season.phases || [])].reverse().find((p) => phaseKind(p.name) === 'regular' && p.endDate);
+    detail = regular ? `Regular season ended ${fmtSeasonDate(regular.endDate, tz)}` : '';
+    status = '';
   } else {
     const next = nextSeasonStart(season);
     if (next) {
@@ -980,7 +989,7 @@ export function buildSeasonBlock(leagues, tz, now = Date.now()) {
   // particular is there for the reader looking at a grey bar and wondering
   // what it means, so in a week when nothing is dark it has nothing to explain.
   const drawn = new Set(chart.rows.flatMap((r) => r.segments.map((s) => s.kind)));
-  const keys = ['off', 'pre', 'regular', 'post'].filter((k) => drawn.has(k));
+  const keys = ['off', 'regular'].filter((k) => drawn.has(k));
   return `
     <div style="background:#eef2ff;border-radius:10px;padding:0.7rem 1rem 0.6rem;margin:0 0 1rem;">
       <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;font-weight:600;margin:0 0 4px;">Season status<span style="color:#9ca3af;font-weight:500;"> · ${range}</span></div>
