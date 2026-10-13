@@ -25,6 +25,8 @@ const icons = {
   travel: svg(<><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M12 11v5" /></>),
   holidays: svg(<><rect x="3" y="8" width="18" height="5" rx="1" /><path d="M5 13v8h14v-8M12 8v13M12 8S9 3 6.5 4.5 9 8 12 8zM12 8s3-5 5.5-3.5S15 8 12 8z" /></>),
   // Two people, for the page of things to do with her.
+  // A balance scale.
+  prosCons: svg(<><path d="M12 4v16" /><path d="M8 20h8" /><path d="M5 7h14" /><path d="M5 7l-3 6a3 3 0 0 0 6 0z" /><path d="M19 7l-3 6a3 3 0 0 0 6 0z" /></>),
   joanne: svg(<><circle cx="9" cy="8" r="3.2" /><path d="M3.5 20a5.5 5.5 0 0 1 11 0" /><path d="M16 5.5a3 3 0 0 1 0 5.8" /><path d="M17.5 14.2a5.5 5.5 0 0 1 3 4.8" /></>),
   doctors: svg(<><path d="M6 3v5a5 5 0 0 0 10 0V3" /><path d="M11 13v3a4 4 0 0 0 8 0v-2" /><circle cx="19" cy="12" r="2.2" /></>),
   pto: svg(<><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" /></>),
@@ -67,6 +69,7 @@ export function BottomTabBar() {
       { to: '/pto', label: 'PTO', icon: icons.pto },
       { to: '/doctors', label: 'Doctors', icon: icons.doctors },
       { to: '/joanne', label: 'Joanne', icon: icons.joanne },
+      { to: '/pros-cons', label: 'Pros & Cons', icon: icons.prosCons },
     ] : []),
   ];
   // Owner-only tools live behind the gear/Settings section of the sheet.

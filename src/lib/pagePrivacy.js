@@ -42,6 +42,7 @@ const LABELS = {
   pto: 'PTO',
   doctors: 'Doctors',
   joanne: 'Joanne',
+  'pros-cons': 'Pros & Cons',
   reachout: 'Reach Out',
   sports: 'Sports',
   admin: 'Admin',
