@@ -341,11 +341,16 @@ function seasonStatusText(season) {
   return `In season · ${days(end - now)} days left`;
 }
 
-// Whether "now" falls inside the league's season window. Unknown dates count as
-// in season so a gap in ESPN's data never silently drops a team's games.
-function isSeasonActive(season) {
+// Whether the league is playing games that count right now. ESPN's season
+// window runs from the first exhibition to the end of the offseason, so the
+// phase decides when there is one: preseason, offseason and the draft aren't
+// "in season". With no phase covering today (a gap in ESPN's data, a break)
+// fall back to the window. Unknown dates count as in season so a gap in ESPN's
+// data never silently drops a team's games.
+export function isSeasonActive(season, now = Date.now()) {
+  const phase = currentPhase(season, now);
+  if (phase) return !isPreseasonPhase(phase) && !isOffSeasonPhase(phase) && !isDraftPhase(phase);
   if (!season?.startDate || !season?.endDate) return true;
-  const now = Date.now();
   return now >= new Date(season.startDate).getTime() && now <= new Date(season.endDate).getTime();
 }
 
@@ -613,8 +618,7 @@ const sectionLabel = (text, first) =>
   `<div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;margin:${first ? '0' : '0.9rem'} 0 0.3rem;">${text}</div>`;
 
 // The phase covering right now, if ESPN has one for this moment.
-function currentPhase(season) {
-  const now = Date.now();
+function currentPhase(season, now = Date.now()) {
   return (season?.phases || []).find((p) =>
     now >= new Date(p.startDate).getTime() && now <= new Date(p.endDate).getTime()) || null;
 }
@@ -1195,6 +1199,15 @@ async function buildDigestForUser(db, userData) {
     }
   }
 
+  // A league in its postseason is still in season, but a team that's been
+  // knocked out has nothing left to report: no games behind it in the window
+  // and none ahead. Drop those rather than printing an empty card. Only judged
+  // when the schedule was actually fetched (scores or upcoming on).
+  const playing = (topics.scores || topics.upcoming)
+    ? digests.filter((d) => d.error || d.results.length || d.upcoming.length)
+    : digests;
+  const playingIds = new Set(playing.map((d) => d.teamId));
+
   const seasons = leagues.filter((l) => active.get(l.sportPath));
   const offSeason = leagues
     .filter((l) => !active.get(l.sportPath))
@@ -1207,13 +1220,15 @@ async function buildDigestForUser(db, userData) {
       return new Date(sa) - new Date(sb);
     });
 
-  // Draft picks, one league fetch per league, covering every followed team —
-  // including out-of-season ones, since an offseason is exactly when a team's
-  // draft class is the news. Leagues ESPN has no draft for come back empty.
+  // Draft picks, one league fetch per league, for the teams still playing —
+  // the digest is about what's in season, so a team that's done for the year
+  // doesn't come back in through its draft class. Leagues ESPN has no draft
+  // for come back empty.
   let draftTeams = [];
   if (topics.draft) {
-    const perLeague = await Promise.all(leagues.map(async (l) => {
-      const leagueTeams = teams.filter((t) => t.sportPath === l.sportPath);
+    const perLeague = await Promise.all(seasons.map(async (l) => {
+      const leagueTeams = teams.filter((t) => t.sportPath === l.sportPath && playingIds.has(String(t.teamId)));
+      if (leagueTeams.length === 0) return [];
       const ids = leagueTeams.map((t) => t.teamId);
       const year = l.season?.year;
       if (!year) return [];
@@ -1241,9 +1256,9 @@ async function buildDigestForUser(db, userData) {
     lookbackDays: OPENER_LOOKBACK_DAYS[cfg.frequency || 'daily'] ?? 8,
   });
 
-  const html = buildEmailHtml(digests, tz, topics, seasons, offSeason, draftTeams, openers, resultDays);
-  const subject = inSeasonTeams.length
-    ? `🏟️ Your Sports digest — ${inSeasonTeams.length} team${inSeasonTeams.length === 1 ? '' : 's'} in season`
+  const html = buildEmailHtml(playing, tz, topics, seasons, offSeason, draftTeams, openers, resultDays);
+  const subject = playing.length
+    ? `🏟️ Your Sports digest — ${playing.length} team${playing.length === 1 ? '' : 's'} in season`
     : '🏟️ Your Sports digest — all your leagues are out of season';
   return { html, subject, email, teams: teams.length };
 }
