@@ -1686,14 +1686,21 @@ export function daysSinceField(list) {
    The same test the Next visit column makes: nothing booked on the calendar,
    and no last visit and readable cadence to count one from. An overdue row is
    not here, because it has a date; it's only the rows the column leaves blank.
-   `reason` says which half is missing, since that's what you'd fix. */
+   `reason` says which half is missing, since that's what you'd fix.
+
+   Read off the tab's own rows (checkInEntries), one per speciality, rather
+   than every record. A speciality with a dated record shows that one, so a
+   stray blank record filed under the same speciality — Skin's next visit on
+   the tab, and "Skin: No cadence" in the email — can't nag on its behalf. */
 export function checkInsNeedingScheduling(list, today = new Date()) {
   const l = normalizeList(list);
   const from = daysSinceField(l);
-  return l.entries
-    // A row taken off the Check-ins tab is a row you have said you are not
-    // booking, so the digest has no business nagging you to book it.
-    .filter((e) => hasContent(e) && isScheduledOrContact(e) && !isOffCheckIns(e))
+  // checkInEntries already leaves out rows taken off the tab: a row you have
+  // said you are not booking is not one for the digest to nag you to book.
+  return checkInEntries(l, today)
+    // Narrower than the tab: a named doctor seen only for an issue sits on
+    // Check-ins, but a one-off visit isn't something to book.
+    .filter((e) => hasContent(e) && isScheduledOrContact(e))
     .filter((e) => !upcomingVisit(e, from ? customValueOf(e, from) : '', today))
     .map((e) => {
       const p = parseLooseDate(from ? customValueOf(e, from) : '');
