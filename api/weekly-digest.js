@@ -6,6 +6,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { checkInsNeedingScheduling } from '../src/lib/doctors.js';
 import { senderAddress } from '../lib/emailSender.js';
+import { nextReminder } from '../src/lib/autoReminders.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -63,7 +64,8 @@ export default async function handler(req, res) {
     }
     const unscheduled = [];
 
-    const startOfToday = new Date();
+    const now = new Date();
+    const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
 
     for (const eventDoc of eventsById.values()) {
@@ -74,9 +76,10 @@ export default async function handler(req, res) {
       const members = event.members || {};
 
       const dateOptsSnap = await db.collection('events').doc(eventDoc.id).collection('dateOptions').get();
-      const openOpts = dateOptsSnap.docs
-        .map(d => d.data())
-        .filter(d => !d.closed && !d.noVote);
+      const allOpts = dateOptsSnap.docs.map(d => d.data());
+      const openOpts = allOpts.filter(d => !d.closed && !d.noVote);
+      // The reminder job counts every option that isn't closed, so ask it the same way.
+      const reminder = nextReminder(event, { openOptions: allOpts.filter(d => !d.closed) });
 
       // Earliest start across open options that hasn't already passed
       let closestStart = null;
@@ -125,6 +128,8 @@ export default async function handler(req, res) {
         votedCount: fullyVotedUids.size,
         totalVoters,
         waitingOn,
+        reminder,
+        pollSendDate: event.pollSentAt ? '' : (event.pollSendDate || ''),
         createdAt: event.createdAt?.toDate?.() || null,
       });
     }
@@ -167,6 +172,29 @@ export default async function handler(req, res) {
       return `<strong style="color:${color};">${n} day${n === 1 ? '' : 's'}</strong>`;
     };
 
+    const muted = (s) => `<div style="color:#6b7280; font-size:0.78rem; margin-top:2px;">${s}</div>`;
+    const reminderCell = (e) => {
+      const r = e.reminder;
+      if (r.state === 'off') return '<span style="color:#9ca3af;">Off</span>';
+      if (r.state === 'armed') {
+        return `<strong style="color:#4f46e5;">On</strong>${muted(e.pollSendDate
+          ? 'starts when the poll goes out'
+          : 'starts once the poll has dates and invitees')}`;
+      }
+      if (r.state === 'done') {
+        return `<strong style="color:#4f46e5;">On</strong>${muted(r.exhausted
+          ? `all ${r.total} sent`
+          : 'nobody left to remind')}`;
+      }
+      const days = Math.round((Date.UTC(r.at.getUTCFullYear(), r.at.getUTCMonth(), r.at.getUTCDate())
+        - Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) / (1000 * 60 * 60 * 24));
+      const when = days <= 0 ? 'Today' : days === 1 ? 'Tomorrow'
+        : r.at.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+      const detail = [r.reminder && `reminder ${r.reminder} of ${r.total}`, `${r.count} ${r.count === 1 ? 'person' : 'people'}`]
+        .filter(Boolean).join(' · ');
+      return `<strong style="color:#4f46e5;">Next: ${escapeHtml(when)}</strong>${muted(detail)}`;
+    };
+
     const rows = unscheduled.map(e => {
       const link = `${APP_URL}/event/${e.id}`;
       const titleCell = `
@@ -188,6 +216,7 @@ export default async function handler(req, res) {
           <td style="${cellStyle}">${titleCell}</td>
           <td style="${cellStyle}">${dateCell}</td>
           <td style="${cellStyle} white-space: nowrap;">${voteCell}</td>
+          <td style="${cellStyle} white-space: nowrap;">${reminderCell(e)}</td>
           <td style="${cellStyle} color:#374151;">${waitingCell}</td>
         </tr>`;
     }).join('');
@@ -200,6 +229,7 @@ export default async function handler(req, res) {
               <th style="${headStyle}">Event</th>
               <th style="${headStyle}">Closest date</th>
               <th style="${headStyle}">Voted</th>
+              <th style="${headStyle}">Auto reminders</th>
               <th style="${headStyle}">Waiting on</th>
             </tr>
           </thead>
