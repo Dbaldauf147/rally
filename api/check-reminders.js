@@ -3,7 +3,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { senderAddress } from '../lib/emailSender.js';
-import { readyToStartReminders } from '../src/lib/autoReminders.js';
+import { readyToStartReminders, remindableMembers, reminderVoterUids } from '../src/lib/autoReminders.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -50,29 +50,20 @@ export default async function handler(req, res) {
       }
 
       const members = event.members || {};
-      // Somebody the event is hidden from doesn't get told about it by email
-      // either — that would give the surprise away.
-      const hiddenFrom = new Set((Array.isArray(event.hiddenFrom) ? event.hiddenFrom : [])
-        .map((e) => String(e || '').trim().toLowerCase()));
+      // Who can be emailed at all (lib/autoReminders.js) — the weekly digest
+      // works out the next send from the same rules.
+      const remindable = remindableMembers(event);
 
       // Get open date options to determine who has voted
       const dateOptsSnap = await db.collection('events').doc(eventId).collection('dateOptions').get();
-      const openOpts = dateOptsSnap.docs.filter(d => !d.data().closed);
-      const voterUids = new Set();
-      for (const d of openOpts) {
-        const votes = d.data().votes || {};
-        for (const [uid, v] of Object.entries(votes)) {
-          if (v.vote && v.vote !== 'none') voterUids.add(uid);
-        }
-      }
+      const openOpts = dateOptsSnap.docs.map(d => d.data()).filter(d => !d.closed);
+      const voterUids = reminderVoterUids(openOpts);
 
       // Switched on at creation, the schedule waits with no startedAt until the
       // poll is something guests can answer; today it starts, and the first
       // reminder is counted from here.
       if (!ar.startedAt) {
-        const emailableCount = Object.values(members).filter(m => m && typeof m === 'object' && m.email
-          && m.role !== 'owner' && !m.skipVote
-          && !hiddenFrom.has(String(m.email).trim().toLowerCase())).length;
+        const emailableCount = remindable.filter(([, m]) => m.role !== 'owner').length;
         if (readyToStartReminders(event, { openOptionCount: openOpts.length, emailableCount })) {
           await db.collection('events').doc(eventId).update({ 'autoReminders.startedAt': now.toISOString() });
           results.push({ event: event.title, started: true });
@@ -84,11 +75,7 @@ export default async function handler(req, res) {
       const daysSinceStart = Math.floor((now - startedAt) / (1000 * 60 * 60 * 24));
 
       // Find non-voters with emails
-      for (const [uid, m] of Object.entries(members)) {
-        if (!m || typeof m !== 'object') continue;
-        if (!m.email) continue;
-        if (m.skipVote) continue;
-        if (hiddenFrom.has(String(m.email || '').trim().toLowerCase())) continue;
+      for (const [uid, m] of remindable) {
         if (voterUids.has(uid)) continue; // already voted
 
         const sent = m.autoRemindersSent || 0;
