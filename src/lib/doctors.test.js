@@ -1277,6 +1277,16 @@ describe('checkInsNeedingScheduling', () => {
     expect(out[0].label).toBe('Ear — Dr Kim');
   });
 
+  it('asks about a speciality once, by the row the tab shows for it', () => {
+    let l = withLastVisit([
+      { id: 'derm', type: 'Skin', doctor: 'Sochulak', cadence: 'Every 2 year(s)' },
+      // A blank record filed under the same speciality: no name, no cadence.
+      { id: 'stray', type: 'Skin', notes: 'left over' },
+    ]);
+    l = setCustomValue(l, 'derm', l.fields[0].id, '2026-09-15');
+    expect(checkInsNeedingScheduling(l, TODAY)).toEqual([]);
+  });
+
   it('counts an overdue check-in as having a date', () => {
     let l = withLastVisit([{ id: 'late', type: 'Dentist', cadence: 'Every 6 months' }]);
     l = setCustomValue(l, 'late', l.fields[0].id, '2025-01-01');
