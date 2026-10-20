@@ -27,7 +27,7 @@ import { isRecurring, describeRecurrence } from '../lib/recurrence';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
-import { DEFAULT_REMINDER_INTERVALS } from '../lib/autoReminders';
+import { DEFAULT_REMINDER_INTERVALS, reminderSendDates } from '../lib/autoReminders';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
@@ -1203,7 +1203,13 @@ export function EventDetail() {
       .filter(([, note]) => note);
     const showComments = rowMembers.some(([uid]) => commentsOf(uid).length > 0);
     const commentsColW = voteColWidths.comments || (isNarrow ? 160 : 260);
-    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0) + (showComments ? commentsColW : 0);
+    // When each person was sent an automatic reminder email — for whoever runs
+    // the event, once reminders are on or any have gone out.
+    const showReminders = canManageMembers && (!!event.autoReminders?.enabled
+      || rowMembers.some(([, m]) => m.autoRemindersSent > 0));
+    const remindersColW = voteColWidths.reminders || (isNarrow ? 130 : 180);
+    const totalColW = nameColW + visibleOptions.reduce((s, o) => s + optColW(o.id), 0) + (showComments ? commentsColW : 0)
+      + (showReminders ? remindersColW : 0);
     const resizeHandle = (key, width) => (
       <div
         onMouseDown={startColResize(key, width)}
@@ -1240,6 +1246,7 @@ export function EventDetail() {
             <col style={{ width: `${nameColW}px` }} />
             {visibleOptions.map(o => <col key={o.id} style={{ width: `${optColW(o.id)}px` }} />)}
             {showComments && <col style={{ width: `${commentsColW}px` }} />}
+            {showReminders && <col style={{ width: `${remindersColW}px` }} />}
             {/* Spacer absorbs any width beyond the sized columns so their
                 widths stay exact and draggable instead of stretching. */}
             <col />
@@ -1288,6 +1295,9 @@ export function EventDetail() {
               {showComments && (
                 <th style={{ ...th, textAlign: 'left', verticalAlign: 'bottom' }}>Comments{resizeHandle('comments', commentsColW)}</th>
               )}
+              {showReminders && (
+                <th style={{ ...th, textAlign: 'left', verticalAlign: 'bottom' }}>Reminder emails{resizeHandle('reminders', remindersColW)}</th>
+              )}
               <th style={th} aria-hidden="true" />
             </tr>
             {showWeather && (
@@ -1319,6 +1329,7 @@ export function EventDetail() {
                   );
                 })}
                 {showComments && <th style={th} aria-hidden="true" />}
+                {showReminders && <th style={th} aria-hidden="true" />}
                 <th style={th} aria-hidden="true" />
               </tr>
             )}
@@ -1404,6 +1415,21 @@ export function EventDetail() {
                             <span style={{ fontWeight: 700, color: 'var(--color-text-muted)' }}>{fmtOpt(o)}</span> {note}
                           </span>
                         ))}
+                      </td>
+                    );
+                  })()}
+                  {showReminders && (() => {
+                    const { dates, unknown } = reminderSendDates(m);
+                    const fmt = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const parts = [...(unknown ? [`${unknown} earlier`] : []), ...dates.map(fmt)];
+                    return (
+                      <td
+                        style={{ ...td, ...topBorder, textAlign: 'left', fontSize: isNarrow ? '0.7rem' : '0.76rem', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        title={parts.length
+                          ? `Automatic reminder emails sent: ${[...(unknown ? [`${unknown} before dates were recorded`] : []), ...dates.map(d => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))].join(', ')}`
+                          : 'No automatic reminder emails sent'}
+                      >
+                        {parts.length ? parts.join(' · ') : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
                       </td>
                     );
                   })()}

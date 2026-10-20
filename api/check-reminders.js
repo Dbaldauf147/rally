@@ -1,7 +1,7 @@
 // Vercel Cron: runs daily, checks all events for due auto-reminders,
 // and sends reminder emails to non-voters via the Resend API.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { senderAddress } from '../lib/emailSender.js';
 import { readyToStartReminders, remindableMembers, reminderVoterUids } from '../src/lib/autoReminders.js';
 
@@ -134,6 +134,8 @@ export default async function handler(req, res) {
             await db.collection('events').doc(eventId).update({
               [`members.${uid}.autoRemindersSent`]: sent + 1,
               [`members.${uid}.lastAutoReminder`]: now.toISOString(),
+              // Every send, for the dates column in the vote table.
+              [`members.${uid}.autoReminderLog`]: FieldValue.arrayUnion(now.toISOString()),
             });
             results.push({ event: event.title, member: m.name || uid, reminder: reminderNum, success: true });
           } else {
