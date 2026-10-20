@@ -91,3 +91,15 @@ export function nextReminder(event, { openOptions = [], now = new Date() } = {})
   if (!best) return { state: 'done', total, exhausted };
   return { state: 'scheduled', at: new Date(best.t), count: best.count, reminder: best.reminder, total };
 }
+
+// The dates a member was sent a reminder, oldest first. Sends are logged in
+// autoReminderLog; before that only the latest (lastAutoReminder) was kept, so
+// `unknown` counts sends whose date was never recorded.
+export function reminderSendDates(member) {
+  const log = Array.isArray(member?.autoReminderLog) ? member.autoReminderLog : [];
+  const iso = new Set(log);
+  if (member?.lastAutoReminder) iso.add(member.lastAutoReminder);
+  const dates = [...iso].map((s) => new Date(s)).filter((d) => !isNaN(d)).sort((a, b) => a - b);
+  const unknown = Math.max(0, (member?.autoRemindersSent || 0) - dates.length);
+  return { dates, unknown };
+}

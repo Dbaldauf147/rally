@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readyToStartReminders, nextReminder } from './autoReminders';
+import { readyToStartReminders, nextReminder, reminderSendDates } from './autoReminders';
 
 const armed = (extra = {}) => ({ autoReminders: { enabled: true, intervals: [3, 5, 7], startedAt: '' }, ...extra });
 const ready = { openOptionCount: 2, emailableCount: 1 };
@@ -83,5 +83,27 @@ describe('nextReminder', () => {
   it('skips people the event is hidden from', () => {
     const r = nextReminder(event({ hiddenFrom: ['A@x.com', 'b@x.com', 'c@x.com', 'd@x.com'] }), { openOptions: opts() });
     expect(r).toEqual({ state: 'done', total: 3, exhausted: 0 });
+  });
+});
+
+describe('reminderSendDates', () => {
+  it('lists logged sends oldest first, folding in the latest', () => {
+    const r = reminderSendDates({
+      autoRemindersSent: 2,
+      autoReminderLog: ['2026-10-15T14:00:02Z', '2026-10-13T14:00:01Z'],
+      lastAutoReminder: '2026-10-15T14:00:02Z',
+    });
+    expect(r.dates.map(d => d.toISOString())).toEqual(['2026-10-13T14:00:01.000Z', '2026-10-15T14:00:02.000Z']);
+    expect(r.unknown).toBe(0);
+  });
+
+  it('counts sends from before the log as undated', () => {
+    const r = reminderSendDates({ autoRemindersSent: 2, lastAutoReminder: '2026-10-15T14:00:02Z' });
+    expect(r.dates).toHaveLength(1);
+    expect(r.unknown).toBe(1);
+  });
+
+  it('is empty for someone never reminded', () => {
+    expect(reminderSendDates({})).toEqual({ dates: [], unknown: 0 });
   });
 });
