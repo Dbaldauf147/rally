@@ -27,7 +27,7 @@ import { isRecurring, describeRecurrence } from '../lib/recurrence';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
-import { DEFAULT_REMINDER_INTERVALS, reminderSendDates } from '../lib/autoReminders';
+import { DEFAULT_REMINDER_INTERVALS, reminderSendDates, hasMissingAnswers } from '../lib/autoReminders';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
@@ -4442,7 +4442,8 @@ export function EventDetail() {
             const ar = event.autoReminders || {};
             const enabled = !!ar.enabled;
             const intervals = ar.intervals || DEFAULT_REMINDER_INTERVALS;
-            const nonVoterCount = members.filter(([uid, m]) => uid !== user?.uid && !voteStats[uid]?.total && !m.skipVote && m.email).length;
+            // Reminders go to anyone with a date still unanswered (lib/autoReminders.js).
+            const nonVoterCount = members.filter(([uid, m]) => uid !== user?.uid && !m.skipVote && m.email && hasMissingAnswers(uid, openOptions)).length;
 
             return (
               <div style={{
@@ -4458,7 +4459,7 @@ export function EventDetail() {
                       📧 Automatic Email Reminders
                     </div>
                     {!enabled && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.15rem' }}>
-                      Send scheduled reminders to {nonVoterCount} non-voter{nonVoterCount !== 1 ? 's' : ''} with emails
+                      Send scheduled reminders to {nonVoterCount} {nonVoterCount !== 1 ? 'people' : 'person'} with dates unanswered
                     </div>}
                   </div>
                   <button
@@ -4489,7 +4490,7 @@ export function EventDetail() {
                   <>
                     <div style={{ fontSize: '0.72rem', color: '#6366F1', fontWeight: 500, marginBottom: '0.65rem' }}>
                       {ar.startedAt
-                        ? <>Active since {new Date(ar.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {nonVoterCount} non-voter{nonVoterCount !== 1 ? 's' : ''} pending · checked daily</>
+                        ? <>Active since {new Date(ar.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {nonVoterCount} {nonVoterCount !== 1 ? 'people' : 'person'} with dates unanswered · checked daily</>
                         : <>Waiting to start · the countdown begins once the poll has dates and guests with emails</>}
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>

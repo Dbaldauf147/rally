@@ -1,9 +1,11 @@
 // Vercel Cron: runs daily, checks all events for due auto-reminders,
-// and sends reminder emails to non-voters through lib/mailer.js (Gmail, else Resend).
+// and emails anyone with a date still unanswered — showing their answers so
+// far — through lib/mailer.js (Gmail, else Resend).
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { sendOne, mailConfigured } from '../lib/mailer.js';
-import { readyToStartReminders, remindableMembers, reminderVoterUids } from '../src/lib/autoReminders.js';
+import { readyToStartReminders, remindableMembers, pollOptions, reminderAnswers } from '../src/lib/autoReminders.js';
+import { renderReminderEmail } from '../lib/reminderEmail.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -54,10 +56,9 @@ export default async function handler(req, res) {
       // works out the next send from the same rules.
       const remindable = remindableMembers(event);
 
-      // Get open date options to determine who has voted
+      // The dates guests are asked about, to see who still has one unanswered
       const dateOptsSnap = await db.collection('events').doc(eventId).collection('dateOptions').get();
-      const openOpts = dateOptsSnap.docs.map(d => d.data()).filter(d => !d.closed);
-      const voterUids = reminderVoterUids(openOpts);
+      const openOpts = pollOptions(dateOptsSnap.docs.map(d => d.data()));
 
       // Switched on at creation, the schedule waits with no startedAt until the
       // poll is something guests can answer; today it starts, and the first
@@ -74,9 +75,10 @@ export default async function handler(req, res) {
       const startedAt = new Date(ar.startedAt);
       const daysSinceStart = Math.floor((now - startedAt) / (1000 * 60 * 60 * 24));
 
-      // Find non-voters with emails
+      // Anyone with an email and at least one date unanswered
       for (const [uid, m] of remindable) {
-        if (voterUids.has(uid)) continue; // already voted
+        const answers = reminderAnswers(uid, openOpts);
+        if (!answers.some(a => !a.vote)) continue; // answered every date
 
         const sent = m.autoRemindersSent || 0;
         if (sent >= ar.intervals.length) continue; // all reminders already sent
@@ -88,7 +90,6 @@ export default async function handler(req, res) {
         // Send the reminder email
         const reminderNum = sent + 1;
         const totalReminders = ar.intervals.length;
-        const isLast = reminderNum === totalReminders;
         // Addressed to this member alone, so pin it with their member key — the
         // poll page keys their votes to it instead of minting a duplicate person.
         const pollLink = `https://rally-seven-theta.vercel.app/poll/${eventId}?name=${encodeURIComponent(m.name || 'Friend')}&vid=${encodeURIComponent(uid)}`;
@@ -97,33 +98,13 @@ export default async function handler(req, res) {
           return owner?.[1]?.name || 'Someone';
         })();
 
-        const subject = isLast
-          ? `Final reminder: ${fromName} needs your vote on ${event.title}`
-          : `Reminder ${reminderNum}/${totalReminders}: ${fromName} is waiting for your vote on ${event.title}`;
-
-        const urgencyText = isLast
-          ? `<p style="color: #dc2626; font-weight: 600;">This is a final reminder — please respond so we can finalize plans!</p>`
-          : `<p style="color: #525252;">We haven't heard from you yet (reminder ${reminderNum} of ${totalReminders}). Please take a moment to vote on dates so we can finalize plans.</p>`;
+        const { subject, html } = renderReminderEmail({
+          name: m.name, eventTitle: event.title, location: event.location,
+          answers, pollLink, reminderNum, totalReminders, fromName,
+        });
 
         try {
-          const mail = await sendOne({
-            to: m.email,
-            subject,
-            html: `
-              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 500px; margin: 0 auto; padding: 2rem;">
-                <h1 style="font-size: 1.5rem; color: #4f46e5; margin: 0 0 0.5rem;">Rally</h1>
-                <p style="color: #525252; margin: 0 0 1rem;">Hey${m.name ? ` ${m.name}` : ''}! 👋</p>
-                ${urgencyText}
-                <div style="background: #f5f3ef; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
-                  <h2 style="font-size: 1.2rem; margin: 0 0 0.5rem; color: #1a1a1a;">${event.title}</h2>
-                  ${event.location ? `<p style="color: #525252; margin: 0;">📍 ${event.location}</p>` : ''}
-                </div>
-                <a href="${pollLink}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.75rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 0.5rem;">Vote Now</a>
-                <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">Reminder ${reminderNum} of ${totalReminders}. If you didn't expect this email, you can safely ignore it.</p>
-              </div>
-            `,
-            fromName: 'Rally',
-          });
+          const mail = await sendOne({ to: m.email, subject, html, fromName: 'Rally' });
 
           if (mail.ok) {
             // Update the member's reminder count in Firestore
