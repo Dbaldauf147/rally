@@ -107,3 +107,11 @@ describe('reminderSendDates', () => {
     expect(reminderSendDates({})).toEqual({ dates: [], unknown: 0 });
   });
 });
+
+describe('nextReminder once voting is over', () => {
+  it('is off for a finalized or cancelled event, like the daily job', () => {
+    const ar = { enabled: true, intervals: [3], startedAt: '2026-06-22T00:00:00Z' };
+    expect(nextReminder({ autoReminders: ar, stage: 'finalized' }).state).toBe('off');
+    expect(nextReminder({ autoReminders: ar, cancelled: true }).state).toBe('off');
+  });
+});
