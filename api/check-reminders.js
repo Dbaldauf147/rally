@@ -39,8 +39,9 @@ export default async function handler(req, res) {
       const event = eventDoc.data();
       const eventId = eventDoc.id;
 
-      // Cancelled events shouldn't send reminders.
-      if (event.cancelled) continue;
+      // Cancelled events shouldn't send reminders, and once a date is chosen
+      // there's nothing left to vote on.
+      if (event.cancelled || event.stage === 'finalized') continue;
 
       // Skip events without auto reminders enabled
       const ar = event.autoReminders;

@@ -62,7 +62,7 @@ function nextCheckAt(t) {
 export function nextReminder(event, { openOptions = [], now = new Date() } = {}) {
   const ar = event?.autoReminders;
   const intervals = Array.isArray(ar?.intervals) ? ar.intervals : [];
-  if (!ar?.enabled || intervals.length === 0) return { state: 'off' };
+  if (!ar?.enabled || intervals.length === 0 || event.cancelled || event.stage === 'finalized') return { state: 'off' };
   const total = intervals.length;
   if (!ar.startedAt) return { state: 'armed', total };
 
