@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readyToStartReminders, nextReminder, reminderSendDates } from './autoReminders';
+import { readyToStartReminders, nextReminder, reminderSendDates, reminderAnswers, hasMissingAnswers } from './autoReminders';
 
 const armed = (extra = {}) => ({ autoReminders: { enabled: true, intervals: [3, 5, 7], startedAt: '' }, ...extra });
 const ready = { openOptionCount: 2, emailableCount: 1 };
@@ -113,5 +113,35 @@ describe('nextReminder once voting is over', () => {
     const ar = { enabled: true, intervals: [3], startedAt: '2026-06-22T00:00:00Z' };
     expect(nextReminder({ autoReminders: ar, stage: 'finalized' }).state).toBe('off');
     expect(nextReminder({ autoReminders: ar, cancelled: true }).state).toBe('off');
+  });
+});
+
+describe('reminderAnswers', () => {
+  const options = [
+    { startDate: '2026-11-12', votes: { a: { vote: 'maybe' } } },
+    { startDate: '2026-11-05', votes: { a: { vote: 'yes' }, b: { vote: 'none' } } },
+    { startDate: '2026-11-19', votes: {} },
+    { startDate: '2026-11-01', closed: true, votes: {} },
+    { startDate: '2026-11-02', noVote: true, votes: {} },
+  ];
+
+  it('lists the poll dates soonest first with this person’s answer or null', () => {
+    expect(reminderAnswers('a', options).map(x => [x.option.startDate, x.vote]))
+      .toEqual([['2026-11-05', 'yes'], ['2026-11-12', 'maybe'], ['2026-11-19', null]]);
+  });
+
+  it('treats a cleared answer as missing, and ignores closed and reference-only dates', () => {
+    expect(reminderAnswers('b', options).every(x => x.vote === null)).toBe(true);
+    expect(hasMissingAnswers('a', options)).toBe(true);
+    expect(hasMissingAnswers('a', options.slice(0, 2))).toBe(false);
+  });
+
+  it('keeps reminding someone who answered some dates but not all', () => {
+    const e = {
+      autoReminders: { enabled: true, intervals: [3], startedAt: '2026-10-10T14:00:05Z' },
+      members: { a: { name: 'A', email: 'a@x.com' } },
+    };
+    expect(nextReminder(e, { openOptions: options, now: new Date('2026-10-11T09:00:00Z') }).state).toBe('scheduled');
+    expect(nextReminder(e, { openOptions: options.slice(0, 2) }).state).toBe('done');
   });
 });

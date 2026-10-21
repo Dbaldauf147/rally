@@ -31,16 +31,25 @@ export function remindableMembers(event) {
     && m.email && !m.skipVote && !hiddenFrom.has(String(m.email).trim().toLowerCase()));
 }
 
-// Anyone with a real vote on any open option counts as having voted.
-export function reminderVoterUids(openOptions) {
-  const uids = new Set();
-  for (const opt of openOptions) {
-    for (const [uid, v] of Object.entries(opt?.votes || {})) {
-      if (v?.vote && v.vote !== 'none') uids.add(uid);
-    }
-  }
-  return uids;
+// The dates a guest is asked about: open, and not reference-only (noVote,
+// which the poll page doesn't let anyone answer), soonest first.
+export function pollOptions(options) {
+  return (options || []).filter((o) => o && !o.closed && !o.noVote)
+    .sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
 }
+
+const ANSWERS = new Set(['yes', 'maybe', 'no']);
+
+// Each poll date with this member's own answer, or null where they haven't
+// given one. Reminders keep going until there are no nulls left.
+export function reminderAnswers(uid, options) {
+  return pollOptions(options).map((option) => {
+    const vote = option.votes?.[uid]?.vote;
+    return { option, vote: ANSWERS.has(vote) ? vote : null };
+  });
+}
+
+export const hasMissingAnswers = (uid, options) => reminderAnswers(uid, options).some((a) => !a.vote);
 
 // The first daily check at or after `t`. A check that started in the last hour
 // still counts: the weekly digest shares that 14:00 slot, so "today" is right
@@ -53,12 +62,12 @@ function nextCheckAt(t) {
 }
 
 // What the reminder schedule will do next, as api/check-reminders.js would
-// work it out. `openOptions` are the event's dateOptions that aren't closed.
+// work it out. `openOptions` are the event's dateOptions.
 //   off       — not switched on
 //   armed     — on, but the clock hasn't started (see readyToStartReminders)
 //   scheduled — `at` is the next send, to `count` people; `reminder` is which
 //               of `total` it is (null when that differs between them)
-//   done      — nobody left to remind; `exhausted` of them ran out of reminders
+//   done      — nobody left with a date unanswered; `exhausted` of them ran out of reminders
 export function nextReminder(event, { openOptions = [], now = new Date() } = {}) {
   const ar = event?.autoReminders;
   const intervals = Array.isArray(ar?.intervals) ? ar.intervals : [];
@@ -67,11 +76,10 @@ export function nextReminder(event, { openOptions = [], now = new Date() } = {})
   if (!ar.startedAt) return { state: 'armed', total };
 
   const startedAt = new Date(ar.startedAt);
-  const voted = reminderVoterUids(openOptions);
   let best = null;
   let exhausted = 0;
   for (const [uid, m] of remindableMembers(event)) {
-    if (voted.has(uid)) continue;
+    if (!hasMissingAnswers(uid, openOptions)) continue;
     const sent = m.autoRemindersSent || 0;
     if (sent >= total) { exhausted += 1; continue; }
     const due = new Date(startedAt.getTime() + intervals[sent] * DAY_MS);
