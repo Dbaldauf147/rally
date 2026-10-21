@@ -1,8 +1,8 @@
-import { senderAddress } from '../lib/emailSender.js';
+import { sendOne, mailConfigured } from '../lib/mailer.js';
 // Vercel Cron: emails an annual early-October reminder to re-verify the
 // curated state voting dates (src/electionDates.js) against official sources
 // before that fall's election — registration deadlines fall in late October.
-// Uses Resend, mirroring weekly-digest.js.
+// Sends through lib/mailer.js, mirroring weekly-digest.js.
 
 const DEFAULT_RECIPIENT = 'baldaufdan@gmail.com';
 const APP_URL = 'https://rally-seven-theta.vercel.app';
@@ -12,9 +12,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    return res.status(200).json({ skipped: true, reason: 'No RESEND_API_KEY configured' });
+  if (!mailConfigured()) {
+    return res.status(200).json({ skipped: true, reason: 'No email provider configured' });
   }
 
   const base = (process.env.VOTING_REMINDER_EMAIL || process.env.DIGEST_RECIPIENT_EMAIL || DEFAULT_RECIPIENT).toLowerCase();
@@ -50,14 +49,9 @@ export default async function handler(req, res) {
     </div>`;
 
   try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: senderAddress('Rally'), to: [recipient], subject, html }),
-    });
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      return res.status(502).json({ sent: false, error: err.message || `HTTP ${response.status}` });
+    const mail = await sendOne({ to: recipient, subject, html, fromName: 'Rally' });
+    if (!mail.ok) {
+      return res.status(502).json({ sent: false, error: mail.error });
     }
     return res.status(200).json({ sent: true, recipient });
   } catch (err) {
