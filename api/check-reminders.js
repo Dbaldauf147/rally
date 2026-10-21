@@ -1,8 +1,8 @@
 // Vercel Cron: runs daily, checks all events for due auto-reminders,
-// and sends reminder emails to non-voters via the Resend API.
+// and sends reminder emails to non-voters through lib/mailer.js (Gmail, else Resend).
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { senderAddress } from '../lib/emailSender.js';
+import { sendOne, mailConfigured } from '../lib/mailer.js';
 import { readyToStartReminders, remindableMembers, reminderVoterUids } from '../src/lib/autoReminders.js';
 
 if (!getApps().length) {
@@ -18,9 +18,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    return res.status(200).json({ skipped: true, reason: 'No RESEND_API_KEY configured' });
+  if (!mailConfigured()) {
+    return res.status(200).json({ skipped: true, reason: 'No email provider configured' });
   }
 
   let db;
@@ -106,30 +105,26 @@ export default async function handler(req, res) {
           : `<p style="color: #525252;">We haven't heard from you yet (reminder ${reminderNum} of ${totalReminders}). Please take a moment to vote on dates so we can finalize plans.</p>`;
 
         try {
-          const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from: senderAddress('Rally'),
-              to: [m.email],
-              subject,
-              html: `
-                <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 500px; margin: 0 auto; padding: 2rem;">
-                  <h1 style="font-size: 1.5rem; color: #4f46e5; margin: 0 0 0.5rem;">Rally</h1>
-                  <p style="color: #525252; margin: 0 0 1rem;">Hey${m.name ? ` ${m.name}` : ''}! 👋</p>
-                  ${urgencyText}
-                  <div style="background: #f5f3ef; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
-                    <h2 style="font-size: 1.2rem; margin: 0 0 0.5rem; color: #1a1a1a;">${event.title}</h2>
-                    ${event.location ? `<p style="color: #525252; margin: 0;">📍 ${event.location}</p>` : ''}
-                  </div>
-                  <a href="${pollLink}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.75rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 0.5rem;">Vote Now</a>
-                  <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">Reminder ${reminderNum} of ${totalReminders}. If you didn't expect this email, you can safely ignore it.</p>
+          const mail = await sendOne({
+            to: m.email,
+            subject,
+            html: `
+              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 500px; margin: 0 auto; padding: 2rem;">
+                <h1 style="font-size: 1.5rem; color: #4f46e5; margin: 0 0 0.5rem;">Rally</h1>
+                <p style="color: #525252; margin: 0 0 1rem;">Hey${m.name ? ` ${m.name}` : ''}! 👋</p>
+                ${urgencyText}
+                <div style="background: #f5f3ef; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                  <h2 style="font-size: 1.2rem; margin: 0 0 0.5rem; color: #1a1a1a;">${event.title}</h2>
+                  ${event.location ? `<p style="color: #525252; margin: 0;">📍 ${event.location}</p>` : ''}
                 </div>
-              `,
-            }),
+                <a href="${pollLink}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.75rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 0.5rem;">Vote Now</a>
+                <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">Reminder ${reminderNum} of ${totalReminders}. If you didn't expect this email, you can safely ignore it.</p>
+              </div>
+            `,
+            fromName: 'Rally',
           });
 
-          if (response.ok) {
+          if (mail.ok) {
             // Update the member's reminder count in Firestore
             await db.collection('events').doc(eventId).update({
               [`members.${uid}.autoRemindersSent`]: sent + 1,
@@ -139,8 +134,7 @@ export default async function handler(req, res) {
             });
             results.push({ event: event.title, member: m.name || uid, reminder: reminderNum, success: true });
           } else {
-            const err = await response.json().catch(() => ({}));
-            results.push({ event: event.title, member: m.name || uid, reminder: reminderNum, success: false, error: err.message || `HTTP ${response.status}` });
+            results.push({ event: event.title, member: m.name || uid, reminder: reminderNum, success: false, error: mail.error });
           }
         } catch (err) {
           results.push({ event: event.title, member: m.name || uid, reminder: reminderNum, success: false, error: err.message });

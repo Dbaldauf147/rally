@@ -11,7 +11,7 @@ import { fetchSeasonWithPhases, fetchDraftPicks } from '../lib/espnSeason.js';
 import { fetchKeyPlayers } from '../lib/espnPlayers.js';
 import { fmtClipLength } from '../lib/espnHighlights.js';
 import { attachStoredHighlights, reelSummary, teamKey } from '../lib/sportsHighlightStore.js';
-import { senderAddress } from '../lib/emailSender.js';
+import { sendOne, mailConfigured } from '../lib/mailer.js';
 
 const APP_URL = 'https://rally-seven-theta.vercel.app';
 
@@ -1263,23 +1263,18 @@ async function buildDigestForUser(db, userData) {
   return { html, subject, email, teams: teams.length };
 }
 
-async function sendDigestForUser(db, resendKey, uid, userData) {
+async function sendDigestForUser(db, uid, userData) {
   const built = await buildDigestForUser(db, userData);
   if (built.skipped) return { uid, skipped: built.skipped };
 
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: senderAddress('Rally Sports'),
-      to: [built.email],
-      subject: built.subject,
-      html: built.html,
-    }),
+  const mail = await sendOne({
+    to: built.email,
+    subject: built.subject,
+    html: built.html,
+    fromName: 'Rally Sports',
   });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    return { uid, success: false, error: err.message || `HTTP ${response.status}` };
+  if (!mail.ok) {
+    return { uid, success: false, error: mail.error };
   }
   return { uid, success: true, teams: built.teams };
 }
@@ -1307,8 +1302,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
-
   let db;
   try {
     db = getFirestore();
@@ -1317,7 +1310,7 @@ export default async function handler(req, res) {
   }
 
   // Preview — build the digest and hand back the HTML without sending anything.
-  // Ahead of the RESEND_API_KEY check on purpose: previewing doesn't email, so
+  // Ahead of the mail-provider check on purpose: previewing doesn't email, so
   // it shouldn't require the mail provider to be configured.
   if (req.method === 'POST' && req.body?.preview) {
     const uid = req.body?.uid;
@@ -1333,8 +1326,8 @@ export default async function handler(req, res) {
     }
   }
 
-  if (!resendKey) {
-    return res.status(200).json({ skipped: true, reason: 'No RESEND_API_KEY configured' });
+  if (!mailConfigured()) {
+    return res.status(200).json({ skipped: true, reason: 'No email provider configured' });
   }
 
   // Manual "send test now" — sends one user's digest immediately to their own
@@ -1345,7 +1338,7 @@ export default async function handler(req, res) {
     try {
       const snap = await db.collection('users').doc(uid).get();
       if (!snap.exists) return res.status(404).json({ error: 'user not found' });
-      const result = await sendDigestForUser(db, resendKey, uid, snap.data());
+      const result = await sendDigestForUser(db, uid, snap.data());
       if (result.skipped) return res.status(200).json({ sent: 0, ...result });
       if (!result.success) return res.status(502).json(result);
       return res.status(200).json({ sent: 1, ...result });
@@ -1368,7 +1361,7 @@ export default async function handler(req, res) {
       if (!isDueToday(cfg, now)) continue; // not this user's send day
       const todayKey = localDateKey(now, cfg.timezone);
       if (cfg.lastSentDate === todayKey) continue; // already sent today
-      const result = await sendDigestForUser(db, resendKey, userDoc.id, data);
+      const result = await sendDigestForUser(db, userDoc.id, data);
       if (result.success) {
         await db.collection('users').doc(userDoc.id).set(
           { sportsConfig: { lastSentDate: todayKey } },

@@ -9,7 +9,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { summarizeVoting, renderVotingStatusEmail } from '../src/lib/votingStatus.js';
-import { senderAddress } from '../lib/emailSender.js';
+import { sendOne, mailConfigured } from '../lib/mailer.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -29,8 +29,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'No recipients provided' });
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
+  if (!mailConfigured()) {
     return res.status(200).json({ sent: 0, message: 'No email service configured.' });
   }
 
@@ -56,16 +55,11 @@ export default async function handler(req, res) {
     for (const r of recipients) {
       if (!r?.email) { results.push({ name: r?.name, success: false, error: 'No email' }); continue; }
       try {
-        const response = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: senderAddress('Rally'), to: [r.email], subject, html }),
-        });
-        if (response.ok) {
+        const mail = await sendOne({ to: r.email, subject, html, fromName: 'Rally' });
+        if (mail.ok) {
           results.push({ name: r.name, email: r.email, success: true });
         } else {
-          const err = await response.json().catch(() => ({}));
-          results.push({ name: r.name, email: r.email, success: false, error: err.message || `HTTP ${response.status}` });
+          results.push({ name: r.name, email: r.email, success: false, error: mail.error });
         }
       } catch (err) {
         results.push({ name: r.name, email: r.email, success: false, error: err.message });

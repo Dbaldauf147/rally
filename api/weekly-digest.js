@@ -5,7 +5,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { checkInsNeedingScheduling } from '../src/lib/doctors.js';
-import { senderAddress } from '../lib/emailSender.js';
+import { sendOne, mailConfigured } from '../lib/mailer.js';
 import { nextReminder } from '../src/lib/autoReminders.js';
 
 if (!getApps().length) {
@@ -23,9 +23,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    return res.status(200).json({ skipped: true, reason: 'No RESEND_API_KEY configured' });
+  if (!mailConfigured()) {
+    return res.status(200).json({ skipped: true, reason: 'No email provider configured' });
   }
 
   const ownerFilter = (process.env.DIGEST_RECIPIENT_EMAIL || DEFAULT_RECIPIENT).toLowerCase();
@@ -272,20 +271,15 @@ export default async function handler(req, res) {
         <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">Sent weekly on Sundays. Reply to unsubscribe.</p>
       </div>`;
 
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: senderAddress('Rally'),
-        to: [recipient],
-        subject,
-        html,
-      }),
+    const mail = await sendOne({
+      to: recipient,
+      subject,
+      html,
+      fromName: 'Rally',
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      return res.status(502).json({ sent: false, error: err.message || `HTTP ${response.status}` });
+    if (!mail.ok) {
+      return res.status(502).json({ sent: false, error: mail.error });
     }
 
     return res.status(200).json({ sent: true, recipient, count: unscheduled.length, checkIns: checkIns.length });
