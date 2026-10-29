@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { doc, collection, onSnapshot, updateDoc, arrayUnion, arrayRemove, getDocs, deleteField } from 'firebase/firestore';
+import { doc, collection, onSnapshot, updateDoc, setDoc, arrayUnion, arrayRemove, getDocs, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { planMemberUpsert } from '../lib/members';
 // Creating a friend from here writes through the same path the Friends page
@@ -13,7 +13,7 @@ import { groupTokens, bucketByGroup, eventGroupsOf } from '../lib/peopleGroups';
 import { pickPhoneContacts, contactsSource, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
 import { parseVCards } from '../lib/vcard';
 import { isOwnerEmail } from '../lib/pagePrivacy';
-import { smsLink, recipientsFor, togglePicked, textProgress } from '../lib/textDraft';
+import { smsLink, recipientsFor, togglePicked, textProgress, draftToSave, savedDraftOf } from '../lib/textDraft';
 import { noteOf, voteUpdate, noteUpdate } from '../lib/voteNotes';
 import { fetchEventClimate, normalFor, SPREAD } from '../lib/climate';
 import { geocode } from '../lib/weather';
@@ -221,6 +221,36 @@ export function EventDetail() {
     setTextAllPicked(null);
     setShowTextAll(true);
     setTimeout(() => document.getElementById('text-all-draft')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+  };
+  // A draft parked for the phone: written on the laptop, sent from Messages.
+  // It lives on your own user doc rather than the event (which anyone with the
+  // poll link can read), and the event page offers it back on any device you
+  // are signed in on. See draftToSave in lib/textDraft.js.
+  const [savedDraft, setSavedDraft] = useState(null);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftSaveError, setDraftSaveError] = useState('');
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+    return onSnapshot(
+      doc(db, 'users', user.uid),
+      (snap) => setSavedDraft(savedDraftOf(snap.data(), eventId)),
+      () => setSavedDraft(null),
+    );
+  }, [user?.uid, eventId]);
+  const saveDraftForPhone = () => {
+    if (!user?.uid || !textAllMessage.trim()) return Promise.resolve();
+    const draft = draftToSave({ message: textAllMessage, audience: textAllAudience, picked: textAllPicked, openedAt: textAllOpenedAt });
+    return setDoc(doc(db, 'users', user.uid), { textDrafts: { [eventId]: draft } }, { merge: true });
+  };
+  const discardSavedDraft = () => {
+    if (!user?.uid) return Promise.resolve();
+    return updateDoc(doc(db, 'users', user.uid), { [`textDrafts.${eventId}`]: deleteField() }).catch(() => {});
+  };
+  const openSavedDraft = () => {
+    if (!savedDraft) return;
+    openTextDraft(savedDraft.message, savedDraft.audience);
+    setTextAllPicked(savedDraft.picked);
+    if (savedDraft.openedAt) setTextAllOpenedAt(savedDraft.openedAt);
   };
   // Meals being typed into the Meals tab, uid → what is in the box, held
   // until a blur or Enter writes it. See commitMeal below.
@@ -2613,6 +2643,39 @@ export function EventDetail() {
         </div>
       )}
 
+      {savedDraft && !showTextAll && (
+        <div id="saved-text-draft" style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          flexWrap: 'wrap',
+          border: '1px solid var(--color-accent)',
+          borderRadius: 'var(--radius-md)',
+          padding: '0.6rem 0.75rem',
+          marginBottom: '0.75rem',
+          background: 'var(--color-surface-alt)',
+        }}>
+          <span style={{ flex: '1 1 14rem', minWidth: 0, fontSize: '0.82rem', color: 'var(--color-text)' }}>
+            <strong>📱 Text draft ready to send</strong>
+            <span style={{ color: 'var(--color-text-muted)' }}>
+              {savedDraft.savedAt ? ` · saved ${format(new Date(savedDraft.savedAt), 'MMM d, h:mm a')}` : ''}
+              {savedDraft.picked ? ` · ${savedDraft.picked.size} picked` : ''}
+            </span>
+            <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              “{savedDraft.message.replace(/\s+/g, ' ').trim()}”
+            </span>
+          </span>
+          <button className={styles.shareBtn} onClick={openSavedDraft}>Open draft</button>
+          <button
+            type="button"
+            onClick={discardSavedDraft}
+            style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit', padding: '0.2rem 0.3rem' }}
+          >
+            Discard
+          </button>
+        </div>
+      )}
+
       {showTextAll && (() => {
         const inAudience = (uid, m) => {
           if (textAllAudience === 'missing') return !voteStats[uid]?.total && !m.skipVote;
@@ -2640,6 +2703,8 @@ export function EventDetail() {
             updates[`members.${uid}.texted`] = new Date().toISOString();
           });
           if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
+          // Sent — a draft parked for the phone has done its job.
+          if (savedDraft) discardSavedDraft();
           window.location.href = smsUrl;
           setShowTextAll(false);
           setTextAllMessage('');
@@ -2830,10 +2895,49 @@ export function EventDetail() {
                 color: 'var(--color-text)',
               }}
             />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
               <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
                 {textAllMessage.length} character{textAllMessage.length !== 1 ? 's' : ''}
               </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginLeft: 'auto' }}>
+              {(() => {
+                // Saved means what is on screen is what the phone will get —
+                // the same words, to the same people.
+                const sameText = savedDraft && savedDraft.message === textAllMessage
+                  && savedDraft.audience === textAllAudience;
+                const samePeople = savedDraft && (savedDraft.picked && textAllPicked
+                  ? savedDraft.picked.size === textAllPicked.size && [...textAllPicked].every(uid => savedDraft.picked.has(uid))
+                  : !savedDraft.picked && !textAllPicked);
+                const isSaved = sameText && samePeople;
+                return (
+                  <button
+                    type="button"
+                    disabled={!textAllMessage.trim() || textAllSending || draftSaving}
+                    onClick={() => {
+                      setDraftSaving(true);
+                      setDraftSaveError('');
+                      saveDraftForPhone()
+                        .catch(() => setDraftSaveError('Couldn’t save — try again'))
+                        .finally(() => setDraftSaving(false));
+                    }}
+                    title="Keep this draft on your account so you can open it on your phone and send it from Messages"
+                    style={{
+                      padding: '0.4rem 0.75rem',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-md)',
+                      background: isSaved ? '#DCFCE7' : 'var(--color-surface)',
+                      color: isSaved ? '#166534' : 'var(--color-text-secondary)',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      fontFamily: 'inherit',
+                      cursor: !textAllMessage.trim() ? 'not-allowed' : 'pointer',
+                      opacity: !textAllMessage.trim() ? 0.5 : 1,
+                    }}
+                  >
+                    {draftSaveError || (draftSaving ? 'Saving…' : isSaved ? '✓ Saved for phone' : savedDraft ? '📱 Update phone draft' : '📱 Save for phone')}
+                  </button>
+                );
+              })()}
               <button
                 disabled={!textAllMessage.trim() || textAllSending || phones.length === 0}
                 onClick={sendText}
@@ -2852,6 +2956,7 @@ export function EventDetail() {
               >
                 {phones.length === 0 ? '📤 Nobody ticked' : `📤 Open in Messages (${phones.length})`}
               </button>
+              </span>
             </div>
           </div>
         );

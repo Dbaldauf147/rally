@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanNumber, smsLink, recipientsFor, togglePicked, textProgress } from './textDraft';
+import { cleanNumber, smsLink, recipientsFor, togglePicked, textProgress, draftToSave, savedDraftOf } from './textDraft';
 
 describe('cleanNumber', () => {
   it('takes numbers as people type them', () => {
@@ -98,5 +98,29 @@ describe('textProgress', () => {
   it('survives a rubbish timestamp and an empty list', () => {
     expect(textProgress([['ann', at('whenever')]], 0).todo).toHaveLength(1);
     expect(textProgress(null, 0)).toEqual({ done: [], todo: [] });
+  });
+});
+
+describe('draftToSave / savedDraftOf', () => {
+  it('round-trips a hand-picked draft through a user doc', () => {
+    const saved = draftToSave({ message: 'Hey!', audience: 'going', picked: new Set(['ann', 'ben']), openedAt: 100 }, 200);
+    expect(saved).toEqual({ message: 'Hey!', audience: 'going', picked: ['ann', 'ben'], openedAt: 100, savedAt: 200 });
+    const back = savedDraftOf({ textDrafts: { ev1: saved } }, 'ev1');
+    expect([...back.picked]).toEqual(['ann', 'ben']);
+    expect(back).toMatchObject({ message: 'Hey!', audience: 'going', openedAt: 100, savedAt: 200 });
+  });
+
+  it('keeps an audience draft as an audience, not a frozen list', () => {
+    const saved = draftToSave({ message: 'Hi', audience: 'missing', picked: null, openedAt: 0 }, 50);
+    expect(saved.picked).toBeNull();
+    expect(saved.openedAt).toBe(50);
+    expect(savedDraftOf({ textDrafts: { ev1: saved } }, 'ev1').picked).toBeNull();
+  });
+
+  it('has nothing to offer for another event, an empty message, or no doc', () => {
+    const doc = { textDrafts: { ev1: draftToSave({ message: 'Hi' }), ev2: { message: '   ' } } };
+    expect(savedDraftOf(doc, 'ev3')).toBeNull();
+    expect(savedDraftOf(doc, 'ev2')).toBeNull();
+    expect(savedDraftOf(null, 'ev1')).toBeNull();
   });
 });
