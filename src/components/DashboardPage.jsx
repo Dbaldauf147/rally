@@ -144,8 +144,13 @@ export function DashboardPage() {
   const finalized = allEvents.filter(e => getEventStage(e) === 'finalized');
   const pastEvents = allEvents.filter(e => getEventStage(e) === 'past');
 
-  // Simpler: just use the stage field + date check
-  const createdEvents = allEvents.filter(e => {
+  // Simpler: just use the stage field + date check.
+  // The board and Past Events leave cancelled events out — they get their own
+  // section at the bottom, beside the past ones.
+  const liveEvents = allEvents.filter(e => !e.cancelled);
+  const cancelledEvents = allEvents.filter(e => e.cancelled)
+    .sort((a, b) => (b.date?.toDate?.() || new Date(b.date)) - (a.date?.toDate?.() || new Date(a.date)));
+  const createdEvents = liveEvents.filter(e => {
     if (e.stage === 'finalized') return false;
     if (e.stage === 'created') return true;
     // No explicit stage — check if any date options exist
@@ -153,19 +158,19 @@ export function DashboardPage() {
     if (count === undefined) return false; // still loading
     return count === 0;
   });
-  const votingEvents = allEvents.filter(e => {
+  const votingEvents = liveEvents.filter(e => {
     if (e.stage === 'finalized' || e.stage === 'created') return false;
     // Has date options = actively voting
     const count = dateOptionCounts[e.id];
     if (count === undefined) return !e.stage || e.stage === 'voting'; // fallback while loading
     return count > 0;
   });
-  const finalizedEvents = allEvents.filter(e => {
+  const finalizedEvents = liveEvents.filter(e => {
     if (e.stage !== 'finalized') return false;
     const d = e.date?.toDate?.() || new Date(e.date);
     return d >= today;
   });
-  const pastFinalizedEvents = allEvents.filter(e => {
+  const pastFinalizedEvents = liveEvents.filter(e => {
     if (e.stage !== 'finalized') return false;
     const d = e.date?.toDate?.() || new Date(e.date);
     return d < today;
@@ -438,6 +443,19 @@ export function DashboardPage() {
               </h2>
               <div className={styles.grid}>
                 {pastFinalizedEvents.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
+              </div>
+            </section>
+          )}
+          {cancelledEvents.length > 0 && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#dc2626' }} />
+                  Cancelled Events ({cancelledEvents.length})
+                </span>
+              </h2>
+              <div className={styles.grid}>
+                {cancelledEvents.map(e => <EventCard key={e.id} event={e} onClick={() => navigate(`/event/${e.id}`)} />)}
               </div>
             </section>
           )}
