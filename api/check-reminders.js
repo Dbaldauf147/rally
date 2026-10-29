@@ -1,11 +1,13 @@
 // Vercel Cron: runs daily, checks all events for due auto-reminders,
 // and emails anyone with a date still unanswered — showing their answers so
-// far — through lib/mailer.js (Gmail, else Resend).
+// far — through lib/mailer.js (Gmail, else Resend). Once an event is
+// finalized it instead reminds the yeses and maybes a few days before it.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { sendOne, mailConfigured } from '../lib/mailer.js';
 import { readyToStartReminders, remindableMembers, pollOptions, reminderAnswers } from '../src/lib/autoReminders.js';
-import { renderReminderEmail } from '../lib/reminderEmail.js';
+import { renderReminderEmail, renderEventReminderEmail, eventWhenLabel } from '../lib/reminderEmail.js';
+import { eventReminderRecipients, dueEventReminder } from '../src/lib/eventReminders.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -40,6 +42,12 @@ export default async function handler(req, res) {
     for (const eventDoc of eventsSnap.docs) {
       const event = eventDoc.data();
       const eventId = eventDoc.id;
+
+      // A finalized event's reminders are the "it's coming up" kind, to the
+      // yeses and maybes (src/lib/eventReminders.js).
+      if (!event.cancelled && event.stage === 'finalized' && event.eventReminders?.enabled) {
+        await sendEventReminders(db, eventId, event, now, results);
+      }
 
       // Cancelled events shouldn't send reminders, and once a date is chosen
       // there's nothing left to vote on.
@@ -129,4 +137,41 @@ export default async function handler(req, res) {
 
   const sent = results.filter(r => r.success).length;
   return res.status(200).json({ checked: true, sent, total: results.length, results });
+}
+
+// The days-before reminders for one finalized event: each yes or maybe whose
+// reminder is due today gets one email, logged against the event's date.
+async function sendEventReminders(db, eventId, event, now, results) {
+  // Only fetched when somebody could be due — the votes decide who's a maybe.
+  const candidates = Object.values(event.members || {}).filter(m => m && typeof m === 'object' && m.email);
+  if (!candidates.some(m => dueEventReminder(event, m, now))) return;
+
+  const dateOptsSnap = await db.collection('events').doc(eventId).collection('dateOptions').get();
+  const recipients = eventReminderRecipients(event, dateOptsSnap.docs.map(d => d.data()));
+  const fromName = Object.values(event.members || {}).find(m => m?.role === 'owner')?.name || 'The organizer';
+  const when = eventWhenLabel(event);
+
+  for (const [uid, m] of recipients) {
+    const due = dueEventReminder(event, m, now);
+    if (!due) continue;
+    const link = `https://rally-seven-theta.vercel.app/poll/${eventId}?name=${encodeURIComponent(m.name || 'Friend')}&vid=${encodeURIComponent(uid)}`;
+    const { subject, html } = renderEventReminderEmail({
+      name: m.name, eventTitle: event.title, when, location: event.location,
+      daysAway: due.daysAway, link, fromName,
+    });
+    try {
+      const mail = await sendOne({ to: m.email, subject, html, fromName: 'Rally' });
+      if (mail.ok) {
+        await db.collection('events').doc(eventId).update({
+          [`members.${uid}.eventReminderLog`]: FieldValue.arrayUnion(...due.logKeys),
+          [`members.${uid}.eventReminderSentAt`]: FieldValue.arrayUnion(now.toISOString()),
+        });
+        results.push({ event: event.title, member: m.name || uid, eventReminder: due.daysAway, success: true });
+      } else {
+        results.push({ event: event.title, member: m.name || uid, eventReminder: due.daysAway, success: false, error: mail.error });
+      }
+    } catch (err) {
+      results.push({ event: event.title, member: m.name || uid, eventReminder: due.daysAway, success: false, error: err.message });
+    }
+  }
 }
