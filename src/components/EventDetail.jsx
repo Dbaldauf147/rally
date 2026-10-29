@@ -178,7 +178,7 @@ export function EventDetail() {
   const [finalizeDate, setFinalizeDate] = useState('');
   const [finalizeEndDate, setFinalizeEndDate] = useState('');
   const [showTextAll, setShowTextAll] = useState(false);
-  // Who the Text-All draft goes to: 'all' invitees, poll 'missing' (non-responders), or 'going' (the yeses).
+  // Who the Text-All draft goes to: 'all' invitees, poll 'missing' (non-responders), 'going' (the yeses), or 'yesmaybe' (yeses and maybes).
   const [textAllAudience, setTextAllAudience] = useState('all');
   // When the open draft was started, and the filter over its recipient chips.
   // Twenty-seven names is a wall; these turn it into a list you work down.
@@ -778,6 +778,17 @@ export function EventDetail() {
     if (m?.rsvp === 'yes') return true;
     if (m?.rsvp === 'no') return false;
     return att.status === 'going';
+  }
+
+  // "The yeses and maybes" — the Text Yeses & Maybes send. Same precedence as
+  // isGoingYes (a manual Going/Not going, then an explicit RSVP), but a maybe
+  // counts, and failing both it reads votes the way the Yes/Maybe filter does.
+  function isGoingYesMaybe(uid, m) {
+    const att = getAttendance(uid, m);
+    if (att.overridden && att.status !== 'tbd') return att.status === 'going';
+    if (m?.rsvp === 'yes' || m?.rsvp === 'maybe') return true;
+    if (m?.rsvp === 'no') return false;
+    return isYesMaybeAttendee(uid, m);
   }
 
   async function linkMemberToFriend(uid, friend) {
@@ -2299,6 +2310,13 @@ export function EventDetail() {
                   const goingMsg = event.stage === 'finalized'
                     ? `Hey! Reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails: ${pollLink}`
                     : `Hey! Since you're in for ${event.title}, here's where things stand.\n\nDetails: ${pollLink}`;
+                  // Members with a phone who said yes or maybe — the Text Yeses & Maybes audience.
+                  const yesMaybePhoneCount = members.filter(
+                    ([uid, m]) => uid !== user?.uid && m.phone && isGoingYesMaybe(uid, m),
+                  ).length;
+                  const yesMaybeMsg = event.stage === 'finalized'
+                    ? `Hey! Reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. Hope you can make it!\n\nDetails: ${pollLink}`
+                    : `Hey! Since you might be in for ${event.title}, here's where things stand.\n\nDetails: ${pollLink}`;
                   return (
                     <>
                       {activeTab !== 'itinerary' && (
@@ -2314,6 +2332,11 @@ export function EventDetail() {
                       {goingPhoneCount > 0 && (
                         <button className={styles.shareBtn} onClick={() => openTextDraft(goingMsg, 'going')}>
                           💬 Text Yeses ({goingPhoneCount})
+                        </button>
+                      )}
+                      {yesMaybePhoneCount > 0 && (
+                        <button className={styles.shareBtn} onClick={() => openTextDraft(yesMaybeMsg, 'yesmaybe')}>
+                          💬 Text Yeses &amp; Maybes ({yesMaybePhoneCount})
                         </button>
                       )}
                       <button className={styles.shareBtn} onClick={() => openTextDraft(calMsg, 'all')}>
@@ -2594,6 +2617,7 @@ export function EventDetail() {
         const inAudience = (uid, m) => {
           if (textAllAudience === 'missing') return !voteStats[uid]?.total && !m.skipVote;
           if (textAllAudience === 'going') return isGoingYes(uid, m);
+          if (textAllAudience === 'yesmaybe') return isGoingYesMaybe(uid, m);
           // Meals go only to the people who are actually eating — a yes or a
           // maybe. 'noorder' narrows that to whoever still owes an answer,
           // which excludes a +1 riding on their host's order.
@@ -2640,7 +2664,7 @@ export function EventDetail() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Edit text draft — {textAllPicked ? 'picked' : textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : textAllAudience === 'noorder' ? 'yet to order' : textAllAudience === 'eating' ? 'everyone eating' : 'sending to'} {recipients.length}
+                Edit text draft — {textAllPicked ? 'picked' : textAllAudience === 'missing' ? 'non-responders' : textAllAudience === 'going' ? 'the yeses' : textAllAudience === 'yesmaybe' ? 'the yeses & maybes' :textAllAudience === 'noorder' ? 'yet to order' : textAllAudience === 'eating' ? 'everyone eating' : 'sending to'} {recipients.length}
                 {textAllPicked && ` of ${textable.length}`}
               </span>
               <button
