@@ -28,6 +28,7 @@ import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLa
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
 import { DEFAULT_REMINDER_INTERVALS, reminderSendDates, hasMissingAnswers } from '../lib/autoReminders';
+import { DEFAULT_EVENT_REMINDER_DAYS, eventReminderRecipients, eventReminderSchedule, eventRemindersSentFor } from '../lib/eventReminders';
 import { DatePoll } from './DatePoll';
 import { Itinerary } from './Itinerary';
 import { DayView } from './DayView';
@@ -4655,6 +4656,103 @@ export function EventDetail() {
                     </div>
                     <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
                       Reminders sent to non-voters X days after {ar.startedAt ? 'enabling' : 'the countdown starts'}. Members who vote are automatically skipped.
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Before-the-event reminders to the yeses and maybes — owner only, once a date is set */}
+          {isOwner && stage === 'finalized' && !event.cancelled && (() => {
+            const er = event.eventReminders || {};
+            const enabled = !!er.enabled;
+            const days = Array.isArray(er.daysBefore) ? er.daysBefore : DEFAULT_EVENT_REMINDER_DAYS;
+            // Same reading as api/check-reminders.js, so the count is who'll actually get it.
+            const recipients = eventReminderRecipients(event, allDateOptions);
+            const schedule = eventReminderSchedule({ ...event, eventReminders: { daysBefore: days } });
+            const alreadySent = recipients.filter(([, m]) => eventRemindersSentFor(event, m) > 0).length;
+            const dayLabel = (ymd) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+            const peopleWord = (n) => `${n} ${n !== 1 ? 'people' : 'person'}`;
+
+            return (
+              <div style={{
+                marginTop: '1rem',
+                padding: '1rem',
+                background: enabled ? '#EEF2FF' : 'var(--color-surface)',
+                border: `1px solid ${enabled ? '#6366F1' : 'var(--color-border)'}`,
+                borderRadius: 'var(--radius-lg)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: enabled ? '0.75rem' : 0 }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                      📧 Event Reminder Emails
+                    </div>
+                    {!enabled && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.15rem' }}>
+                      Email the {peopleWord(recipients.length)} who said yes or maybe before the event
+                    </div>}
+                  </div>
+                  <button
+                    onClick={() => updateEvent(eventId, { eventReminders: { enabled: !enabled, daysBefore: days } })}
+                    style={{
+                      padding: '0.4rem 1rem',
+                      border: 'none',
+                      borderRadius: 'var(--radius-full)',
+                      background: enabled ? '#DC2626' : '#6366F1',
+                      color: '#fff',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {enabled ? 'Stop Reminders' : 'Enable'}
+                  </button>
+                </div>
+
+                {enabled && (
+                  <>
+                    <div style={{ fontSize: '0.72rem', color: '#6366F1', fontWeight: 500, marginBottom: '0.65rem' }}>
+                      {peopleWord(recipients.length)} said yes or maybe and have an email{alreadySent > 0 ? ` · ${alreadySent} already reminded` : ''} · checked daily
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {[0, 1].map(i => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                            {i === 0 ? '1st' : '2nd'}:
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={90}
+                            value={days[i] ?? ''}
+                            onChange={e => {
+                              const next = [...days];
+                              next[i] = parseInt(e.target.value) || 0;
+                              updateEvent(eventId, { 'eventReminders.daysBefore': next });
+                            }}
+                            style={{
+                              width: '50px',
+                              padding: '0.3rem 0.4rem',
+                              border: '1px solid var(--color-border)',
+                              borderRadius: 'var(--radius-md)',
+                              fontSize: '0.82rem',
+                              fontFamily: 'inherit',
+                              textAlign: 'center',
+                              outline: 'none',
+                            }}
+                          />
+                          <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>days before</span>
+                        </div>
+                      ))}
+                    </div>
+                    {schedule.length > 0 && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--color-text-secondary)', marginTop: '0.5rem' }}>
+                        Sends {schedule.map(s => `${dayLabel(s.day)}${s.past ? ' (passed)' : ''}`).join(' and ')}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginTop: '0.35rem' }}>
+                      Goes to everyone marked Going, RSVP'd yes or maybe, or who voted yes or maybe. Anyone who says they can't make it is skipped. Change the date and the reminders reset.
                     </div>
                   </>
                 )}
