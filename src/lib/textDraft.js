@@ -68,3 +68,38 @@ export function textProgress(recipients, openedAt = 0) {
   }
   return { done, todo };
 }
+
+/* A draft carried from one device to another.
+
+   Writing to twenty people is a laptop job; sending is a phone job, because an
+   sms: link only does anything where there is a Messages app. So the panel can
+   park the draft on your own user doc (users/{uid}.textDrafts.{eventId}) — not
+   on the event, which anyone with the poll link can read — and the event page
+   on the phone offers it back.
+
+   `picked` goes over as a list of uids (Firestore has no Set) and comes back as
+   a Set, or null when the audience decides. `openedAt` travels too, so that
+   "already texted" on the phone means since the draft was started, wherever
+   that was. */
+export function draftToSave({ message, audience, picked, openedAt }, now = Date.now()) {
+  return {
+    message: String(message ?? ''),
+    audience: audience || 'all',
+    picked: picked ? [...picked] : null,
+    openedAt: Number(openedAt) || now,
+    savedAt: now,
+  };
+}
+
+// The saved draft for one event off a user doc, or null if there isn't a usable one.
+export function savedDraftOf(userDoc, eventId) {
+  const d = userDoc?.textDrafts?.[eventId];
+  if (!d || typeof d.message !== 'string' || !d.message.trim()) return null;
+  return {
+    message: d.message,
+    audience: d.audience || 'all',
+    picked: Array.isArray(d.picked) ? new Set(d.picked) : null,
+    openedAt: Number(d.openedAt) || 0,
+    savedAt: Number(d.savedAt) || 0,
+  };
+}
