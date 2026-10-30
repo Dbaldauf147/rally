@@ -10,7 +10,7 @@ import {
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
   isCheckInEntry, isIssueEntry, isFormerEntry, setEntryFormer, laneCounts, checkInEntries,
-  formerDoctorsByType,
+  formerDoctorsByType, personKey, doctorDirectory, updateDoctor,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts, questionMatches, normalizeQuestion,
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
@@ -1035,7 +1035,7 @@ describe('check-ins and issues', () => {
     // Still a complaint that was treated, and still in the list.
     expect(isIssueEntry(old)).toBe(true);
     const list = { types: [], entries: [physical, old] };
-    expect(laneCounts(list)).toEqual({ all: 2, checkins: 1, issues: 1, treatments: 0, questions: 0 });
+    expect(laneCounts(list)).toEqual({ all: 2, checkins: 1, issues: 1, treatments: 0, questions: 0, doctors: 2 });
     expect(checkInsNeedingScheduling(list).map((c) => c.id)).toEqual(['2']);
   });
 
@@ -1061,7 +1061,7 @@ describe('check-ins and issues', () => {
 
   it('counts each lane, and says so even when they overlap', () => {
     const list = { types: [], entries: [dentist, physical, sprain, treating, contact] };
-    expect(laneCounts(list)).toEqual({ all: 5, checkins: 3, issues: 3, treatments: 0, questions: 0 });
+    expect(laneCounts(list)).toEqual({ all: 5, checkins: 3, issues: 3, treatments: 0, questions: 0, doctors: 3 });
   });
 
   it('filters the grouped list down to one lane', () => {
@@ -2434,5 +2434,55 @@ describe('previous meds, each with a note', () => {
     const { normalizeEntry, matchesQuery } = await import('./doctors');
     const e = normalizeEntry({ id: 'a', issue: 'Eczema', pastMeds: [{ name: 'Prednisone', note: '' }] });
     expect(matchesQuery(e, 'predni')).toBe(true);
+  });
+});
+
+describe('the Doctors tab', () => {
+  const skinA = { id: 'a', doctor: 'Dr. Jane Roe', type: 'Dermatology', issue: 'Rash', status: 'resolved', former: true, phone: '212-555-0100' };
+  const skinB = { id: 'b', doctor: 'jane  roe', type: 'Dermatology', issue: 'Mole', status: 'treating', phone: '212-555-0199', email: 'roe@clinic.test' };
+  const dentist = { id: 'c', doctor: 'Dr Smile', type: 'Dentist', cadence: 'Every 6 months' };
+  const clinic = { id: 'd', place: 'CityMD', issue: 'Flu' };
+  const gone = { id: 'e', doctor: 'Old Doc', type: 'GP', former: true };
+  const nobody = { id: 'f', issue: 'Something with no one attached' };
+  const list = {
+    types: [],
+    entries: [skinA, skinB, dentist, clinic, gone, nobody],
+    questions: [
+      { id: 'q1', entryId: 'b', text: 'Is it growing?' },
+      { id: 'q2', entryId: 'a', text: 'Old question', answered: true },
+    ],
+  };
+
+  it('treats "Dr. Jane Roe" and "jane  roe" as the same doctor', () => {
+    expect(personKey(skinA)).toBe(personKey(skinB));
+    expect(personKey(clinic)).toBe('place:citymd');
+    expect(personKey(nobody)).toBe('');
+  });
+
+  it('lists each doctor once, current ones first, with what they saw you for', () => {
+    const d = doctorDirectory(list);
+    expect(d.map((x) => x.name)).toEqual(['CityMD', 'Dr Smile', 'jane  roe', 'Old Doc']);
+    const roe = d.find((x) => x.key === personKey(skinA));
+    expect(roe.ids).toEqual(['b', 'a']); // the current record leads
+    expect(roe.issues).toEqual(['Mole', 'Rash']);
+    expect(roe.types).toEqual(['Dermatology']);
+    expect(roe).toMatchObject({ treating: true, former: false, openQuestions: 1, phone: '212-555-0199', email: 'roe@clinic.test' });
+    expect(d.find((x) => x.name === 'Old Doc').former).toBe(true);
+  });
+
+  it('searches names, specialities, issues and contact details', () => {
+    expect(doctorDirectory(list, { query: 'rash' }).map((x) => x.name)).toEqual(['jane  roe']);
+    expect(doctorDirectory(list, { query: 'dentist' }).map((x) => x.name)).toEqual(['Dr Smile']);
+    expect(doctorDirectory(list, { query: '0199' })).toHaveLength(1);
+  });
+
+  it('writes a contact edit to every record of that doctor, and nothing else', () => {
+    const roe = doctorDirectory(list).find((x) => x.key === personKey(skinA));
+    const after = updateDoctor(list, roe.ids, { phone: '917-555-0123', issue: 'should not travel' });
+    const byId = Object.fromEntries(after.entries.map((e) => [e.id, e]));
+    expect(byId.a.phone).toBe('917-555-0123');
+    expect(byId.b.phone).toBe('917-555-0123');
+    expect(byId.a.issue).toBe('Rash');
+    expect(byId.c.phone).toBe('');
   });
 });
