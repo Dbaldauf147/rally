@@ -804,6 +804,8 @@ function AppointmentsPanel({ list, update, daysFrom }) {
    seen you for and opens the same contact pop-up as everywhere else — except
    an edit there goes to every record filed under them (see updateDoctor), so
    the number you fix is fixed wherever that doctor turns up. */
+const BLANK_DOCTOR = { doctor: '', type: '', place: '', phone: '', email: '', location: '' };
+
 function DoctorsPanel({ list, update }) {
   const [query, setQuery] = useState('');
   // The open card, by one of its record ids rather than the doctor's key — a
@@ -813,6 +815,28 @@ function DoctorsPanel({ list, update }) {
   const shown = useMemo(() => doctorDirectory(list, { query }), [list, query]);
   const open = openId ? all.find((d) => d.ids.includes(openId)) : null;
   const close = useCallback(() => setOpenId(null), []);
+  // A doctor added here is a record like any other — it shows in Everything
+  // too — carrying just the name, speciality and how to reach them.
+  const [adding, setAdding] = useState(null);
+  const types = list.types || [];
+  const setAdd = (key) => (e) => setAdding((a) => ({ ...a, [key]: e.target.value }));
+
+  function submitAdd(e) {
+    e.preventDefault();
+    const doctor = adding.doctor.trim();
+    if (!doctor) return;
+    // Take the speciality's existing spelling, so "dentist" files under Dentist.
+    const typed = adding.type.trim();
+    const type = types.find((t) => sameType(t, typed)) || typed;
+    const record = normalizeEntry({
+      id: makeId(), status: STATUS.NONE, doctor, type,
+      place: adding.place.trim(), phone: adding.phone.trim(),
+      email: adding.email.trim(), location: adding.location.trim(),
+    });
+    update((l) => addEntry(l, record));
+    setAdding(null);
+    setQuery('');
+  }
 
   return (
     <section>
@@ -827,10 +851,52 @@ function DoctorsPanel({ list, update }) {
             aria-label="Search doctors"
           />
         </div>
+        {!adding && (
+          <button type="button" className={styles.btnPrimary} onClick={() => setAdding(BLANK_DOCTOR)}>+ Add doctor</button>
+        )}
       </div>
 
+      {adding && (
+        <form className={styles.formCard} onSubmit={submitAdd} aria-label="New doctor">
+          <div className={styles.formTitle}>New doctor</div>
+          <div className={styles.contactGrid}>
+            <label className={styles.contactField}>
+              <span className={styles.contactLabel}>Doctor</span>
+              <input className={styles.input} value={adding.doctor} onChange={setAdd('doctor')} placeholder="Dr. Jane Roe" autoFocus />
+            </label>
+            <label className={styles.contactField}>
+              <span className={styles.contactLabel}>Speciality</span>
+              <input className={styles.input} list="doctors-new-type" value={adding.type} onChange={setAdd('type')} placeholder="Dentist, GP…" />
+              <datalist id="doctors-new-type">
+                {types.map((t) => <option key={t} value={t} />)}
+              </datalist>
+            </label>
+            <label className={styles.contactField}>
+              <span className={styles.contactLabel}>Place</span>
+              <input className={styles.input} value={adding.place} onChange={setAdd('place')} placeholder="Practice or clinic" />
+            </label>
+            <label className={styles.contactField}>
+              <span className={styles.contactLabel}>Phone</span>
+              <input className={styles.input} type="tel" value={adding.phone} onChange={setAdd('phone')} placeholder="Phone" />
+            </label>
+            <label className={styles.contactField}>
+              <span className={styles.contactLabel}>Email</span>
+              <input className={styles.input} type="email" value={adding.email} onChange={setAdd('email')} placeholder="Email" />
+            </label>
+            <label className={styles.contactField}>
+              <span className={styles.contactLabel}>Address</span>
+              <input className={styles.input} value={adding.location} onChange={setAdd('location')} placeholder="Address" />
+            </label>
+          </div>
+          <div className={styles.formActions} style={{ marginTop: '0.85rem' }}>
+            <button type="submit" className={styles.btnPrimary} disabled={!adding.doctor.trim()}>Add doctor</button>
+            <button type="button" className={styles.btn} onClick={() => setAdding(null)}>Cancel</button>
+          </div>
+        </form>
+      )}
+
       {all.length === 0 ? (
-        <div className={styles.empty}>No doctors yet. Put a doctor’s name on a record in Everything and they’ll show up here.</div>
+        <div className={styles.empty}>No doctors yet. Add one above, or put a doctor’s name on a record in Everything.</div>
       ) : shown.length === 0 ? (
         <div className={styles.empty}>No doctors match “{query.trim()}”.</div>
       ) : (
