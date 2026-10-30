@@ -146,6 +146,8 @@ export function EventDetail() {
   // Making a new contact without leaving the invite list. `newContact` is null
   // until the user asks for it, then holds the draft — seeded from whatever
   // they'd typed into the search box, since that's usually the person's name.
+  // `eventOnly` puts them on this event without saving them to Friends — the
+  // friend of a friend you'll never invite to anything else.
   const [newContact, setNewContact] = useState(null);
   const [savingContact, setSavingContact] = useState(false);
   // The other way out of a failed search: pull the person off the phone.
@@ -3504,7 +3506,9 @@ export function EventDetail() {
                       updates[`members.${key}.plusOneOf`] = linkedKey;
                     }
                   }
-                  for (const rl of friends.filter(x => x.linkedTo === f.id && notAlreadyMember(x))) {
+                  // A guest added for this event only has no friend id, and
+                  // undefined === undefined would sweep in every unlinked friend.
+                  for (const rl of friends.filter(x => f.id && x.linkedTo === f.id && notAlreadyMember(x))) {
                     place(rl, { plusOneOf: key });
                   }
                   // One arrayUnion over every key. This used to be reassigned per
@@ -3748,6 +3752,19 @@ export function EventDetail() {
                           </button>
                           <button
                             type="button"
+                            onClick={() => setNewContact({
+                              name: looksLikeEmail ? '' : term,
+                              email: looksLikeEmail ? term.toLowerCase() : '',
+                              phone: '',
+                              eventOnly: true,
+                            })}
+                            title="Add them to this event without saving them to your Friends"
+                            style={{ display: 'block', width: '100%', padding: '0.5rem', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            + Add {term ? `“${term}”` : 'someone'} for this event only
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => startContactImport(term)}
                             title={phoneSource === SOURCE.FILE
                               ? 'Export a vCard from your Contacts app, then pick it here'
@@ -3778,14 +3795,21 @@ export function EventDetail() {
                         // outlives this event — then added to the event through
                         // the same upsert every other row uses, which dedupes
                         // them against anyone already on it under another key.
-                        const id = await writeFriend(user.uid, { name, email: newContact.email, phone: newContact.phone });
+                        // Event-only skips the friends list: no id, so the row is
+                        // keyed by email or name like a guest who came in by the
+                        // poll link, and can still be linked to a friend later.
+                        const id = newContact.eventOnly
+                          ? undefined
+                          : await writeFriend(user.uid, { name, email: newContact.email, phone: newContact.phone });
                         await addFriendToEvent({
                           id,
                           name,
                           email: newContact.email.trim().toLowerCase(),
                           phone: newContact.phone.trim(),
                         });
-                        setResult({ type: 'success', message: `${name} added to your contacts and this event` });
+                        setResult({ type: 'success', message: newContact.eventOnly
+                          ? `${name} added to this event (not saved to Friends)`
+                          : `${name} added to your contacts and this event` });
                         setTimeout(() => setResult(null), 3000);
                         setNewContact(null);
                         setFriendSearch('');
@@ -3798,10 +3822,19 @@ export function EventDetail() {
                     }
                     return (
                       <div style={{ marginTop: '0.5rem', padding: '0.6rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg)' }}>
-                        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>New contact</div>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>{newContact.eventOnly ? 'Guest for this event' : 'New contact'}</div>
                         {field('name', 'Name (required)')}
                         {field('email', 'Email (optional)', 'email')}
                         {field('phone', 'Phone (optional)', 'tel')}
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', fontSize: '0.8rem', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!newContact.eventOnly}
+                            onChange={e => setNewContact(c => ({ ...c, eventOnly: e.target.checked }))}
+                            style={{ width: '16px', height: '16px', accentColor: 'var(--color-accent)' }}
+                          />
+                          This event only — don’t save to my Friends
+                        </label>
                         <div style={{ display: 'flex', gap: '0.4rem' }}>
                           <button
                             type="button"
@@ -3809,7 +3842,7 @@ export function EventDetail() {
                             disabled={!canSave}
                             style={{ flex: 1, padding: '0.45rem', border: 'none', borderRadius: 'var(--radius-md)', background: canSave ? 'var(--color-accent)' : 'var(--color-border)', color: '#fff', fontSize: '0.82rem', fontWeight: 600, cursor: canSave ? 'pointer' : 'default', fontFamily: 'inherit' }}
                           >
-                            {savingContact ? 'Adding…' : 'Add & invite'}
+                            {savingContact ? 'Adding…' : newContact.eventOnly ? 'Add to event' : 'Add & invite'}
                           </button>
                           <button
                             type="button"
