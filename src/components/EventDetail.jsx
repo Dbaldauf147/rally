@@ -3871,9 +3871,17 @@ export function EventDetail() {
                 </div>
                 );
               })() : (
+                <>
                 <button onClick={() => { setShowAddFriend(true); setShowAddFromEvent(false); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
                   + Add Friends
                 </button>
+                {/* Straight to the guest form with "This event only" ticked —
+                    someone who's coming to this one thing and shouldn't land
+                    in your Friends list. */}
+                <button onClick={() => { setShowAddFriend(true); setShowAddFromEvent(false); setNewContact({ name: '', email: '', phone: '', eventOnly: true }); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  + Add Friend (this event only)
+                </button>
+                </>
               )
             )}
 
