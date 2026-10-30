@@ -519,6 +519,10 @@ export const LANES = [
   // mean to ask them. It sits here because it's the same question as the tabs
   // beside it ("what about this doctor?"), asked from the other side.
   { key: 'questions', label: 'Questions' },
+  // The records turned the other way up: one row per doctor rather than per
+  // complaint, so the dermatologist who saw three things is one name with
+  // three issues under it. See doctorDirectory.
+  { key: 'doctors', label: 'Doctors' },
 ];
 
 // A complaint: something written in the issue field, or a status that only
@@ -753,7 +757,91 @@ export function laneCounts(list) {
     // Only the ones still to ask. A tab reading "Questions 34" when 30 of them
     // were answered years ago is a number you learn to ignore.
     questions: questions.filter((q) => !q.answered).length,
+    doctors: doctorDirectory(list).length,
   };
+}
+
+/* ── The Doctors tab ──────────────────────────────────────────────────
+   Every other tab is a row per record, and a record is a complaint or a
+   schedule — so one doctor who has seen you for three things is three rows,
+   with their phone number on whichever one you happened to type it into.
+   This turns that round: one entry per doctor, holding every record filed
+   under them.
+
+   Records are the same doctor when the names match once case, spacing,
+   punctuation and a leading "Dr" are set aside. A record with no doctor named
+   goes by its place instead (the walk-in clinic, the practice), and one with
+   neither isn't anybody yet and is left out. */
+const CONTACT_KEYS = ['phone', 'email', 'place', 'location', 'link'];
+
+export function personKey(entry) {
+  const clean = (s) => String(s || '').toLowerCase()
+    .replace(/^\s*dr\.?\s+/, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+  const name = clean(entry?.doctor);
+  if (name) return `doctor:${name}`;
+  const place = clean(entry?.place);
+  return place ? `place:${place}` : '';
+}
+
+export function doctorDirectory(list, { query = '' } = {}) {
+  const { entries, questions } = normalizeList(list);
+  const byKey = new Map();
+  for (const e of entries) {
+    const key = personKey(e);
+    if (!key) continue;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(e);
+  }
+  const openQuestions = new Map();
+  for (const q of questions) {
+    if (!q.answered && q.entryId) openQuestions.set(q.entryId, (openQuestions.get(q.entryId) || 0) + 1);
+  }
+
+  const doctors = [...byKey].map(([key, recs]) => {
+    // Records you still see them under come first, so a number from a current
+    // record wins over one from the years before you moved on.
+    const ordered = [...recs.filter((e) => !isFormerEntry(e)), ...recs.filter(isFormerEntry)];
+    const lead = ordered[0];
+    const contact = {};
+    for (const k of CONTACT_KEYS) contact[k] = ordered.map((e) => e[k]).find(Boolean) || '';
+    return {
+      key,
+      name: lead.doctor || lead.place,
+      ids: ordered.map((e) => e.id),
+      entries: ordered,
+      types: dedupeTypes(ordered.map((e) => e.type).filter(Boolean)),
+      issues: [...new Set(ordered.map((e) => e.issue).filter(Boolean))],
+      treating: ordered.some((e) => e.status === STATUS.TREATING),
+      former: ordered.every(isFormerEntry),
+      openQuestions: ordered.reduce((n, e) => n + (openQuestions.get(e.id) || 0), 0),
+      ...contact,
+    };
+  });
+
+  const q = String(query || '').trim().toLowerCase();
+  const shown = q
+    ? doctors.filter((d) => [d.name, d.place, d.phone, d.email, d.location, ...d.types, ...d.issues]
+      .some((s) => String(s || '').toLowerCase().includes(q)))
+    : doctors;
+  // By the matched name, so a leading "Dr" doesn't file half the list under D.
+  const sortName = (d) => d.key.slice(d.key.indexOf(':') + 1);
+  const byName = (a, b) => sortName(a).localeCompare(sortName(b), undefined, { sensitivity: 'base' });
+  return [...shown.filter((d) => !d.former).sort(byName), ...shown.filter((d) => d.former).sort(byName)];
+}
+
+/* An edit made on a doctor's card, written to every record filed under them —
+   it's the same person, so it's the same phone number. Only the contact
+   fields travel; what's wrong and when you're due stay per record. */
+export function updateDoctor(list, ids, patch) {
+  const wanted = new Set(ids || []);
+  const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => k === 'doctor' || CONTACT_KEYS.includes(k)));
+  const l = normalizeList(list);
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => (wanted.has(e.id) ? normalizeEntry({ ...e, ...clean, id: e.id }) : e)),
+  });
 }
 
 /* The visible list, grouped under the type headings in the owner's order.

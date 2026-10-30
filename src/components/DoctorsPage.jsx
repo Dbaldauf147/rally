@@ -8,7 +8,7 @@ import {
   FIELDS, STATUS, STATUS_ORDER, NO_TYPE, statusLabel, typeHeading,
   normalizeEntry, normalizeList, entryTitle, entrySubtitle, entryPickerLabel,
   groupByType, countByStatus, issueCell, typeUsage,
-  LANES, laneCounts,
+  LANES, laneCounts, doctorDirectory, updateDoctor,
   addEntry, updateEntry, removeEntry, isBlank, successorRecord, siblingRecords, addEntryImage, removeEntryImage,
   addType, renameType, removeType, moveType,
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
@@ -792,6 +792,112 @@ function AppointmentsPanel({ list, update, daysFrom }) {
             </ul>
           )}
         </div>
+      )}
+    </section>
+  );
+}
+
+/* The Doctors tab: one card per doctor, however many records they're on.
+
+   The records tabs answer "what's wrong" and "when am I due"; this answers
+   "who do I see, and how do I reach them". A doctor's card lists what they've
+   seen you for and opens the same contact pop-up as everywhere else — except
+   an edit there goes to every record filed under them (see updateDoctor), so
+   the number you fix is fixed wherever that doctor turns up. */
+function DoctorsPanel({ list, update }) {
+  const [query, setQuery] = useState('');
+  // The open card, by one of its record ids rather than the doctor's key — a
+  // rename on the card changes the key, and the card shouldn't shut on you.
+  const [openId, setOpenId] = useState(null);
+  const all = useMemo(() => doctorDirectory(list), [list]);
+  const shown = useMemo(() => doctorDirectory(list, { query }), [list, query]);
+  const open = openId ? all.find((d) => d.ids.includes(openId)) : null;
+  const close = useCallback(() => setOpenId(null), []);
+
+  return (
+    <section>
+      <div className={styles.toolbar}>
+        <div className={styles.searchRow}>
+          <input
+            className={styles.search}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search doctors, specialities, issues…"
+            aria-label="Search doctors"
+          />
+        </div>
+      </div>
+
+      {all.length === 0 ? (
+        <div className={styles.empty}>No doctors yet. Put a doctor’s name on a record in Everything and they’ll show up here.</div>
+      ) : shown.length === 0 ? (
+        <div className={styles.empty}>No doctors match “{query.trim()}”.</div>
+      ) : (
+        <ul className={styles.recCards}>
+          {shown.map((d) => {
+            const tel = telHref(d.phone);
+            const mail = mailHref(d.email);
+            const map = mapHref(d.location);
+            const link = safeLink(d.link);
+            const sub = [d.types.join(', '), d.place && d.place !== d.name ? d.place : ''].filter(Boolean).join(' · ');
+            return (
+              <li key={d.key} className={d.former ? `${styles.recCard} ${styles.recCardResolved}` : styles.recCard}>
+                <div
+                  className={styles.recMain}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Contact details for ${d.name}`}
+                  onClick={() => setOpenId(d.ids[0])}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenId(d.ids[0]); } }}
+                >
+                  <span className={styles.recHead}>
+                    <span className={styles.recTitleWrap}>
+                      <span className={styles.recTitle}>{d.name}</span>
+                    </span>
+                    {d.treating ? <span className={styles.badgeLive}>{statusLabel(STATUS.TREATING)}</span>
+                      : d.former ? <span className={styles.badge}>Former</span> : null}
+                  </span>
+                  {sub ? <span className={styles.recSub}>{sub}</span> : null}
+                  {d.issues.length > 0 && <span className={styles.recIssue}>{d.issues.join(' · ')}</span>}
+                  <span className={styles.recChips}>
+                    <span className={styles.chip}>{d.entries.length} record{d.entries.length === 1 ? '' : 's'}</span>
+                    {d.openQuestions > 0 && (
+                      <span className={styles.chip}>{d.openQuestions} question{d.openQuestions === 1 ? '' : 's'} to ask</span>
+                    )}
+                    {d.phone ? <span className={styles.chip}>{d.phone}</span> : null}
+                  </span>
+                </div>
+                {(tel || mail || map || link) && (
+                  <div className={styles.recActions}>
+                    {tel && <a className={styles.recAction} href={tel}>Call</a>}
+                    {mail && <a className={styles.recAction} href={mail}>Email</a>}
+                    {map && <a className={styles.recAction} href={map} target="_blank" rel="noreferrer">Directions</a>}
+                    {link && <a className={styles.recAction} href={link} target="_blank" rel="noreferrer">{linkLabel(d.link)} ↗</a>}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {open && (
+        <DoctorCard
+          entry={{
+            id: open.ids[0],
+            type: open.types.join(', '),
+            doctor: open.entries[0].doctor,
+            place: open.place,
+            phone: open.phone,
+            email: open.email,
+            location: open.location,
+            link: open.link,
+          }}
+          title={open.name}
+          onCommit={(patch) => update((l) => updateDoctor(l, open.ids, patch))}
+          onClose={close}
+        />
       )}
     </section>
   );
@@ -3116,7 +3222,7 @@ export function DoctorsPage() {
   // Every column, for the manager; the showing ones, for the table.
   /* The tab being arranged. Questions has no table of its own, so the manager
      opened from it arranges Everything — the tab it sends you back to. */
-  const columnLane = lane === 'questions' || lane === 'treatments' ? 'all' : lane;
+  const columnLane = lane === 'questions' || lane === 'treatments' || lane === 'doctors' ? 'all' : lane;
   // Every column this tab could show, for the manager, in this tab's order.
   const allColumns = useMemo(() => columnsFor(safeList, columnLane), [safeList, columnLane]);
   // What the table draws. Status is the one column the tab's own choice does
@@ -3279,7 +3385,9 @@ export function DoctorsPage() {
               ? 'Courses of treatment across the months they run for — what you are on now, what has finished, what is still to come.'
               : lane === 'questions'
                 ? 'What you mean to ask, filed under whoever you mean to ask it.'
-                : 'Every record, check-ins and issues together.'}
+                : lane === 'doctors'
+                  ? 'Everyone you see, once each, with what they have seen you for. Tap a doctor for their contact details.'
+                  : 'Every record, check-ins and issues together.'}
       </p>
 
       {lane === 'checkins' && (
@@ -3289,7 +3397,8 @@ export function DoctorsPage() {
       {/* Questions and Treatments are the tabs that aren't a slice of the
           records table, so they replace it rather than filtering it. */}
       {lane === 'questions' ? <QuestionsPanel list={safeList} update={update} />
-        : lane === 'treatments' ? <TreatmentsPanel list={safeList} update={update} /> : <>
+        : lane === 'treatments' ? <TreatmentsPanel list={safeList} update={update} />
+        : lane === 'doctors' ? <DoctorsPanel list={safeList} update={update} /> : <>
 
       <div className={styles.toolbar}>
         <div className={styles.searchRow}>
