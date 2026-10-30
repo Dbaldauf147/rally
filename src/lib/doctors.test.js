@@ -2461,7 +2461,7 @@ describe('the Doctors tab', () => {
 
   it('lists each doctor once, current ones first, with what they saw you for', () => {
     const d = doctorDirectory(list);
-    expect(d.map((x) => x.name)).toEqual(['CityMD', 'Dr Smile', 'jane  roe', 'Old Doc']);
+    expect(d.map((x) => x.name)).toEqual(['CityMD', 'jane  roe', 'Dr Smile', 'Old Doc']);
     const roe = d.find((x) => x.key === personKey(skinA));
     expect(roe.ids).toEqual(['b', 'a']); // the current record leads
     expect(roe.issues).toEqual(['Mole', 'Rash']);

@@ -825,7 +825,9 @@ export function doctorDirectory(list, { query = '' } = {}) {
     ? doctors.filter((d) => [d.name, d.place, d.phone, d.email, d.location, ...d.types, ...d.issues]
       .some((s) => String(s || '').toLowerCase().includes(q)))
     : doctors;
-  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  // By the matched name, so a leading "Dr" doesn't file half the list under D.
+  const sortName = (d) => d.key.slice(d.key.indexOf(':') + 1);
+  const byName = (a, b) => sortName(a).localeCompare(sortName(b), undefined, { sensitivity: 'base' });
   return [...shown.filter((d) => !d.former).sort(byName), ...shown.filter((d) => d.former).sort(byName)];
 }
 
