@@ -306,6 +306,13 @@ function GuestList() {
   // The contact open in the edit pop-up: { id, draft }. Edits stay in the
   // draft until Save, so backing out leaves the guest as they were.
   const [editing, setEditing] = useState(null);
+  const isEditing = !!editing;
+  useEffect(() => {
+    if (!isEditing) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setEditing(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isEditing]);
   const [importText, setImportText] = useState('');
   const [importHasHeader, setImportHasHeader] = useState(true);
   const [importMappings, setImportMappings] = useState([]);
@@ -1235,7 +1242,6 @@ function GuestList() {
             aria-label="Edit contact"
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => { e.preventDefault(); saveContact(); }}
-            onKeyDown={(e) => { if (e.key === 'Escape') closeContact(); }}
           >
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>
