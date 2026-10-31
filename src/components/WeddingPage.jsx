@@ -165,6 +165,21 @@ const EDITABLE_FIELDS = [
   { key: 'email', label: 'Email' },
 ];
 
+// What the contact pop-up edits, in the order it shows them.
+const CONTACT_FORM_FIELDS = [
+  { key: 'firstName', label: 'First name' },
+  { key: 'lastName', label: 'Last name' },
+  { key: 'phone', label: 'Phone', type: 'tel' },
+  { key: 'email', label: 'Email', type: 'email' },
+  { key: 'address', label: 'Address', wide: true },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
+  { key: 'zip', label: 'Zip' },
+  { key: 'guestOf', label: 'Guest of' },
+  { key: 'group', label: 'Group' },
+  { key: 'category', label: 'Category' },
+];
+
 const NEW_GROUP_SENTINEL = '__new_group__';
 const NEW_CATEGORY_SENTINEL = '__new_category__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
@@ -288,6 +303,9 @@ function GuestList() {
   const [bulkValue, setBulkValue] = useState('');
   const [showColumnsMenu, setShowColumnsMenu] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  // The contact open in the edit pop-up: { id, draft }. Edits stay in the
+  // draft until Save, so backing out leaves the guest as they were.
+  const [editing, setEditing] = useState(null);
   const [importText, setImportText] = useState('');
   const [importHasHeader, setImportHasHeader] = useState(true);
   const [importMappings, setImportMappings] = useState([]);
@@ -902,6 +920,23 @@ function GuestList() {
   };
   const closeImport = () => setImportOpen(false);
 
+  const openContact = (c) => {
+    const draft = {};
+    for (const f of CONTACT_FORM_FIELDS) draft[f.key] = c[f.key] || '';
+    draft.friendId = c.friendId || '';
+    setEditing({ id: c.id, draft });
+  };
+  const closeContact = () => setEditing(null);
+  const setDraftField = (key, value) => setEditing((e) => ({ ...e, draft: { ...e.draft, [key]: value } }));
+  const saveContact = async () => {
+    if (!editing) return;
+    const patch = {};
+    for (const [k, v] of Object.entries(editing.draft)) patch[k] = typeof v === 'string' ? v.trim() : v;
+    const next = contacts.map((c) => (c.id === editing.id ? { ...c, ...patch } : c));
+    setEditing(null);
+    await persistContacts(next);
+  };
+
   const handleImportTextChange = (val) => {
     setImportText(val);
     const rows = parseTSV(val);
@@ -1191,6 +1226,83 @@ function GuestList() {
         </div>
       )}
 
+      {editing && (
+        <div className={styles.contactOverlay} onClick={closeContact}>
+          <form
+            className={styles.contactModal}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit contact"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => { e.preventDefault(); saveContact(); }}
+            onKeyDown={(e) => { if (e.key === 'Escape') closeContact(); }}
+          >
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>
+                {`${editing.draft.firstName} ${editing.draft.lastName}`.trim() || 'Contact'}
+              </h2>
+              <button className={styles.modalClose} type="button" onClick={closeContact} aria-label="Close">×</button>
+            </div>
+            <div className={styles.modalBody}>
+              {(editing.draft.phone || editing.draft.email) && (
+                <div className={styles.contactActions}>
+                  {editing.draft.phone && (
+                    <a className={styles.modalSecondary} href={`tel:${editing.draft.phone.replace(/[^+\d]/g, '')}`}>Call</a>
+                  )}
+                  {editing.draft.phone && (
+                    <a className={styles.modalSecondary} href={`sms:${editing.draft.phone.replace(/[^+\d]/g, '')}`}>Text</a>
+                  )}
+                  {editing.draft.email && (
+                    <a className={styles.modalSecondary} href={`mailto:${editing.draft.email}`}>Email</a>
+                  )}
+                </div>
+              )}
+              <div className={styles.contactGrid}>
+                {CONTACT_FORM_FIELDS.map((f) => (
+                  <label key={f.key} className={f.wide ? `${styles.contactField} ${styles.contactWide}` : styles.contactField}>
+                    <span className={styles.contactLabel}>{f.label}</span>
+                    {f.key === 'guestOf' ? (
+                      <select className={styles.contactInput} value={editing.draft.guestOf} onChange={(e) => setDraftField('guestOf', e.target.value)}>
+                        <option value="">— None —</option>
+                        {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        className={styles.contactInput}
+                        type={f.type || 'text'}
+                        list={f.key === 'group' ? 'wedding-groups' : f.key === 'category' ? 'wedding-categories' : undefined}
+                        value={editing.draft[f.key]}
+                        onChange={(e) => setDraftField(f.key, e.target.value)}
+                        autoComplete="off"
+                      />
+                    )}
+                  </label>
+                ))}
+                <label className={`${styles.contactField} ${styles.contactWide}`}>
+                  <span className={styles.contactLabel}>Friend</span>
+                  <select className={styles.contactInput} value={editing.draft.friendId} onChange={(e) => setDraftField('friendId', e.target.value)}>
+                    <option value="">— None —</option>
+                    {editing.draft.friendId && !friendsById.has(editing.draft.friendId) && (
+                      <option value={editing.draft.friendId} disabled>(missing friend)</option>
+                    )}
+                    {friendsSorted.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name || f.email || f.id}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <datalist id="wedding-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+              <datalist id="wedding-categories">{categories.map((g) => <option key={g} value={g} />)}</datalist>
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalCount} />
+              <button className={styles.modalSecondary} type="button" onClick={closeContact}>Cancel</button>
+              <button className={styles.modalPrimary} type="submit">Save</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {importOpen && (
         <div className={styles.modalOverlay} onClick={closeImport}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -1394,6 +1506,13 @@ function GuestList() {
                             <option key={f.id} value={f.id}>{f.name || f.email || f.id}</option>
                           ))}
                         </select>
+                      ) : col.key === 'name' ? (
+                        <button
+                          type="button"
+                          className={styles.nameButton}
+                          onClick={() => openContact(c)}
+                          title="Edit contact"
+                        >{`${c.firstName || ''} ${c.lastName || ''}`.trim() || '(no name)'}</button>
                       ) : renderCell(col, c)}
                     </td>
                   ))}

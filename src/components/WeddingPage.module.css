@@ -108,6 +108,21 @@
 .mapHeaderCell { background: var(--color-surface-alt); color: var(--color-text-muted); font-size: 0.78rem; font-weight: 500; }
 .mapSelect { padding: 0.3rem 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-size: 0.8rem; color: var(--color-text); min-width: 130px; }
 .mapSelect:focus { outline: none; border-color: var(--color-accent); }
+/* The contact pop-up sits at the top of the screen rather than the middle, so on
+   a phone it stays clear of the keyboard and of the tab bar along the bottom. */
+.contactOverlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: flex-start; justify-content: center; z-index: 300; padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem 0.75rem; }
+.contactModal { background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); width: min(560px, 100%); max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top)); display: flex; flex-direction: column; }
+.contactActions { display: flex; gap: 0.5rem; margin-bottom: 0.85rem; }
+.contactActions a { text-decoration: none; flex: 1; text-align: center; }
+.contactGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 0.75rem; }
+.contactWide { grid-column: 1 / -1; }
+.contactField { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.contactLabel { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.contactInput { width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font-family: inherit; font-size: 16px; box-sizing: border-box; }
+.contactInput:focus { outline: none; border-color: var(--color-accent); }
+.nameButton { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: var(--color-accent); cursor: pointer; text-align: left; white-space: nowrap; }
+.nameButton:hover { text-decoration: underline; }
+
 .modalFooter { display: flex; align-items: center; gap: 0.5rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-border); }
 .modalCount { font-size: 0.85rem; color: var(--color-text-muted); margin-right: auto; }
 .modalPrimary { padding: 0.5rem 1rem; background: var(--color-accent); color: white; border: none; border-radius: var(--radius-sm); font-size: 0.88rem; font-weight: 500; cursor: pointer; }
