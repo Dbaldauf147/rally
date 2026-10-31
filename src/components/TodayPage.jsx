@@ -10,22 +10,12 @@ const SLOT_MIN = 30;
 const DURATION_STEP = 15; // lengths can be finer than the 30-min grid (15, 45, …)
 const SLOT_COUNT = (DAY_END_MIN - DAY_START_MIN) / SLOT_MIN;
 const ROW_HEIGHT = 44; // px per 30-min slot
-// A phone is too narrow to put a task's name, time and controls on one line,
-// so a slot there is tall enough for the usual two.
-const ROW_HEIGHT_NARROW = 62;
-const NARROW_QUERY = '(max-width: 640px)';
-
-function useIsNarrow() {
-  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(NARROW_QUERY).matches);
-  useEffect(() => {
-    const mq = window.matchMedia?.(NARROW_QUERY);
-    if (!mq) return undefined;
-    const onChange = (e) => setNarrow(e.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-  return narrow;
-}
+// A 30-minute task gets one slot, which only has room for one line: name,
+// time and controls side by side. That line needs about this much width; where
+// a short task has less (a phone, a narrow window, two tasks sharing a slot),
+// every slot grows tall enough for the usual two lines instead.
+const COMPACT_MIN_WIDTH = 380;
+const ROW_HEIGHT_TALL = 62;
 
 const DEFAULT_TEMPLATES = [
   { id: 'tpl-breakfast', name: 'Breakfast', durationMin: 60 },
@@ -173,8 +163,8 @@ export function TodayPage() {
   const seedAttemptedRef = useRef(false);
   const initFlagSetRef = useRef(false);
   const dragRef = useRef(null);
-  const narrow = useIsNarrow();
-  const rowHeight = narrow ? ROW_HEIGHT_NARROW : ROW_HEIGHT;
+  const layerRef = useRef(null);
+  const [layerWidth, setLayerWidth] = useState(0);
 
   const dateKey = todayKey();
   const todayWeekday = useMemo(() => new Date().getDay(), []);
@@ -245,6 +235,18 @@ export function TodayPage() {
   }, [user, dateKey]);
 
   const layout = useMemo(() => computeLayout(items), [items]);
+
+  useEffect(() => {
+    const el = layerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([entry]) => setLayerWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loading]);
+  const shortTasksFit = items.every((it) =>
+    it.durationMin > SLOT_MIN || layerWidth / (layout.get(it.id)?.totalLanes || 1) >= COMPACT_MIN_WIDTH);
+  const tallRows = layerWidth > 0 && !shortTasksFit;
+  const rowHeight = tallRows ? ROW_HEIGHT_TALL : ROW_HEIGHT;
 
   async function persistItems(next) {
     setItems(next);
@@ -531,7 +533,7 @@ export function TodayPage() {
                     </div>
                   ))}
 
-                  <div className={`${styles.itemsLayer} ${isDragging ? styles.itemsLayerDragging : ''}`}>
+                  <div ref={layerRef} className={`${styles.itemsLayer} ${isDragging ? styles.itemsLayerDragging : ''}`}>
                     {items.map((item) => {
                       const place = layout.get(item.id) || { lane: 0, totalLanes: 1 };
                       const previewDuration =
@@ -541,13 +543,11 @@ export function TodayPage() {
                       const leftPct = (place.lane / place.totalLanes) * 100;
                       const widthPct = (1 / place.totalLanes) * 100;
                       const isResizing = resizingPreview?.id === item.id;
-                      // A single slot only has room for one line, so its name,
-                      // time and controls sit side by side.
-                      const compact = !narrow && previewDuration <= SLOT_MIN;
+                      const compact = !tallRows && previewDuration <= SLOT_MIN;
                       return (
                         <div
                           key={item.id}
-                          className={`${styles.itemBlock} ${item.optional ? styles.itemOptional : styles.itemMustDo} ${compact ? styles.itemCompact : ''} ${isResizing ? styles.itemBlockResizing : ''}`}
+                          className={`${styles.itemBlock} ${item.optional ? styles.itemOptional : styles.itemMustDo} ${previewDuration <= SLOT_MIN ? styles.itemShort : ''} ${compact ? styles.itemCompact : ''} ${isResizing ? styles.itemBlockResizing : ''}`}
                           style={{
                             top: topPx,
                             height: heightPx,
@@ -572,6 +572,7 @@ export function TodayPage() {
                                 value={item.label}
                                 onChange={(e) => renameItem(item.id, e.target.value)}
                                 placeholder="(untitled)"
+                                title={item.label}
                               />
                               <span className={styles.itemTime}>
                                 {timeRangeLabel(item.startMin, previewDuration)}

@@ -108,7 +108,8 @@
 .itemCompact .itemBody { flex-direction: row; align-items: center; gap: 6px; }
 .itemCompact .itemTopRow { flex: 1 1 auto; }
 .itemCompact .itemMeta { margin-top: 0; }
-.itemCompact .itemDur { display: none; }
+/* Its length is already on the menu beside it; the name needs the room more. */
+.itemShort .itemDur { display: none; }
 
 .itemBlockResizing {
   outline: 2px solid var(--color-accent);
