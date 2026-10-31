@@ -289,6 +289,12 @@ export function TodayPage() {
     persistItems(items.map((it) => (it.id === itemId ? { ...it, label } : it)));
   }
 
+  // Tasks are must-do unless marked optional; a task saved before the flag
+  // existed has none, and reads as must-do.
+  function toggleOptional(itemId) {
+    persistItems(items.map((it) => (it.id === itemId ? { ...it, optional: !it.optional } : it)));
+  }
+
   function changeDuration(itemId, durationMin) {
     const it = items.find((x) => x.id === itemId);
     if (!it) return;
@@ -520,7 +526,7 @@ export function TodayPage() {
                       return (
                         <div
                           key={item.id}
-                          className={`${styles.itemBlock} ${isResizing ? styles.itemBlockResizing : ''}`}
+                          className={`${styles.itemBlock} ${item.optional ? styles.itemOptional : styles.itemMustDo} ${isResizing ? styles.itemBlockResizing : ''}`}
                           style={{
                             top: topPx,
                             height: heightPx,
@@ -562,6 +568,14 @@ export function TodayPage() {
                                   <option key={d} value={d}>{durationToLabel(d)}</option>
                                 ))}
                               </select>
+                              <button
+                                className={item.optional ? styles.priorityOptional : styles.priorityMustDo}
+                                onClick={() => toggleOptional(item.id)}
+                                aria-pressed={!!item.optional}
+                                title={item.optional ? 'Optional — click to make it a must do' : 'Must do — click to make it optional'}
+                              >
+                                {item.optional ? 'Optional' : 'Must do'}
+                              </button>
                               <button
                                 className={styles.deleteBtn}
                                 onClick={() => deleteItem(item.id)}
