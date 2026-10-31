@@ -103,6 +103,13 @@
 .priorityOptional { border: 1px dashed var(--color-border); background: transparent; color: var(--color-text-muted); }
 .priorityMustDo:hover, .priorityOptional:hover { filter: brightness(0.95); }
 
+/* A 30-minute block: one line — name, time, then the controls. */
+.itemCompact { padding: 2px 4px 2px 2px; align-items: center; }
+.itemCompact .itemBody { flex-direction: row; align-items: center; gap: 6px; }
+.itemCompact .itemTopRow { flex: 1 1 auto; }
+.itemCompact .itemMeta { margin-top: 0; }
+.itemCompact .itemDur { display: none; }
+
 .itemBlockResizing {
   outline: 2px solid var(--color-accent);
   z-index: 5;

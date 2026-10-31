@@ -10,6 +10,22 @@ const SLOT_MIN = 30;
 const DURATION_STEP = 15; // lengths can be finer than the 30-min grid (15, 45, …)
 const SLOT_COUNT = (DAY_END_MIN - DAY_START_MIN) / SLOT_MIN;
 const ROW_HEIGHT = 44; // px per 30-min slot
+// A phone is too narrow to put a task's name, time and controls on one line,
+// so a slot there is tall enough for the usual two.
+const ROW_HEIGHT_NARROW = 62;
+const NARROW_QUERY = '(max-width: 640px)';
+
+function useIsNarrow() {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(NARROW_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.(NARROW_QUERY);
+    if (!mq) return undefined;
+    const onChange = (e) => setNarrow(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return narrow;
+}
 
 const DEFAULT_TEMPLATES = [
   { id: 'tpl-breakfast', name: 'Breakfast', durationMin: 60 },
@@ -157,6 +173,8 @@ export function TodayPage() {
   const seedAttemptedRef = useRef(false);
   const initFlagSetRef = useRef(false);
   const dragRef = useRef(null);
+  const narrow = useIsNarrow();
+  const rowHeight = narrow ? ROW_HEIGHT_NARROW : ROW_HEIGHT;
 
   const dateKey = todayKey();
   const todayWeekday = useMemo(() => new Date().getDay(), []);
@@ -430,7 +448,7 @@ export function TodayPage() {
 
     function onMove(ev) {
       const deltaY = ev.clientY - startY;
-      const deltaSlots = Math.round(deltaY / ROW_HEIGHT);
+      const deltaSlots = Math.round(deltaY / rowHeight);
       let nd = startDuration + deltaSlots * SLOT_MIN;
       if (nd < SLOT_MIN) nd = SLOT_MIN;
       const maxDuration = DAY_END_MIN - startMin;
@@ -462,7 +480,7 @@ export function TodayPage() {
 
   if (!user) return null;
 
-  const totalHeight = SLOT_COUNT * ROW_HEIGHT;
+  const totalHeight = SLOT_COUNT * rowHeight;
 
   return (
     <div className={styles.page}>
@@ -489,7 +507,7 @@ export function TodayPage() {
               <>
                 <div className={styles.timesCol} style={{ height: totalHeight }}>
                   {slotRows.map((startMin) => (
-                    <div key={startMin} className={styles.timeRow} style={{ height: ROW_HEIGHT }}>
+                    <div key={startMin} className={styles.timeRow} style={{ height: rowHeight }}>
                       <span className={styles.colTime}>{minutesToLabel(startMin)}</span>
                     </div>
                   ))}
@@ -499,7 +517,7 @@ export function TodayPage() {
                     <div
                       key={startMin}
                       className={`${styles.dropRow} ${dragOverSlot === startMin ? styles.dropRowActive : ''}`}
-                      style={{ top: idx * ROW_HEIGHT, height: ROW_HEIGHT }}
+                      style={{ top: idx * rowHeight, height: rowHeight }}
                       onDragOver={(e) => onSlotDragOver(startMin, e)}
                       onDrop={(e) => onSlotDrop(startMin, e)}
                     >
@@ -518,15 +536,18 @@ export function TodayPage() {
                       const place = layout.get(item.id) || { lane: 0, totalLanes: 1 };
                       const previewDuration =
                         resizingPreview?.id === item.id ? resizingPreview.duration : item.durationMin;
-                      const topPx = ((item.startMin - DAY_START_MIN) / SLOT_MIN) * ROW_HEIGHT + 2;
-                      const heightPx = (previewDuration / SLOT_MIN) * ROW_HEIGHT - 4;
+                      const topPx = ((item.startMin - DAY_START_MIN) / SLOT_MIN) * rowHeight + 2;
+                      const heightPx = (previewDuration / SLOT_MIN) * rowHeight - 4;
                       const leftPct = (place.lane / place.totalLanes) * 100;
                       const widthPct = (1 / place.totalLanes) * 100;
                       const isResizing = resizingPreview?.id === item.id;
+                      // A single slot only has room for one line, so its name,
+                      // time and controls sit side by side.
+                      const compact = !narrow && previewDuration <= SLOT_MIN;
                       return (
                         <div
                           key={item.id}
-                          className={`${styles.itemBlock} ${item.optional ? styles.itemOptional : styles.itemMustDo} ${isResizing ? styles.itemBlockResizing : ''}`}
+                          className={`${styles.itemBlock} ${item.optional ? styles.itemOptional : styles.itemMustDo} ${compact ? styles.itemCompact : ''} ${isResizing ? styles.itemBlockResizing : ''}`}
                           style={{
                             top: topPx,
                             height: heightPx,
@@ -600,8 +621,8 @@ export function TodayPage() {
                     <div
                       className={styles.editor}
                       style={{
-                        top: ((editingSlot - DAY_START_MIN) / SLOT_MIN) * ROW_HEIGHT + 2,
-                        height: ROW_HEIGHT - 4,
+                        top: ((editingSlot - DAY_START_MIN) / SLOT_MIN) * rowHeight + 2,
+                        height: rowHeight - 4,
                       }}
                     >
                       <input
