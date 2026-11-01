@@ -975,6 +975,7 @@ export function FriendsPage() {
   const [newAddresses, setNewAddresses] = useState([{ label: '', value: '' }]);
   const [newWorkEmail, setNewWorkEmail] = useState('');
   const [newInstagram, setNewInstagram] = useState('');
+  const [newSoundsLike, setNewSoundsLike] = useState('');
   const [newBirthday, setNewBirthday] = useState('');
   const [newKids, setNewKids] = useState([{ name: '', birthday: '' }]);
   const [newAnniversary, setNewAnniversary] = useState('');
@@ -1065,6 +1066,7 @@ export function FriendsPage() {
     const initialAddresses = getFriendAddresses(friend);
     setEditFields({
       name: friend.name || '',
+      soundsLike: friend.soundsLike || '',
       email: friend.email || '',
       workEmail: friend.workEmail || '',
       phone: friend.phone || '',
@@ -1105,6 +1107,7 @@ export function FriendsPage() {
     const giftIdeas = [...(editFields.giftIdeas || []), ...(pendingGift ? [pendingGift] : [])];
     const nextFields = {
       ...editFields,
+      soundsLike: (editFields.soundsLike || '').trim(),
       email: (editFields.email || '').trim().toLowerCase(),
       workEmail: (editFields.workEmail || '').trim().toLowerCase(),
       birthday: normalizeBirthday(editFields.birthday),
@@ -1374,8 +1377,8 @@ export function FriendsPage() {
 
   async function handleAddSingle(e) {
     e.preventDefault();
-    await addFriend({ name: newName, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, anniversary: newAnniversary, kids: newKids, custom: coerceCustomMap(customFields, newCustom) });
-    setNewName(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob(''); setNewAnniversary(''); setNewKids([{ name: '', birthday: '' }]); setNewCustom({});
+    await addFriend({ name: newName, soundsLike: newSoundsLike, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, anniversary: newAnniversary, kids: newKids, custom: coerceCustomMap(customFields, newCustom) });
+    setNewName(''); setNewSoundsLike(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob(''); setNewAnniversary(''); setNewKids([{ name: '', birthday: '' }]); setNewCustom({});
     setShowAdd(false);
     setResult({ type: 'success', message: 'Contact added!' });
     setTimeout(() => setResult(null), 3000);
@@ -2031,7 +2034,10 @@ export function FriendsPage() {
                       style={{ accentColor: 'var(--color-accent)' }}
                     />
                   </td>
-                  <td className={`${styles.td} ${styles.tdName}`}>{f.name || <span className={styles.tdMuted}>—</span>}</td>
+                  <td className={`${styles.td} ${styles.tdName}`}>
+                    {f.name || <span className={styles.tdMuted}>—</span>}
+                    {f.soundsLike && <div className={styles.soundsLike} title="Sounds like">“{f.soundsLike}”</div>}
+                  </td>
                   <td className={styles.td}>{f.email || <span className={styles.tdMuted}>—</span>}</td>
                   <td className={styles.td}>{f.phone || <span className={styles.tdMuted}>—</span>}</td>
                   <td className={styles.td}>
@@ -2508,6 +2514,10 @@ export function FriendsPage() {
                 <input className={styles.input} value={newName} onChange={e => setNewName(e.target.value)} required autoFocus placeholder="Full name" />
               </label>
               <label className={styles.label}>
+                Sounds like
+                <input className={styles.input} value={newSoundsLike} onChange={e => setNewSoundsLike(e.target.value)} placeholder="How to say it — e.g. AH-nya" />
+              </label>
+              <label className={styles.label}>
                 Email
                 <input className={styles.input} type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="email@example.com" />
               </label>
@@ -2622,6 +2632,7 @@ export function FriendsPage() {
               {/* Left: how to reach them. Right: who they are. */}
               <div className={styles.editColumn}>
               <label className={styles.label}>Name *<input className={styles.input} value={editFields.name} onChange={e => editSet('name', e.target.value)} required autoFocus /></label>
+              <label className={styles.label}>Sounds like<input className={styles.input} value={editFields.soundsLike || ''} onChange={e => editSet('soundsLike', e.target.value)} placeholder="How to say it — e.g. AH-nya" /></label>
               <label className={styles.label}>Email<input className={styles.input} type="email" value={editFields.email} onChange={e => editSet('email', e.target.value)} /></label>
               <label className={styles.label}>Work Email<input className={styles.input} type="email" value={editFields.workEmail} onChange={e => editSet('workEmail', e.target.value)} /></label>
               <label className={styles.label}>Phone<input className={styles.input} type="tel" value={editFields.phone} onChange={e => editSet('phone', e.target.value)} placeholder="(555) 123-4567" /></label>
