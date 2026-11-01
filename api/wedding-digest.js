@@ -136,15 +136,19 @@ function taskRow(task) {
     ? `<span style="margin-left:0.4rem;font-size:0.72rem;font-weight:600;color:#6b7280;white-space:nowrap;">${steps.filter((s) => s.done).length}/${steps.length} steps</span>`
     : '';
   /* The breakdown of an open task: numbered, ticked or not, in order. Gone
-     once the task is done, like its note — it was for doing it. */
+     once the task is done, like its note — it was for doing it.
+
+     Deliberately lean markup. There are some 270 steps, and Gmail clips a
+     message past ~102 KB — "[Message clipped]", with everything after it,
+     the later phases and the guest-list line, behind a link. A table row per
+     step with styles on every cell came to ~190 KB; one styled block per task
+     and one short line per step, with the styling inherited, keeps the whole
+     email under that. The hanging indent keeps a wrapped step clear of its
+     number. */
   const stepRows = steps.length
-    ? `<table style="width:100%;border-collapse:collapse;margin:0.25rem 0 0.1rem;">${steps.map((s, i) => `
-        <tr>
-          <td style="width:1rem;vertical-align:top;padding:0 0 0.15rem;font-size:0.78rem;line-height:1.45;color:${s.done ? '#16a34a' : '#d1d5db'};font-weight:700;">${s.done ? '&#10003;' : '&#9744;'}</td>
-          <td style="width:1.2rem;vertical-align:top;padding:0 0 0.15rem 0.3rem;font-size:0.78rem;line-height:1.45;color:#9ca3af;">${i + 1}.</td>
-          <td style="vertical-align:top;padding:0 0 0.15rem 0.2rem;font-size:0.8rem;line-height:1.45;color:${s.done ? '#9ca3af' : '#374151'};${s.done ? 'text-decoration:line-through;' : ''}">${esc(s.text)}</td>
-        </tr>`).join('')}
-      </table>`
+    ? `<div style="margin:0.2rem 0 0.1rem;font-size:0.8rem;line-height:1.45;color:#374151;">${steps.map((s, i) => (s.done
+      ? `<div style="padding-left:2.4em;text-indent:-2.4em;color:#9ca3af;text-decoration:line-through;">&#10003; ${i + 1}. ${esc(s.text)}</div>`
+      : `<div style="padding-left:2.4em;text-indent:-2.4em;">&#9744; ${i + 1}. ${esc(s.text)}</div>`)).join('')}</div>`
     : '';
   /* Two cells rather than two inline spans, so a task too long for one line
      hangs under its own text instead of wrapping back under the tick — and so
@@ -242,7 +246,7 @@ export function buildEmailHtml(list, delta, tz, now, stats) {
       </div>`
     : '';
 
-  return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:1.5rem;color:#111827;">
+  const out = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:1.5rem;color:#111827;">
     <h2 style="margin:0 0 0.15rem;font-size:1.35rem;">&#128141; Wedding checklist</h2>
     <p style="color:#6b7280;margin:0 0 1rem;font-size:0.9rem;">Week of ${esc(fmtWeekOf(now, tz))}</p>
 
@@ -269,6 +273,12 @@ export function buildEmailHtml(list, delta, tz, now, stats) {
       From your Rally Wedding page. You're getting this because you turned on the weekly wedding digest.
     </p>
   </div>`;
+  // The template indentation is for reading this file, not for the inbox:
+  // with every step listed it is a fifth of the message, and the message has
+  // to stay under Gmail's clipping limit (see taskRow). Only runs of a
+  // newline plus indent between two tags go, so a space meant between inline
+  // elements on one line is kept.
+  return out.replace(/>\s*\n\s*</g, '><');
 }
 
 /* Who the weekly summary goes to.
