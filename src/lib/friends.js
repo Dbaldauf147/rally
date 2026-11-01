@@ -53,6 +53,9 @@ export async function addFriend(uid, data) {
     .filter(a => a.value);
   await setDoc(doc(db, 'users', uid, 'friends', id), {
     name: data.name.trim(),
+    // How the name is said — "AH-nya" for Ania. Only written when given, so
+    // imports don't stamp an empty field on every contact.
+    ...(data.soundsLike?.trim() ? { soundsLike: data.soundsLike.trim() } : {}),
     email: (data.email || '').trim().toLowerCase(),
     phone: (data.phone || '').trim(),
     group: (data.group || '').trim(),
