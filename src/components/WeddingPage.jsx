@@ -540,6 +540,40 @@ function GuestList() {
     return { category: build('category'), group: build('group') };
   }, [contacts]);
 
+  /* One subtab per category, then the guests with none.
+
+     Alphabetical rather than biggest-first, so a tab never moves while you
+     are working — reassigning a guest changes its count, not its place. A
+     category saved with nobody in it yet still gets a tab (showing 0), since
+     it exists to be filled. Counts are of the whole list, not of whatever the
+     search or other filters are currently showing. */
+  const categoryTabs = useMemo(() => {
+    const counts = new Map(categories.map((cat) => [cat, 0]));
+    let none = 0;
+    for (const c of contacts) {
+      const cat = (c.category || '').trim();
+      if (cat) counts.set(cat, (counts.get(cat) || 0) + 1);
+      else none += 1;
+    }
+    const tabs = Array.from(counts.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([cat, n]) => ({ value: cat, label: cat, count: n }));
+    if (none > 0) tabs.push({ value: '__none__', label: 'Not categorized', count: none });
+    return tabs;
+  }, [contacts, categories]);
+
+  // The subtab is the Category column's filter, not a second one beside it,
+  // so the tab, the column header and the table can never disagree.
+  const activeCategoryTab = columnFilters.category || '';
+  function selectCategoryTab(value) {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      if (value) next.category = value;
+      else delete next.category;
+      return next;
+    });
+  }
+
   // Click a summary chip to filter the table by that value; click it again to
   // clear. The '—' bucket maps to the "no value" filter sentinel.
   const summaryFilterValue = (val) => (val === '—' ? '__none__' : val);
@@ -1165,21 +1199,6 @@ function GuestList() {
           ))}
           <span className={styles.summaryTotal}>{contacts.length} total</span>
         </div>
-        <div className={styles.summaryRow}>
-          <span className={styles.summaryLabel}>By category</span>
-          {summaries.category.map(([val, n]) => (
-            <button
-              key={val}
-              type="button"
-              className={`${styles.summaryChip} ${columnFilters.category === summaryFilterValue(val) ? styles.summaryChipActive : ''}`}
-              onClick={() => toggleSummaryFilter('category', val)}
-              title="Filter by this category"
-            >
-              <span className={styles.summaryChipKey}>{val === '—' ? 'Not categorized' : val}</span>
-              <span className={styles.summaryChipCount}>{n}</span>
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className={styles.tierLegend}>
@@ -1189,6 +1208,22 @@ function GuestList() {
             <span className={styles.tierBadge}>{t}</span>
             <span className={styles.tierDesc}>{TIER_DESCRIPTIONS[t]}</span>
           </span>
+        ))}
+      </div>
+
+      <div className={styles.categoryTabs} role="tablist" aria-label="Guests by category">
+        {[{ value: '', label: 'All', count: contacts.length }, ...categoryTabs].map((t) => (
+          <button
+            key={t.value || '__all__'}
+            type="button"
+            role="tab"
+            aria-selected={activeCategoryTab === t.value}
+            className={activeCategoryTab === t.value ? styles.categoryTabActive : styles.categoryTab}
+            onClick={() => selectCategoryTab(t.value)}
+          >
+            {t.label}
+            <span className={styles.categoryTabCount}>{t.count}</span>
+          </button>
         ))}
       </div>
 
