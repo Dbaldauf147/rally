@@ -42,6 +42,35 @@
 .taskTextDone { color: var(--color-text-muted); text-decoration: line-through; }
 .taskNote { font-size: 0.8rem; line-height: 1.5; color: var(--color-text-muted); }
 
+/* Steps: the task broken into what you actually do, indented under it. */
+.taskRow { display: flex; align-items: flex-start; gap: 0.25rem; }
+.taskRow .taskLabel { flex: 1; min-width: 0; }
+.stepsToggle { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.3rem; margin: 0.4rem 0.4rem 0 0; padding: 0.15rem 0.4rem; border: none; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); font-family: inherit; font-size: 0.72rem; cursor: pointer; }
+.stepsToggle:hover { background: var(--color-surface-alt); color: var(--color-text); }
+.stepCount, .stepCountDone { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stepCountDone { color: var(--color-success); }
+.steps { list-style: none; margin: 0 0 0.35rem; padding: 0 0.6rem 0 2.2rem; display: flex; flex-direction: column; gap: 0.05rem; }
+.stepLabel { display: flex; align-items: flex-start; gap: 0.4rem; padding: 0.2rem 0.3rem; border-radius: var(--radius-sm); cursor: pointer; }
+.stepLabel:hover { background: var(--color-surface-alt); }
+.stepCheckbox { flex-shrink: 0; width: 14px; height: 14px; margin-top: 0.15rem; accent-color: var(--color-accent); cursor: pointer; }
+.stepNum { flex-shrink: 0; min-width: 1.1rem; font-size: 0.78rem; line-height: 1.5; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.stepText, .stepTextDone { font-size: 0.82rem; line-height: 1.5; }
+.stepText { color: var(--color-text-secondary); }
+.stepTextDone { color: var(--color-text-muted); text-decoration: line-through; }
+.nextStep { margin-top: 0.2rem; font-size: 0.8rem; color: var(--color-text-secondary); }
+
+.editSteps { list-style: none; margin: 0.15rem 0 0; padding: 0 0 0 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.editStep { display: flex; align-items: center; gap: 0.3rem; }
+.editStepText { flex: 1; min-width: 0; padding: 0.3rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.8rem; color: var(--color-text); }
+.editStepText:focus { outline: none; border-color: var(--color-accent); }
+.iconBtnSmall { width: 24px; height: 24px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-family: inherit; font-size: 0.8rem; line-height: 1; cursor: pointer; }
+.addStep { align-self: flex-start; margin-left: 0.75rem; padding: 0.2rem 0.5rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); font-family: inherit; font-size: 0.74rem; font-weight: 600; cursor: pointer; }
+.addStep:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
+@media (max-width: 600px) {
+  .steps { padding-left: 1.6rem; }
+}
+
 .footnote { margin-top: 1.5rem; font-size: 0.8rem; color: var(--color-text-muted); }
 
 @media (max-width: 600px) {

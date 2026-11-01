@@ -3,8 +3,9 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  taskKey, normalizeChecklist, seedChecklist, totalTasks, toggleTask, isDone,
+  taskKey, normalizeChecklist, seedChecklist, totalTasks, totalSteps, toggleTask, isDone,
   phaseProgress, overallProgress, nextUp,
+  toggleStep, stepDone, stepProgress, addStep, updateStep, removeStep,
   addTask, updateTask, removeTask, moveTask,
   addPhase, updatePhase, removePhase, movePhase, restoreSeed,
 } from '../lib/weddingChecklist';
@@ -86,18 +87,63 @@ function useChecklist(userId) {
   return { list, loaded, update };
 }
 
-function ReadTask({ task, phaseId, done, onToggle }) {
+/* One task, with its steps underneath.
+
+   The steps are the breakdown — the actual things you do, in order — so they
+   show by default while the task is open, and fold away once it's finished:
+   a done task needs its heading, not its instructions. The step count opens
+   them again either way. */
+function ReadTask({ task, phaseId, done, onToggle, onToggleStep }) {
   const key = taskKey(phaseId, task.id);
   const checked = isDone(done, key);
+  const [open, setOpen] = useState(null);
+  const showSteps = task.steps.length > 0 && (open ?? !checked);
+  const { complete, total } = stepProgress(phaseId, task, done);
   return (
     <li className={task.milestone ? styles.taskMilestone : styles.task}>
-      <label className={styles.taskLabel}>
-        <input type="checkbox" className={styles.checkbox} checked={checked} onChange={() => onToggle(key)} />
-        <span className={styles.taskBody}>
-          <span className={checked ? styles.taskTextDone : styles.taskText}>{task.text}</span>
-          {task.note && <span className={styles.taskNote}>{task.note}</span>}
-        </span>
-      </label>
+      <div className={styles.taskRow}>
+        <label className={styles.taskLabel}>
+          <input type="checkbox" className={styles.checkbox} checked={checked} onChange={() => onToggle(key)} />
+          <span className={styles.taskBody}>
+            <span className={checked ? styles.taskTextDone : styles.taskText}>{task.text}</span>
+            {task.note && !checked && <span className={styles.taskNote}>{task.note}</span>}
+          </span>
+        </label>
+        {total > 0 && (
+          <button
+            type="button"
+            className={styles.stepsToggle}
+            aria-expanded={showSteps}
+            title={showSteps ? 'Hide the steps' : 'Show the steps'}
+            onClick={() => setOpen(!showSteps)}
+          >
+            <span className={complete === total ? styles.stepCountDone : styles.stepCount}>{complete}/{total} steps</span>
+            <span aria-hidden="true">{showSteps ? '▾' : '▸'}</span>
+          </button>
+        )}
+      </div>
+      {showSteps && (
+        <ol className={styles.steps}>
+          {task.steps.map((step, i) => {
+            const on = stepDone(done, phaseId, task, step.id);
+            return (
+              <li key={step.id} className={styles.step}>
+                <label className={styles.stepLabel}>
+                  <input
+                    type="checkbox"
+                    className={styles.stepCheckbox}
+                    checked={on}
+                    onChange={() => onToggleStep(step.id)}
+                    aria-label={`Step ${i + 1}: ${step.text}`}
+                  />
+                  <span className={styles.stepNum}>{i + 1}.</span>
+                  <span className={on ? styles.stepTextDone : styles.stepText}>{step.text}</span>
+                </label>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </li>
   );
 }
@@ -107,7 +153,7 @@ function ReadTask({ task, phaseId, done, onToggle }) {
    The fields are uncontrolled and commit on blur rather than on every
    keystroke: the stored shape trims its strings, and rewriting state per
    character would eat the space the moment you typed it. */
-function EditTask({ task, first, last, onChange, onRemove, onMove }) {
+function EditTask({ task, first, last, onChange, onRemove, onMove, onAddStep, onChangeStep, onRemoveStep }) {
   return (
     <li className={styles.editTask}>
       <div className={styles.editFields}>
@@ -127,6 +173,30 @@ function EditTask({ task, first, last, onChange, onRemove, onMove }) {
           onBlur={(e) => onChange({ note: e.target.value })}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
         />
+        {task.steps.length > 0 && (
+          <ol className={styles.editSteps}>
+            {task.steps.map((step, i) => (
+              <li key={step.id} className={styles.editStep}>
+                <span className={styles.stepNum}>{i + 1}.</span>
+                <input
+                  className={styles.editStepText}
+                  defaultValue={step.text}
+                  placeholder="Step"
+                  aria-label={`Step ${i + 1}`}
+                  onBlur={(e) => onChangeStep(step.id, { text: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+                />
+                <button
+                  type="button"
+                  className={`${styles.iconBtnSmall} ${styles.iconBtnDanger}`}
+                  title={`Delete step ${i + 1}`}
+                  onClick={() => onRemoveStep(step.id)}
+                >×</button>
+              </li>
+            ))}
+          </ol>
+        )}
+        <button type="button" className={styles.addStep} onClick={onAddStep}>+ Add step</button>
       </div>
       <div className={styles.editTools}>
         <label className={styles.milestoneToggle} title="Mark as a milestone">
@@ -198,7 +268,14 @@ export function WeddingChecklist() {
           <div>
             <div className={styles.progressCount}>{progress.complete} of {progress.total} done</div>
             {next ? (
-              <div className={styles.nextUp}>Next up: <strong>{next.text}</strong></div>
+              <div className={styles.nextUp}>
+                Next up: <strong>{next.text}</strong>
+                {next.nextStep && (
+                  <div className={styles.nextStep}>
+                    Step {next.nextStep.number} of {next.nextStep.of}: {next.nextStep.text}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className={styles.nextUp}>
                 {progress.total ? 'Everything is ticked off. Go get married.' : 'The list is empty. Add a section to start one.'}
@@ -231,8 +308,8 @@ export function WeddingChecklist() {
 
       {editing && (
         <p className={styles.editHint}>
-          Editing the wording keeps a task ticked — ticks follow the task, not the words.
-          Deleting one removes its tick too.
+          Editing the wording keeps a task or step ticked — ticks follow the item, not the words.
+          Deleting one removes its tick too. Adding a step to a finished task reopens it.
         </p>
       )}
 
@@ -301,6 +378,9 @@ export function WeddingChecklist() {
                       onChange={(patch) => update((l) => updateTask(l, phase.id, task.id, patch))}
                       onMove={(d) => update((l) => moveTask(l, phase.id, task.id, d))}
                       onRemove={() => handleRemoveTask(phase, task)}
+                      onAddStep={() => update((l) => addStep(l, phase.id, task.id, { text: '' }))}
+                      onChangeStep={(stepId, patch) => update((l) => updateStep(l, phase.id, task.id, stepId, patch))}
+                      onRemoveStep={(stepId) => update((l) => removeStep(l, phase.id, task.id, stepId))}
                     />
                   ))
                   : tasks.map((task) => (
@@ -310,6 +390,7 @@ export function WeddingChecklist() {
                       phaseId={phase.id}
                       done={done}
                       onToggle={(key) => update((l) => toggleTask(l, key))}
+                      onToggleStep={(stepId) => update((l) => toggleStep(l, phase.id, task.id, stepId))}
                     />
                   ))}
                 {editing && (
@@ -338,7 +419,8 @@ export function WeddingChecklist() {
       {!loaded && !list && <p className={styles.footnote}>Loading…</p>}
       {!editing && phases.length > 0 && (
         <p className={styles.footnote}>
-          {totalTasks(phases)} tasks. Ticks are saved as you go and sync to your phone.
+          {totalTasks(phases)} tasks, {totalSteps(phases)} steps. Ticking a task ticks all its steps; ticking the last step finishes the task.
+          Saved as you go, and synced to your phone.
         </p>
       )}
     </div>

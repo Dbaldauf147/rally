@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   SEED_PHASES, normalizeChecklist, seedChecklist, allTasks, totalTasks,
   toggleTask, isDone, phaseProgress, overallProgress, nextUp,
+  toggleStep, stepDone, stepProgress, stepKey, addStep, updateStep, removeStep, totalSteps, SEED_VERSION,
   addTask, updateTask, removeTask, moveTask,
   addPhase, updatePhase, removePhase, movePhase, restoreSeed,
 } from './weddingChecklist';
@@ -13,19 +14,29 @@ const taskIds = (list, phaseId) => list.phases.find((p) => p.id === phaseId).tas
 describe('the seed list', () => {
   it('runs the phases in timeline order', () => {
     expect(SEED_PHASES.map((p) => p.id))
-      .toEqual(['now', 'm12', 'm10', 'm8', 'm6', 'm3', 'm2', 'm1', 'week']);
+      .toEqual(['now', 'm12', 'm10', 'm8', 'm6', 'm3', 'm2', 'm1', 'week', 'day', 'after']);
   });
 
-  it('has 63 tasks, each with a key unique across the whole list', () => {
+  it('has 76 tasks, each with a key unique across the whole list', () => {
     const keys = allTasks(seed().phases).map((t) => t.key);
-    expect(keys).toHaveLength(63);
-    expect(new Set(keys).size).toBe(63);
-    expect(totalTasks(seed().phases)).toBe(63);
+    expect(keys).toHaveLength(76);
+    expect(new Set(keys).size).toBe(76);
+    expect(totalTasks(seed().phases)).toBe(76);
   });
 
-  it('marks the three milestones everything else hangs off', () => {
+  it('marks the milestones everything else hangs off', () => {
     expect(allTasks(seed().phases).filter((t) => t.milestone).map((t) => t.key))
-      .toEqual(['now.book-venue', 'm3.mail-invitations', 'm1.license']);
+      .toEqual(['now.book-venue', 'm3.mail-invitations', 'm1.license', 'day.sign-license']);
+  });
+
+  it('breaks every task before the day itself into steps, with ids unique within it', () => {
+    const before = seed().phases.filter((p) => !['day', 'after'].includes(p.id));
+    before.forEach((p) => p.tasks.forEach((t) => {
+      expect(t.steps.length, `${p.id}.${t.id}`).toBeGreaterThanOrEqual(2);
+      expect(new Set(t.steps.map((s) => s.id)).size).toBe(t.steps.length);
+      t.steps.forEach((s) => expect(s.text).toBeTruthy());
+    }));
+    expect(totalSteps(seed().phases)).toBeGreaterThan(250);
   });
 
   it('keeps the guidance beside the task rather than inside it', () => {
@@ -43,7 +54,7 @@ describe('normalizeChecklist', () => {
   it('reads back an account that only ever stored ticks', () => {
     // The shape written before the list was editable: ticks and nothing else.
     const migrated = normalizeChecklist({ done: { 'now.numbers': true, 'm1.license': true } });
-    expect(totalTasks(migrated.phases)).toBe(63);
+    expect(totalTasks(migrated.phases)).toBe(76);
     expect(migrated.done).toEqual({ 'now.numbers': true, 'm1.license': true });
   });
 
@@ -62,8 +73,8 @@ describe('normalizeChecklist', () => {
   });
 
   it('survives a malformed document', () => {
-    expect(normalizeChecklist(undefined).phases.length).toBe(9);
-    expect(normalizeChecklist({ phases: 'nope', done: 'nope' }).phases.length).toBe(9);
+    expect(normalizeChecklist(undefined).phases.length).toBe(11);
+    expect(normalizeChecklist({ phases: 'nope', done: 'nope' }).phases.length).toBe(11);
   });
 });
 
@@ -87,7 +98,7 @@ describe('ticking', () => {
   it('counts a phase, and the whole list as a percentage', () => {
     const list = toggleTask(seed(), 'now.numbers');
     expect(phaseProgress(list.phases[0], list.done)).toMatchObject({ complete: 1, total: 7, finished: false });
-    expect(overallProgress(list)).toMatchObject({ complete: 1, total: 63 });
+    expect(overallProgress(list)).toMatchObject({ complete: 1, total: 76 });
   });
 
   it('names the earliest outstanding task', () => {
@@ -111,7 +122,7 @@ describe('editing tasks', () => {
   });
 
   it('ignores an add to a phase that is not there', () => {
-    expect(totalTasks(addTask(seed(), 'nope', { text: 'A' }).phases)).toBe(63);
+    expect(totalTasks(addTask(seed(), 'nope', { text: 'A' }).phases)).toBe(76);
   });
 
   it('rewording a task keeps its tick', () => {
@@ -137,7 +148,7 @@ describe('editing tasks', () => {
     const l = removeTask(ticked, 'now', 'numbers');
     expect(taskIds(l, 'now')).not.toContain('numbers');
     expect(l.done).toEqual({});
-    expect(overallProgress(l)).toMatchObject({ complete: 0, total: 62 });
+    expect(overallProgress(l)).toMatchObject({ complete: 0, total: 75 });
   });
 
   it('reorders a task, and does nothing at either end', () => {
@@ -150,8 +161,8 @@ describe('editing tasks', () => {
 describe('editing phases', () => {
   it('adds a phase at the end', () => {
     const l = addPhase(seed(), { title: 'After' });
-    expect(l.phases).toHaveLength(10);
-    expect(l.phases[9].title).toBe('After');
+    expect(l.phases).toHaveLength(12);
+    expect(l.phases[11].title).toBe('After');
   });
 
   it('renames a phase and its timing without touching its tasks', () => {
@@ -165,20 +176,20 @@ describe('editing phases', () => {
     const l = removePhase(ticked, 'now');
     expect(ids(l)).not.toContain('now');
     expect(l.done).toEqual({});
-    expect(totalTasks(l.phases)).toBe(56);
+    expect(totalTasks(l.phases)).toBe(69);
   });
 
   it('reorders a phase, and does nothing at either end', () => {
     expect(ids(movePhase(seed(), 'm12', -1)).slice(0, 2)).toEqual(['m12', 'now']);
     expect(ids(movePhase(seed(), 'now', -1))[0]).toBe('now');
-    expect(ids(movePhase(seed(), 'week', 1)).at(-1)).toBe('week');
+    expect(ids(movePhase(seed(), 'after', 1)).at(-1)).toBe('after');
   });
 });
 
 describe('restoreSeed', () => {
   it('puts the built-in list back after it has been hacked about', () => {
     const wrecked = removePhase(removeTask(seed(), 'now', 'numbers'), 'week');
-    expect(totalTasks(restoreSeed(wrecked).phases)).toBe(63);
+    expect(totalTasks(restoreSeed(wrecked).phases)).toBe(76);
     expect(ids(restoreSeed(wrecked))).toEqual(SEED_PHASES.map((p) => p.id));
   });
 
@@ -189,5 +200,116 @@ describe('restoreSeed', () => {
     // The tick on the deleted phase was pruned when it went, and restoring the
     // list does not resurrect it.
     expect(isDone(restored.done, 'week.rings')).toBe(false);
+  });
+});
+
+describe('steps', () => {
+  const steps = (list) => list.phases[0].tasks[0].steps; // now.numbers
+  const nStep = (list, i) => stepDone(list.done, 'now', list.phases[0].tasks[0], steps(list)[i].id);
+
+  it('ticks one step without finishing the task', () => {
+    const l = toggleStep(seed(), 'now', 'numbers', 's1');
+    expect(l.done).toEqual({ [stepKey('now', 'numbers', 's1')]: true });
+    expect(isDone(l.done, 'now.numbers')).toBe(false);
+    expect(stepProgress('now', l.phases[0].tasks[0], l.done)).toEqual({ complete: 1, total: 6 });
+    expect(overallProgress(l).complete).toBe(0);
+  });
+
+  it('finishes the task when the last step is ticked, and stores only the task', () => {
+    let l = seed();
+    steps(l).forEach((s) => { l = toggleStep(l, 'now', 'numbers', s.id); });
+    expect(l.done).toEqual({ 'now.numbers': true });
+    expect(steps(l).every((_, i) => nStep(l, i))).toBe(true);
+  });
+
+  it('ticking the task ticks every step; unticking it clears them', () => {
+    const part = toggleStep(seed(), 'now', 'numbers', 's2');
+    const whole = toggleTask(part, 'now.numbers');
+    expect(whole.done).toEqual({ 'now.numbers': true });
+    expect(nStep(whole, 4)).toBe(true);
+    expect(toggleTask(whole, 'now.numbers').done).toEqual({});
+  });
+
+  it('unticking one step of a finished task reopens it with the rest still ticked', () => {
+    const l = toggleStep(toggleTask(seed(), 'now.numbers'), 'now', 'numbers', 's3');
+    expect(isDone(l.done, 'now.numbers')).toBe(false);
+    expect(stepProgress('now', l.phases[0].tasks[0], l.done)).toEqual({ complete: 5, total: 6 });
+    expect(nStep(l, 2)).toBe(false);
+  });
+
+  it('names the next open step inside the next task', () => {
+    expect(nextUp(seed()).nextStep).toMatchObject({ id: 's1', number: 1, of: 6 });
+    expect(nextUp(toggleStep(seed(), 'now', 'numbers', 's1')).nextStep).toMatchObject({ id: 's2', number: 2 });
+  });
+
+  it('ignores a step that is not there', () => {
+    expect(toggleStep(seed(), 'now', 'numbers', 's99').done).toEqual({});
+  });
+
+  it('adding a step to a finished task reopens it, keeping the old steps ticked', () => {
+    const l = addStep(toggleTask(seed(), 'now.numbers'), 'now', 'numbers', { text: 'One more' });
+    expect(steps(l)).toHaveLength(7);
+    expect(isDone(l.done, 'now.numbers')).toBe(false);
+    expect(stepProgress('now', l.phases[0].tasks[0], l.done)).toEqual({ complete: 6, total: 7 });
+  });
+
+  it('removing the only open step finishes the task', () => {
+    let l = seed();
+    steps(l).slice(0, 5).forEach((s) => { l = toggleStep(l, 'now', 'numbers', s.id); });
+    l = removeStep(l, 'now', 'numbers', 's6');
+    expect(l.done).toEqual({ 'now.numbers': true });
+  });
+
+  it('rewording a step keeps its tick', () => {
+    const l = updateStep(toggleStep(seed(), 'now', 'numbers', 's1'), 'now', 'numbers', 's1', { text: 'Reworded' });
+    expect(steps(l)[0].text).toBe('Reworded');
+    expect(nStep(l, 0)).toBe(true);
+  });
+});
+
+describe('upgrading a list saved before steps existed', () => {
+  // What every tick used to save: the whole v1 list, no steps, no later sections.
+  const v1 = () => {
+    const s = seed();
+    return {
+      phases: s.phases
+        .filter((p) => !['day', 'after'].includes(p.id))
+        .map((p) => ({ ...p, tasks: p.tasks.map((t) => ({ id: t.id, text: t.text, note: t.note, milestone: t.milestone })) })),
+      done: { 'now.numbers': true },
+    };
+  };
+
+  it('adds the built-in steps and the two new sections after Week of', () => {
+    const l = normalizeChecklist(v1());
+    expect(ids(l)).toEqual(SEED_PHASES.map((p) => p.id));
+    expect(l.phases[0].tasks[0].steps).toHaveLength(6);
+    expect(l.seedVersion).toBe(SEED_VERSION);
+  });
+
+  it('keeps an old tick meaning the whole task, steps and all', () => {
+    const l = normalizeChecklist(v1());
+    expect(l.done).toEqual({ 'now.numbers': true });
+    expect(stepProgress('now', l.phases[0].tasks[0], l.done)).toEqual({ complete: 6, total: 6 });
+  });
+
+  it('keeps the owner\'s own edits: reworded tasks, added tasks, their own steps', () => {
+    const raw = v1();
+    raw.phases[0].tasks[0].text = 'Our numbers';
+    raw.phases[0].tasks[1].steps = [{ id: 'mine', text: 'Our own step' }];
+    raw.phases[0].tasks.push({ id: 't-own', text: 'Something of ours' });
+    const l = normalizeChecklist(raw);
+    expect(l.phases[0].tasks[0]).toMatchObject({ text: 'Our numbers' });
+    expect(l.phases[0].tasks[0].steps).toHaveLength(6);
+    expect(l.phases[0].tasks[1].steps).toEqual([{ id: 'mine', text: 'Our own step' }]);
+    expect(l.phases[0].tasks.at(-1)).toMatchObject({ id: 't-own', steps: [] });
+  });
+
+  it('runs once: a section deleted after the upgrade stays deleted', () => {
+    const trimmed = removePhase(normalizeChecklist(v1()), 'after');
+    expect(ids(normalizeChecklist(JSON.parse(JSON.stringify(trimmed))))).not.toContain('after');
+  });
+
+  it('leaves a list without Week of alone', () => {
+    expect(ids(normalizeChecklist({ phases: [{ id: 'mine', title: 'Mine', tasks: [] }] }))).toEqual(['mine']);
   });
 });

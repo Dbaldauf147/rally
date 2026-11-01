@@ -131,6 +131,21 @@ function taskRow(task) {
   const note = task.note && !task.done
     ? `<div style="font-size:0.78rem;color:#6b7280;line-height:1.45;margin:0.15rem 0 0;">${esc(task.note)}</div>`
     : '';
+  const steps = task.done ? [] : (task.steps || []);
+  const count = steps.length
+    ? `<span style="margin-left:0.4rem;font-size:0.72rem;font-weight:600;color:#6b7280;white-space:nowrap;">${steps.filter((s) => s.done).length}/${steps.length} steps</span>`
+    : '';
+  /* The breakdown of an open task: numbered, ticked or not, in order. Gone
+     once the task is done, like its note — it was for doing it. */
+  const stepRows = steps.length
+    ? `<table style="width:100%;border-collapse:collapse;margin:0.25rem 0 0.1rem;">${steps.map((s, i) => `
+        <tr>
+          <td style="width:1rem;vertical-align:top;padding:0 0 0.15rem;font-size:0.78rem;line-height:1.45;color:${s.done ? '#16a34a' : '#d1d5db'};font-weight:700;">${s.done ? '&#10003;' : '&#9744;'}</td>
+          <td style="width:1.2rem;vertical-align:top;padding:0 0 0.15rem 0.3rem;font-size:0.78rem;line-height:1.45;color:#9ca3af;">${i + 1}.</td>
+          <td style="vertical-align:top;padding:0 0 0.15rem 0.2rem;font-size:0.8rem;line-height:1.45;color:${s.done ? '#9ca3af' : '#374151'};${s.done ? 'text-decoration:line-through;' : ''}">${esc(s.text)}</td>
+        </tr>`).join('')}
+      </table>`
+    : '';
   /* Two cells rather than two inline spans, so a task too long for one line
      hangs under its own text instead of wrapping back under the tick — and so
      it survives the mail clients that still lay out on tables and nothing
@@ -140,7 +155,7 @@ function taskRow(task) {
     <tr>
       <td style="width:1.1rem;vertical-align:top;padding:0;font-size:0.9rem;line-height:1.45;color:${task.done ? '#16a34a' : '#d1d5db'};font-weight:700;">${task.done ? '&#10003;' : '&#9744;'}</td>
       <td style="vertical-align:top;padding:0 0 0 0.5rem;">
-        <div style="font-size:0.9rem;color:${colour};${strike}line-height:1.45;">${esc(task.text)}${flag}</div>${note}
+        <div style="font-size:0.9rem;color:${colour};${strike}line-height:1.45;">${esc(task.text)}${flag}${count}</div>${note}${stepRows}
       </td>
     </tr>
   </table>`;
@@ -211,6 +226,7 @@ export function buildEmailHtml(list, delta, tz, now, stats) {
         <h3 style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#1e40af;margin:0 0 0.3rem;">Next up</h3>
         <div style="font-size:1rem;font-weight:650;color:#1e3a8a;line-height:1.4;">${esc(sum.next.text)}</div>
         <div style="font-size:0.78rem;color:#3b82f6;margin-top:0.15rem;">${esc(sum.next.phaseTitle)}</div>
+        ${sum.next.nextStep ? `<div style="font-size:0.88rem;color:#1e3a8a;margin-top:0.45rem;line-height:1.45;"><strong>Step ${sum.next.nextStep.number} of ${sum.next.nextStep.of}:</strong> ${esc(sum.next.nextStep.text)}</div>` : ''}
         ${sum.next.note ? `<div style="font-size:0.8rem;color:#1d4ed8;margin-top:0.4rem;line-height:1.5;">${esc(sum.next.note)}</div>` : ''}
       </div>`
     : `<div style="margin:0 0 1.25rem;padding:0.85rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;font-size:0.95rem;color:#166534;font-weight:650;">
