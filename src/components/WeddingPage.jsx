@@ -135,8 +135,16 @@ const SEED_CONTACTS = [
   { firstName: 'JoAnn', lastName: 'Wildermuth', address: '72 Accabonac Road', city: 'East Hampton', state: 'NY', zip: '11937', phone: '', email: '' },
 ];
 
+// RSVP status. Rows sink by status: undecided and Pending stay on top where the
+// work is, Confirmed drops below them, and Not coming sits at the very bottom.
+const STATUS_OPTIONS = ['Pending', 'Confirmed', 'Not coming'];
+const STATUS_RANK = { Confirmed: 1, 'Not coming': 2 };
+const statusRank = (c) => STATUS_RANK[c.status] || 0;
+const STATUS_CLASS = { Pending: 'statusPending', Confirmed: 'statusConfirmed', 'Not coming': 'statusDeclined' };
+
 const ALL_COLUMNS = [
   { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => `${c.lastName || ''} ${c.firstName || ''}`.toLowerCase() },
+  { key: 'status', label: 'Status', defaultWidth: 130, sortBy: (c) => `${statusRank(c)}${c.status === 'Pending' ? 0 : 1}` },
   { key: 'group', label: 'Group', defaultWidth: 140, sortBy: (c) => (c.group || '').toLowerCase() },
   { key: 'category', label: 'Category', defaultWidth: 140, sortBy: (c) => (c.category || '').toLowerCase() },
   { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
@@ -149,11 +157,12 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
 
-const DEFAULT_VISIBLE = ['name', 'group', 'category', 'guestOf', 'friend', 'email', 'phone', 'city', 'state'];
+const DEFAULT_VISIBLE = ['name', 'status', 'group', 'category', 'guestOf', 'friend', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
   { key: 'lastName', label: 'Last Name' },
+  { key: 'status', label: 'Status' },
   { key: 'group', label: 'Group' },
   { key: 'category', label: 'Category' },
   { key: 'guestOf', label: 'Guest Of' },
@@ -176,6 +185,7 @@ const CONTACT_FORM_FIELDS = [
   { key: 'state', label: 'State' },
   { key: 'zip', label: 'Zip' },
   { key: 'guestOf', label: 'Guest of' },
+  { key: 'status', label: 'Status' },
   { key: 'group', label: 'Group' },
   { key: 'category', label: 'Category' },
 ];
@@ -585,6 +595,9 @@ function GuestList() {
           if (val === '__none__') return !c.guestOf;
           return c.guestOf === val;
         case 'state': return c.state === val;
+        case 'status':
+          if (val === '__none__') return !c.status;
+          return c.status === val;
         case 'friend':
           if (val === '__linked__') return !!(c.friendId && friendsById.has(c.friendId));
           if (val === '__unlinked__') return !c.friendId || !friendsById.has(c.friendId);
@@ -610,6 +623,13 @@ function GuestList() {
     }
     const col = ALL_COLUMNS.find((c) => c.key === sortKey) || ALL_COLUMNS[0];
     const sorted = [...rows].sort((a, b) => {
+      // Status groups come first whatever column is sorted, so Confirmed
+      // and Not coming always settle to the bottom.
+      if (sortKey !== 'status') {
+        const ra = statusRank(a);
+        const rb = statusRank(b);
+        if (ra !== rb) return ra - rb;
+      }
       let av, bv;
       if (sortKey === 'friend') {
         av = (friendsById.get(a.friendId)?.name || '').toLowerCase();
@@ -760,6 +780,11 @@ function GuestList() {
     await persistContacts(next);
   };
 
+  const handleRowStatusChange = async (id, val) => {
+    const next = contacts.map((c) => (c.id === id ? { ...c, status: val } : c));
+    await persistContacts(next);
+  };
+
   const handleRowFriendChange = async (id, val) => {
     const next = contacts.map((c) => (c.id === id ? { ...c, friendId: val } : c));
     await persistContacts(next);
@@ -887,6 +912,14 @@ function GuestList() {
             <option value="">All</option>
             <option value="__none__">— None —</option>
             {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        );
+      case 'status':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__none__">— None —</option>
+            {STATUS_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         );
       case 'state':
@@ -1218,6 +1251,11 @@ function GuestList() {
               <option value="">— (clear)</option>
               {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
+          ) : bulkField === 'status' ? (
+            <select className={styles.bulkInput} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}>
+              <option value="">— (clear)</option>
+              {STATUS_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
           ) : (
             <input
               className={styles.bulkInput}
@@ -1271,6 +1309,11 @@ function GuestList() {
                       <select className={styles.contactInput} value={editing.draft.guestOf} onChange={(e) => setDraftField('guestOf', e.target.value)}>
                         <option value="">— None —</option>
                         {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                    ) : f.key === 'status' ? (
+                      <select className={styles.contactInput} value={editing.draft.status} onChange={(e) => setDraftField('status', e.target.value)}>
+                        <option value="">— None —</option>
+                        {STATUS_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
                       </select>
                     ) : (
                       <input
@@ -1451,7 +1494,7 @@ function GuestList() {
                 <tr><td colSpan={visibleColumns.length + 1} className={styles.empty}>No contacts match.</td></tr>
               )}
               {!loading && filtered.map((c) => (
-                <tr key={c.id}>
+                <tr key={c.id} className={STATUS_CLASS[c.status] ? styles[STATUS_CLASS[c.status]] : undefined}>
                   <td className={styles.checkCell}>
                     <input
                       type="checkbox"
@@ -1488,6 +1531,15 @@ function GuestList() {
                           <option value="">— None —</option>
                           {categories.map((g) => <option key={g} value={g}>{g}</option>)}
                           <option value={NEW_CATEGORY_SENTINEL}>+ New category…</option>
+                        </select>
+                      ) : col.key === 'status' ? (
+                        <select
+                          className={`${styles.cellSelect} ${styles.statusSelect}`}
+                          value={c.status || ''}
+                          onChange={(e) => handleRowStatusChange(c.id, e.target.value)}
+                        >
+                          <option value="">— None —</option>
+                          {STATUS_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
                         </select>
                       ) : col.key === 'guestOf' ? (
                         <select
