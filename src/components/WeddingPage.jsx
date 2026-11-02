@@ -5,6 +5,8 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../native';
 import { WeddingChecklist } from './WeddingChecklist';
+import { addFriend } from '../lib/friends';
+import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -1082,15 +1084,64 @@ function GuestList() {
     draft.friendId = c.friendId || '';
     setEditing({ id: c.id, draft });
   };
+  // A new guest opens the same pop-up with an empty draft (id null). The
+  // category tab you're on is filled in, so the guest lands where you are
+  // looking; "Not categorized" means none.
+  const openNewContact = () => {
+    const draft = {};
+    for (const f of CONTACT_FORM_FIELDS) draft[f.key] = '';
+    draft.friendId = '';
+    if (activeCategoryTab && activeCategoryTab !== '__none__') draft.category = activeCategoryTab;
+    setEditing({ id: null, draft });
+  };
   const closeContact = () => setEditing(null);
   const setDraftField = (key, value) => setEditing((e) => ({ ...e, draft: { ...e.draft, [key]: value } }));
   const saveContact = async () => {
     if (!editing) return;
     const patch = {};
     for (const [k, v] of Object.entries(editing.draft)) patch[k] = typeof v === 'string' ? v.trim() : v;
+    if (editing.id === null) {
+      await addNewGuest(patch);
+      return;
+    }
     const next = contacts.map((c) => (c.id === editing.id ? { ...c, ...patch } : c));
     setEditing(null);
     await persistContacts(next);
+  };
+
+  /* Adding a guest by hand also puts them on the Friends page. If they're
+     already a friend (same email, phone or full name) the guest is linked to
+     that record instead of making a second one; a friend picked in the pop-up
+     wins over both. The friend is written first so the guest is saved with
+     its link — if that write fails the guest is still added, just unlinked,
+     and Auto-match can pick it up later. */
+  const addNewGuest = async (patch) => {
+    if (!user) return;
+    if (!patch.firstName && !patch.lastName) {
+      alert('Add a first or last name.');
+      return;
+    }
+    let friendId = patch.friendId || '';
+    if (!friendId) {
+      const existing = findFriendForGuest(friends, patch);
+      if (existing) {
+        friendId = existing.id;
+      } else {
+        try {
+          friendId = (await addFriend(user.uid, friendDataFromGuest(patch))) || '';
+        } catch (err) {
+          console.error('Failed to add guest to Friends:', err);
+          friendId = '';
+        }
+      }
+    }
+    const guest = {
+      id: `guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      ...patch,
+      friendId,
+    };
+    setEditing(null);
+    await persistContacts([...contacts, guest]);
   };
 
   const handleImportTextChange = (val) => {
@@ -1323,6 +1374,7 @@ function GuestList() {
         <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
         <button className={styles.toolButton} type="button" onClick={openGroupEditor}>Edit groups</button>
         <button className={styles.toolButton} type="button" onClick={createCategory}>+ Category</button>
+        <button className={styles.toolButton} type="button" onClick={openNewContact}>+ Guest</button>
         <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
         <button className={styles.toolButton} type="button" onClick={autoMatchFriends}>Auto-match Friends</button>
         <div className={styles.colMenu} ref={columnsMenuRef}>
@@ -1396,13 +1448,13 @@ function GuestList() {
             className={styles.contactModal}
             role="dialog"
             aria-modal="true"
-            aria-label="Edit contact"
+            aria-label={editing.id === null ? 'New guest' : 'Edit contact'}
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => { e.preventDefault(); saveContact(); }}
           >
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>
-                {`${editing.draft.firstName} ${editing.draft.lastName}`.trim() || 'Contact'}
+                {`${editing.draft.firstName} ${editing.draft.lastName}`.trim() || (editing.id === null ? 'New guest' : 'Contact')}
               </h2>
               <button className={styles.modalClose} type="button" onClick={closeContact} aria-label="Close">×</button>
             </div>
@@ -1449,7 +1501,7 @@ function GuestList() {
                 <label className={`${styles.contactField} ${styles.contactWide}`}>
                   <span className={styles.contactLabel}>Friend</span>
                   <select className={styles.contactInput} value={editing.draft.friendId} onChange={(e) => setDraftField('friendId', e.target.value)}>
-                    <option value="">— None —</option>
+                    <option value="">{editing.id === null ? '— Add to Friends —' : '— None —'}</option>
                     {editing.draft.friendId && !friendsById.has(editing.draft.friendId) && (
                       <option value={editing.draft.friendId} disabled>(missing friend)</option>
                     )}
@@ -1463,9 +1515,11 @@ function GuestList() {
               <datalist id="wedding-categories">{categories.map((g) => <option key={g} value={g} />)}</datalist>
             </div>
             <div className={styles.modalFooter}>
-              <span className={styles.modalCount} />
+              <span className={styles.modalCount}>
+                {editing.id === null && !editing.draft.friendId ? 'Also added to Friends (or linked if already there)' : ''}
+              </span>
               <button className={styles.modalSecondary} type="button" onClick={closeContact}>Cancel</button>
-              <button className={styles.modalPrimary} type="submit">Save</button>
+              <button className={styles.modalPrimary} type="submit">{editing.id === null ? 'Add guest' : 'Save'}</button>
             </div>
           </form>
         </div>
