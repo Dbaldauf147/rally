@@ -995,12 +995,23 @@ function GuestList() {
       .sort((a, b) => a.localeCompare(b));
     const changed = categoryEditor.some((r) => r.deleted || (r.name.trim() || r.from) !== r.from);
     const nextContacts = changed
-      ? contacts.map((c) => (c.category && renames.has(c.category) && renames.get(c.category) !== c.category ? { ...c, category: renames.get(c.category) } : c))
+      ? contacts.map((c) => {
+        if (!c.category || !renames.has(c.category) || renames.get(c.category) === c.category) return c;
+        const to = renames.get(c.category);
+        // Subcategories ride along with a rename or merge; a deleted category
+        // takes its subcategories with it.
+        return to ? { ...c, category: to } : { ...c, category: '', subcategory: '' };
+      })
       : contacts;
     // The open subtab follows a renamed category; if it was deleted, you land
     // on the still-to-sort tab, which is where its guests just went.
     if (columnFilters.category && renames.has(columnFilters.category)) {
-      setColumnFilters((prev) => ({ ...prev, category: renames.get(prev.category) || UNSORTED }));
+      setColumnFilters((prev) => {
+        const to = renames.get(prev.category);
+        const next = { ...prev, category: to || UNSORTED };
+        if (!to) delete next.subcategory;
+        return next;
+      });
     }
     setCategoryEditor(null);
     setSavedCategories(nextSaved);
