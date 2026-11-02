@@ -841,13 +841,16 @@ function GuestList() {
 
   /* Renaming a group renames it on every guest in it, and its description
      goes with it. Renaming one onto another's name merges the two. A blank
-     name keeps the old one — clearing a group off its guests is the bulk
-     editor's job, not something to do by accident here. */
+     name keeps the old one, so a group only goes away when you press its
+     Delete: then it leaves the dropdowns and is cleared off every guest who
+     had it (they read "— None —"), and its description goes too. Nothing
+     changes until Save, so a Delete pressed by mistake is undone in place. */
   const saveGroupEditor = async () => {
     if (!groupEditor) return;
     const renames = new Map();
     const nextDescs = {};
     for (const r of groupEditor) {
+      if (r.deleted) { renames.set(r.from, ''); continue; }
       const name = r.name.trim() || r.from;
       renames.set(r.from, name);
       const desc = r.desc.trim();
@@ -858,15 +861,23 @@ function GuestList() {
     for (const [g, d] of Object.entries(groupDescriptions)) {
       if (!renames.has(g) && !(g in nextDescs)) nextDescs[g] = d;
     }
-    const nextSaved = Array.from(new Set(savedGroups.map((g) => renames.get(g) || g).filter(Boolean)))
+    delete nextDescs[''];
+    const nextSaved = Array.from(new Set(savedGroups.map((g) => (renames.has(g) ? renames.get(g) : g)).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b));
-    const changed = groupEditor.some((r) => (r.name.trim() || r.from) !== r.from);
+    const changed = groupEditor.some((r) => r.deleted || (r.name.trim() || r.from) !== r.from);
     const nextContacts = changed
       ? contacts.map((c) => (c.group && renames.has(c.group) && renames.get(c.group) !== c.group ? { ...c, group: renames.get(c.group) } : c))
       : contacts;
-    // A filter on a renamed group follows it rather than emptying the table.
+    // A filter on a renamed group follows it rather than emptying the table;
+    // a filter on a deleted one is dropped.
     if (columnFilters.group && renames.has(columnFilters.group)) {
-      setColumnFilters((prev) => ({ ...prev, group: renames.get(prev.group) || prev.group }));
+      setColumnFilters((prev) => {
+        const next = { ...prev };
+        const to = renames.get(prev.group);
+        if (to) next.group = to;
+        else delete next.group;
+        return next;
+      });
     }
     setGroupEditor(null);
     setSavedGroups(nextSaved);
@@ -1574,10 +1585,18 @@ function GuestList() {
             </div>
             <div className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Renaming a group renames it for everyone in it. Give two groups the same name to merge them.
+                Renaming a group renames it for everyone in it. Give two groups the same name to merge them. Delete removes a group from the dropdowns and clears it off its guests.
               </p>
               {groupEditor.length === 0 && <p className={styles.modalHint}>No groups yet — add one with + Group.</p>}
-              {groupEditor.map((r, i) => (
+              {groupEditor.map((r, i) => (r.deleted ? (
+                <div key={r.from} className={`${styles.groupEditRow} ${styles.groupEditRowDeleted}`}>
+                  <span className={styles.groupDeletedNote}>
+                    <s>{r.from}</s> will be deleted
+                    {r.count > 0 && ` — ${r.count} ${r.count === 1 ? 'guest goes' : 'guests go'} back to no group`}
+                  </span>
+                  <button className={styles.groupUndo} type="button" onClick={() => setGroupRow(i, 'deleted', false)}>Undo</button>
+                </div>
+              ) : (
                 <div key={r.from} className={styles.groupEditRow}>
                   <label className={styles.contactField}>
                     <span className={styles.contactLabel}>
@@ -1602,8 +1621,15 @@ function GuestList() {
                       autoComplete="off"
                     />
                   </label>
+                  <button
+                    className={styles.groupDelete}
+                    type="button"
+                    onClick={() => setGroupRow(i, 'deleted', true)}
+                    aria-label={`Delete group ${r.from}`}
+                    title="Delete this group"
+                  >Delete</button>
                 </div>
-              ))}
+              )))}
             </div>
             <div className={styles.modalFooter}>
               <span className={styles.modalCount} />
