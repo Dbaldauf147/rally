@@ -1,0 +1,74 @@
+/* Sits inside the Wedding page's own .page wrapper, like the checklist. A
+   single column read top to bottom: a line down the left with a dot per item. */
+.wrap { max-width: 780px; }
+
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem 1.1rem; margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
+.cardTop { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.dateField { display: flex; flex-direction: column; gap: 0.3rem; }
+.dateLabel { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.dateInput { padding: 0.45rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-family: inherit; font-size: 0.95rem; color: var(--color-text); }
+.dateInput:focus { outline: none; border-color: var(--color-accent); }
+.countdown { display: flex; align-items: baseline; gap: 0.4rem; }
+.countdownNum { font-size: 1.8rem; font-weight: 700; color: var(--color-accent); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.countdownLabel { font-size: 0.85rem; color: var(--color-text-secondary); }
+.hint { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--color-text-secondary); }
+.stats { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.8rem; font-size: 0.85rem; color: var(--color-text-secondary); }
+.statLate { color: var(--color-danger); font-weight: 600; }
+.next strong { color: var(--color-text); font-weight: 600; }
+.actions { display: flex; gap: 0.5rem; margin-top: 0.9rem; flex-wrap: wrap; }
+.btn, .btnPrimary { padding: 0.45rem 0.8rem; border-radius: var(--radius-md); font-family: inherit; font-size: 0.85rem; cursor: pointer; }
+.btn { border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); }
+.btn:hover { background: var(--color-surface-alt); }
+.btnPrimary { border: 1px solid var(--color-accent); background: var(--color-accent); color: #fff; }
+.btnPrimary:hover { background: var(--color-accent-hover); }
+
+.month { margin-bottom: 0.4rem; }
+.monthTitle { margin: 0 0 0.3rem; padding: 0.4rem 0 0.35rem; font-size: 0.95rem; font-weight: 650; color: var(--color-text); border-bottom: 1px solid var(--color-border); }
+
+/* The line: a rule down the left, each item's dot sitting on it. */
+.line { list-style: none; margin: 0 0 1rem; padding: 0.2rem 0 0.2rem 1.4rem; position: relative; }
+.line::before { content: ''; position: absolute; left: 0.45rem; top: 0; bottom: 0; width: 2px; background: var(--color-border); }
+.item { position: relative; border-radius: var(--radius-sm); }
+.item:hover { background: var(--color-surface-alt); }
+.dot { position: absolute; left: -1.22rem; top: 0.95rem; width: 10px; height: 10px; border-radius: 50%; background: var(--color-surface); border: 2px solid var(--color-text-muted); box-sizing: border-box; }
+.itemMilestone .dot { width: 14px; height: 14px; left: -1.35rem; top: 0.85rem; background: var(--color-accent); border-color: var(--color-accent); }
+.itemMilestone { background: var(--color-accent-light); }
+.itemMilestone:hover { background: var(--color-accent-light); }
+.itemMilestone .itemTitle { font-weight: 650; }
+.itemDone .dot { background: var(--color-success); border-color: var(--color-success); }
+.itemDone .itemTitle { color: var(--color-text-muted); text-decoration: line-through; }
+.itemLate .dot { border-color: var(--color-danger); }
+.itemLate .itemWhen { color: var(--color-danger); }
+
+.itemLabel { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.5rem 0.6rem; cursor: pointer; }
+.checkbox { flex-shrink: 0; width: 17px; height: 17px; margin-top: 0.15rem; accent-color: var(--color-accent); cursor: pointer; }
+.itemBody { display: flex; flex-direction: column; gap: 0.12rem; min-width: 0; }
+.itemWhen { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-size: 0.75rem; font-weight: 600; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.itemRel { font-weight: 400; color: var(--color-text-muted); }
+.lateTag { padding: 0.05rem 0.4rem; border-radius: var(--radius-full); background: var(--color-danger-light); color: var(--color-danger); font-size: 0.7rem; font-weight: 700; }
+.itemTitle { font-size: 0.92rem; line-height: 1.45; color: var(--color-text); }
+.itemNote { font-size: 0.82rem; line-height: 1.45; color: var(--color-text-secondary); }
+.muted { color: var(--color-text-muted); }
+
+.todayLine { position: relative; margin: 0.4rem 0; padding-left: 0.6rem; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-accent); display: flex; align-items: center; gap: 0.5rem; }
+.todayLine::before { content: ''; position: absolute; left: -1.3rem; top: 50%; width: 12px; height: 2px; background: var(--color-accent); }
+.todayLine::after { content: ''; flex: 1; height: 2px; background: var(--color-accent); opacity: 0.4; }
+
+/* Edit mode: a card per item, no line. */
+.editHint { font-size: 0.82rem; color: var(--color-text-secondary); margin: 0 0 0.8rem; line-height: 1.5; }
+.editList { list-style: none; margin: 0 0 1rem; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.editItem { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.6rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.editWhen { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.editAmount { width: 4.5rem; }
+.editAmount, .editSelect, .editTitle, .editNote { padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-family: inherit; font-size: 0.85rem; color: var(--color-text); box-sizing: border-box; }
+.editAmount:focus, .editSelect:focus, .editTitle:focus, .editNote:focus { outline: none; border-color: var(--color-accent); }
+.editTitle { width: 100%; font-weight: 600; font-size: 0.9rem; }
+.editNote { width: 100%; resize: vertical; line-height: 1.45; }
+.editMilestone { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--color-text-secondary); cursor: pointer; margin-left: 0.3rem; }
+.editMilestone input { accent-color: var(--color-accent); }
+.iconBtnDanger { margin-left: auto; width: 1.9rem; height: 1.9rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-danger); font-size: 1.1rem; line-height: 1; cursor: pointer; }
+.iconBtnDanger:hover { border-color: var(--color-danger); background: var(--color-danger-light); }
+.addRow { display: block; width: 100%; margin: 0 0 1rem; padding: 0.55rem; border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: none; font-family: inherit; font-size: 0.85rem; color: var(--color-accent); cursor: pointer; }
+.addRow:hover { background: var(--color-accent-light); border-color: var(--color-accent); }
+
+.footnote { margin-top: 1rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.5; }
