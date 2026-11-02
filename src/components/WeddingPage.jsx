@@ -151,6 +151,9 @@ const ALL_COLUMNS = [
   { key: 'status', label: 'Status', defaultWidth: 130, sortBy: (c) => `${statusRank(c)}${c.status === 'Pending' ? 0 : 1}` },
   { key: 'group', label: 'Group', defaultWidth: 140, sortBy: (c) => (c.group || '').toLowerCase() },
   { key: 'category', label: 'Category', defaultWidth: 140, sortBy: (c) => (c.category || '').toLowerCase() },
+  // Sorts inside its category, so the same subcategory name under two
+  // categories doesn't interleave them.
+  { key: 'subcategory', label: 'Subcategory', defaultWidth: 150, sortBy: (c) => `${(c.category || '').toLowerCase()}\u0000${(c.subcategory || '').toLowerCase()}` },
   { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
   { key: 'friend', label: 'Friend', defaultWidth: 180, sortBy: (c) => c.friendId || '' },
   { key: 'email', label: 'Email', defaultWidth: 220, sortBy: (c) => (c.email || '').toLowerCase() },
@@ -161,7 +164,7 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
 
-const DEFAULT_VISIBLE = ['name', 'status', 'group', 'category', 'guestOf', 'friend', 'email', 'phone', 'city', 'state'];
+const DEFAULT_VISIBLE = ['name', 'status', 'group', 'category', 'subcategory', 'guestOf', 'friend', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
@@ -169,6 +172,7 @@ const EDITABLE_FIELDS = [
   { key: 'status', label: 'Status' },
   { key: 'group', label: 'Group' },
   { key: 'category', label: 'Category' },
+  { key: 'subcategory', label: 'Subcategory' },
   { key: 'guestOf', label: 'Guest Of' },
   { key: 'address', label: 'Address' },
   { key: 'city', label: 'City' },
@@ -192,6 +196,7 @@ const CONTACT_FORM_FIELDS = [
   { key: 'status', label: 'Status' },
   { key: 'group', label: 'Group' },
   { key: 'category', label: 'Category' },
+  { key: 'subcategory', label: 'Subcategory' },
 ];
 
 // A guest whose category is "Hide" drops out of the page: the table, every
@@ -203,6 +208,7 @@ const isHidden = (c) => String(c?.category || '').trim().toLowerCase() === HIDE_
 
 const NEW_GROUP_SENTINEL = '__new_group__';
 const NEW_CATEGORY_SENTINEL = '__new_category__';
+const NEW_SUBCATEGORY_SENTINEL = '__new_subcategory__';
 
 /* Where the guest list opens: the All tab, which holds the guests with no
    category yet. Categorizing someone moves them out of it and onto their
@@ -236,6 +242,7 @@ const IMPORT_FIELDS = [
   { key: 'zip', label: 'Zip' },
   { key: 'group', label: 'Group' },
   { key: 'category', label: 'Category' },
+  { key: 'subcategory', label: 'Subcategory' },
   { key: 'guestOf', label: 'Guest Of' },
 ];
 
@@ -251,6 +258,7 @@ const FIELD_PATTERNS = [
   { key: 'zip', patterns: [/^zip/i, /^postal/i, /^post\s*code$/i] },
   { key: 'group', patterns: [/^group/i, /^tag/i] },
   { key: 'category', patterns: [/^category/i, /^type$/i] },
+  { key: 'subcategory', patterns: [/^sub[-\s]*category/i, /^sub[-\s]*type$/i] },
   { key: 'guestOf', patterns: [/^guest\s*of/i, /^plus\s*one/i, /^\+1$/i] },
 ];
 
@@ -567,6 +575,26 @@ function GuestList() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [contacts, savedCategories]);
 
+  /* Subcategories belong to a category: Family might split into Dan's side
+     and Joanne's side, Work into each office. Each category's dropdown offers
+     only the subcategories already used inside it, so they never leak across.
+     They're read off the guests rather than saved separately — a new one is
+     made by giving it to a guest, and it goes when nobody has it. */
+  const subcategoriesByCategory = useMemo(() => {
+    const m = new Map();
+    for (const c of contacts) {
+      const cat = (c.category || '').trim();
+      const sub = (c.subcategory || '').trim();
+      if (!cat || !sub) continue;
+      if (!m.has(cat)) m.set(cat, new Set());
+      m.get(cat).add(sub);
+    }
+    const out = new Map();
+    for (const [cat, set] of m) out.set(cat, Array.from(set).sort((a, b) => a.localeCompare(b)));
+    return out;
+  }, [contacts]);
+  const subcategoriesFor = (cat) => subcategoriesByCategory.get((cat || '').trim()) || [];
+
   // Guest count summaries broken down by Category (A/B/C tiers) and by Group.
   // Tiers sort A→B→C first, everything else alphabetical, unassigned last.
   const shownContacts = useMemo(() => contacts.filter((c) => !isHidden(c)), [contacts]);
@@ -624,11 +652,14 @@ function GuestList() {
   const activeCategoryTab = columnFilters.category || '';
   const filtersChanged = Object.keys({ ...DEFAULT_FILTERS, ...columnFilters })
     .some((k) => (columnFilters[k] || '') !== (DEFAULT_FILTERS[k] || ''));
+  // A subcategory filter belongs to the category it was picked under, so
+  // moving to another tab drops it rather than leaving an empty table.
   function selectCategoryTab(value) {
     setColumnFilters((prev) => {
       const next = { ...prev };
       if (value) next.category = value;
       else delete next.category;
+      if (next.category !== prev.category) delete next.subcategory;
       return next;
     });
   }
@@ -684,6 +715,9 @@ function GuestList() {
         case 'category':
           if (val === '__none__') return !c.category;
           return c.category === val;
+        case 'subcategory':
+          if (val === '__none__') return !c.subcategory;
+          return c.subcategory === val;
         case 'guestOf':
           if (val === '__none__') return !c.guestOf;
           return c.guestOf === val;
@@ -720,7 +754,7 @@ function GuestList() {
     }
     if (q) {
       rows = rows.filter((c) => {
-        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.guestOf || ''}`.toLowerCase();
+        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.subcategory || ''} ${c.guestOf || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
@@ -810,9 +844,39 @@ function GuestList() {
     setBulkValue(val);
   };
 
+  // The subcategories on offer in bulk edit are those of the selected guests'
+  // categories, since that's all they can be given.
+  const bulkSubcategories = (() => {
+    if (bulkField !== 'subcategory') return [];
+    const set = new Set();
+    for (const c of contacts) {
+      if (selected.has(c.id)) subcategoriesFor(c.category).forEach((s) => set.add(s));
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  })();
+
+  const handleBulkSubcategoryChange = (val) => {
+    if (val === NEW_SUBCATEGORY_SENTINEL) {
+      const name = (prompt('New subcategory name?') || '').trim();
+      if (name) setBulkValue(name);
+      return;
+    }
+    setBulkValue(val);
+  };
+
   const applyBulkEdit = async () => {
     if (!user || selected.size === 0) return;
-    const next = contacts.map((c) => (selected.has(c.id) ? { ...c, [bulkField]: bulkValue } : c));
+    const next = contacts.map((c) => {
+      if (!selected.has(c.id)) return c;
+      // A subcategory only means something under a category, so guests
+      // without one are left alone.
+      if (bulkField === 'subcategory') return c.category ? { ...c, subcategory: bulkValue } : c;
+      // A new category takes its own subcategories, not the old one's.
+      if (bulkField === 'category') {
+        return c.category === bulkValue ? c : { ...c, category: bulkValue, subcategory: '' };
+      }
+      return { ...c, [bulkField]: bulkValue };
+    });
     await persistContacts(next);
     setBulkValue('');
     // Categorizing from the All tab moves everyone selected onto another tab
@@ -931,12 +995,23 @@ function GuestList() {
       .sort((a, b) => a.localeCompare(b));
     const changed = categoryEditor.some((r) => r.deleted || (r.name.trim() || r.from) !== r.from);
     const nextContacts = changed
-      ? contacts.map((c) => (c.category && renames.has(c.category) && renames.get(c.category) !== c.category ? { ...c, category: renames.get(c.category) } : c))
+      ? contacts.map((c) => {
+        if (!c.category || !renames.has(c.category) || renames.get(c.category) === c.category) return c;
+        const to = renames.get(c.category);
+        // Subcategories ride along with a rename or merge; a deleted category
+        // takes its subcategories with it.
+        return to ? { ...c, category: to } : { ...c, category: '', subcategory: '' };
+      })
       : contacts;
     // The open subtab follows a renamed category; if it was deleted, you land
     // on the still-to-sort tab, which is where its guests just went.
     if (columnFilters.category && renames.has(columnFilters.category)) {
-      setColumnFilters((prev) => ({ ...prev, category: renames.get(prev.category) || UNSORTED }));
+      setColumnFilters((prev) => {
+        const to = renames.get(prev.category);
+        const next = { ...prev, category: to || UNSORTED };
+        if (!to) delete next.subcategory;
+        return next;
+      });
     }
     setCategoryEditor(null);
     setSavedCategories(nextSaved);
@@ -972,7 +1047,11 @@ function GuestList() {
       persistCategories(nextSaved);
       catName = name;
     }
-    const next = contacts.map((c) => (c.id === id ? { ...c, category: catName } : c));
+    // Moving to another category clears the subcategory: it was one of the
+    // old category's, and wouldn't appear in the new one's dropdown.
+    const next = contacts.map((c) => (
+      c.id === id && c.category !== catName ? { ...c, category: catName, subcategory: '' } : c
+    ));
     await persistContacts(next);
     // The row has just moved to another tab; it shouldn't stay selected there.
     setSelected((prev) => {
@@ -981,6 +1060,16 @@ function GuestList() {
       s.delete(id);
       return s;
     });
+  };
+
+  const handleRowSubcategoryChange = async (id, val) => {
+    let subName = val;
+    if (val === NEW_SUBCATEGORY_SENTINEL) {
+      subName = (prompt('New subcategory name?') || '').trim();
+      if (!subName) return;
+    }
+    const next = contacts.map((c) => (c.id === id ? { ...c, subcategory: subName } : c));
+    await persistContacts(next);
   };
 
   const handleRowGuestOfChange = async (id, val) => {
@@ -1089,6 +1178,7 @@ function GuestList() {
       const next = { ...prev };
       if (val) next[key] = val;
       else delete next[key];
+      if (key === 'category' && next.category !== prev.category) delete next.subcategory;
       return next;
     });
   };
@@ -1114,6 +1204,22 @@ function GuestList() {
             {categories.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         );
+      case 'subcategory': {
+        // On a category's tab, that category's subcategories; otherwise every
+        // name in use, once each.
+        const cat = columnFilters.category;
+        const opts = cat && cat !== UNSORTED
+          ? subcategoriesFor(cat)
+          : Array.from(new Set([...subcategoriesByCategory.values()].flat())).sort((a, b) => a.localeCompare(b));
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__none__">— None —</option>
+            {v && v !== '__none__' && !opts.includes(v) && <option value={v}>{v}</option>}
+            {opts.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        );
+      }
       case 'guestOf':
         return (
           <select className={styles.filterSelect} value={v} onChange={onSel}>
@@ -1181,7 +1287,11 @@ function GuestList() {
     const draft = {};
     for (const f of CONTACT_FORM_FIELDS) draft[f.key] = '';
     draft.friendId = '';
-    if (activeCategoryTab && activeCategoryTab !== '__none__') draft.category = activeCategoryTab;
+    if (activeCategoryTab && activeCategoryTab !== '__none__') {
+      draft.category = activeCategoryTab;
+      const sub = columnFilters.subcategory;
+      if (sub && sub !== '__none__') draft.subcategory = sub;
+    }
     setEditing({ id: null, draft });
   };
   const closeContact = () => setEditing(null);
@@ -1190,6 +1300,8 @@ function GuestList() {
     if (!editing) return;
     const patch = {};
     for (const [k, v] of Object.entries(editing.draft)) patch[k] = typeof v === 'string' ? v.trim() : v;
+    // No category, no subcategory.
+    if (!patch.category) patch.subcategory = '';
     if (editing.id === null) {
       await addNewGuest(patch);
       return;
@@ -1511,6 +1623,18 @@ function GuestList() {
               {categories.map((g) => <option key={g} value={g}>{g}</option>)}
               <option value={NEW_CATEGORY_SENTINEL}>+ New category…</option>
             </select>
+          ) : bulkField === 'subcategory' ? (
+            <select
+              className={styles.bulkInput}
+              value={bulkValue}
+              onChange={(e) => handleBulkSubcategoryChange(e.target.value)}
+              title="Only guests with a category get a subcategory"
+            >
+              <option value="">— (clear)</option>
+              {bulkValue && !bulkSubcategories.includes(bulkValue) && <option value={bulkValue}>{bulkValue}</option>}
+              {bulkSubcategories.map((g) => <option key={g} value={g}>{g}</option>)}
+              <option value={NEW_SUBCATEGORY_SENTINEL}>+ New subcategory…</option>
+            </select>
           ) : bulkField === 'guestOf' ? (
             <select className={styles.bulkInput} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}>
               <option value="">— (clear)</option>
@@ -1584,7 +1708,9 @@ function GuestList() {
                       <input
                         className={styles.contactInput}
                         type={f.type || 'text'}
-                        list={f.key === 'group' ? 'wedding-groups' : f.key === 'category' ? 'wedding-categories' : undefined}
+                        list={f.key === 'group' ? 'wedding-groups' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
+                        placeholder={f.key === 'subcategory' && !editing.draft.category.trim() ? 'Pick a category first' : undefined}
+                        disabled={f.key === 'subcategory' && !editing.draft.category.trim()}
                         value={editing.draft[f.key]}
                         onChange={(e) => setDraftField(f.key, e.target.value)}
                         autoComplete="off"
@@ -1607,6 +1733,9 @@ function GuestList() {
               </div>
               <datalist id="wedding-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
               <datalist id="wedding-categories">{categories.map((g) => <option key={g} value={g} />)}</datalist>
+              <datalist id="wedding-subcategories">
+                {subcategoriesFor(editing.draft.category).map((g) => <option key={g} value={g} />)}
+              </datalist>
             </div>
             <div className={styles.modalFooter}>
               <span className={styles.modalCount}>
@@ -1935,7 +2064,24 @@ function GuestList() {
                           {categories.map((g) => <option key={g} value={g}>{g}</option>)}
                           <option value={NEW_CATEGORY_SENTINEL}>+ New category…</option>
                         </select>
-                      ) : col.key === 'status' ? (
+                      ) : col.key === 'subcategory' ? (() => {
+                        const subs = subcategoriesFor(c.category);
+                        return (
+                          <select
+                            className={styles.cellSelect}
+                            value={c.subcategory || ''}
+                            onChange={(e) => handleRowSubcategoryChange(c.id, e.target.value)}
+                            disabled={!c.category}
+                            title={c.category ? `A subcategory of ${c.category}` : 'Pick a category first'}
+                            aria-label={`Subcategory for ${`${c.firstName || ''} ${c.lastName || ''}`.trim()}`}
+                          >
+                            <option value="">— None —</option>
+                            {c.subcategory && !subs.includes(c.subcategory) && <option value={c.subcategory}>{c.subcategory}</option>}
+                            {subs.map((g) => <option key={g} value={g}>{g}</option>)}
+                            <option value={NEW_SUBCATEGORY_SENTINEL}>+ New subcategory…</option>
+                          </select>
+                        );
+                      })() : col.key === 'status' ? (
                         <select
                           className={`${styles.cellSelect} ${styles.statusSelect}`}
                           value={c.status || ''}
