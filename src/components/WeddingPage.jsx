@@ -202,8 +202,9 @@ const NEW_CATEGORY_SENTINEL = '__new_category__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
 const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
 
-// Guest priority tiers used in the Category column. Shown as a legend on the
-// page and as hover tooltips on each contact's category.
+// What the A/B/C tiers mean until you say otherwise. A group's description
+// shows in the legend and as a hover tooltip; once edited (or carried over by
+// a rename) the saved one in weddingGroupDescriptions wins.
 const TIER_DESCRIPTIONS = {
   A: 'Must-invite no matter the venue size',
   B: 'Really want them there if space and budget allow',
@@ -308,6 +309,10 @@ function GuestList() {
   const [contacts, setContacts] = useState([]);
   const [friends, setFriends] = useState([]);
   const [savedGroups, setSavedGroups] = useState([]);
+  const [groupDescriptions, setGroupDescriptions] = useState({});
+  // The "Edit groups" pop-up: one row per group, { from, name, desc }.
+  // Nothing is written until Save.
+  const [groupEditor, setGroupEditor] = useState(null);
   const [savedCategories, setSavedCategories] = useState([]);
   const [columnConfig, setColumnConfig] = useState({});
   const [loading, setLoading] = useState(true);
@@ -330,6 +335,13 @@ function GuestList() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isEditing]);
+  const groupEditorOpen = !!groupEditor;
+  useEffect(() => {
+    if (!groupEditorOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setGroupEditor(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [groupEditorOpen]);
   const [importText, setImportText] = useState('');
   const [importHasHeader, setImportHasHeader] = useState(true);
   const [importMappings, setImportMappings] = useState([]);
@@ -354,6 +366,7 @@ function GuestList() {
       async (snap) => {
         const data = snap.exists() ? snap.data() : {};
         setSavedGroups(Array.isArray(data.weddingGroups) ? data.weddingGroups : []);
+        setGroupDescriptions(data.weddingGroupDescriptions && typeof data.weddingGroupDescriptions === 'object' ? data.weddingGroupDescriptions : {});
         setSavedCategories(Array.isArray(data.weddingCategories) ? data.weddingCategories : []);
         setColumnConfig(data.weddingColumnConfig && typeof data.weddingColumnConfig === 'object' ? data.weddingColumnConfig : {});
         // Defaults chosen so switching it on is a one-click decision: their own
@@ -519,6 +532,11 @@ function GuestList() {
     contacts.forEach((c) => { if (c.group) set.add(c.group); });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [contacts, savedGroups]);
+
+  // A saved description (even an empty one, meaning "cleared") beats the default.
+  const groupDescription = (g) => (
+    Object.prototype.hasOwnProperty.call(groupDescriptions, g) ? groupDescriptions[g] : (TIER_DESCRIPTIONS[g] || '')
+  );
 
   const categories = useMemo(() => {
     const set = new Set(savedCategories.filter(Boolean));
@@ -787,6 +805,53 @@ function GuestList() {
     const nextSaved = Array.from(new Set([...savedGroups, name])).sort((a, b) => a.localeCompare(b));
     setSavedGroups(nextSaved);
     persistGroups(nextSaved);
+  };
+
+  const openGroupEditor = () => {
+    const counts = new Map();
+    contacts.forEach((c) => { if (c.group) counts.set(c.group, (counts.get(c.group) || 0) + 1); });
+    setGroupEditor(groups.map((g) => ({ from: g, name: g, desc: groupDescription(g), count: counts.get(g) || 0 })));
+  };
+  const setGroupRow = (i, key, value) => setGroupEditor((rows) => rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
+
+  /* Renaming a group renames it on every guest in it, and its description
+     goes with it. Renaming one onto another's name merges the two. A blank
+     name keeps the old one — clearing a group off its guests is the bulk
+     editor's job, not something to do by accident here. */
+  const saveGroupEditor = async () => {
+    if (!groupEditor) return;
+    const renames = new Map();
+    const nextDescs = {};
+    for (const r of groupEditor) {
+      const name = r.name.trim() || r.from;
+      renames.set(r.from, name);
+      const desc = r.desc.trim();
+      // Keep the first non-empty description when two groups merge.
+      if (!nextDescs[name]) nextDescs[name] = desc;
+    }
+    // Groups that aren't in the editor (none today) keep their descriptions.
+    for (const [g, d] of Object.entries(groupDescriptions)) {
+      if (!renames.has(g) && !(g in nextDescs)) nextDescs[g] = d;
+    }
+    const nextSaved = Array.from(new Set(savedGroups.map((g) => renames.get(g) || g).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+    const changed = groupEditor.some((r) => (r.name.trim() || r.from) !== r.from);
+    const nextContacts = changed
+      ? contacts.map((c) => (c.group && renames.has(c.group) && renames.get(c.group) !== c.group ? { ...c, group: renames.get(c.group) } : c))
+      : contacts;
+    // A filter on a renamed group follows it rather than emptying the table.
+    if (columnFilters.group && renames.has(columnFilters.group)) {
+      setColumnFilters((prev) => ({ ...prev, group: renames.get(prev.group) || prev.group }));
+    }
+    setGroupEditor(null);
+    setSavedGroups(nextSaved);
+    setGroupDescriptions(nextDescs);
+    if (!user) return;
+    await setDoc(
+      doc(db, 'users', user.uid),
+      { weddingGroups: nextSaved, weddingGroupDescriptions: nextDescs, ...(changed ? { weddingContacts: nextContacts } : {}) },
+      { merge: true },
+    );
   };
 
   const createCategory = () => {
@@ -1208,7 +1273,7 @@ function GuestList() {
               type="button"
               className={`${styles.summaryChip} ${columnFilters.group === summaryFilterValue(val) ? styles.summaryChipActive : ''}`}
               onClick={() => toggleSummaryFilter('group', val)}
-              title={TIER_DESCRIPTIONS[val] || 'Filter by this tier'}
+              title={groupDescription(val) || 'Filter by this tier'}
             >
               <span className={styles.summaryChipKey}>{val === '—' ? 'Not categorized' : val}</span>
               <span className={styles.summaryChipCount}>{n}</span>
@@ -1220,12 +1285,13 @@ function GuestList() {
 
       <div className={styles.tierLegend}>
         <span className={styles.tierLegendTitle}>Guest tiers</span>
-        {['A', 'B', 'C'].map((t) => (
+        {groups.filter((g) => groupDescription(g)).map((t) => (
           <span key={t} className={styles.tierLegendItem}>
             <span className={styles.tierBadge}>{t}</span>
-            <span className={styles.tierDesc}>{TIER_DESCRIPTIONS[t]}</span>
+            <span className={styles.tierDesc}>{groupDescription(t)}</span>
           </span>
         ))}
+        <button className={styles.tierLegendEdit} type="button" onClick={openGroupEditor}>Edit groups</button>
       </div>
 
       <div className={styles.categoryTabs} role="tablist" aria-label="Guests by category">
@@ -1255,6 +1321,7 @@ function GuestList() {
           <button className={styles.toolButton} type="button" onClick={() => setColumnFilters({})}>Clear filters</button>
         )}
         <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
+        <button className={styles.toolButton} type="button" onClick={openGroupEditor}>Edit groups</button>
         <button className={styles.toolButton} type="button" onClick={createCategory}>+ Category</button>
         <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
         <button className={styles.toolButton} type="button" onClick={autoMatchFriends}>Auto-match Friends</button>
@@ -1398,6 +1465,62 @@ function GuestList() {
             <div className={styles.modalFooter}>
               <span className={styles.modalCount} />
               <button className={styles.modalSecondary} type="button" onClick={closeContact}>Cancel</button>
+              <button className={styles.modalPrimary} type="submit">Save</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {groupEditor && (
+        <div className={styles.contactOverlay} onClick={() => setGroupEditor(null)}>
+          <form
+            className={styles.contactModal}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit groups"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => { e.preventDefault(); saveGroupEditor(); }}
+          >
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Edit groups</h2>
+              <button className={styles.modalClose} type="button" onClick={() => setGroupEditor(null)} aria-label="Close">×</button>
+            </div>
+            <div className={styles.modalBody}>
+              <p className={styles.modalHint}>
+                Renaming a group renames it for everyone in it. Give two groups the same name to merge them.
+              </p>
+              {groupEditor.length === 0 && <p className={styles.modalHint}>No groups yet — add one with + Group.</p>}
+              {groupEditor.map((r, i) => (
+                <div key={r.from} className={styles.groupEditRow}>
+                  <label className={styles.contactField}>
+                    <span className={styles.contactLabel}>
+                      {r.from}{' · '}{r.count} {r.count === 1 ? 'guest' : 'guests'}
+                    </span>
+                    <input
+                      className={styles.contactInput}
+                      aria-label={`Name for ${r.from}`}
+                      value={r.name}
+                      onChange={(e) => setGroupRow(i, 'name', e.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className={styles.contactField}>
+                    <span className={styles.contactLabel}>Description</span>
+                    <input
+                      className={styles.contactInput}
+                      aria-label={`Description for ${r.from}`}
+                      value={r.desc}
+                      placeholder="Shown in the tier legend"
+                      onChange={(e) => setGroupRow(i, 'desc', e.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalCount} />
+              <button className={styles.modalSecondary} type="button" onClick={() => setGroupEditor(null)}>Cancel</button>
               <button className={styles.modalPrimary} type="submit">Save</button>
             </div>
           </form>
@@ -1568,7 +1691,7 @@ function GuestList() {
                           className={styles.cellSelect}
                           value={c.group || ''}
                           onChange={(e) => handleRowGroupChange(c.id, e.target.value)}
-                          title={TIER_DESCRIPTIONS[c.group] || undefined}
+                          title={groupDescription(c.group) || undefined}
                         >
                           <option value="">— None —</option>
                           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
