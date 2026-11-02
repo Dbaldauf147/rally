@@ -190,6 +190,13 @@ const CONTACT_FORM_FIELDS = [
   { key: 'category', label: 'Category' },
 ];
 
+// A guest whose category is "Hide" drops out of the page: the table, every
+// count and summary, the other subtabs and the weekly email. They stay on the
+// list (and in their own Hide tab) so they can be brought back by changing the
+// category. Same rule as isHiddenGuest in lib/weddingStats.js.
+const HIDE_CATEGORY = 'hide';
+const isHidden = (c) => String(c?.category || '').trim().toLowerCase() === HIDE_CATEGORY;
+
 const NEW_GROUP_SENTINEL = '__new_group__';
 const NEW_CATEGORY_SENTINEL = '__new_category__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
@@ -521,10 +528,12 @@ function GuestList() {
 
   // Guest count summaries broken down by Category (A/B/C tiers) and by Group.
   // Tiers sort A→B→C first, everything else alphabetical, unassigned last.
+  const shownContacts = useMemo(() => contacts.filter((c) => !isHidden(c)), [contacts]);
+
   const summaries = useMemo(() => {
     const build = (field) => {
       const m = new Map();
-      for (const c of contacts) {
+      for (const c of shownContacts) {
         const k = (c[field] || '').trim() || '—';
         m.set(k, (m.get(k) || 0) + 1);
       }
@@ -538,7 +547,7 @@ function GuestList() {
       });
     };
     return { category: build('category'), group: build('group') };
-  }, [contacts]);
+  }, [shownContacts]);
 
   /* One subtab per category, then the guests with none.
 
@@ -555,10 +564,15 @@ function GuestList() {
       if (cat) counts.set(cat, (counts.get(cat) || 0) + 1);
       else none += 1;
     }
-    const tabs = Array.from(counts.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
+    // The Hide tab goes last, after Not categorized: it's where hidden guests
+    // can still be found and un-hidden, not one of the list's real groups.
+    const entries = Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const hidden = entries.filter(([cat]) => cat.toLowerCase() === HIDE_CATEGORY);
+    const tabs = entries
+      .filter(([cat]) => cat.toLowerCase() !== HIDE_CATEGORY)
       .map(([cat, n]) => ({ value: cat, label: cat, count: n }));
     if (none > 0) tabs.push({ value: '__none__', label: 'Not categorized', count: none });
+    for (const [cat, n] of hidden) tabs.push({ value: cat, label: cat, count: n });
     return tabs;
   }, [contacts, categories]);
 
@@ -644,7 +658,10 @@ function GuestList() {
         default: return true;
       }
     };
-    let rows = contacts;
+    // Hidden guests only show when you've asked for them by opening the
+    // Hide tab (or picking Hide in the Category filter).
+    const showingHidden = String(columnFilters.category || '').trim().toLowerCase() === HIDE_CATEGORY;
+    let rows = showingHidden ? contacts : contacts.filter((c) => !isHidden(c));
     const activeKeys = Object.keys(columnFilters).filter((k) => columnFilters[k]);
     if (activeKeys.length) {
       rows = rows.filter((c) => activeKeys.every((k) => passes(c, k, columnFilters[k])));
@@ -1048,7 +1065,7 @@ function GuestList() {
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>Wedding</h1>
-        <div className={styles.count}>{filtered.length} of {contacts.length} contacts</div>
+        <div className={styles.count}>{filtered.length} of {shownContacts.length} contacts</div>
       </div>
       <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>
 
@@ -1197,7 +1214,7 @@ function GuestList() {
               <span className={styles.summaryChipCount}>{n}</span>
             </button>
           ))}
-          <span className={styles.summaryTotal}>{contacts.length} total</span>
+          <span className={styles.summaryTotal}>{shownContacts.length} total</span>
         </div>
       </div>
 
@@ -1212,7 +1229,7 @@ function GuestList() {
       </div>
 
       <div className={styles.categoryTabs} role="tablist" aria-label="Guests by category">
-        {[{ value: '', label: 'All', count: contacts.length }, ...categoryTabs].map((t) => (
+        {[{ value: '', label: 'All', count: shownContacts.length }, ...categoryTabs].map((t) => (
           <button
             key={t.value || '__all__'}
             type="button"
