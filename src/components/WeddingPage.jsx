@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../native';
 import { WeddingChecklist } from './WeddingChecklist';
+import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import styles from './WeddingPage.module.css';
@@ -1886,8 +1887,9 @@ function GuestList() {
 export function WeddingPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const view = searchParams.get('view') === 'checklist' ? 'checklist' : 'guests';
-  const setView = (v) => setSearchParams(v === 'checklist' ? { view: 'checklist' } : {});
+  const rawView = searchParams.get('view');
+  const view = rawView === 'checklist' || rawView === 'friends' ? rawView : 'guests';
+  const setView = (v) => setSearchParams(v === 'guests' ? {} : { view: v });
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -1905,9 +1907,14 @@ export function WeddingPage() {
             className={view === 'checklist' ? styles.subtabActive : styles.subtab}
             onClick={() => setView('checklist')}
           >Checklist</button>
+          <button
+            type="button"
+            className={view === 'friends' ? styles.subtabActive : styles.subtab}
+            onClick={() => setView('friends')}
+          >Friends not on list</button>
         </div>
       </div>
-      {view === 'checklist' ? (
+      {view === 'friends' ? <WeddingFriendsNotInvited /> : view === 'checklist' ? (
         <div className={styles.page}>
           <div className={styles.header}>
             <h1 className={styles.title}>Wedding</h1>
