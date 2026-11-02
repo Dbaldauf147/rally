@@ -1048,7 +1048,7 @@ function GuestList() {
         return (
           <select className={styles.filterSelect} value={v} onChange={onSel}>
             <option value="">Everyone</option>
-            <option value="__none__">— None (the All tab) —</option>
+            <option value="__none__">— None —</option>
             {categories.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         );
@@ -1699,7 +1699,12 @@ function GuestList() {
                 <tr><td colSpan={visibleColumns.length + 1} className={styles.loadingState}>Loading…</td></tr>
               )}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={visibleColumns.length + 1} className={styles.empty}>No contacts match.</td></tr>
+                <tr><td colSpan={visibleColumns.length + 1} className={styles.empty}>
+                  {/* An empty All tab is the goal, not a failed filter. */}
+                  {activeCategoryTab === UNSORTED && !search.trim() && contacts.length > 0 && !filtersChanged
+                    ? 'Everyone has a category. Pick a tab above to see them.'
+                    : 'No contacts match.'}
+                </td></tr>
               )}
               {!loading && filtered.map((c) => (
                 <tr key={c.id} className={STATUS_CLASS[c.status] ? styles[STATUS_CLASS[c.status]] : undefined}>
