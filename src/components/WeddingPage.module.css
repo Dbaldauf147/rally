@@ -37,6 +37,7 @@
 .categoryTab:hover { color: var(--color-text); }
 .categoryTabActive { color: var(--color-accent); border-bottom-color: var(--color-accent); }
 .categoryTabCount { padding: 0.05rem 0.45rem; border-radius: var(--radius-full); background: var(--color-surface-alt); color: var(--color-text-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.categoryTabHint { margin: -0.5rem 0 0.75rem; font-size: 0.8rem; color: var(--color-text-muted); }
 .categoryTabActive .categoryTabCount { background: var(--color-accent-light); color: var(--color-accent); }
 
 .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }

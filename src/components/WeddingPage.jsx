@@ -199,6 +199,14 @@ const isHidden = (c) => String(c?.category || '').trim().toLowerCase() === HIDE_
 
 const NEW_GROUP_SENTINEL = '__new_group__';
 const NEW_CATEGORY_SENTINEL = '__new_category__';
+
+/* Where the guest list opens: the All tab, which holds the guests with no
+   category yet. Categorizing someone moves them out of it and onto their
+   category's tab, so All works as the pile still to sort. "Clear filters"
+   comes back here too. Everyone at once is the Category column's
+   "Everyone" option. */
+const DEFAULT_FILTERS = { category: '__none__' };
+const UNSORTED = '__none__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
 const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
 
@@ -317,7 +325,7 @@ function GuestList() {
   const [columnConfig, setColumnConfig] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [columnFilters, setColumnFilters] = useState({});
+  const [columnFilters, setColumnFilters] = useState(DEFAULT_FILTERS);
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [selected, setSelected] = useState(() => new Set());
@@ -569,11 +577,13 @@ function GuestList() {
 
   /* One subtab per category, then the guests with none.
 
-     Alphabetical rather than biggest-first, so a tab never moves while you
-     are working — reassigning a guest changes its count, not its place. A
-     category saved with nobody in it yet still gets a tab (showing 0), since
-     it exists to be filled. Counts are of the whole list, not of whatever the
-     search or other filters are currently showing. */
+     All comes first and holds only the guests with no category — the ones
+     still to sort. The categories follow alphabetically rather than
+     biggest-first, so a tab never moves while you are working: reassigning a
+     guest changes its count, not its place. A category saved with nobody in
+     it yet still gets a tab (showing 0), since it exists to be filled. Counts
+     are of the whole list, not of whatever the search or other filters are
+     currently showing. */
   const categoryTabs = useMemo(() => {
     const counts = new Map(categories.map((cat) => [cat, 0]));
     let none = 0;
@@ -582,21 +592,23 @@ function GuestList() {
       if (cat) counts.set(cat, (counts.get(cat) || 0) + 1);
       else none += 1;
     }
-    // The Hide tab goes last, after Not categorized: it's where hidden guests
-    // can still be found and un-hidden, not one of the list's real groups.
+    // The Hide tab goes last: it's where hidden guests can still be found and
+    // un-hidden, not one of the list's real groups.
     const entries = Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-    const hidden = entries.filter(([cat]) => cat.toLowerCase() === HIDE_CATEGORY);
-    const tabs = entries
-      .filter(([cat]) => cat.toLowerCase() !== HIDE_CATEGORY)
-      .map(([cat, n]) => ({ value: cat, label: cat, count: n }));
-    if (none > 0) tabs.push({ value: '__none__', label: 'Not categorized', count: none });
-    for (const [cat, n] of hidden) tabs.push({ value: cat, label: cat, count: n });
-    return tabs;
+    const toTab = ([cat, n]) => ({ value: cat, label: cat, count: n });
+    return [
+      { value: UNSORTED, label: 'All', count: none },
+      ...entries.filter(([cat]) => cat.toLowerCase() !== HIDE_CATEGORY).map(toTab),
+      ...entries.filter(([cat]) => cat.toLowerCase() === HIDE_CATEGORY).map(toTab),
+    ];
   }, [contacts, categories]);
 
   // The subtab is the Category column's filter, not a second one beside it,
-  // so the tab, the column header and the table can never disagree.
+  // so the tab, the column header and the table can never disagree. With the
+  // column set to Everyone, no tab is lit.
   const activeCategoryTab = columnFilters.category || '';
+  const filtersChanged = Object.keys({ ...DEFAULT_FILTERS, ...columnFilters })
+    .some((k) => (columnFilters[k] || '') !== (DEFAULT_FILTERS[k] || ''));
   function selectCategoryTab(value) {
     setColumnFilters((prev) => {
       const next = { ...prev };
@@ -680,7 +692,14 @@ function GuestList() {
     // Hide tab (or picking Hide in the Category filter).
     const showingHidden = String(columnFilters.category || '').trim().toLowerCase() === HIDE_CATEGORY;
     let rows = showingHidden ? contacts : contacts.filter((c) => !isHidden(c));
-    const activeKeys = Object.keys(columnFilters).filter((k) => columnFilters[k]);
+    /* A search from the All tab looks through every guest, not just the ones
+       still to sort — the name you type is as likely as not someone already
+       categorized, and an empty table would read as "not on the list". On a
+       category's own tab it stays inside that category. Hidden guests stay
+       out of it either way: the line above has already dropped them. */
+    const searchEveryone = q && columnFilters.category === UNSORTED;
+    const activeKeys = Object.keys(columnFilters)
+      .filter((k) => columnFilters[k] && !(searchEveryone && k === 'category'));
     if (activeKeys.length) {
       rows = rows.filter((c) => activeKeys.every((k) => passes(c, k, columnFilters[k])));
     }
@@ -781,6 +800,10 @@ function GuestList() {
     const next = contacts.map((c) => (selected.has(c.id) ? { ...c, [bulkField]: bulkValue } : c));
     await persistContacts(next);
     setBulkValue('');
+    // Categorizing from the All tab moves everyone selected onto another tab
+    // and out of sight. Left selected, they'd be caught by the next bulk edit
+    // or delete without being on screen, so the selection goes with them.
+    if (bulkField === 'category') clearSelection();
   };
 
   const deleteSelected = async () => {
@@ -889,6 +912,13 @@ function GuestList() {
     }
     const next = contacts.map((c) => (c.id === id ? { ...c, category: catName } : c));
     await persistContacts(next);
+    // The row has just moved to another tab; it shouldn't stay selected there.
+    setSelected((prev) => {
+      if (!prev.has(id)) return prev;
+      const s = new Set(prev);
+      s.delete(id);
+      return s;
+    });
   };
 
   const handleRowGuestOfChange = async (id, val) => {
@@ -1017,8 +1047,8 @@ function GuestList() {
       case 'category':
         return (
           <select className={styles.filterSelect} value={v} onChange={onSel}>
-            <option value="">All</option>
-            <option value="__none__">— None —</option>
+            <option value="">Everyone</option>
+            <option value="__none__">— None (the All tab) —</option>
             {categories.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         );
@@ -1295,7 +1325,7 @@ function GuestList() {
       </div>
 
       <div className={styles.categoryTabs} role="tablist" aria-label="Guests by category">
-        {[{ value: '', label: 'All', count: shownContacts.length }, ...categoryTabs].map((t) => (
+        {categoryTabs.map((t) => (
           <button
             key={t.value || '__all__'}
             type="button"
@@ -1309,6 +1339,9 @@ function GuestList() {
           </button>
         ))}
       </div>
+      {search.trim() && activeCategoryTab === UNSORTED && (
+        <p className={styles.categoryTabHint}>Searching every guest, not just the ones still to sort.</p>
+      )}
 
       <div className={styles.toolbar}>
         <input
@@ -1317,8 +1350,8 @@ function GuestList() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        {Object.values(columnFilters).some(Boolean) && (
-          <button className={styles.toolButton} type="button" onClick={() => setColumnFilters({})}>Clear filters</button>
+        {filtersChanged && (
+          <button className={styles.toolButton} type="button" onClick={() => setColumnFilters(DEFAULT_FILTERS)}>Clear filters</button>
         )}
         <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
         <button className={styles.toolButton} type="button" onClick={openGroupEditor}>Edit groups</button>
