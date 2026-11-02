@@ -325,6 +325,10 @@ function GuestList() {
   // Nothing is written until Save.
   const [groupEditor, setGroupEditor] = useState(null);
   const [savedCategories, setSavedCategories] = useState([]);
+  // The "Edit categories" pop-up: one row per category, { from, name, count,
+  // deleted }. Same shape and rules as the group editor; nothing is written
+  // until Save.
+  const [categoryEditor, setCategoryEditor] = useState(null);
   const [columnConfig, setColumnConfig] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -353,6 +357,13 @@ function GuestList() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [groupEditorOpen]);
+  const categoryEditorOpen = !!categoryEditor;
+  useEffect(() => {
+    if (!categoryEditorOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setCategoryEditor(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [categoryEditorOpen]);
   const [importText, setImportText] = useState('');
   const [importHasHeader, setImportHasHeader] = useState(true);
   const [importMappings, setImportMappings] = useState([]);
@@ -900,6 +911,42 @@ function GuestList() {
     persistCategories(nextSaved);
   };
 
+  const openCategoryEditor = () => {
+    const counts = new Map();
+    contacts.forEach((c) => { if (c.category) counts.set(c.category, (counts.get(c.category) || 0) + 1); });
+    setCategoryEditor(categories.map((g) => ({ from: g, name: g, count: counts.get(g) || 0, deleted: false })));
+  };
+  const setCategoryRow = (i, key, value) => setCategoryEditor((rows) => rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
+
+  /* Same rules as the group editor. Renaming renames it on every guest in it
+     and two rows given one name merge. Delete takes the category out of the
+     dropdowns and the subtabs and clears it off its guests, who go back to
+     the list still to sort. */
+  const saveCategoryEditor = async () => {
+    if (!categoryEditor) return;
+    const renames = new Map();
+    for (const r of categoryEditor) renames.set(r.from, r.deleted ? '' : (r.name.trim() || r.from));
+    const nextSaved = Array.from(new Set(savedCategories.map((g) => (renames.has(g) ? renames.get(g) : g)).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+    const changed = categoryEditor.some((r) => r.deleted || (r.name.trim() || r.from) !== r.from);
+    const nextContacts = changed
+      ? contacts.map((c) => (c.category && renames.has(c.category) && renames.get(c.category) !== c.category ? { ...c, category: renames.get(c.category) } : c))
+      : contacts;
+    // The open subtab follows a renamed category; if it was deleted, you land
+    // on the still-to-sort tab, which is where its guests just went.
+    if (columnFilters.category && renames.has(columnFilters.category)) {
+      setColumnFilters((prev) => ({ ...prev, category: renames.get(prev.category) || UNSORTED }));
+    }
+    setCategoryEditor(null);
+    setSavedCategories(nextSaved);
+    if (!user) return;
+    await setDoc(
+      doc(db, 'users', user.uid),
+      { weddingCategories: nextSaved, ...(changed ? { weddingContacts: nextContacts } : {}) },
+      { merge: true },
+    );
+  };
+
   const handleRowGroupChange = async (id, val) => {
     let groupName = val;
     if (val === NEW_GROUP_SENTINEL) {
@@ -1419,6 +1466,7 @@ function GuestList() {
         <button className={styles.toolButton} type="button" onClick={createGroup}>+ Group</button>
         <button className={styles.toolButton} type="button" onClick={openGroupEditor}>Edit groups</button>
         <button className={styles.toolButton} type="button" onClick={createCategory}>+ Category</button>
+        <button className={styles.toolButton} type="button" onClick={openCategoryEditor}>Edit categories</button>
         <button className={styles.toolButton} type="button" onClick={openNewContact}>+ Guest</button>
         <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
         <button className={styles.toolButton} type="button" onClick={autoMatchFriends}>Auto-match Friends</button>
@@ -1565,6 +1613,66 @@ function GuestList() {
               </span>
               <button className={styles.modalSecondary} type="button" onClick={closeContact}>Cancel</button>
               <button className={styles.modalPrimary} type="submit">{editing.id === null ? 'Add guest' : 'Save'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {categoryEditor && (
+        <div className={styles.contactOverlay} onClick={() => setCategoryEditor(null)}>
+          <form
+            className={styles.contactModal}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit categories"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => { e.preventDefault(); saveCategoryEditor(); }}
+          >
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Edit categories</h2>
+              <button className={styles.modalClose} type="button" onClick={() => setCategoryEditor(null)} aria-label="Close">×</button>
+            </div>
+            <div className={styles.modalBody}>
+              <p className={styles.modalHint}>
+                Renaming a category renames it for everyone in it. Give two categories the same name to merge them. Delete removes a category from the dropdowns and tabs and clears it off its guests.
+              </p>
+              {categoryEditor.length === 0 && <p className={styles.modalHint}>No categories yet — add one with + Category.</p>}
+              {categoryEditor.map((r, i) => (r.deleted ? (
+                <div key={r.from} className={`${styles.groupEditRow} ${styles.groupEditRowDeleted}`}>
+                  <span className={styles.groupDeletedNote}>
+                    <s>{r.from}</s> will be deleted
+                    {r.count > 0 && ` — ${r.count} ${r.count === 1 ? 'guest goes' : 'guests go'} back to no category`}
+                  </span>
+                  <button className={styles.groupUndo} type="button" onClick={() => setCategoryRow(i, 'deleted', false)}>Undo</button>
+                </div>
+              ) : (
+                <div key={r.from} className={`${styles.groupEditRow} ${styles.categoryEditRow}`}>
+                  <label className={styles.contactField}>
+                    <span className={styles.contactLabel}>
+                      {r.from}{' · '}{r.count} {r.count === 1 ? 'guest' : 'guests'}
+                    </span>
+                    <input
+                      className={styles.contactInput}
+                      aria-label={`Name for ${r.from}`}
+                      value={r.name}
+                      onChange={(e) => setCategoryRow(i, 'name', e.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <button
+                    className={styles.groupDelete}
+                    type="button"
+                    onClick={() => setCategoryRow(i, 'deleted', true)}
+                    aria-label={`Delete category ${r.from}`}
+                    title="Delete this category"
+                  >Delete</button>
+                </div>
+              )))}
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalCount} />
+              <button className={styles.modalSecondary} type="button" onClick={() => setCategoryEditor(null)}>Cancel</button>
+              <button className={styles.modalPrimary} type="submit">Save</button>
             </div>
           </form>
         </div>
