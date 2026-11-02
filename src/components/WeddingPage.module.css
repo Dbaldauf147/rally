@@ -27,6 +27,7 @@
 .groupEditRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 0.6rem; align-items: end; padding: 0.6rem 0; border-bottom: 1px solid var(--color-border-light); }
 .groupEditRow:last-child { border-bottom: none; }
 .groupEditRowDeleted { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.categoryEditRow { grid-template-columns: minmax(0, 1fr) auto; }
 .groupDelete { padding: 0.45rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: #b91c1c; font-size: 0.82rem; font-family: inherit; cursor: pointer; }
 .groupDelete:hover { border-color: #b91c1c; background: rgba(239, 68, 68, 0.08); }
 .groupDeletedNote { font-size: 0.85rem; color: var(--color-text-muted); }
