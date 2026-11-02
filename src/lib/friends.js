@@ -75,6 +75,10 @@ export async function addFriend(uid, data) {
     // Only from the Add form, which has a kids editor; the other callers
     // (imports, the poll page) have no kids to say anything about.
     ...(data.kids ? { kids: kidsForSaving(data.kids) } : {}),
+    // The Mom / Dad boxes: they group this person on the Reach Out page's
+    // Mother's / Father's Day card. Only written when ticked.
+    ...(data.isMom ? { isMom: true } : {}),
+    ...(data.isDad ? { isDad: true } : {}),
     createdAt: new Date().toISOString(),
   });
   return id;
