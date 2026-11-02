@@ -210,6 +210,26 @@ function YearsNote({ value }) {
 // A friend's kids: a name and a birthday per row. The birthday takes a year or
 // not (3/14 or 3/14/2019) — with one, the kid's age shows beside it here and in
 // the table.
+// The Mom / Dad boxes. Ticking one puts this person in the Reach Out page's
+// Mother's Day (or Father's Day) card, grouped with every other mom or dad.
+function ParentBoxes({ isMom, isDad, onChange }) {
+  const box = (key, checked, label) => (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontWeight: 500, cursor: 'pointer' }}>
+      <input type="checkbox" checked={!!checked} onChange={e => onChange(key, e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
+      {label}
+    </label>
+  );
+  return (
+    <div className={styles.label}>
+      <span title="Grouped with the other moms and dads on Reach Out on Mother's Day and Father's Day">Parent</span>
+      <div style={{ display: 'flex', gap: '1.25rem', padding: '0.3rem 0' }}>
+        {box('isMom', isMom, 'Mom')}
+        {box('isDad', isDad, 'Dad')}
+      </div>
+    </div>
+  );
+}
+
 function KidsEditor({ value, onChange }) {
   const rows = value && value.length > 0 ? value : [{ name: '', birthday: '' }];
   const update = (i, patch) => onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -978,6 +998,7 @@ export function FriendsPage() {
   const [newSoundsLike, setNewSoundsLike] = useState('');
   const [newBirthday, setNewBirthday] = useState('');
   const [newKids, setNewKids] = useState([{ name: '', birthday: '' }]);
+  const [newParent, setNewParent] = useState({ isMom: false, isDad: false });
   const [newAnniversary, setNewAnniversary] = useState('');
   const [newDob, setNewDob] = useState('');
   const [newCustom, setNewCustom] = useState({});
@@ -1080,6 +1101,8 @@ export function FriendsPage() {
       dob: normalizeDob(friend.dob),
       anniversary: formatAnnualDate(friend.anniversary),
       kids: kidsForEditing(friend.kids),
+      isMom: friend.isMom === true,
+      isDad: friend.isDad === true,
       familyTree: normalizeFamilyTree(friend.familyTree),
       notes: friend.notes || '',
       linkedTo: friend.linkedTo || '',
@@ -1377,7 +1400,8 @@ export function FriendsPage() {
 
   async function handleAddSingle(e) {
     e.preventDefault();
-    await addFriend({ name: newName, soundsLike: newSoundsLike, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, anniversary: newAnniversary, kids: newKids, custom: coerceCustomMap(customFields, newCustom) });
+    await addFriend({ name: newName, soundsLike: newSoundsLike, email: newEmail, phone: newPhone, group: newGroup, guest: newGuest, tag: newTag, addresses: newAddresses, workEmail: newWorkEmail, instagram: newInstagram, birthday: newBirthday, dob: newDob, anniversary: newAnniversary, kids: newKids, ...newParent, custom: coerceCustomMap(customFields, newCustom) });
+    setNewParent({ isMom: false, isDad: false });
     setNewName(''); setNewSoundsLike(''); setNewEmail(''); setNewPhone(''); setNewGroup(''); setNewGuest(''); setNewTag(''); setNewAddresses([{ label: '', value: '' }]); setNewWorkEmail(''); setNewInstagram(''); setNewBirthday(''); setNewDob(''); setNewAnniversary(''); setNewKids([{ name: '', birthday: '' }]); setNewCustom({});
     setShowAdd(false);
     setResult({ type: 'success', message: 'Contact added!' });
@@ -2575,6 +2599,11 @@ export function FriendsPage() {
                 Kids
                 <KidsEditor value={newKids} onChange={setNewKids} />
               </div>
+              <ParentBoxes
+                isMom={newParent.isMom}
+                isDad={newParent.isDad}
+                onChange={(k, v) => setNewParent(p => ({ ...p, [k]: v }))}
+              />
               <label className={styles.label}>
                 Tags
                 <TagPicker value={newTag} onChange={setNewTag} options={allTags} />
@@ -2646,6 +2675,7 @@ export function FriendsPage() {
               <label className={styles.label}>Date of Birth<DateField className={styles.input} value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
               <label className={styles.label}><span>Anniversary<YearsNote value={editFields.anniversary} /></span><input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
               <div className={styles.label}>Kids<KidsEditor value={editFields.kids} onChange={v => editSet('kids', v)} /></div>
+              <ParentBoxes isMom={editFields.isMom} isDad={editFields.isDad} onChange={editSet} />
               <button type="button" className={styles.familyTreeBtn} onClick={() => setShowFamilyTree(true)}>
                 👪 Family tree
                 {(editFields.familyTree?.people?.length || 0) > 0 && <span className={styles.familyTreeCount}>{editFields.familyTree.people.length} more</span>}

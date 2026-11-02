@@ -10,6 +10,7 @@ import styles from './ReachOutPage.module.css';
 import { DateField } from './DateField';
 import { annualDateInfo, formatAnnualDate } from '../lib/looseDate';
 import { kidsWithBirthdayToday, kidBirthdayLine } from '../lib/friendKids';
+import { parentHolidayOn, parentsFor } from '../lib/parentHolidays';
 
 const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -362,7 +363,11 @@ export function ReachOutPage() {
     if (!user) return;
     const unsub = onSnapshot(collection(db, 'users', user.uid, 'friends'), (snap) => {
       setFriendsList(snap.docs
-        .map(d => ({ id: d.id, name: d.data().name || '', anniversary: d.data().anniversary || '', kids: Array.isArray(d.data().kids) ? d.data().kids : [] }))
+        .map(d => ({
+          id: d.id, name: d.data().name || '', anniversary: d.data().anniversary || '',
+          kids: Array.isArray(d.data().kids) ? d.data().kids : [],
+          isMom: d.data().isMom === true, isDad: d.data().isDad === true,
+        }))
         .sort((a, b) => a.name.localeCompare(b.name)));
     }, () => setFriendsList([]));
     return unsub;
@@ -531,13 +536,23 @@ export function ReachOutPage() {
     }
     return map;
   }, [friendsList, today]);
+  // Mother's Day / Father's Day, when today is one: the friends ticked Mom
+  // (or Dad) on their Friends pop-up. Like kids, the tag lives on the Friends
+  // record and reaches a row only through its linked friend.
+  const parentHoliday = useMemo(() => parentHolidayOn(today), [today]);
+  const parentFriends = useMemo(() => parentsFor(friendsList, parentHoliday), [friendsList, parentHoliday]);
+  const parentFriendIds = useMemo(() => new Set(parentFriends.map(f => f.id)), [parentFriends]);
   const decorated = useMemo(
     () => (contacts || []).map(c => {
       const row = decorate(c, today, annivByFriend.get(c.friendId) || '');
-      // Retired means stop nudging — kids' birthdays included.
-      return { ...row, _kidsToday: row._retired ? [] : (kidsTodayByFriend.get(c.friendId) || []) };
+      // Retired means stop nudging — kids' birthdays and Mother's Day included.
+      return {
+        ...row,
+        _kidsToday: row._retired ? [] : (kidsTodayByFriend.get(c.friendId) || []),
+        _parentToday: !row._retired && !!c.friendId && parentFriendIds.has(c.friendId),
+      };
     }),
-    [contacts, today, annivByFriend, kidsTodayByFriend],
+    [contacts, today, annivByFriend, kidsTodayByFriend, parentFriendIds],
   );
   const categories = useMemo(() => {
     const set = new Set(decorated.map(c => c.category).filter(Boolean));
@@ -558,6 +573,9 @@ export function ReachOutPage() {
       const ak = a._kidsToday.length > 0;
       const bk = b._kidsToday.length > 0;
       if (ak !== bk) return ak ? -1 : 1;
+      // On Mother's / Father's Day the moms (or dads) sit together just below,
+      // so they're called as a group rather than wherever the sort put them.
+      if (a._parentToday !== b._parentToday) return a._parentToday ? -1 : 1;
       return compareRows(a, b, sortKey, sortDir);
     });
   }, [decorated, categoryFilter, dueOnly, sortKey, sortDir, isMobile]);
@@ -599,6 +617,18 @@ export function ReachOutPage() {
       .map(f => ({ friend: f, kids: kidsTodayByFriend.get(f.id), contact: rowByFriend.get(f.id) || null }))
       .filter(x => !x.contact?._retired);
   }, [friendsList, decorated, kidsTodayByFriend]);
+
+  // The Mother's / Father's Day card: every tagged parent, with their reach-out
+  // row when they have one — the anniversary card's rules again.
+  const parentsToday = useMemo(() => {
+    const rowByFriend = new Map();
+    for (const c of decorated) {
+      if (c.friendId && !rowByFriend.has(c.friendId)) rowByFriend.set(c.friendId, c);
+    }
+    return parentFriends
+      .map(f => ({ friend: f, contact: rowByFriend.get(f.id) || null }))
+      .filter(x => !x.contact?._retired);
+  }, [parentFriends, decorated]);
 
   // Fuzzy-predicted Friends match for each unlinked person (id -> friend).
   const predictions = useMemo(() => {
@@ -743,6 +773,40 @@ export function ReachOutPage() {
                   ? <button className={styles.bdayName} onClick={() => openDetails(contact)}>{friend.name}</button>
                   : <Link className={styles.bdayName} to={`/friends?open=${friend.id}`}>{friend.name}</Link>}
                 <p className={styles.bdayMeta}>{meta}</p>
+                {contact?.note && <p className={styles.bdayNote}>{contact.note}</p>}
+                <div className={styles.bdayActions}>
+                  {contact && (reachedAlready
+                    ? <span className={styles.bdayDone}>✅ Reached out today</span>
+                    : <button className={styles.bdayBtn} onClick={() => setConfirmReach(contact)}>Reach out now</button>)}
+                  {contact
+                    ? <button className={styles.bdayBtnGhost} onClick={() => openDetails(contact)}>Details</button>
+                    : <Link className={styles.bdayBtnGhost} to={`/friends?open=${friend.id}`}>Open in Contacts</Link>}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
+
+      {/* Mother's Day / Father's Day: everyone ticked Mom (or Dad) on the
+          Friends page, gathered in one card so they're reached as a group. */}
+      {parentHoliday && parentsToday.length > 0 && (
+        <section className={`${styles.bdayHero} ${styles.parentHero}`} aria-label={`${parentHoliday.name} today`}>
+          <div className={styles.bdayHeroTop}>
+            <span className={styles.bdayHeroCake} aria-hidden="true">{parentHoliday.emoji}</span>
+            <span className={styles.bdayHeroKicker}>
+              Happy {parentHoliday.name} — {parentsToday.length} {parentsToday.length === 1 ? parentHoliday.label.slice(0, -1) : parentHoliday.label} to reach out to
+            </span>
+          </div>
+          {parentsToday.map(({ friend, contact }) => {
+            const reachedAlready = contact?.lastReachOut === todayK;
+            const meta = [contact?.category, contact?.method ? `${contact.method} them` : null].filter(Boolean).join(' · ');
+            return (
+              <div key={friend.id} className={styles.bdayCard}>
+                {contact
+                  ? <button className={styles.bdayName} onClick={() => openDetails(contact)}>{friend.name}</button>
+                  : <Link className={styles.bdayName} to={`/friends?open=${friend.id}`}>{friend.name}</Link>}
+                {meta && <p className={styles.bdayMeta}>{meta}</p>}
                 {contact?.note && <p className={styles.bdayNote}>{contact.note}</p>}
                 <div className={styles.bdayActions}>
                   {contact && (reachedAlready
@@ -944,17 +1008,18 @@ export function ReachOutPage() {
               const rowClass = c._bdayToday ? styles.trBday
                 : c._annivToday ? styles.trAnniv
                 : c._kidsToday.length ? styles.trKids
+                : c._parentToday ? styles.trParent
                 : (c._retired ? styles.trRetired : (c.done ? styles.trDone : ''));
               return (
                 <tr key={c.id} className={rowClass} onClick={isMobile ? undefined : () => startEdit(c)} title={isMobile ? undefined : 'Click to edit'}>
-                  {isMobile && <PersonCell name={c._bdayToday ? `🎂 ${c.name}` : c._kidsToday.length ? `🎈 ${c.name}` : c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => openDetails(c)} />}
+                  {isMobile && <PersonCell name={c._bdayToday ? `🎂 ${c.name}` : c._kidsToday.length ? `🎈 ${c.name}` : c._parentToday ? `${parentHoliday.emoji} ${c.name}` : c.name} isMobile onTap={() => setConfirmReach(c)} onHold={() => openDetails(c)} />}
                   {showLast && <td>{fmtMDY(c._last)}</td>}
                   {showCheck && (
                     <td className={styles.colCheck} onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={!!c.done} onChange={() => toggleDone(c.id)} aria-label="Reached out today" title="Reached out today" />
                     </td>
                   )}
-                  {!isMobile && <PersonCell name={c._kidsToday.length ? `🎈 ${c.name}` : c.name} isMobile={false} />}
+                  {!isMobile && <PersonCell name={c._kidsToday.length ? `🎈 ${c.name}` : c._parentToday ? `${parentHoliday.emoji} ${c.name}` : c.name} isMobile={false} />}
                   {!isMobile && colVis.note !== false && <td className={styles.tdNote}>{c.note}</td>}
                   {!isMobile && colVis.category !== false && <td>{c.category}</td>}
                   {!isMobile && colVis.overdue !== false && <td className={`${styles.colNum} ${overdueClass}`}>{c._overdue == null ? '' : c._overdue}</td>}
