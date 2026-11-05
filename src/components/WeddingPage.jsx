@@ -9,6 +9,7 @@ import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
+import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -304,6 +305,17 @@ function buildImportedContacts(rows, mappings, hasHeader) {
     .filter((c) => c.firstName || c.lastName || c.email || c.phone);
 }
 
+// "Added 120 guests to Friends and linked 30 who were already there."
+function friendSyncSummary(created, linked) {
+  const existing = linked - created;
+  const plural = (n) => (n === 1 ? 'guest' : 'guests');
+  const parts = [];
+  if (created) parts.push(`added ${created} ${plural(created)} to Friends`);
+  if (existing > 0) parts.push(`linked ${existing} ${existing === 1 ? 'who was' : 'who were'} already there`);
+  const s = parts.join(' and ');
+  return s ? `${s[0].toUpperCase()}${s.slice(1)}.` : '';
+}
+
 function renderCell(col, c) {
   switch (col.key) {
     case 'name': return <>{c.firstName} {c.lastName}</>;
@@ -328,6 +340,11 @@ function GuestList() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState([]);
   const [friends, setFriends] = useState([]);
+  // Whether the guest list has had its one pass onto the Friends page
+  // (lib/weddingFriendSync.js). null until the user doc has loaded.
+  const [friendsSynced, setFriendsSynced] = useState(null);
+  const friendSyncStarted = useRef(false);
+  const [friendSyncMsg, setFriendSyncMsg] = useState('');
   const [savedGroups, setSavedGroups] = useState([]);
   const [groupDescriptions, setGroupDescriptions] = useState({});
   // The "Edit groups" pop-up: one row per group, { from, name, desc }.
@@ -399,6 +416,7 @@ function GuestList() {
         setSavedGroups(Array.isArray(data.weddingGroups) ? data.weddingGroups : []);
         setGroupDescriptions(data.weddingGroupDescriptions && typeof data.weddingGroupDescriptions === 'object' ? data.weddingGroupDescriptions : {});
         setSavedCategories(Array.isArray(data.weddingCategories) ? data.weddingCategories : []);
+        setFriendsSynced(!!data[SYNC_FLAG]);
         setColumnConfig(data.weddingColumnConfig && typeof data.weddingColumnConfig === 'object' ? data.weddingColumnConfig : {});
         // Defaults chosen so switching it on is a one-click decision: their own
         // address, Sunday morning, whatever timezone the browser is in.
@@ -447,6 +465,19 @@ function GuestList() {
     );
     return unsub;
   }, [user]);
+
+  /* Every guest goes on the Friends page too. The list that was here before
+     that rule gets one pass the first time the page opens; guests added since
+     are handled as they're added (addNewGuest, performImport). */
+  useEffect(() => {
+    if (!user || friendsSynced !== false || contacts.length === 0 || friendSyncStarted.current) return;
+    friendSyncStarted.current = true;
+    syncWeddingGuestsToFriends(user.uid, { markDone: true })
+      .then(({ created, linked }) => {
+        if (linked) setFriendSyncMsg(friendSyncSummary(created, linked));
+      })
+      .catch((err) => console.error('Wedding → Friends sync failed:', err));
+  }, [user, friendsSynced, contacts.length]);
 
   useEffect(() => {
     if (!user) return;
@@ -1377,6 +1408,14 @@ function GuestList() {
     const next = [...contacts, ...newContacts];
     await persistContacts(next);
     setImportOpen(false);
+    // Imported guests go on the Friends page too, matched to anyone already
+    // there. Saved first, so a failed friend write never loses the import.
+    try {
+      const { created, linked } = await syncWeddingGuestsToFriends(user.uid, { onlyIds: newContacts.map((c) => c.id) });
+      if (linked) setFriendSyncMsg(friendSyncSummary(created, linked));
+    } catch (err) {
+      console.error('Imported guests → Friends failed:', err);
+    }
   };
 
   return (
@@ -1562,6 +1601,12 @@ function GuestList() {
           </button>
         ))}
       </div>
+      {friendSyncMsg && (
+        <p className={styles.categoryTabHint} role="status">
+          {friendSyncMsg}{' '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => setFriendSyncMsg('')}>Dismiss</button>
+        </p>
+      )}
       {search.trim() && activeCategoryTab === UNSORTED && (
         <p className={styles.categoryTabHint}>Searching every guest, not just the ones still to sort.</p>
       )}

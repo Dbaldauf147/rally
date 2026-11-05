@@ -35,6 +35,7 @@ import { GroupPicker } from './GroupPicker';
 import { applyColumnFilters, activeColumnFilters } from '../lib/columnFilters';
 import { normalizeFamilyTree, treePhotoIds } from '../lib/familyTree';
 import { deleteFamilyPhoto } from '../lib/familyPhotos';
+import { syncWeddingGuestsToFriends, SYNC_FLAG as WEDDING_SYNC_FLAG } from '../lib/weddingFriendSync';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -1004,6 +1005,7 @@ export function FriendsPage() {
   const [newCustom, setNewCustom] = useState({});
   // User-defined fields, ordered as the user arranged them.
   const [customFields, setCustomFields] = useState([]);
+  const weddingSyncStarted = useRef(false);
   const [showCustomFields, setShowCustomFields] = useState(false);
   const [editFriend, setEditFriend] = useState(null); // null=closed, object=editing
   const [editFields, setEditFields] = useState({});
@@ -1025,7 +1027,16 @@ export function FriendsPage() {
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
-      setCustomFields(normalizeFieldDefs(snap.data()?.friendFields));
+      const data = snap.data() || {};
+      setCustomFields(normalizeFieldDefs(data.friendFields));
+      // Wedding guests belong here too. If the guest list hasn't had its one
+      // pass onto Friends yet (it normally gets it when the Wedding page
+      // opens), do it now so they don't wait on a visit there.
+      if (Array.isArray(data.weddingContacts) && data.weddingContacts.length && !data[WEDDING_SYNC_FLAG] && !weddingSyncStarted.current) {
+        weddingSyncStarted.current = true;
+        syncWeddingGuestsToFriends(user.uid, { markDone: true })
+          .catch((err) => console.error('Wedding → Friends sync failed:', err));
+      }
     }, () => setCustomFields([]));
     return unsub;
   }, [user]);
