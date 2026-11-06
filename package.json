@@ -26,6 +26,7 @@
     "@react-pdf/renderer": "^4.5.1",
     "ai": "^6.0.156",
     "date-fns": "^4.1.0",
+    "exceljs": "^4.4.0",
     "firebase": "^12.11.0",
     "firebase-admin": "^13.8.0",
     "nodemailer": "^8.0.11",
