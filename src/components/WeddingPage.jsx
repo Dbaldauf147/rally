@@ -321,13 +321,14 @@ function GuestList() {
   const [bulkValue, setBulkValue] = useState('');
   const [showColumnsMenu, setShowColumnsMenu] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  // The contact open in the edit pop-up: { id, draft }. Edits stay in the
-  // draft until Save, so backing out leaves the guest as they were.
+  // The contact open in the edit pop-up: { id, draft }. An existing guest's
+  // draft saves itself a moment after each edit (and on close); a new guest
+  // is only written by Add guest.
   const [editing, setEditing] = useState(null);
   const isEditing = !!editing;
   useEffect(() => {
     if (!isEditing) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setEditing(null); };
+    const onKey = (e) => { if (e.key === 'Escape') closeContactRef.current?.(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isEditing]);
@@ -464,6 +465,57 @@ function GuestList() {
   const persistContacts = async (next) => {
     if (!user) return;
     await setDoc(doc(db, 'users', user.uid), { weddingContacts: next }, { merge: true });
+  };
+
+  /* Autosave for an existing guest. The guest-only pop-up saves its whole
+     draft; the Friends pop-up (viaFriend) saves only the wedding box here —
+     the contact fields are FriendsPage's, copied back by saveGuestFromFriend.
+     Reads go through refs so a timer that fires later sees the latest list. */
+  const guestSaveTimer = useRef(null);
+  const editingRef = useRef(null);
+  const contactsRef = useRef(contacts);
+  const closeContactRef = useRef(null);
+  useEffect(() => {
+    editingRef.current = editing;
+    contactsRef.current = contacts;
+    closeContactRef.current = closeContact;
+  });
+  const saveGuestDraft = async (ed) => {
+    if (!ed || ed.id === null) return;
+    const list = contactsRef.current;
+    const guest = list.find((c) => c.id === ed.id);
+    if (!guest) return;
+    const keys = ed.viaFriend ? WEDDING_ONLY_FIELDS.map((f) => f.key) : Object.keys(ed.draft);
+    const patch = {};
+    for (const k of keys) {
+      const v = ed.draft[k];
+      patch[k] = typeof v === 'string' ? v.trim() : v;
+    }
+    // No category, no subcategory.
+    if ('category' in patch && !patch.category) patch.subcategory = '';
+    const changed = Object.entries(patch).some(([k, v]) => (guest[k] ?? '') !== (v ?? ''));
+    if (!changed) return;
+    // A new wedding group starts them at the end of it.
+    if ('party' in patch && partyKey(guest.party) !== partyKey(patch.party)) patch.partyOrder = null;
+    await persistContacts(list.map((c) => (c.id === ed.id ? { ...c, ...patch } : c)));
+  };
+  useEffect(() => {
+    if (!editing || editing.id === null) return undefined;
+    clearTimeout(guestSaveTimer.current);
+    guestSaveTimer.current = setTimeout(() => {
+      guestSaveTimer.current = null;
+      saveGuestDraft(editingRef.current).catch((err) => console.error('Guest autosave failed:', err));
+    }, 700);
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+  const closeContact = () => {
+    clearTimeout(guestSaveTimer.current);
+    guestSaveTimer.current = null;
+    const ed = editingRef.current;
+    editingRef.current = null;
+    setEditing(null);
+    if (ed && ed.id !== null) saveGuestDraft(ed).catch((err) => console.error('Guest save failed:', err));
   };
 
   /* ── Weekly guest-list email ────────────────────────────────
@@ -1385,6 +1437,8 @@ function GuestList() {
      phone back so the guest row says what the contact says. The name is only
      re-split when it actually changed, so "Mary Ann" / "Smith" survives. */
   const saveGuestFromFriend = async (friend) => {
+    const editing = editingRef.current;
+    const contacts = contactsRef.current;
     if (!editing) return;
     const patch = {};
     for (const f of WEDDING_ONLY_FIELDS) {
@@ -1524,7 +1578,6 @@ function GuestList() {
     }
     setEditing({ id: null, draft });
   };
-  const closeContact = () => setEditing(null);
   const setDraftField = (key, value) => setEditing((e) => ({ ...e, draft: { ...e.draft, [key]: value } }));
   const saveContact = async () => {
     if (!editing) return;
@@ -1536,11 +1589,7 @@ function GuestList() {
       await addNewGuest(patch);
       return;
     }
-    const prev = contacts.find((c) => c.id === editing.id);
-    if (prev && partyKey(prev.party) !== partyKey(patch.party)) patch.partyOrder = null;
-    const next = contacts.map((c) => (c.id === editing.id ? { ...c, ...patch } : c));
-    setEditing(null);
-    await persistContacts(next);
+    closeContact();
   };
 
   // Delete in either pop-up takes the guest off the list only; a linked
@@ -1550,6 +1599,9 @@ function GuestList() {
     const name = `${editing.draft.firstName} ${editing.draft.lastName}`.trim() || 'this guest';
     const friendNote = friendsById.has(editing.draft.friendId) ? ' They stay on your Friends page.' : '';
     if (!confirm(`Delete ${name} from the wedding guest list?${friendNote} This cannot be undone.`)) return;
+    clearTimeout(guestSaveTimer.current);
+    guestSaveTimer.current = null;
+    editingRef.current = null;
     const id = editing.id;
     setEditing(null);
     setSelected((prev) => {
@@ -2039,8 +2091,17 @@ function GuestList() {
               <span className={styles.modalCount}>
                 {editing.id === null && !editing.draft.friendId ? 'Also added to Friends (or linked if already there)' : ''}
               </span>
-              <button className={styles.modalSecondary} type="button" onClick={closeContact}>Cancel</button>
-              <button className={styles.modalPrimary} type="submit">{editing.id === null ? 'Add guest' : 'Save'}</button>
+              {editing.id === null ? (
+                <>
+                  <button className={styles.modalSecondary} type="button" onClick={() => setEditing(null)}>Cancel</button>
+                  <button className={styles.modalPrimary} type="submit">Add guest</button>
+                </>
+              ) : (
+                <>
+                  <span className={styles.modalCount}>Changes save automatically</span>
+                  <button className={styles.modalPrimary} type="submit">Done</button>
+                </>
+              )}
             </div>
           </form>
         </div>
