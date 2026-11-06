@@ -13,6 +13,7 @@ import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
 import { buildGuestWorkbook, exportFileName } from '../lib/weddingGuestExport';
+import { IMPORT_FIELDS, FIELD_LABELS, parsePastedCells, autoDetectMappings, looksLikeHeader, planGuestImport } from '../lib/weddingGuestImport';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -255,84 +256,6 @@ const TIER_DESCRIPTIONS = {
   C: 'Would be nice — invite if others decline (your "B-list" for second-round invites)',
 };
 
-const IMPORT_FIELDS = [
-  { key: '', label: '— Skip —' },
-  { key: 'fullName', label: 'Full Name (auto-split)' },
-  { key: 'firstName', label: 'First Name' },
-  { key: 'lastName', label: 'Last Name' },
-  { key: 'email', label: 'Email' },
-  { key: 'phone', label: 'Phone' },
-  { key: 'address', label: 'Address' },
-  { key: 'city', label: 'City' },
-  { key: 'state', label: 'State' },
-  { key: 'zip', label: 'Zip' },
-  { key: 'group', label: 'Group' },
-  { key: 'category', label: 'Category' },
-  { key: 'subcategory', label: 'Subcategory' },
-  { key: 'guestOf', label: 'Guest Of' },
-  { key: 'party', label: 'Wedding group' },
-];
-
-const FIELD_PATTERNS = [
-  { key: 'firstName', patterns: [/^first\s*(name)?$/i, /^fname$/i, /^given/i] },
-  { key: 'lastName', patterns: [/^last\s*(name)?$/i, /^lname$/i, /^surname$/i, /^family/i] },
-  { key: 'fullName', patterns: [/^(full\s*)?name$/i, /^contact$/i] },
-  { key: 'email', patterns: [/^e[-\s]?mail/i] },
-  { key: 'phone', patterns: [/^phone/i, /^mobile/i, /^cell/i, /^tel/i, /number/i] },
-  { key: 'address', patterns: [/^address/i, /^street/i, /^addr/i] },
-  { key: 'city', patterns: [/^city$/i, /^town$/i] },
-  { key: 'state', patterns: [/^state/i, /^province/i, /^region/i] },
-  { key: 'zip', patterns: [/^zip/i, /^postal/i, /^post\s*code$/i] },
-  { key: 'group', patterns: [/^group/i, /^tag/i] },
-  { key: 'category', patterns: [/^category/i, /^type$/i] },
-  { key: 'subcategory', patterns: [/^sub[-\s]*category/i, /^sub[-\s]*type$/i] },
-  { key: 'guestOf', patterns: [/^guest\s*of/i, /^plus\s*one/i, /^\+1$/i] },
-  { key: 'side', patterns: [/side/i] },
-  { key: 'party', patterns: [/^wedding\s*group/i, /^party$/i, /^household/i] },
-];
-
-function parseTSV(text) {
-  if (!text) return [];
-  return text
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .filter((line) => line.length > 0)
-    .map((line) => line.split('\t'));
-}
-
-function autoDetectMappings(headerRow) {
-  return headerRow.map((h) => {
-    const cleaned = (h || '').trim();
-    if (!cleaned) return '';
-    for (const f of FIELD_PATTERNS) {
-      if (f.patterns.some((re) => re.test(cleaned))) return f.key;
-    }
-    return '';
-  });
-}
-
-function buildImportedContacts(rows, mappings, hasHeader) {
-  const dataRows = hasHeader ? rows.slice(1) : rows;
-  const now = Date.now();
-  return dataRows
-    .map((row, i) => {
-      const c = { id: `import-${now}-${i}-${Math.random().toString(36).slice(2, 8)}` };
-      mappings.forEach((field, colIdx) => {
-        if (!field) return;
-        const val = (row[colIdx] || '').trim();
-        if (field === 'fullName') {
-          const parts = val.split(/\s+/);
-          c.firstName = parts[0] || c.firstName || '';
-          c.lastName = parts.slice(1).join(' ') || c.lastName || '';
-        } else {
-          c[field] = val;
-        }
-      });
-      return c;
-    })
-    .filter((c) => c.firstName || c.lastName || c.email || c.phone);
-}
-
 // "Added 120 guests to Friends and linked 30 who were already there."
 function friendSyncSummary(created, linked) {
   const existing = linked - created;
@@ -425,6 +348,11 @@ function GuestList() {
   const [importText, setImportText] = useState('');
   const [importHasHeader, setImportHasHeader] = useState(true);
   const [importMappings, setImportMappings] = useState([]);
+  // Off: a guest already on the list only gets their empty fields filled.
+  // On: the pasted values replace what's there (an empty cell still never
+  // blanks anything out).
+  const [importOverwrite, setImportOverwrite] = useState(false);
+  const [importResultMsg, setImportResultMsg] = useState('');
   // Weekly guest-list email. null until the user doc arrives so the card can
   // stay quiet rather than flashing "off" at someone who has it on.
   const [digestCfg, setDigestCfg] = useState(null);
@@ -794,11 +722,14 @@ function GuestList() {
     return (cfg && typeof cfg.width === 'number' && cfg.width > 0) ? cfg.width : fallback;
   };
 
-  const importRows = useMemo(() => parseTSV(importText), [importText]);
-  const importableCount = useMemo(
-    () => (importRows.length === 0 ? 0 : buildImportedContacts(importRows, importMappings, importHasHeader).length),
-    [importRows, importMappings, importHasHeader],
-  );
+  const importRows = useMemo(() => parsePastedCells(importText), [importText]);
+  // What the paste would do to the list: who's new, whose blanks get filled.
+  const importPlan = useMemo(() => {
+    if (importRows.length === 0) return null;
+    const dataRows = importHasHeader ? importRows.slice(1) : importRows;
+    return planGuestImport(contacts, dataRows, importMappings, { overwrite: importOverwrite });
+  }, [importRows, importMappings, importHasHeader, importOverwrite, contacts]);
+  const importChangeCount = importPlan ? importPlan.added.length + importPlan.updated.length : 0;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1432,6 +1363,7 @@ function GuestList() {
     setImportText('');
     setImportHasHeader(true);
     setImportMappings([]);
+    setImportOverwrite(false);
   };
   const closeImport = () => setImportOpen(false);
 
@@ -1666,7 +1598,7 @@ function GuestList() {
 
   const handleImportTextChange = (val) => {
     setImportText(val);
-    const rows = parseTSV(val);
+    const rows = parsePastedCells(val);
     const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
     if (rows.length === 0 || cols === 0) {
       setImportMappings([]);
@@ -1676,8 +1608,7 @@ function GuestList() {
     const detected = autoDetectMappings(header);
     const filled = Array.from({ length: cols }, (_, i) => detected[i] || '');
     setImportMappings(filled);
-    const looksLikeHeader = header.some((h) => /[a-z]/i.test(h || '')) && detected.some(Boolean);
-    setImportHasHeader(looksLikeHeader);
+    setImportHasHeader(looksLikeHeader(rows));
   };
 
   const setImportMapping = (colIdx, field) => {
@@ -1690,11 +1621,27 @@ function GuestList() {
   };
 
   const performImport = async () => {
-    const newContacts = buildImportedContacts(importRows, importMappings, importHasHeader);
-    if (newContacts.length === 0) return;
-    const next = [...contacts, ...newContacts];
-    await persistContacts(next);
+    const plan = importPlan;
+    if (!plan || (plan.added.length === 0 && plan.updated.length === 0)) return;
+    const newContacts = plan.added;
+    // Closed straight away: the table shows the write at once, and the server
+    // confirming it can take a few seconds. Left open, the preview would
+    // re-plan against the already-updated list and read "0 new". If the save
+    // fails the dialog comes back with the paste still in it.
     setImportOpen(false);
+    const said = [];
+    if (plan.added.length) said.push(`added ${plan.added.length} new ${plan.added.length === 1 ? 'guest' : 'guests'}`);
+    if (plan.updated.length) said.push(`updated ${plan.updated.length} already on the list`);
+    setImportResultMsg(`Import done: ${said.join(' and ')}.`);
+    try {
+      await persistContacts(plan.contacts);
+    } catch (err) {
+      console.error('Guest import failed:', err);
+      setImportResultMsg("Couldn't save that import, so nothing changed. Your paste is still in the dialog — try again.");
+      setImportOpen(true);
+      return;
+    }
+    if (newContacts.length === 0) return;
     // Imported guests go on the Friends page too, matched to anyone already
     // there. Saved first, so a failed friend write never loses the import.
     try {
@@ -1888,6 +1835,12 @@ function GuestList() {
           </button>
         ))}
       </div>
+      {importResultMsg && (
+        <p className={styles.categoryTabHint} role="status">
+          {importResultMsg}{' '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => setImportResultMsg('')}>Dismiss</button>
+        </p>
+      )}
       {friendSyncMsg && (
         <p className={styles.categoryTabHint} role="status">
           {friendSyncMsg}{' '}
@@ -1910,7 +1863,7 @@ function GuestList() {
         <button className={styles.toolButton} type="button" onClick={createCategory}>+ Category</button>
         <button className={styles.toolButton} type="button" onClick={openCategoryEditor}>Edit categories</button>
         <button className={styles.toolButton} type="button" onClick={openNewContact}>+ Guest</button>
-        <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
+        <button className={styles.toolButton} type="button" onClick={openImport}>+ Paste from sheet</button>
         <button className={styles.toolButton} type="button" onClick={autoMatchFriends}>Auto-match Friends</button>
         <button className={styles.toolButton} type="button" onClick={exportToExcel} disabled={exporting}>
           {exporting ? 'Exporting…' : 'Export to Excel'}
@@ -2228,12 +2181,14 @@ function GuestList() {
         <div className={styles.modalOverlay} onClick={closeImport}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2 className={styles.modalTitle}>Import contacts</h2>
+              <h2 className={styles.modalTitle}>Paste from a spreadsheet</h2>
               <button className={styles.modalClose} type="button" onClick={closeImport} aria-label="Close">×</button>
             </div>
             <div className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Copy a range of cells from Google Sheets (or Excel) and paste below. Columns will be tab-separated automatically.
+                Copy a range of cells from Google Sheets or Excel and paste below. Guests already on the list are
+                matched by email, phone or full name and have their missing details filled in; everyone else is
+                added as a new guest.
               </p>
               <textarea
                 className={styles.modalTextarea}
@@ -2293,21 +2248,60 @@ function GuestList() {
                   {importPreviewRows.length > 5 && (
                     <div className={styles.modalHint}>…and {importPreviewRows.length - 5} more rows</div>
                   )}
+                  <div className={styles.importMode} role="radiogroup" aria-label="Guests already on the list">
+                    <span className={styles.importModeLabel}>Guests already on the list:</span>
+                    <label className={styles.modalCheckRow}>
+                      <input type="radio" name="importMode" checked={!importOverwrite} onChange={() => setImportOverwrite(false)} />
+                      Only fill in empty fields
+                    </label>
+                    <label className={styles.modalCheckRow}>
+                      <input type="radio" name="importMode" checked={importOverwrite} onChange={() => setImportOverwrite(true)} />
+                      Replace with the pasted values
+                    </label>
+                  </div>
+                  {importPlan && (
+                    <div className={styles.importSummary} data-testid="import-summary">
+                      <div className={styles.importSummaryCounts}>
+                        <span><strong>{importPlan.added.length}</strong> new</span>
+                        <span><strong>{importPlan.updated.length}</strong> updated</span>
+                        <span><strong>{importPlan.unchanged}</strong> already up to date</span>
+                        {importPlan.ambiguous.length > 0 && <span><strong>{importPlan.ambiguous.length}</strong> unclear</span>}
+                        {importPlan.skipped > 0 && <span><strong>{importPlan.skipped}</strong> skipped (no name, email or phone)</span>}
+                      </div>
+                      {importPlan.updated.length > 0 && (
+                        <ul className={styles.importChangeList}>
+                          {importPlan.updated.slice(0, 8).map((u) => (
+                            <li key={u.id}>
+                              <strong>{u.name}</strong>: {u.fields.map((f) => FIELD_LABELS[f] || f).join(', ')}
+                            </li>
+                          ))}
+                          {importPlan.updated.length > 8 && <li>…and {importPlan.updated.length - 8} more</li>}
+                        </ul>
+                      )}
+                      {importPlan.ambiguous.length > 0 && (
+                        <p className={styles.modalHint}>
+                          Left alone because they match more than one guest:{' '}
+                          {importPlan.ambiguous.slice(0, 6).map((a) => a.name).join(', ')}
+                          {importPlan.ambiguous.length > 6 ? '…' : ''}. Add an email or phone column to tell them apart.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>
             <div className={styles.modalFooter}>
               <span className={styles.modalCount}>
-                {importableCount > 0 ? `${importableCount} contact${importableCount === 1 ? '' : 's'} ready to import` : 'Paste data to begin'}
+                {!importPlan ? 'Paste data to begin' : importChangeCount > 0 ? `${importChangeCount} ${importChangeCount === 1 ? 'guest' : 'guests'} to add or update` : 'Nothing new to add'}
               </span>
               <button className={styles.modalSecondary} type="button" onClick={closeImport}>Cancel</button>
               <button
                 className={styles.modalPrimary}
                 type="button"
                 onClick={performImport}
-                disabled={importableCount === 0}
+                disabled={importChangeCount === 0}
               >
-                Import {importableCount > 0 ? importableCount : ''}
+                {importPlan && importPlan.updated.length > 0 ? 'Add & update' : 'Import'} {importChangeCount > 0 ? importChangeCount : ''}
               </button>
             </div>
           </div>
