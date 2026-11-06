@@ -52,6 +52,8 @@
 .select { padding: 0.5rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; color: var(--color-text); }
 .toolButton { padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.85rem; color: var(--color-text); cursor: pointer; white-space: nowrap; }
 .toolButton:hover { background: var(--color-surface-alt); }
+.toolButtonOn { border-color: var(--color-accent); color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)); font-weight: 600; }
+.toolButtonOn:hover { background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface)); }
 
 .colMenu { position: relative; }
 .colMenuPopover { position: absolute; top: calc(100% + 4px); right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 0.35rem 0; min-width: 160px; z-index: 50; }

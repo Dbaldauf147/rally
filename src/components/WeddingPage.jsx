@@ -9,7 +9,7 @@ import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
 import { makeGuestComparator, sameSortValue, statusOrder } from '../lib/weddingSort';
-import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName, keepCouplesTogether, rowOutlines } from '../lib/weddingParty';
+import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName, keepCouplesTogether, rowOutlines, groupPartiesTogether } from '../lib/weddingParty';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
@@ -329,6 +329,11 @@ function GuestList() {
   // '' is the default view (by name, status sunk); a header click sorts by
   // that column alone.
   const [sortKey, setSortKey] = useState('');
+  /* Group view: each wedding group pulled into one block (couples beside each
+     other) and outlined. Off is the plain table — sorted strictly by the
+     column, no regrouping, no boxes. Saved on the user doc (weddingGroupView)
+     so it's the same on the phone; on until switched off. */
+  const [groupView, setGroupView] = useState(true);
   const [sortDir, setSortDir] = useState('asc');
   const [selected, setSelected] = useState(() => new Set());
   const [bulkField, setBulkField] = useState('group');
@@ -400,6 +405,7 @@ function GuestList() {
         if (!outlineSaveTimer.current) {
           setOutlineColors(data.weddingOutlineColors && typeof data.weddingOutlineColors === 'object' ? data.weddingOutlineColors : {});
         }
+        setGroupView(data.weddingGroupView !== false);
         // Defaults chosen so switching it on is a one-click decision: their own
         // address, Sunday morning, whatever timezone the browser is in.
         const wd = data.weddingDigest && typeof data.weddingDigest === 'object' ? data.weddingDigest : {};
@@ -635,6 +641,16 @@ function GuestList() {
     }, 400);
   };
   useEffect(() => () => clearTimeout(outlineSaveTimer.current), []);
+  const toggleGroupView = async () => {
+    const next = !groupView;
+    setGroupView(next);
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), { weddingGroupView: next }, { merge: true });
+    } catch (err) {
+      console.error('Failed to save group view:', err);
+    }
+  };
 
   const persistColumnConfig = async (next) => {
     if (!user) return;
@@ -898,18 +914,21 @@ function GuestList() {
         if (ka !== kb) return ka.localeCompare(kb, undefined, { numeric: true }) * sign;
         return (partyPos.get(a.id) ?? 0) - (partyPos.get(b.id) ?? 0);
       });
-      return keepCouplesTogether(sorted, partners, { sameGroupOnly: true });
+      return groupView ? keepCouplesTogether(sorted, partners, { sameGroupOnly: true }) : sorted;
     }
     // No header picked yet: by name, Confirmed and Not coming sunk to the
-    // bottom, couples side by side. A picked header sorts by that column alone
-    // and only pairs partners who tie on it, so its order is never broken.
+    // bottom. A picked header sorts by that column alone.
     const col = ALL_COLUMNS.find((c) => c.key === (sortKey || 'name')) || ALL_COLUMNS[0];
     const value = sortKey === 'friend' ? (c) => friendsById.get(c.friendId)?.name || '' : col.sortBy;
     const sorted = [...rows].sort(makeGuestComparator({ value, dir: sortDir, sinkStatus: !sortKey }));
-    return keepCouplesTogether(sorted, partners, sortKey ? { canPair: (a, b) => sameSortValue(value(a), value(b)) } : {});
-  }, [contacts, search, columnFilters, sortKey, sortDir, friendsById, partyPos, partners]);
-  // Boxes around wedding groups and couples that sit together in the table.
-  const outlines = useMemo(() => rowOutlines(filtered, partners), [filtered, partners]);
+    if (!groupView) return sorted;
+    // Group view: each wedding group as one block where its first member
+    // landed; couples outside a group only paired when they tie on a picked
+    // column, so that column's order is never broken for them.
+    return groupPartiesTogether(sorted, partners, sortKey ? { canPair: (a, b) => sameSortValue(value(a), value(b)) } : {});
+  }, [contacts, search, columnFilters, sortKey, sortDir, friendsById, partyPos, partners, groupView]);
+  // Boxes around wedding groups and couples — group view only.
+  const outlines = useMemo(() => (groupView ? rowOutlines(filtered, partners) : new Map()), [filtered, partners, groupView]);
   // Their colours, as the CSS variables the outlines and the key's swatches read.
   const outlineVars = {
     '--wd-group': isHexColor(outlineColors.group) ? outlineColors.group : DEFAULT_OUTLINE_COLORS.group,
@@ -1941,6 +1960,8 @@ function GuestList() {
         <button className={styles.tierLegendEdit} type="button" onClick={openGroupEditor}>Edit groups</button>
       </div>
 
+      {/* The outline key and its colours only mean something in group view. */}
+      {groupView && (
       <div className={styles.tierLegend} style={outlineVars} aria-label="Table outlines">
         <span className={styles.tierLegendTitle}>Outlines</span>
         {[
@@ -1967,6 +1988,7 @@ function GuestList() {
           >Reset colours</button>
         )}
       </div>
+      )}
 
       <div className={styles.categoryTabs} role="tablist" aria-label="Guests by category">
         {categoryTabs.map((t) => (
@@ -2025,6 +2047,15 @@ function GuestList() {
           onClick={() => setShowGuestDuplicates(true)}
           title="Find guests that share an email, phone number, name or Friends contact, and merge them"
         >Find duplicates</button>
+        <button
+          className={groupView ? `${styles.toolButton} ${styles.toolButtonOn}` : styles.toolButton}
+          type="button"
+          onClick={toggleGroupView}
+          aria-pressed={groupView}
+          title={groupView ? 'Wedding groups shown together and outlined. Click for the plain table.' : 'Plain table. Click to show wedding groups together and outlined.'}
+        >
+          Group view: {groupView ? 'On' : 'Off'}
+        </button>
         <button className={styles.toolButton} type="button" onClick={exportToExcel} disabled={exporting}>
           {exporting ? 'Exporting…' : 'Export to Excel'}
         </button>
