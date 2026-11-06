@@ -966,7 +966,8 @@ function TierBoard({ friends, onSetTier }) {
 /* `embed` shows just one contact's Edit Contact pop-up, over whatever page
    renders it — the Wedding guest list uses it so a guest opens with exactly
    the fields (and save behaviour) they'd have here. Shape:
-     { friendId, onClose(), onSaved(fields) → promise, extra: node }
+     { friendId, onClose(), onMissing(), onSaved(fields) → promise, extra: node }
+   onMissing (optional) runs instead of onClose when there's no such contact.
    `extra` is rendered at the top of the pop-up's right column; `onSaved` runs
    after the friend is written and before the pop-up closes. */
 export function FriendsPage({ embed = null } = {}) {
@@ -1091,7 +1092,7 @@ export function FriendsPage({ embed = null } = {}) {
     const f = friends.find(x => x.id === embedFriendId);
     embedOpenedRef.current = true;
     if (f) openEdit(f);
-    else embed.onClose?.();
+    else (embed.onMissing || embed.onClose)?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedFriendId, friends, loading]);
   useEffect(() => {

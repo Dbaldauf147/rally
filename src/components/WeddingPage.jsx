@@ -1368,12 +1368,15 @@ function GuestList() {
   const closeImport = () => setImportOpen(false);
 
   // A guest linked to a Friends contact opens that contact's Friends pop-up
-  // (viaFriend); one without falls back to the guest-only pop-up below.
+  // (viaFriend); one without falls back to the guest-only pop-up below. The
+  // link is trusted rather than checked against `friends` here, which may not
+  // have loaded yet — if the contact turns out to be gone, the embedded pop-up
+  // reports it (onMissing) and the guest-only one opens instead.
   const openContact = (c) => {
     const draft = {};
     for (const f of CONTACT_FORM_FIELDS) draft[f.key] = c[f.key] || '';
     draft.friendId = c.friendId || '';
-    const viaFriend = !!(c.friendId && friendsById.has(c.friendId));
+    const viaFriend = !!c.friendId;
     setEditing({ id: c.id, draft, viaFriend });
   };
 
@@ -1855,6 +1858,7 @@ function GuestList() {
           embed={{
             friendId: editing.draft.friendId,
             onClose: closeContact,
+            onMissing: () => setEditing((e) => (e ? { ...e, viaFriend: false } : e)),
             onSaved: saveGuestFromFriend,
             extra: (
               <div className={styles.friendWeddingBox}>
