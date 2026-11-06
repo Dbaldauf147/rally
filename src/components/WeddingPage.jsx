@@ -18,6 +18,7 @@ import { IMPORT_FIELDS, FIELD_LABELS, parsePastedCells, autoDetectMappings, look
 import { applyGuestMerge, findGuestDuplicateGroups } from '../lib/weddingGuestMerge';
 import { commitFriendMerge } from '../lib/friendMergeWrite';
 import { GuestDuplicatesModal, GuestMergeModal } from './WeddingGuestMerge';
+import { splitGuestName, withFriendNames } from '../lib/weddingGuestNames';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -222,13 +223,6 @@ const CONTACT_FORM_FIELDS = [
 // come from the contact itself.
 const WEDDING_ONLY_FIELDS = CONTACT_FORM_FIELDS.filter((f) => !['firstName', 'lastName', 'phone', 'email'].includes(f.key))
   .map((f) => (f.key === 'address' ? { ...f, label: 'Mailing address' } : f));
-
-// "Mary Ann Smith" → first "Mary Ann", last "Smith".
-function splitGuestName(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  const lastName = parts.length > 1 ? parts.pop() : '';
-  return { firstName: parts.join(' '), lastName };
-}
 
 // A guest whose category is "Hide" drops out of the page: the table, every
 // count and summary, the other subtabs and the weekly email. They stay on the
@@ -652,6 +646,19 @@ function GuestList() {
     friends.forEach((f) => m.set(f.id, f));
     return m;
   }, [friends]);
+
+  /* A guest linked to a Friends contact goes by the contact's name, wherever
+     it was changed — the Friends tab, a merge, or a link made by the Friend
+     column or Auto-match. Shown at once and saved, so the export and the
+     weekly email say the same. */
+  useEffect(() => {
+    if (loading || !user) return;
+    const next = withFriendNames(contacts, friendsById);
+    if (next === contacts) return;
+    setContacts(next);
+    persistContacts(next).catch((err) => console.error('Syncing guest names from Friends failed:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contacts, friendsById, loading, user]);
 
   const friendsSorted = useMemo(
     () => [...friends].sort((a, b) => (a.name || '').localeCompare(b.name || '')),
