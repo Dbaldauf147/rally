@@ -211,12 +211,11 @@ const NEW_GROUP_SENTINEL = '__new_group__';
 const NEW_CATEGORY_SENTINEL = '__new_category__';
 const NEW_SUBCATEGORY_SENTINEL = '__new_subcategory__';
 
-/* Where the guest list opens: the All tab, which holds the guests with no
-   category yet. Categorizing someone moves them out of it and onto their
-   category's tab, so All works as the pile still to sort. "Clear filters"
-   comes back here too. Everyone at once is the Category column's
-   "Everyone" option. */
-const DEFAULT_FILTERS = { category: '__none__' };
+/* Where the guest list opens: the All tab, which is every guest on the list
+   (bar the hidden ones). The guests with no category yet have their own
+   "Not categorized" tab — the pile still to sort. "Clear filters" comes back
+   to All too. */
+const DEFAULT_FILTERS = {};
 const UNSORTED = '__none__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
 const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
@@ -649,10 +648,10 @@ function GuestList() {
     return { category: build('category'), group: build('group') };
   }, [shownContacts]);
 
-  /* One subtab per category, then the guests with none.
+  /* All, then the guests with no category, then one subtab per category.
 
-     All comes first and holds only the guests with no category — the ones
-     still to sort. The categories follow alphabetically rather than
+     All comes first and holds everyone; Not categorized holds only the guests
+     with no category — the ones still to sort. The categories follow alphabetically rather than
      biggest-first, so a tab never moves while you are working: reassigning a
      guest changes its count, not its place. A category saved with nobody in
      it yet still gets a tab (showing 0), since it exists to be filled. Counts
@@ -661,17 +660,20 @@ function GuestList() {
   const categoryTabs = useMemo(() => {
     const counts = new Map(categories.map((cat) => [cat, 0]));
     let none = 0;
+    let shown = 0;
     for (const c of contacts) {
       const cat = (c.category || '').trim();
       if (cat) counts.set(cat, (counts.get(cat) || 0) + 1);
       else none += 1;
+      if (!isHidden(c)) shown += 1;
     }
     // The Hide tab goes last: it's where hidden guests can still be found and
     // un-hidden, not one of the list's real groups.
     const entries = Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
     const toTab = ([cat, n]) => ({ value: cat, label: cat, count: n });
     return [
-      { value: UNSORTED, label: 'All', count: none },
+      { value: '', label: 'All', count: shown },
+      { value: UNSORTED, label: 'Not categorized', count: none },
       ...entries.filter(([cat]) => cat.toLowerCase() !== HIDE_CATEGORY).map(toTab),
       ...entries.filter(([cat]) => cat.toLowerCase() === HIDE_CATEGORY).map(toTab),
     ];
@@ -679,7 +681,7 @@ function GuestList() {
 
   // The subtab is the Category column's filter, not a second one beside it,
   // so the tab, the column header and the table can never disagree. With the
-  // column set to Everyone, no tab is lit.
+  // column set to Everyone, the All tab is lit.
   const activeCategoryTab = columnFilters.category || '';
   const filtersChanged = Object.keys({ ...DEFAULT_FILTERS, ...columnFilters })
     .some((k) => (columnFilters[k] || '') !== (DEFAULT_FILTERS[k] || ''));
@@ -772,14 +774,8 @@ function GuestList() {
     // Hide tab (or picking Hide in the Category filter).
     const showingHidden = String(columnFilters.category || '').trim().toLowerCase() === HIDE_CATEGORY;
     let rows = showingHidden ? contacts : contacts.filter((c) => !isHidden(c));
-    /* A search from the All tab looks through every guest, not just the ones
-       still to sort — the name you type is as likely as not someone already
-       categorized, and an empty table would read as "not on the list". On a
-       category's own tab it stays inside that category. Hidden guests stay
-       out of it either way: the line above has already dropped them. */
-    const searchEveryone = q && columnFilters.category === UNSORTED;
-    const activeKeys = Object.keys(columnFilters)
-      .filter((k) => columnFilters[k] && !(searchEveryone && k === 'category'));
+    // A search stays inside the tab you're on; the All tab searches everyone.
+    const activeKeys = Object.keys(columnFilters).filter((k) => columnFilters[k]);
     if (activeKeys.length) {
       rows = rows.filter((c) => activeKeys.every((k) => passes(c, k, columnFilters[k])));
     }
@@ -910,8 +906,8 @@ function GuestList() {
     });
     await persistContacts(next);
     setBulkValue('');
-    // Categorizing from the All tab moves everyone selected onto another tab
-    // and out of sight. Left selected, they'd be caught by the next bulk edit
+    // Categorizing from a tab moves everyone selected onto another one and
+    // out of sight. Left selected, they'd be caught by the next bulk edit
     // or delete without being on screen, so the selection goes with them.
     if (bulkField === 'category') clearSelection();
   };
@@ -1607,9 +1603,6 @@ function GuestList() {
           <button type="button" className={styles.tierLegendEdit} onClick={() => setFriendSyncMsg('')}>Dismiss</button>
         </p>
       )}
-      {search.trim() && activeCategoryTab === UNSORTED && (
-        <p className={styles.categoryTabHint}>Searching every guest, not just the ones still to sort.</p>
-      )}
 
       <div className={styles.toolbar}>
         <input
@@ -2064,8 +2057,9 @@ function GuestList() {
               )}
               {!loading && filtered.length === 0 && (
                 <tr><td colSpan={visibleColumns.length + 1} className={styles.empty}>
-                  {/* An empty All tab is the goal, not a failed filter. */}
-                  {activeCategoryTab === UNSORTED && !search.trim() && contacts.length > 0 && !filtersChanged
+                  {/* An empty Not categorized tab is the goal, not a failed filter. */}
+                  {activeCategoryTab === UNSORTED && !search.trim() && contacts.length > 0
+                    && Object.keys(columnFilters).every((k) => k === 'category' || !columnFilters[k])
                     ? 'Everyone has a category. Pick a tab above to see them.'
                     : 'No contacts match.'}
                 </td></tr>
