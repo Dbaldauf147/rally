@@ -35,6 +35,14 @@ export const SCALAR_FIELDS = [
 ];
 const LIST_KEYS = new Set(['tag', 'addresses', 'address', 'giftIdeas', 'kids', 'notes', 'profile', 'familyTree', 'custom', 'createdAt', 'id']);
 
+// The order to offer contacts as "the one to keep" (a sort comparator). A
+// contact stored under its own email comes first: that's the id adding the
+// same address again writes to, so keeping any other one would let the next
+// import recreate the duplicate. After that, the most complete record.
+const filled = (f) => Object.values(f).filter((v) => (Array.isArray(v) ? v.length : v && typeof v === 'object' ? Object.keys(v).length : !!v)).length;
+const keyedByEmail = (f) => !!f.email && f.id === String(f.email).trim().toLowerCase();
+export const keepFirst = (a, b) => (keyedByEmail(b) - keyedByEmail(a)) || (filled(b) - filled(a));
+
 /* Groups of contacts that look like the same person: the same email (personal
  * or work), the same phone number (last ten digits), or the same name once case
  * and punctuation are ignored. Matches chain — A shares an email with B, B a

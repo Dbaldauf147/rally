@@ -15,6 +15,9 @@ import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFrie
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
 import { buildGuestWorkbook, exportFileName } from '../lib/weddingGuestExport';
 import { IMPORT_FIELDS, FIELD_LABELS, parsePastedCells, autoDetectMappings, looksLikeHeader, planGuestImport } from '../lib/weddingGuestImport';
+import { applyGuestMerge, findGuestDuplicateGroups } from '../lib/weddingGuestMerge';
+import { commitFriendMerge } from '../lib/friendMergeWrite';
+import { GuestDuplicatesModal, GuestMergeModal } from './WeddingGuestMerge';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -299,6 +302,11 @@ function GuestList() {
   const [friendsSynced, setFriendsSynced] = useState(null);
   const friendSyncStarted = useRef(false);
   const [friendSyncMsg, setFriendSyncMsg] = useState('');
+  // Merging duplicates: the guests on the merge screen, whether the suggested
+  // duplicates list is open, and the line saying what the last merge did.
+  const [mergingGuests, setMergingGuests] = useState(null);
+  const [showGuestDuplicates, setShowGuestDuplicates] = useState(false);
+  const [mergeMsg, setMergeMsg] = useState('');
   const [exporting, setExporting] = useState(false);
   const [savedGroups, setSavedGroups] = useState([]);
   const [savedSides, setSavedSides] = useState([]);
@@ -1592,6 +1600,26 @@ function GuestList() {
     closeContact();
   };
 
+  /* Merging duplicate guests (WeddingGuestMerge.jsx). The guest list is written
+     first, already pointing at the Friends contact that's kept; then, when the
+     guests were linked to different Friends contacts, those are merged on the
+     Friends page by the same code its own merge screen uses. A failure between
+     the two leaves an extra Friends contact, never a guest pointing at a
+     deleted one. */
+  const commitGuestMerge = async ({ guest, removedGuestIds, friendMerge }) => {
+    if (!user) return;
+    const removedFriendIds = friendMerge ? friendMerge.others.map((f) => f.id) : [];
+    await persistContacts(applyGuestMerge(contacts, guest, removedGuestIds, removedFriendIds));
+    if (friendMerge) {
+      await commitFriendMerge(user.uid, friends, friendMerge.primary, friendMerge.others, friendMerge.choices);
+    }
+    setMergingGuests(null);
+    clearSelection();
+    const n = removedGuestIds.length + 1;
+    const name = `${guest.firstName} ${guest.lastName}`.trim() || 'one guest';
+    setMergeMsg(`Merged ${n} guests into ${name}${friendMerge ? `, and their ${removedFriendIds.length + 1} Friends contacts into one` : ''}.`);
+  };
+
   // Delete in either pop-up takes the guest off the list only; a linked
   // Friends contact stays, since they're still a friend.
   const deleteContact = async () => {
@@ -1899,6 +1927,12 @@ function GuestList() {
           <button type="button" className={styles.tierLegendEdit} onClick={() => setFriendSyncMsg('')}>Dismiss</button>
         </p>
       )}
+      {mergeMsg && (
+        <p className={styles.categoryTabHint} role="status">
+          {mergeMsg}{' '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => setMergeMsg('')}>Dismiss</button>
+        </p>
+      )}
 
       <div className={styles.toolbar}>
         <input
@@ -1917,6 +1951,12 @@ function GuestList() {
         <button className={styles.toolButton} type="button" onClick={openNewContact}>+ Guest</button>
         <button className={styles.toolButton} type="button" onClick={openImport}>+ Paste from sheet</button>
         <button className={styles.toolButton} type="button" onClick={autoMatchFriends}>Auto-match Friends</button>
+        <button
+          className={styles.toolButton}
+          type="button"
+          onClick={() => setShowGuestDuplicates(true)}
+          title="Find guests that share an email, phone number, name or Friends contact, and merge them"
+        >Find duplicates</button>
         <button className={styles.toolButton} type="button" onClick={exportToExcel} disabled={exporting}>
           {exporting ? 'Exporting…' : 'Export to Excel'}
         </button>
@@ -2005,9 +2045,31 @@ function GuestList() {
             />
           )}
           <button className={styles.bulkApply} onClick={applyBulkEdit}>Apply</button>
+          <button
+            className={styles.bulkApply}
+            onClick={() => setMergingGuests(contacts.filter((c) => selected.has(c.id)))}
+            disabled={selected.size < 2}
+            title={selected.size < 2 ? 'Select two or more guests to merge' : 'Merge the selected guests into one'}
+          >Merge</button>
           <button className={styles.bulkDelete} onClick={deleteSelected}>Delete</button>
           <button className={styles.bulkClear} onClick={clearSelection}>Clear</button>
         </div>
+      )}
+
+      {showGuestDuplicates && !mergingGuests && (
+        <GuestDuplicatesModal
+          groups={findGuestDuplicateGroups(shownContacts)}
+          onReview={(group) => setMergingGuests(group)}
+          onClose={() => setShowGuestDuplicates(false)}
+        />
+      )}
+      {mergingGuests && (
+        <GuestMergeModal
+          guests={mergingGuests}
+          friendsById={friendsById}
+          onCancel={() => setMergingGuests(null)}
+          onConfirm={commitGuestMerge}
+        />
       )}
 
       {/* A guest with a Friends contact opens that contact's own pop-up — the

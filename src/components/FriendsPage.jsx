@@ -28,7 +28,8 @@ import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
 import { groupTokens, bucketByGroup, removeGroup } from '../lib/peopleGroups';
 import { kidsForEditing, kidsForSaving, kidLabel, kidAgeLabel } from '../lib/friendKids';
-import { findDuplicateGroups, mergeFriends, repointFriendIds } from '../lib/friendMerge';
+import { findDuplicateGroups } from '../lib/friendMerge';
+import { commitFriendMerge } from '../lib/friendMergeWrite';
 import { DuplicatesModal, MergeModal } from './MergeContacts';
 import { FamilyTreeModal } from './FamilyTree';
 import { GroupPicker } from './GroupPicker';
@@ -1470,32 +1471,12 @@ export function FriendsPage({ embed = null } = {}) {
     setSelectedIds(new Set());
   }
 
-  /* Fold `others` into `primary`. The kept contact is written first and the
-   * duplicates deleted last, so a failure part-way leaves an extra contact
-   * rather than a lost one. In between, everything that points at a removed
-   * contact by id is moved to the kept one: other friends' "comes with" link,
-   * and the Reach Out and wedding lists on the user doc. */
+  /* Fold `others` into `primary`. lib/friendMergeWrite.js does the writes —
+   * kept contact first, duplicates deleted last — and moves "comes with"
+   * links, Reach Out rows and wedding guests over to the kept one. */
   async function mergeContacts(primary, others, choices) {
     if (!user) return;
-    const removedIds = others.map(f => f.id);
-    const merged = mergeFriends(primary, others, choices);
-    await setDoc(doc(db, 'users', user.uid, 'friends', primary.id), merged);
-    for (const f of friends) {
-      if (f.id !== primary.id && removedIds.includes(f.linkedTo)) {
-        await updateDoc(doc(db, 'users', user.uid, 'friends', f.id), { linkedTo: primary.id }).catch(() => {});
-      }
-    }
-    const userSnap = await getDoc(doc(db, 'users', user.uid));
-    const data = userSnap.data() || {};
-    const patch = {};
-    for (const key of ['reachOuts', 'weddingContacts']) {
-      const { next, changed } = repointFriendIds(data[key], removedIds, primary.id);
-      if (changed) patch[key] = next;
-    }
-    if (Object.keys(patch).length) await setDoc(doc(db, 'users', user.uid), patch, { merge: true });
-    for (const id of removedIds) {
-      await deleteDoc(doc(db, 'users', user.uid, 'friends', id));
-    }
+    const merged = await commitFriendMerge(user.uid, friends, primary, others, choices);
     setMerging(null);
     setSelectedIds(new Set());
     setResult({ type: 'success', message: `Merged ${others.length + 1} contacts into ${merged.name || 'one'}` });
