@@ -1126,7 +1126,7 @@ export function FriendsPage({ embed = null } = {}) {
 
   function openEdit(friend) {
     const initialAddresses = getFriendAddresses(friend);
-    setEditFields({
+    const initial = {
       name: friend.name || '',
       soundsLike: friend.soundsLike || '',
       email: friend.email || '',
@@ -1155,54 +1155,186 @@ export function FriendsPage({ embed = null } = {}) {
       // Likes / Things I appreciate — the two default sections when there's
       // nothing yet, trimmed back out on save if left empty.
       profile: profileForEditing(friend.profile),
-    });
+    };
+    setEditFields(initial);
+    lastSavedJson.current = JSON.stringify(buildEditPayload(initial));
     setGiftDraft('');
+    setSaveStatus('');
     setEditFriend(friend);
   }
 
-  async function handleSaveEdit(e) {
-    e.preventDefault();
-    if (!user || !editFriend) return;
-    const cleanedAddresses = (editFields.addresses || [])
+  /* ── Autosave ──────────────────────────────────────────────
+     The pop-up has no Save button: every edit is written a moment after the
+     typing stops, and whatever is still pending is written when it closes
+     (Done, a click outside, Escape on the Wedding page, or leaving the page).
+     lastSavedJson is what was last written (or what the contact held when it
+     opened), so re-renders that change nothing don't write. Copying the new
+     name/email/phone onto events happens once, on close — it reads every
+     event, too heavy to repeat per keystroke. */
+  const autosaveTimer = useRef(null);
+  const lastSavedJson = useRef('');
+  const editLatest = useRef(null); // { friend, fields, giftDraft } while open
+  const friendsRef = useRef(friends);
+  const embedRef = useRef(embed);
+  const finishEditRef = useRef(null);
+  const [saveStatus, setSaveStatus] = useState(''); // '' | 'saving' | 'saved' | 'error'
+  useEffect(() => {
+    editLatest.current = editFriend ? { friend: editFriend, fields: editFields, giftDraft } : null;
+    friendsRef.current = friends;
+    embedRef.current = embed;
+    finishEditRef.current = finishEdit;
+  });
+
+  // The form's fields as they're stored. extraGift folds in a gift idea that
+  // was typed but not yet "Added" — only on close, so it isn't added twice.
+  function buildEditPayload(fields, extraGift = '') {
+    const cleanedAddresses = (fields.addresses || [])
       .map(a => ({ label: (a.label || '').trim(), value: (a.value || '').trim() }))
       .filter(a => a.value);
-    // Fold in a gift idea that was typed but not yet "Added".
-    const pendingGift = giftDraft.trim();
-    const giftIdeas = [...(editFields.giftIdeas || []), ...(pendingGift ? [pendingGift] : [])];
-    const nextFields = {
-      ...editFields,
-      soundsLike: (editFields.soundsLike || '').trim(),
-      email: (editFields.email || '').trim().toLowerCase(),
-      workEmail: (editFields.workEmail || '').trim().toLowerCase(),
-      birthday: normalizeBirthday(editFields.birthday),
-      dob: normalizeDob(editFields.dob),
-      anniversary: normalizeAnnualDate(editFields.anniversary),
-      kids: kidsForSaving(editFields.kids),
+    return {
+      ...fields,
+      soundsLike: (fields.soundsLike || '').trim(),
+      email: (fields.email || '').trim().toLowerCase(),
+      workEmail: (fields.workEmail || '').trim().toLowerCase(),
+      birthday: normalizeBirthday(fields.birthday),
+      dob: normalizeDob(fields.dob),
+      anniversary: normalizeAnnualDate(fields.anniversary),
+      kids: kidsForSaving(fields.kids),
       addresses: cleanedAddresses,
       address: cleanedAddresses[0]?.value || '',
-      notes: (editFields.notes || '').trim(),
-      giftIdeas,
-      profile: profileForSaving(editFields.profile),
-      custom: cleanCustomValues(coerceCustomMap(customFields, editFields.custom)),
-      createdAt: editFriend.createdAt || new Date().toISOString(),
+      notes: (fields.notes || '').trim(),
+      giftIdeas: [...(fields.giftIdeas || []), ...(extraGift ? [extraGift] : [])],
+      profile: profileForSaving(fields.profile),
+      custom: cleanCustomValues(coerceCustomMap(customFields, fields.custom)),
     };
+  }
+
+  // Writes the payload if it differs from what was last written. True if it wrote.
+  async function writeEdit(friend, payload) {
+    if (!user || !(payload.name || '').trim()) return false;
+    const json = JSON.stringify(payload);
+    if (json === lastSavedJson.current) return false;
+    lastSavedJson.current = json;
     // Written over the contact as it stands now, not replacing it: fields this
     // form doesn't edit — the tier from the Tiers tab, anything an event wrote
     // back — used to be wiped by every save.
-    const { id: _ignoredId, ...stored } = friends.find(f => f.id === editFriend.id) || editFriend;
-    await setDoc(doc(db, 'users', user.uid, 'friends', editFriend.id), { ...stored, ...nextFields });
-
-    // Propagate name/email/phone to any event where this person is a member.
-    // Match by the PREVIOUS identity (what the event record currently stores) —
-    // email, phone digits, or full/first name — so renames still find them.
+    const { id: _ignoredId, ...stored } = friendsRef.current.find(f => f.id === friend.id) || friend;
     try {
-      const prevEmail = (editFriend.email || '').toLowerCase();
-      const prevDigits = (editFriend.phone || '').replace(/[^\d]/g, '');
-      const prevName = (editFriend.name || '').toLowerCase();
+      await setDoc(doc(db, 'users', user.uid, 'friends', friend.id), {
+        ...stored,
+        ...payload,
+        createdAt: friend.createdAt || stored.createdAt || new Date().toISOString(),
+      });
+    } catch (err) {
+      lastSavedJson.current = ''; // so the next edit retries
+      throw err;
+    }
+    return true;
+  }
+
+  async function notifyEmbedSaved(payload) {
+    if (!embedRef.current?.onSaved) return;
+    try { await embedRef.current.onSaved(payload); }
+    catch (err) { console.error('Embedded save hook failed:', err); }
+  }
+
+  async function autosaveNow() {
+    const cur = editLatest.current;
+    if (!cur) return;
+    const payload = buildEditPayload(cur.fields);
+    if (!(payload.name || '').trim()) return;
+    setSaveStatus('saving');
+    try {
+      if (await writeEdit(cur.friend, payload)) await notifyEmbedSaved(payload);
+      setSaveStatus('saved');
+    } catch (err) {
+      console.error('Autosave failed:', err);
+      setSaveStatus('error');
+    }
+  }
+
+  function cancelAutosave() {
+    const pending = !!autosaveTimer.current;
+    clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = null;
+    return pending;
+  }
+
+  // Each edit (re)starts a short timer; the write happens when it runs out.
+  useEffect(() => {
+    if (!editFriend) return undefined;
+    if (JSON.stringify(buildEditPayload(editFields)) === lastSavedJson.current) return undefined;
+    cancelAutosave();
+    autosaveTimer.current = setTimeout(() => { autosaveTimer.current = null; autosaveNow(); }, 700);
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editFields]);
+
+  // The last write of a session, then the copy onto events.
+  async function finishEdit(cur, { notify = true } = {}) {
+    const payload = buildEditPayload(cur.fields, (cur.giftDraft || '').trim());
+    try {
+      if (await writeEdit(cur.friend, payload) && notify) await notifyEmbedSaved(payload);
+    } catch (err) {
+      console.error('Save on close failed:', err);
+      setResult({ type: 'error', message: 'Could not save contact: ' + err.message });
+      setTimeout(() => setResult(null), 4000);
+      return;
+    }
+    if ((payload.name || '').trim()) propagateToEvents(cur.friend, payload);
+  }
+
+  function closeEdit() {
+    cancelAutosave();
+    const cur = editLatest.current;
+    editLatest.current = null;
+    setEditFriend(null);
+    setShowFamilyTree(false);
+    setSaveStatus('');
+    if (cur) finishEdit(cur);
+  }
+
+  // Leaving the page (or the Wedding page closing the pop-up itself) with the
+  // pop-up still open still saves it.
+  useEffect(() => () => {
+    const cur = editLatest.current;
+    clearTimeout(autosaveTimer.current);
+    if (cur) finishEditRef.current?.(cur);
+  }, []);
+
+  function deleteFromEdit() {
+    if (embed?.onDelete) {
+      // The Wedding page removes the guest, not the friend — so the friend's
+      // edits still get written, but not copied back onto the guest.
+      const cur = editLatest.current;
+      if (cancelAutosave() && cur) finishEdit(cur, { notify: false });
+      editLatest.current = null;
+      embed.onDelete();
+      return;
+    }
+    if (!window.confirm('Delete this contact?')) return;
+    cancelAutosave();
+    editLatest.current = null;
+    removeFriend(editFriend.id);
+    setEditFriend(null);
+    setSaveStatus('');
+  }
+
+  // Propagate name/email/phone to any event where this person is a member.
+  // Match by the PREVIOUS identity (what the event record currently stores) —
+  // email, phone digits, or full/first name — so renames still find them.
+  async function propagateToEvents(prevFriend, nextFields) {
+    const newName = (nextFields.name || '').trim();
+    const newEmail = nextFields.email;
+    const newPhone = (nextFields.phone || '').trim();
+    if (newName === (prevFriend.name || '').trim()
+      && newEmail === (prevFriend.email || '').trim().toLowerCase()
+      && newPhone === (prevFriend.phone || '').trim()) return;
+    try {
+      const prevEmail = (prevFriend.email || '').toLowerCase();
+      const prevDigits = (prevFriend.phone || '').replace(/[^\d]/g, '');
+      const prevName = (prevFriend.name || '').toLowerCase();
       const prevFirst = prevName.split(/\s+/)[0] || '';
-      const newName = (nextFields.name || '').trim();
-      const newEmail = nextFields.email;
-      const newPhone = (nextFields.phone || '').trim();
 
       const allEvents = await getDocs(collection(db, 'events'));
       for (const eventDoc of allEvents.docs) {
@@ -1229,14 +1361,6 @@ export function FriendsPage({ embed = null } = {}) {
         }
       }
     } catch {}
-
-    if (embed?.onSaved) {
-      try { await embed.onSaved(nextFields); }
-      catch (err) { console.error('Embedded save hook failed:', err); }
-    }
-    setEditFriend(null);
-    setResult({ type: 'success', message: 'Contact updated — synced to events' });
-    setTimeout(() => setResult(null), 3000);
   }
 
   function editSet(key, value) { setEditFields(prev => ({ ...prev, [key]: value })); }
@@ -1380,7 +1504,7 @@ export function FriendsPage({ embed = null } = {}) {
 
   // The family tree writes as it goes — a photo is uploaded the moment it's
   // picked — so its changes are saved straight away, and copied into the open
-  // form so Save Changes doesn't put the old tree back.
+  // form so a later autosave doesn't put the old tree back.
   async function saveFamilyTree({ tree, kids }) {
     if (!user || !editFriend) return;
     const familyTree = normalizeFamilyTree(tree);
@@ -2181,14 +2305,14 @@ export function FriendsPage({ embed = null } = {}) {
 
         {/* Edit contact modal */}
         {editFriend && (
-          <div className={styles.overlay} onClick={() => { setEditFriend(null); setShowFamilyTree(false); }}>
+          <div className={styles.overlay} onClick={closeEdit}>
             <div className={`${styles.modal} ${styles.modalWide}`} onClick={e => e.stopPropagation()}>
               <h2 className={styles.modalTitle}>Edit Contact</h2>
-              <form onSubmit={handleSaveEdit} className={styles.form}>
+              <form onSubmit={e => { e.preventDefault(); closeEdit(); }} className={styles.form}>
                 <div className={styles.editColumns}>
                 {/* Left: how to reach them. Right: who they are. */}
                 <div className={styles.editColumn}>
-                <label className={styles.label}>Name *<input className={styles.input} value={editFields.name} onChange={e => editSet('name', e.target.value)} required autoFocus /></label>
+                <label className={styles.label}>Name *<input className={styles.input} value={editFields.name} onChange={e => editSet('name', e.target.value)} autoFocus /></label>
                 <label className={styles.label}>Sounds like<input className={styles.input} value={editFields.soundsLike || ''} onChange={e => editSet('soundsLike', e.target.value)} placeholder="How to say it — e.g. AH-nya" /></label>
                 <label className={styles.label}>Email<input className={styles.input} type="email" value={editFields.email} onChange={e => editSet('email', e.target.value)} /></label>
                 <label className={styles.label}>Work Email<input className={styles.input} type="email" value={editFields.workEmail} onChange={e => editSet('workEmail', e.target.value)} /></label>
@@ -2265,9 +2389,15 @@ export function FriendsPage({ embed = null } = {}) {
                 </div>
                 </div>
                 <div className={styles.formActions}>
-                  <button className={styles.saveBtn} type="submit">Save Changes</button>
-                  <button className={styles.cancelBtn} type="button" onClick={() => setEditFriend(null)}>Cancel</button>
-                  <button type="button" onClick={() => { if (embed?.onDelete) { embed.onDelete(); return; } if (window.confirm('Delete this contact?')) { removeFriend(editFriend.id); setEditFriend(null); } }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--color-danger)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
+                  <button className={styles.saveBtn} type="submit">Done</button>
+                  <span role="status" aria-live="polite" data-testid="autosave-status" style={{ fontSize: '0.8rem', color: saveStatus === 'error' || !(editFields.name || '').trim() ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>
+                    {!(editFields.name || '').trim() ? 'Add a name to save changes'
+                      : saveStatus === 'saving' ? 'Saving…'
+                      : saveStatus === 'saved' ? '✓ Saved'
+                      : saveStatus === 'error' ? 'Couldn’t save — check your connection'
+                      : 'Changes save automatically'}
+                  </span>
+                  <button type="button" onClick={deleteFromEdit} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--color-danger)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
                 </div>
 
               </form>
