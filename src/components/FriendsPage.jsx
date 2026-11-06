@@ -966,8 +966,11 @@ function TierBoard({ friends, onSetTier }) {
 /* `embed` shows just one contact's Edit Contact pop-up, over whatever page
    renders it — the Wedding guest list uses it so a guest opens with exactly
    the fields (and save behaviour) they'd have here. Shape:
-     { friendId, onClose(), onMissing(), onSaved(fields) → promise, extra: node }
+     { friendId, onClose(), onMissing(), onSaved(fields) → promise, onDelete(), extra: node }
    onMissing (optional) runs instead of onClose when there's no such contact.
+   onDelete (optional) takes over the pop-up's Delete button, so the page
+   embedding it decides what Delete removes — the Wedding list removes the
+   guest and leaves the friend alone.
    `extra` is rendered at the top of the pop-up's right column; `onSaved` runs
    after the friend is written and before the pop-up closes. */
 export function FriendsPage({ embed = null } = {}) {
@@ -2264,7 +2267,7 @@ export function FriendsPage({ embed = null } = {}) {
                 <div className={styles.formActions}>
                   <button className={styles.saveBtn} type="submit">Save Changes</button>
                   <button className={styles.cancelBtn} type="button" onClick={() => setEditFriend(null)}>Cancel</button>
-                  <button type="button" onClick={() => { if (window.confirm('Delete this contact?')) { removeFriend(editFriend.id); setEditFriend(null); } }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--color-danger)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
+                  <button type="button" onClick={() => { if (embed?.onDelete) { embed.onDelete(); return; } if (window.confirm('Delete this contact?')) { removeFriend(editFriend.id); setEditFriend(null); } }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--color-danger)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
                 </div>
 
               </form>

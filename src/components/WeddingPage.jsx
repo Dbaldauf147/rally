@@ -1609,6 +1609,24 @@ function GuestList() {
     await persistContacts(next);
   };
 
+  // Delete in either pop-up takes the guest off the list only; a linked
+  // Friends contact stays, since they're still a friend.
+  const deleteContact = async () => {
+    if (!user || !editing || editing.id === null) return;
+    const name = `${editing.draft.firstName} ${editing.draft.lastName}`.trim() || 'this guest';
+    const friendNote = friendsById.has(editing.draft.friendId) ? ' They stay on your Friends page.' : '';
+    if (!confirm(`Delete ${name} from the wedding guest list?${friendNote} This cannot be undone.`)) return;
+    const id = editing.id;
+    setEditing(null);
+    setSelected((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    await persistContacts(contacts.filter((c) => c.id !== id));
+  };
+
   /* Adding a guest by hand also puts them on the Friends page. If they're
      already a friend (same email, phone or full name) the guest is linked to
      that record instead of making a second one; a friend picked in the pop-up
@@ -1996,6 +2014,7 @@ function GuestList() {
             onClose: closeContact,
             onMissing: () => setEditing((e) => (e ? { ...e, viaFriend: false } : e)),
             onSaved: saveGuestFromFriend,
+            onDelete: deleteContact,
             extra: (
               <div className={styles.friendWeddingBox}>
                 <div className={styles.friendWeddingTitle}>💒 Wedding</div>
@@ -2059,6 +2078,9 @@ function GuestList() {
               {draftDatalists}
             </div>
             <div className={styles.modalFooter}>
+              {editing.id !== null && (
+                <button className={styles.bulkDelete} type="button" onClick={deleteContact}>Delete</button>
+              )}
               <span className={styles.modalCount}>
                 {editing.id === null && !editing.draft.friendId ? 'Also added to Friends (or linked if already there)' : ''}
               </span>
