@@ -1469,12 +1469,13 @@ function GuestList() {
     await persistContacts(next);
   };
 
-  // Deleting from the pop-up takes the guest off the list only; a linked
-  // Friends record stays, since they're still a friend.
+  // Delete in either pop-up takes the guest off the list only; a linked
+  // Friends contact stays, since they're still a friend.
   const deleteContact = async () => {
     if (!user || !editing || editing.id === null) return;
     const name = `${editing.draft.firstName} ${editing.draft.lastName}`.trim() || 'this guest';
-    if (!confirm(`Delete ${name} from the guest list? This cannot be undone.`)) return;
+    const friendNote = friendsById.has(editing.draft.friendId) ? ' They stay on your Friends page.' : '';
+    if (!confirm(`Delete ${name} from the wedding guest list?${friendNote} This cannot be undone.`)) return;
     const id = editing.id;
     setEditing(null);
     setSelected((prev) => {
@@ -1870,6 +1871,7 @@ function GuestList() {
             onClose: closeContact,
             onMissing: () => setEditing((e) => (e ? { ...e, viaFriend: false } : e)),
             onSaved: saveGuestFromFriend,
+            onDelete: deleteContact,
             extra: (
               <div className={styles.friendWeddingBox}>
                 <div className={styles.friendWeddingTitle}>💒 Wedding</div>
