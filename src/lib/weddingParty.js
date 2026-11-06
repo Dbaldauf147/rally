@@ -148,3 +148,32 @@ export function rowOutlines(rows, partners) {
   }
   return out;
 }
+
+/* The table's group view: every wedding group as one block, whatever the
+   sort. A block sits where its first member falls in the sorted rows (so the
+   column sort still decides which group comes first), and inside it guests
+   keep the group's own order (partyUnits) with couples side by side. Guests
+   with no group stay where the sort put them, a couple among them pulled
+   together. Only rows passed in are placed — a filtered-out member stays out. */
+export function groupPartiesTogether(rows, partners, { canPair } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  const members = new Map();
+  for (const r of list) {
+    const k = partyKey(r.party);
+    if (!k) continue;
+    if (!members.has(k)) members.set(k, []);
+    members.get(k).push(r);
+  }
+  const emitted = new Set();
+  const out = [];
+  for (const r of list) {
+    const k = partyKey(r.party);
+    if (!k) { out.push(r); continue; }
+    if (emitted.has(k)) continue;
+    emitted.add(k);
+    for (const unit of partyUnits(members.get(k), partners)) out.push(...unit);
+  }
+  // Couples inside a block are already paired (partyUnits); canPair, when
+  // given, limits which ungrouped couples get pulled together.
+  return keepCouplesTogether(out, partners, { sameGroupOnly: true, canPair: canPair && ((x, y) => !!partyKey(x.party) || canPair(x, y)) });
+}

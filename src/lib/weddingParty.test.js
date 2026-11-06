@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, partyKey, keepCouplesTogether, rowOutlines } from './weddingParty';
+import { partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, partyKey, keepCouplesTogether, rowOutlines, groupPartiesTogether } from './weddingParty';
 
 const friendsById = new Map([
   ['fa', { id: 'fa', linkedTo: 'fb' }],   // Ann ↔ Bob, both ways
@@ -87,5 +87,35 @@ describe('keepCouplesTogether / rowOutlines', () => {
     // A one-person run gets no group box; Cat and Dan are still a couple.
     expect(o.get('c')).toEqual({ couple: 'top' });
     expect(o.get('d')).toEqual({ couple: 'bottom' });
+  });
+});
+
+describe('groupPartiesTogether', () => {
+  const g = (id, party, extra = {}) => ({ id, firstName: id, party, ...extra });
+
+  it('pulls a group split by the sort into one block where its first member was', () => {
+    const rows = [g('a', 'Smiths'), g('x', ''), g('b', 'Jones'), g('c', 'smiths '), g('y', ''), g('d', 'Jones')];
+    expect(groupPartiesTogether(rows, new Map()).map((r) => r.id)).toEqual(['a', 'c', 'x', 'b', 'd', 'y']);
+  });
+
+  it('orders a block by partyOrder and keeps couples side by side', () => {
+    const rows = [g('a', 'S', { partyOrder: 2 }), g('b', 'S', { partyOrder: 0 }), g('c', 'S', { partyOrder: 1 })];
+    const partners = new Map([['b', 'a'], ['a', 'b']]);
+    expect(groupPartiesTogether(rows, partners).map((r) => r.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('pulls an ungrouped couple together but leaves a partner in another group in theirs', () => {
+    const rows = [g('a', ''), g('x', 'S'), g('b', ''), g('c', 'T')];
+    const partners = new Map([['a', 'b'], ['b', 'a'], ['x', 'c'], ['c', 'x']]);
+    expect(groupPartiesTogether(rows, partners).map((r) => r.id)).toEqual(['a', 'b', 'x', 'c']);
+  });
+});
+
+describe('groupPartiesTogether with canPair', () => {
+  it('leaves an ungrouped couple apart when canPair says no, but still blocks groups', () => {
+    const g = (id, party) => ({ id, firstName: id, party });
+    const rows = [g('a', ''), g('x', 'S'), g('b', ''), g('y', 'S')];
+    const partners = new Map([['a', 'b'], ['b', 'a']]);
+    expect(groupPartiesTogether(rows, partners, { canPair: () => false }).map((r) => r.id)).toEqual(['a', 'x', 'y', 'b']);
   });
 });
