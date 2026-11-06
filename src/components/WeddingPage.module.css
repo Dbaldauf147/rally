@@ -233,3 +233,18 @@
 .statusPending .statusSelect { background: rgba(234, 179, 8, 0.22); color: #a16207; }
 .statusConfirmed .statusSelect { background: rgba(34, 197, 94, 0.22); color: #15803d; }
 .statusDeclined .statusSelect { background: rgba(239, 68, 68, 0.20); color: #b91c1c; }
+
+/* Outlines around wedding groups (solid accent border) and couples (rose
+   inset ring, drawn inside any group box) — lib/weddingParty.js rowOutlines. */
+.groupBox td:first-child { border-left: 2px solid var(--color-accent); }
+.groupBox td:last-child { border-right: 2px solid var(--color-accent); }
+.groupBox_top td { border-top: 2px solid var(--color-accent); }
+.table tbody .groupBox_bottom td { border-bottom: 2px solid var(--color-accent); }
+.coupleBox td {
+  --wd-couple: #e11d74;
+  box-shadow: var(--cb-t, 0 0 0 transparent), var(--cb-b, 0 0 0 transparent), var(--cb-l, 0 0 0 transparent), var(--cb-r, 0 0 0 transparent);
+}
+.coupleBox td:first-child { --cb-l: inset 2px 0 0 var(--wd-couple); }
+.coupleBox td:last-child { --cb-r: inset -2px 0 0 var(--wd-couple); }
+.coupleBox_top td { --cb-t: inset 0 2px 0 var(--wd-couple); }
+.coupleBox_bottom td { --cb-b: inset 0 -2px 0 var(--wd-couple); }

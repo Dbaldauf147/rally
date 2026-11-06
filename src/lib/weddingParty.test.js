@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, partyKey } from './weddingParty';
+import { partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, partyKey, keepCouplesTogether, rowOutlines } from './weddingParty';
 
 const friendsById = new Map([
   ['fa', { id: 'fa', linkedTo: 'fb' }],   // Ann ↔ Bob, both ways
@@ -63,5 +63,29 @@ describe('partyPositions', () => {
     expect(pos.get('e')).toBe(0);
     expect(pos.has('d')).toBe(false);
     expect(partyKey('  Smiths ')).toBe('smiths');
+  });
+});
+
+describe('keepCouplesTogether / rowOutlines', () => {
+  const partners = partnerMap([ann, bob, cat, dan, eve], friendsById);
+  it('pulls the second half of a couple up beside the first', () => {
+    expect(keepCouplesTogether([ann, cat, eve, bob, dan], partners).map((r) => r.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+  it('leaves a partner filtered out of the rows alone', () => {
+    expect(keepCouplesTogether([ann, cat, eve], partners).map((r) => r.id)).toEqual(['a', 'c', 'e']);
+  });
+  it('with sameGroupOnly, a partner in another group stays put', () => {
+    const rows = [{ ...ann, party: 'Smith' }, { ...cat, party: 'Smith' }, { ...bob, party: 'Jones' }];
+    expect(keepCouplesTogether(rows, partners, { sameGroupOnly: true }).map((r) => r.id)).toEqual(['a', 'c', 'b']);
+  });
+  it('boxes runs of a group and adjacent couples', () => {
+    const rows = [{ ...ann, party: 'Smith' }, { ...bob, party: 'smith ' }, { ...eve, party: 'Smith' }, { ...cat, party: 'Lone' }, dan];
+    const o = rowOutlines(rows, partners);
+    expect(o.get('a')).toEqual({ group: 'top', couple: 'top' });
+    expect(o.get('b')).toEqual({ group: 'mid', couple: 'bottom' });
+    expect(o.get('e')).toEqual({ group: 'bottom' });
+    // A one-person run gets no group box; Cat and Dan are still a couple.
+    expect(o.get('c')).toEqual({ couple: 'top' });
+    expect(o.get('d')).toEqual({ couple: 'bottom' });
   });
 });
