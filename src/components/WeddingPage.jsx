@@ -237,6 +237,11 @@ function splitGuestName(name) {
 const HIDE_CATEGORY = 'hide';
 const isHidden = (c) => String(c?.category || '').trim().toLowerCase() === HIDE_CATEGORY;
 
+// The table's outline colours until you pick your own — the same as the
+// --wd-group / --wd-couple defaults in WeddingPage.module.css.
+const DEFAULT_OUTLINE_COLORS = { group: '#4f46e5', couple: '#e11d74' };
+const isHexColor = (v) => /^#[0-9a-f]{6}$/i.test(String(v || ''));
+
 const NEW_GROUP_SENTINEL = '__new_group__';
 const NEW_SIDE_SENTINEL = '__new_side__';
 const NEW_CATEGORY_SENTINEL = '__new_category__';
@@ -320,6 +325,10 @@ function GuestList() {
   // until Save.
   const [categoryEditor, setCategoryEditor] = useState(null);
   const [columnConfig, setColumnConfig] = useState({});
+  // The table's outline colours ({ group, couple }, hex), saved on the user
+  // doc as weddingOutlineColors. Blank means the default from the stylesheet.
+  const [outlineColors, setOutlineColors] = useState({});
+  const outlineSaveTimer = useRef(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [columnFilters, setColumnFilters] = useState(DEFAULT_FILTERS);
@@ -392,6 +401,11 @@ function GuestList() {
         setSavedCategories(Array.isArray(data.weddingCategories) ? data.weddingCategories : []);
         setFriendsSynced(!!data[SYNC_FLAG]);
         setColumnConfig(data.weddingColumnConfig && typeof data.weddingColumnConfig === 'object' ? data.weddingColumnConfig : {});
+        // Not while a pick is still waiting to be saved, or the snapshot of the
+        // previous save would snap the picker back mid-drag.
+        if (!outlineSaveTimer.current) {
+          setOutlineColors(data.weddingOutlineColors && typeof data.weddingOutlineColors === 'object' ? data.weddingOutlineColors : {});
+        }
         // Defaults chosen so switching it on is a one-click decision: their own
         // address, Sunday morning, whatever timezone the browser is in.
         const wd = data.weddingDigest && typeof data.weddingDigest === 'object' ? data.weddingDigest : {};
@@ -612,6 +626,21 @@ function GuestList() {
     if (!user) return;
     await setDoc(doc(db, 'users', user.uid), { weddingCategories: next }, { merge: true });
   };
+
+  /* A colour picker fires on every step of a drag, so the pick shows at once
+     and is written once it settles. A '' colour puts the default back. */
+  const updateOutlineColors = (patch) => {
+    const next = { ...outlineColors, ...patch };
+    setOutlineColors(next);
+    clearTimeout(outlineSaveTimer.current);
+    outlineSaveTimer.current = setTimeout(() => {
+      outlineSaveTimer.current = null;
+      if (!user) return;
+      setDoc(doc(db, 'users', user.uid), { weddingOutlineColors: next }, { merge: true })
+        .catch((err) => console.error('Failed to save outline colours:', err));
+    }, 400);
+  };
+  useEffect(() => () => clearTimeout(outlineSaveTimer.current), []);
 
   const persistColumnConfig = async (next) => {
     if (!user) return;
@@ -874,6 +903,11 @@ function GuestList() {
   }, [contacts, search, columnFilters, sortKey, sortDir, friendsById, partyPos, partners]);
   // Boxes around wedding groups and couples that sit together in the table.
   const outlines = useMemo(() => rowOutlines(filtered, partners), [filtered, partners]);
+  // Their colours, as the CSS variables the outlines and the key's swatches read.
+  const outlineVars = {
+    '--wd-group': isHexColor(outlineColors.group) ? outlineColors.group : DEFAULT_OUTLINE_COLORS.group,
+    '--wd-couple': isHexColor(outlineColors.couple) ? outlineColors.couple : DEFAULT_OUTLINE_COLORS.couple,
+  };
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -1900,6 +1934,33 @@ function GuestList() {
         <button className={styles.tierLegendEdit} type="button" onClick={openGroupEditor}>Edit groups</button>
       </div>
 
+      <div className={styles.tierLegend} style={outlineVars} aria-label="Table outlines">
+        <span className={styles.tierLegendTitle}>Outlines</span>
+        {[
+          { key: 'group', label: 'Wedding group', swatch: styles.outlineSwatchGroup, fallback: DEFAULT_OUTLINE_COLORS.group },
+          { key: 'couple', label: 'Couple', swatch: styles.outlineSwatchCouple, fallback: DEFAULT_OUTLINE_COLORS.couple },
+        ].map((o) => (
+          <label key={o.key} className={styles.tierLegendItem}>
+            <span className={`${styles.outlineSwatch} ${o.swatch}`} aria-hidden="true" />
+            {o.label}
+            <input
+              type="color"
+              className={styles.outlineColor}
+              value={isHexColor(outlineColors[o.key]) ? outlineColors[o.key] : o.fallback}
+              onChange={(e) => updateOutlineColors({ [o.key]: e.target.value })}
+              aria-label={`${o.label} outline colour`}
+            />
+          </label>
+        ))}
+        {(outlineColors.group || outlineColors.couple) && (
+          <button
+            className={styles.tierLegendEdit}
+            type="button"
+            onClick={() => updateOutlineColors({ group: '', couple: '' })}
+          >Reset colours</button>
+        )}
+      </div>
+
       <div className={styles.categoryTabs} role="tablist" aria-label="Guests by category">
         {categoryTabs.map((t) => (
           <button
@@ -2433,7 +2494,7 @@ function GuestList() {
 
       <div className={styles.tableWrap}>
         <div className={styles.tableScroll}>
-          <table className={styles.table} style={{ tableLayout: 'fixed', width: totalWidth }}>
+          <table className={styles.table} style={{ tableLayout: 'fixed', width: totalWidth, ...outlineVars }}>
             <colgroup>
               <col style={{ width: 36 }} />
               {visibleColumns.map((col) => (

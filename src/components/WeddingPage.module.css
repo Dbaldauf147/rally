@@ -242,17 +242,39 @@
 .statusConfirmed .statusSelect { background: rgba(34, 197, 94, 0.22); color: #15803d; }
 .statusDeclined .statusSelect { background: rgba(239, 68, 68, 0.20); color: #b91c1c; }
 
-/* Outlines around wedding groups (solid accent border) and couples (rose
-   inset ring, drawn inside any group box) — lib/weddingParty.js rowOutlines. */
-.groupBox td:first-child { border-left: 2px solid var(--color-accent); }
-.groupBox td:last-child { border-right: 2px solid var(--color-accent); }
-.groupBox_top td { border-top: 2px solid var(--color-accent); }
-.table tbody .groupBox_bottom td { border-bottom: 2px solid var(--color-accent); }
-.coupleBox td {
-  --wd-couple: #e11d74;
-  box-shadow: var(--cb-t, 0 0 0 transparent), var(--cb-b, 0 0 0 transparent), var(--cb-l, 0 0 0 transparent), var(--cb-r, 0 0 0 transparent);
+/* Outlines around wedding groups and couples — lib/weddingParty.js
+   rowOutlines says which rows get which edge. Each cell draws its own piece
+   of the box as a pseudo-element, so the pieces line up into one outline:
+   the wedding group a dotted line with rounded corners on the cell edges
+   (::after), the couple a solid line set in a few pixels (::before), so it
+   always sits inside any group box around it. The colours are --wd-group and
+   --wd-couple, which the page sets on the table from the saved picks. */
+.table { --wd-group: #4f46e5; --wd-couple: #e11d74; }
+.groupBox td, .coupleBox td { position: relative; }
+.groupBox td::after,
+.coupleBox td::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 0 dotted var(--wd-group);
 }
-.coupleBox td:first-child { --cb-l: inset 2px 0 0 var(--wd-couple); }
-.coupleBox td:last-child { --cb-r: inset -2px 0 0 var(--wd-couple); }
-.coupleBox_top td { --cb-t: inset 0 2px 0 var(--wd-couple); }
-.coupleBox_bottom td { --cb-b: inset 0 -2px 0 var(--wd-couple); }
+.groupBox td:first-child::after { left: 1px; border-left-width: 2px; }
+.groupBox td:last-child::after { right: 1px; border-right-width: 2px; }
+.groupBox_top td::after { top: 1px; border-top-width: 2px; }
+.groupBox_bottom td::after { bottom: 1px; border-bottom-width: 2px; }
+.groupBox_top td:first-child::after { border-top-left-radius: 12px; }
+.groupBox_top td:last-child::after { border-top-right-radius: 12px; }
+.groupBox_bottom td:first-child::after { border-bottom-left-radius: 12px; }
+.groupBox_bottom td:last-child::after { border-bottom-right-radius: 12px; }
+.coupleBox td::before { border-style: solid; border-color: var(--wd-couple); }
+.coupleBox td:first-child::before { left: 5px; border-left-width: 2px; }
+.coupleBox td:last-child::before { right: 5px; border-right-width: 2px; }
+.coupleBox_top td::before { top: 5px; border-top-width: 2px; }
+.coupleBox_bottom td::before { bottom: 5px; border-bottom-width: 2px; }
+
+/* The outline key above the table, with a colour picker for each. */
+.outlineSwatch { display: inline-block; width: 1.6rem; height: 0.95rem; border-radius: 6px; vertical-align: middle; }
+.outlineSwatchGroup { border: 2px dotted var(--wd-group); }
+.outlineSwatchCouple { border: 2px solid var(--wd-couple); border-radius: 2px; }
+.outlineColor { width: 1.9rem; height: 1.5rem; padding: 0; border: 1px solid var(--color-border); border-radius: 4px; background: none; cursor: pointer; }
