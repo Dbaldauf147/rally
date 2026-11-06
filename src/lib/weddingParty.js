@@ -95,3 +95,53 @@ export function partyPositions(guests, partners) {
   }
   return pos;
 }
+
+/* The table outlines households and couples, which only reads when they sit
+   together. Couples are pulled together whatever the sort: the second half
+   follows the first wherever the first lands. With `sameGroupOnly` (the
+   Wedding group sort) a partner in a different group stays in their own. */
+export function keepCouplesTogether(rows, partners, { sameGroupOnly = false } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  const byId = new Map(list.map((r) => [r.id, r]));
+  const placed = new Set();
+  const out = [];
+  for (const r of list) {
+    if (placed.has(r.id)) continue;
+    placed.add(r.id);
+    out.push(r);
+    const p = byId.get(partners?.get?.(r.id));
+    if (!p || placed.has(p.id)) continue;
+    if (sameGroupOnly && partyKey(p.party) !== partyKey(r.party)) continue;
+    placed.add(p.id);
+    out.push(p);
+  }
+  return out;
+}
+
+/* Where the outlines go, for rows in display order: id → { group, couple },
+   each 'top' | 'mid' | 'bottom' | 'only' or absent. A group box is a run of
+   two or more adjacent rows in the same wedding group; a couple box is two
+   adjacent partners. */
+export function rowOutlines(rows, partners) {
+  const list = Array.isArray(rows) ? rows : [];
+  const out = new Map(list.map((r) => [r.id, {}]));
+  let i = 0;
+  while (i < list.length) {
+    const k = partyKey(list[i].party);
+    let j = i + 1;
+    if (k) while (j < list.length && partyKey(list[j].party) === k) j++;
+    if (k && j - i >= 2) {
+      for (let n = i; n < j; n++) out.get(list[n].id).group = n === i ? 'top' : n === j - 1 ? 'bottom' : 'mid';
+    }
+    i = j;
+  }
+  for (let n = 0; n + 1 < list.length; n++) {
+    const a = list[n];
+    const b = list[n + 1];
+    if (partners?.get?.(a.id) === b.id && !out.get(a.id).couple) {
+      out.get(a.id).couple = 'top';
+      out.get(b.id).couple = 'bottom';
+    }
+  }
+  return out;
+}

@@ -8,7 +8,7 @@ import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
-import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName } from '../lib/weddingParty';
+import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName, keepCouplesTogether, rowOutlines } from '../lib/weddingParty';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
@@ -886,8 +886,10 @@ function GuestList() {
       if (av > bv) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
-    return sorted;
-  }, [contacts, search, columnFilters, sortKey, sortDir, friendsById, partyPos]);
+    return keepCouplesTogether(sorted, partners, { sameGroupOnly: sortKey === 'party' });
+  }, [contacts, search, columnFilters, sortKey, sortDir, friendsById, partyPos, partners]);
+  // Boxes around wedding groups and couples that sit together in the table.
+  const outlines = useMemo(() => rowOutlines(filtered, partners), [filtered, partners]);
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -2370,7 +2372,14 @@ function GuestList() {
                 </td></tr>
               )}
               {!loading && filtered.map((c) => (
-                <tr key={c.id} className={STATUS_CLASS[c.status] ? styles[STATUS_CLASS[c.status]] : undefined}>
+                <tr
+                  key={c.id}
+                  className={[
+                    STATUS_CLASS[c.status] ? styles[STATUS_CLASS[c.status]] : '',
+                    outlines.get(c.id)?.group ? `${styles.groupBox} ${styles[`groupBox_${outlines.get(c.id).group}`]}` : '',
+                    outlines.get(c.id)?.couple ? `${styles.coupleBox} ${styles[`coupleBox_${outlines.get(c.id).couple}`]}` : '',
+                  ].filter(Boolean).join(' ') || undefined}
+                >
                   <td className={styles.checkCell}>
                     <input
                       type="checkbox"
