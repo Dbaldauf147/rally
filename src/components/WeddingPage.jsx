@@ -1622,12 +1622,23 @@ function GuestList() {
     const plan = importPlan;
     if (!plan || (plan.added.length === 0 && plan.updated.length === 0)) return;
     const newContacts = plan.added;
-    await persistContacts(plan.contacts);
+    // Closed straight away: the table shows the write at once, and the server
+    // confirming it can take a few seconds. Left open, the preview would
+    // re-plan against the already-updated list and read "0 new". If the save
+    // fails the dialog comes back with the paste still in it.
     setImportOpen(false);
     const said = [];
     if (plan.added.length) said.push(`added ${plan.added.length} new ${plan.added.length === 1 ? 'guest' : 'guests'}`);
     if (plan.updated.length) said.push(`updated ${plan.updated.length} already on the list`);
     setImportResultMsg(`Import done: ${said.join(' and ')}.`);
+    try {
+      await persistContacts(plan.contacts);
+    } catch (err) {
+      console.error('Guest import failed:', err);
+      setImportResultMsg("Couldn't save that import, so nothing changed. Your paste is still in the dialog — try again.");
+      setImportOpen(true);
+      return;
+    }
     if (newContacts.length === 0) return;
     // Imported guests go on the Friends page too, matched to anyone already
     // there. Saved first, so a failed friend write never loses the import.

@@ -202,20 +202,37 @@ export function rowToFields(row, mappings) {
   return out;
 }
 
-const hasIdentity = (f) => !!(f.firstName || f.lastName || f.email || f.phone);
+function sameValue(key, a, b) {
+  if (key === 'phone') {
+    const da = String(a).replace(/\D/g, '');
+    const db = String(b).replace(/\D/g, '');
+    return !!da && (da === db || (phoneKey(a) && phoneKey(a) === phoneKey(b)));
+  }
+  return norm(a).replace(/\s+/g, ' ') === norm(b).replace(/\s+/g, ' ');
+}
 
+const hasIdentity =(f) => !!(f.firstName || f.lastName || f.email || f.phone);
+
+// A shared email or phone is common on a wedding list (a couple on one
+// number), so a key that fits several guests is narrowed by the name before
+// it's called ambiguous.
 function findMatches(list, fields) {
+  const name = nameKey(fields);
+  const narrow = (hits) => {
+    if (hits.length < 2 || !name) return hits;
+    const byName = hits.filter((g) => nameKey(g) === name);
+    return byName.length === 1 ? byName : hits;
+  };
   const email = norm(fields.email);
   if (email) {
     const hits = list.filter((g) => norm(g.email) === email);
-    if (hits.length) return hits;
+    if (hits.length) return narrow(hits);
   }
   const phone = phoneKey(fields.phone);
   if (phone) {
     const hits = list.filter((g) => phoneKey(g.phone) === phone);
-    if (hits.length) return hits;
+    if (hits.length) return narrow(hits);
   }
-  const name = nameKey(fields);
   if (name) return list.filter((g) => nameKey(g) === name);
   return [];
 }
@@ -261,8 +278,9 @@ export function planGuestImport(existing, rows, mappings, { overwrite = false, n
       const cur = clean(guest[k]);
       if (cur === v) continue;
       if (cur && !overwrite) continue;
-      // Same email/name typed in a different case isn't news.
-      if (cur && norm(cur) === norm(v) && (k === 'email' || k === 'firstName' || k === 'lastName')) continue;
+      // The same value written differently isn't news: an email or name in
+      // another case, a phone with other punctuation.
+      if (cur && sameValue(k, cur, v)) continue;
       guest[k] = v;
       changed = true;
       if (!addedIds.has(guest.id)) {

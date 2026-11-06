@@ -90,6 +90,12 @@ describe('planGuestImport', () => {
     expect(r.updated[0].fields).toEqual(['city']);
   });
 
+  it('does not count a reformatted phone or a different case as a change', () => {
+    const r = planGuestImport(existing, [['Bob ray', '+1 555-123-4567']], ['fullName', 'phone'], { overwrite: true, makeId: ids() });
+    expect(r.updated).toEqual([]);
+    expect(r.unchanged).toBe(1);
+  });
+
   it('matches by phone digits and by unique full name', () => {
     const map = ['fullName', 'phone', 'zip'];
     const r = planGuestImport(existing, [['Robert Ray', '555.123.4567', '02139']], map, { makeId: ids() });
@@ -114,6 +120,17 @@ describe('planGuestImport', () => {
   it('still matches one of two same-named guests by email', () => {
     const r = planGuestImport(existing, [['Sam Lee', 'sam2@x.com', 'Denver']], ['fullName', 'email', 'city'], { makeId: ids() });
     expect(r.updated[0]).toMatchObject({ id: 'd', fields: ['city'] });
+  });
+
+  it('tells apart a couple sharing one phone by name', () => {
+    const couple = [
+      { id: 'x', firstName: 'Dan', lastName: 'B', phone: '(631) 988-9244' },
+      { id: 'y', firstName: 'Jo', lastName: 'S', phone: '(631) 988-9244' },
+    ];
+    const map = ['fullName', 'phone', 'email'];
+    const r = planGuestImport(couple, [['Jo S', '6319889244', 'jo@x.com'], ['Pat Q', '6319889244', 'pat@x.com']], map, { makeId: ids() });
+    expect(r.updated).toEqual([expect.objectContaining({ id: 'y', fields: ['email'] })]);
+    expect(r.ambiguous).toEqual([{ row: 1, name: 'Pat Q' }]);
   });
 
   it('folds the same new person pasted twice into one guest', () => {
