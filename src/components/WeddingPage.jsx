@@ -156,6 +156,8 @@ const ALL_COLUMNS = [
   // categories doesn't interleave them.
   { key: 'subcategory', label: 'Subcategory', defaultWidth: 150, sortBy: (c) => `${(c.category || '').toLowerCase()}\u0000${(c.subcategory || '').toLowerCase()}` },
   { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
+  // Side of the family — free-form ("Mom's side", "Baldauf side"), its own list.
+  { key: 'side', label: 'Side', defaultWidth: 150, sortBy: (c) => (c.side || '').toLowerCase() },
   { key: 'friend', label: 'Friend', defaultWidth: 180, sortBy: (c) => c.friendId || '' },
   { key: 'email', label: 'Email', defaultWidth: 220, sortBy: (c) => (c.email || '').toLowerCase() },
   { key: 'phone', label: 'Phone', defaultWidth: 140, sortBy: (c) => c.phone || '' },
@@ -165,7 +167,7 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
 
-const DEFAULT_VISIBLE = ['name', 'status', 'group', 'category', 'subcategory', 'guestOf', 'friend', 'email', 'phone', 'city', 'state'];
+const DEFAULT_VISIBLE = ['name', 'status', 'group', 'category', 'subcategory', 'guestOf', 'side', 'friend', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
@@ -175,6 +177,7 @@ const EDITABLE_FIELDS = [
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'guestOf', label: 'Guest Of' },
+  { key: 'side', label: 'Side of the family' },
   { key: 'address', label: 'Address' },
   { key: 'city', label: 'City' },
   { key: 'state', label: 'State' },
@@ -194,6 +197,7 @@ const CONTACT_FORM_FIELDS = [
   { key: 'state', label: 'State' },
   { key: 'zip', label: 'Zip' },
   { key: 'guestOf', label: 'Guest of' },
+  { key: 'side', label: 'Side of the family' },
   { key: 'status', label: 'Status' },
   { key: 'group', label: 'Group' },
   { key: 'category', label: 'Category' },
@@ -208,6 +212,7 @@ const HIDE_CATEGORY = 'hide';
 const isHidden = (c) => String(c?.category || '').trim().toLowerCase() === HIDE_CATEGORY;
 
 const NEW_GROUP_SENTINEL = '__new_group__';
+const NEW_SIDE_SENTINEL = '__new_side__';
 const NEW_CATEGORY_SENTINEL = '__new_category__';
 const NEW_SUBCATEGORY_SENTINEL = '__new_subcategory__';
 
@@ -261,6 +266,7 @@ const FIELD_PATTERNS = [
   { key: 'category', patterns: [/^category/i, /^type$/i] },
   { key: 'subcategory', patterns: [/^sub[-\s]*category/i, /^sub[-\s]*type$/i] },
   { key: 'guestOf', patterns: [/^guest\s*of/i, /^plus\s*one/i, /^\+1$/i] },
+  { key: 'side', patterns: [/side/i] },
 ];
 
 function parseTSV(text) {
@@ -321,6 +327,7 @@ function renderCell(col, c) {
     case 'name': return <>{c.firstName} {c.lastName}</>;
     case 'group': return c.group ? <span className={styles.groupBadge}>{c.group}</span> : <span className={styles.muted}>—</span>;
     case 'guestOf': return c.guestOf || <span className={styles.muted}>—</span>;
+    case 'side': return c.side || <span className={styles.muted}>—</span>;
     case 'email': return c.email ? <a className={styles.link} href={`mailto:${c.email}`}>{c.email}</a> : <span className={styles.muted}>—</span>;
     case 'phone': return c.phone ? <a className={styles.link} href={`tel:${c.phone.replace(/[^+\d]/g, '')}`}>{c.phone}</a> : <span className={styles.muted}>—</span>;
     case 'address': return c.address || <span className={styles.muted}>—</span>;
@@ -346,6 +353,7 @@ function GuestList() {
   const friendSyncStarted = useRef(false);
   const [friendSyncMsg, setFriendSyncMsg] = useState('');
   const [savedGroups, setSavedGroups] = useState([]);
+  const [savedSides, setSavedSides] = useState([]);
   const [groupDescriptions, setGroupDescriptions] = useState({});
   // The "Edit groups" pop-up: one row per group, { from, name, desc }.
   // Nothing is written until Save.
@@ -414,6 +422,7 @@ function GuestList() {
       async (snap) => {
         const data = snap.exists() ? snap.data() : {};
         setSavedGroups(Array.isArray(data.weddingGroups) ? data.weddingGroups : []);
+        setSavedSides(Array.isArray(data.weddingSides) ? data.weddingSides : []);
         setGroupDescriptions(data.weddingGroupDescriptions && typeof data.weddingGroupDescriptions === 'object' ? data.weddingGroupDescriptions : {});
         setSavedCategories(Array.isArray(data.weddingCategories) ? data.weddingCategories : []);
         setFriendsSynced(!!data[SYNC_FLAG]);
@@ -563,6 +572,21 @@ function GuestList() {
     }
   };
 
+  const persistSides = async (next) => {
+    if (!user) return;
+    await setDoc(doc(db, 'users', user.uid), { weddingSides: next }, { merge: true });
+  };
+
+  // "+ New side…" in any dropdown: ask for the name, keep it, hand it back.
+  const promptNewSide = () => {
+    const name = (prompt('New side of the family? (e.g. "Mom\'s side")') || '').trim();
+    if (!name) return '';
+    const nextSaved = Array.from(new Set([...savedSides, name])).sort((a, b) => a.localeCompare(b));
+    setSavedSides(nextSaved);
+    persistSides(nextSaved);
+    return name;
+  };
+
   const persistGroups = async (next) => {
     if (!user) return;
     await setDoc(doc(db, 'users', user.uid), { weddingGroups: next }, { merge: true });
@@ -594,6 +618,12 @@ function GuestList() {
     contacts.forEach((c) => { if (c.group) set.add(c.group); });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [contacts, savedGroups]);
+
+  const sides = useMemo(() => {
+    const set = new Set(savedSides.filter(Boolean));
+    contacts.forEach((c) => { if (c.side) set.add(c.side); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [contacts, savedSides]);
 
   // A saved description (even an empty one, meaning "cleared") beats the default.
   const groupDescription = (g) => (
@@ -752,6 +782,9 @@ function GuestList() {
         case 'guestOf':
           if (val === '__none__') return !c.guestOf;
           return c.guestOf === val;
+        case 'side':
+          if (val === '__none__') return !c.side;
+          return c.side === val;
         case 'state': return c.state === val;
         case 'status':
           if (val === '__none__') return !c.status;
@@ -785,7 +818,7 @@ function GuestList() {
     }
     if (q) {
       rows = rows.filter((c) => {
-        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.subcategory || ''} ${c.guestOf || ''}`.toLowerCase();
+        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.subcategory || ''} ${c.guestOf || ''} ${c.side || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
@@ -1054,6 +1087,13 @@ function GuestList() {
     );
   };
 
+  const handleRowSideChange = async (id, val) => {
+    const side = val === NEW_SIDE_SENTINEL ? promptNewSide() : val;
+    if (val === NEW_SIDE_SENTINEL && !side) return;
+    const next = contacts.map((c) => (c.id === id ? { ...c, side } : c));
+    await persistContacts(next);
+  };
+
   const handleRowGroupChange = async (id, val) => {
     let groupName = val;
     if (val === NEW_GROUP_SENTINEL) {
@@ -1257,6 +1297,14 @@ function GuestList() {
             <option value="">All</option>
             <option value="__none__">— None —</option>
             {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        );
+      case 'side':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__none__">— None —</option>
+            {sides.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         );
       case 'status':
@@ -1680,6 +1728,19 @@ function GuestList() {
               {bulkSubcategories.map((g) => <option key={g} value={g}>{g}</option>)}
               <option value={NEW_SUBCATEGORY_SENTINEL}>+ New subcategory…</option>
             </select>
+          ) : bulkField === 'side' ? (
+            <select
+              className={styles.bulkInput}
+              value={bulkValue}
+              onChange={(e) => {
+                const v = e.target.value === NEW_SIDE_SENTINEL ? promptNewSide() : e.target.value;
+                if (e.target.value !== NEW_SIDE_SENTINEL || v) setBulkValue(v);
+              }}
+            >
+              <option value="">— (clear)</option>
+              {sides.map((g) => <option key={g} value={g}>{g}</option>)}
+              <option value={NEW_SIDE_SENTINEL}>+ New side…</option>
+            </select>
           ) : bulkField === 'guestOf' ? (
             <select className={styles.bulkInput} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}>
               <option value="">— (clear)</option>
@@ -1753,7 +1814,7 @@ function GuestList() {
                       <input
                         className={styles.contactInput}
                         type={f.type || 'text'}
-                        list={f.key === 'group' ? 'wedding-groups' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
+                        list={f.key === 'group' ? 'wedding-groups' : f.key === 'side' ? 'wedding-sides' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
                         placeholder={f.key === 'subcategory' && !editing.draft.category.trim() ? 'Pick a category first' : undefined}
                         disabled={f.key === 'subcategory' && !editing.draft.category.trim()}
                         value={editing.draft[f.key]}
@@ -1776,6 +1837,7 @@ function GuestList() {
                   </select>
                 </label>
               </div>
+              <datalist id="wedding-sides">{sides.map((g) => <option key={g} value={g} />)}</datalist>
               <datalist id="wedding-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
               <datalist id="wedding-categories">{categories.map((g) => <option key={g} value={g} />)}</datalist>
               <datalist id="wedding-subcategories">
@@ -2134,6 +2196,17 @@ function GuestList() {
                         >
                           <option value="">— None —</option>
                           {STATUS_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      ) : col.key === 'side' ? (
+                        <select
+                          className={styles.cellSelect}
+                          value={c.side || ''}
+                          onChange={(e) => handleRowSideChange(c.id, e.target.value)}
+                          aria-label={`Side of the family for ${`${c.firstName || ''} ${c.lastName || ''}`.trim()}`}
+                        >
+                          <option value="">— None —</option>
+                          {sides.map((g) => <option key={g} value={g}>{g}</option>)}
+                          <option value={NEW_SIDE_SENTINEL}>+ New side…</option>
                         </select>
                       ) : col.key === 'guestOf' ? (
                         <select
