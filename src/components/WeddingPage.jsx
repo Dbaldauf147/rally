@@ -11,6 +11,7 @@ import { FriendsPage } from './FriendsPage';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
+import { buildGuestWorkbook, exportFileName } from '../lib/weddingGuestExport';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -365,6 +366,7 @@ function GuestList() {
   const [friendsSynced, setFriendsSynced] = useState(null);
   const friendSyncStarted = useRef(false);
   const [friendSyncMsg, setFriendSyncMsg] = useState('');
+  const [exporting, setExporting] = useState(false);
   const [savedGroups, setSavedGroups] = useState([]);
   const [savedSides, setSavedSides] = useState([]);
   const [groupDescriptions, setGroupDescriptions] = useState({});
@@ -857,6 +859,31 @@ function GuestList() {
   }, [contacts, search, columnFilters, sortKey, sortDir, friendsById]);
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
+
+  // The whole list (minus hidden guests) as a formatted .xlsx. ExcelJS is
+  // big, so it only loads when someone actually exports.
+  async function exportToExcel() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { default: ExcelJS } = await import('exceljs');
+      const buf = await buildGuestWorkbook(ExcelJS, contacts);
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = exportFileName();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      console.error('Guest list export failed', err);
+      alert('Could not build the Excel file. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const setSort = (key) => {
     if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -1752,6 +1779,9 @@ function GuestList() {
         <button className={styles.toolButton} type="button" onClick={openNewContact}>+ Guest</button>
         <button className={styles.toolButton} type="button" onClick={openImport}>+ Import</button>
         <button className={styles.toolButton} type="button" onClick={autoMatchFriends}>Auto-match Friends</button>
+        <button className={styles.toolButton} type="button" onClick={exportToExcel} disabled={exporting}>
+          {exporting ? 'Exporting…' : 'Export to Excel'}
+        </button>
         <div className={styles.colMenu} ref={columnsMenuRef}>
           <button className={styles.toolButton} type="button" onClick={() => setShowColumnsMenu((s) => !s)}>
             Columns ▾
