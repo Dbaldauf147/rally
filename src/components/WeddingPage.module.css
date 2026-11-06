@@ -122,6 +122,14 @@
 .modalTextarea:focus { outline: none; border-color: var(--color-accent); }
 .modalCheckRow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text); margin: 0.85rem 0 0.5rem; cursor: pointer; }
 .modalCheckRow input { accent-color: var(--color-accent); }
+.importMode { display: flex; flex-wrap: wrap; align-items: center; gap: 0 1.25rem; margin-top: 0.75rem; }
+.importMode .modalCheckRow { margin: 0.35rem 0; }
+.importModeLabel { font-size: 0.85rem; font-weight: 600; color: var(--color-text); width: 100%; }
+.importSummary { margin-top: 0.75rem; padding: 0.65rem 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.importSummaryCounts { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.85rem; color: var(--color-text); }
+.importChangeList { margin: 0.5rem 0 0; padding-left: 1.1rem; font-size: 0.82rem; color: var(--color-text-muted); }
+.importChangeList li { margin: 0.15rem 0; }
+.importSummary .modalHint { margin: 0.5rem 0 0; }
 .mapScroll { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .mapTable { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 .mapTable th, .mapTable td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--color-border-light); border-right: 1px solid var(--color-border-light); white-space: nowrap; vertical-align: top; }
