@@ -8,6 +8,7 @@ import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
+import { makeGuestComparator, sameSortValue, statusOrder } from '../lib/weddingSort';
 import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName, keepCouplesTogether, rowOutlines } from '../lib/weddingParty';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
@@ -147,18 +148,18 @@ const SEED_CONTACTS = [
 // RSVP status. Rows sink by status: undecided and Pending stay on top where the
 // work is, Confirmed drops below them, and Not coming sits at the very bottom.
 const STATUS_OPTIONS = ['Pending', 'Confirmed', 'Not coming'];
-const STATUS_RANK = { Confirmed: 1, 'Not coming': 2 };
-const statusRank = (c) => STATUS_RANK[c.status] || 0;
 const STATUS_CLASS = { Pending: 'statusPending', Confirmed: 'statusConfirmed', 'Not coming': 'statusDeclined' };
 
+// sortBy gives each column's sort value; lib/weddingSort.js does the comparing
+// (blanks last, natural order, ties by name).
 const ALL_COLUMNS = [
-  { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => `${c.lastName || ''} ${c.firstName || ''}`.toLowerCase() },
-  { key: 'status', label: 'Status', defaultWidth: 130, sortBy: (c) => `${statusRank(c)}${c.status === 'Pending' ? 0 : 1}` },
+  { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => [c.lastName, c.firstName] },
+  { key: 'status', label: 'Status', defaultWidth: 130, sortBy: statusOrder },
   { key: 'group', label: 'Group', defaultWidth: 140, sortBy: (c) => (c.group || '').toLowerCase() },
   { key: 'category', label: 'Category', defaultWidth: 140, sortBy: (c) => (c.category || '').toLowerCase() },
   // Sorts inside its category, so the same subcategory name under two
   // categories doesn't interleave them.
-  { key: 'subcategory', label: 'Subcategory', defaultWidth: 150, sortBy: (c) => `${(c.category || '').toLowerCase()}\u0000${(c.subcategory || '').toLowerCase()}` },
+  { key: 'subcategory', label: 'Subcategory', defaultWidth: 150, sortBy: (c) => (c.subcategory ? [c.category, c.subcategory] : '') },
   { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
   // Side of the family — free-form ("Mom's side", "Baldauf side"), its own list.
   { key: 'side', label: 'Side', defaultWidth: 150, sortBy: (c) => (c.side || '').toLowerCase() },
@@ -314,7 +315,9 @@ function GuestList() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [columnFilters, setColumnFilters] = useState(DEFAULT_FILTERS);
-  const [sortKey, setSortKey] = useState('name');
+  // '' is the default view (by name, status sunk); a header click sorts by
+  // that column alone.
+  const [sortKey, setSortKey] = useState('');
   const [sortDir, setSortDir] = useState('asc');
   const [selected, setSelected] = useState(() => new Set());
   const [bulkField, setBulkField] = useState('group');
@@ -364,6 +367,7 @@ function GuestList() {
   const columnsMenuRef = useRef(null);
   const columnConfigRef = useRef({});
   const dragRef = useRef(null);
+  const resizedRef = useRef(false);
 
   useEffect(() => { columnConfigRef.current = columnConfig; }, [columnConfig]);
 
@@ -839,37 +843,26 @@ function GuestList() {
         return hay.includes(q);
       });
     }
-    const col = ALL_COLUMNS.find((c) => c.key === sortKey) || ALL_COLUMNS[0];
-    const sorted = [...rows].sort((a, b) => {
-      // Status groups come first whatever column is sorted, so Confirmed
-      // and Not coming always settle to the bottom — except by wedding group,
-      // where a household stays together whoever has RSVP'd.
-      if (sortKey === 'party') {
+    if (sortKey === 'party') {
+      // A household stays together in its saved order whoever has RSVP'd;
+      // guests with no group stay at the bottom either way.
+      const sign = sortDir === 'desc' ? -1 : 1;
+      const sorted = [...rows].sort((a, b) => {
         const ka = partyKey(a.party);
         const kb = partyKey(b.party);
-        // Guests with no group stay at the bottom either way.
         if (!ka !== !kb) return ka ? -1 : 1;
-        if (ka !== kb) return (ka < kb ? -1 : 1) * (sortDir === 'asc' ? 1 : -1);
+        if (ka !== kb) return ka.localeCompare(kb, undefined, { numeric: true }) * sign;
         return (partyPos.get(a.id) ?? 0) - (partyPos.get(b.id) ?? 0);
-      }
-      if (sortKey !== 'status') {
-        const ra = statusRank(a);
-        const rb = statusRank(b);
-        if (ra !== rb) return ra - rb;
-      }
-      let av, bv;
-      if (sortKey === 'friend') {
-        av = (friendsById.get(a.friendId)?.name || '').toLowerCase();
-        bv = (friendsById.get(b.friendId)?.name || '').toLowerCase();
-      } else {
-        av = col.sortBy(a);
-        bv = col.sortBy(b);
-      }
-      if (av < bv) return sortDir === 'asc' ? -1 : 1;
-      if (av > bv) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return keepCouplesTogether(sorted, partners, { sameGroupOnly: sortKey === 'party' });
+      });
+      return keepCouplesTogether(sorted, partners, { sameGroupOnly: true });
+    }
+    // No header picked yet: by name, Confirmed and Not coming sunk to the
+    // bottom, couples side by side. A picked header sorts by that column alone
+    // and only pairs partners who tie on it, so its order is never broken.
+    const col = ALL_COLUMNS.find((c) => c.key === (sortKey || 'name')) || ALL_COLUMNS[0];
+    const value = sortKey === 'friend' ? (c) => friendsById.get(c.friendId)?.name || '' : col.sortBy;
+    const sorted = [...rows].sort(makeGuestComparator({ value, dir: sortDir, sinkStatus: !sortKey }));
+    return keepCouplesTogether(sorted, partners, sortKey ? { canPair: (a, b) => sameSortValue(value(a), value(b)) } : {});
   }, [contacts, search, columnFilters, sortKey, sortDir, friendsById, partyPos, partners]);
   // Boxes around wedding groups and couples that sit together in the table.
   const outlines = useMemo(() => rowOutlines(filtered, partners), [filtered, partners]);
@@ -901,9 +894,14 @@ function GuestList() {
     }
   }
 
+  // A → Z, then Z → A, then back to the default view. A drag on a column's
+  // resize handle that ends over its header still fires a click there — that
+  // one isn't a sort.
   const setSort = (key) => {
-    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(key); setSortDir('asc'); }
+    if (resizedRef.current) return;
+    if (key !== sortKey) { setSortKey(key); setSortDir('asc'); }
+    else if (sortDir === 'asc') setSortDir('desc');
+    else { setSortKey(''); setSortDir('asc'); }
   };
 
   const toggleSelected = (id) => {
@@ -1294,6 +1292,8 @@ function GuestList() {
       document.body.classList.remove('rally-col-resizing');
       persistColumnConfig(columnConfigRef.current);
       dragRef.current = null;
+      resizedRef.current = true;
+      setTimeout(() => { resizedRef.current = false; }, 0);
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
