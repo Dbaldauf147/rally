@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs';
 import { buildGuestWorkbook, exportableGuests, countBy, statusCounts, exportFileName } from './weddingGuestExport.js';
 
 const guests = [
-  { id: '1', firstName: 'Zoe', lastName: 'Adams', status: 'Confirmed', category: 'A', group: 'College', email: 'zoe@example.com', zip: '01234' },
+  { id: '1', firstName: 'Zoe', lastName: 'Adams', status: 'Confirmed', category: 'A', group: 'College', side: "Mom's side", email: 'zoe@example.com', zip: '01234' },
   { id: '2', firstName: 'Bob', lastName: 'Young', status: 'Pending', category: 'B', group: 'Work' },
   { id: '3', firstName: 'Al', lastName: 'Brown', status: 'Not coming', category: 'A', group: 'College' },
   { id: '4', firstName: 'Cy', lastName: 'Clark', category: 'A' },
@@ -43,8 +43,9 @@ describe('buildGuestWorkbook', () => {
     expect(ws.getCell('B7').value).toBe('Confirmed');
     expect(ws.getCell('B7').fill.fgColor.argb).toBe('FFDDF3E4');
     expect(ws.getCell('B8').fill.fgColor.argb).toBe('FFFBE0E0');
-    expect(ws.getCell('G7').value).toMatchObject({ hyperlink: 'mailto:zoe@example.com' });
-    expect(ws.getCell('L7').value).toBe('01234');
+    expect(ws.getCell('G7').value).toBe("Mom's side");
+    expect(ws.getCell('H7').value).toMatchObject({ hyperlink: 'mailto:zoe@example.com' });
+    expect(ws.getCell('M7').value).toBe('01234');
     expect(ws.rowCount).toBe(8);
     expect(ws.views[0]).toMatchObject({ state: 'frozen', ySplit: 4 });
 
@@ -53,6 +54,9 @@ describe('buildGuestWorkbook', () => {
     sum.eachRow((row) => labels.push(row.getCell(2).value));
     expect(labels).toContain('By Status');
     expect(labels).toContain('Total');
+    const right = [];
+    sum.eachRow((row) => right.push(row.getCell(6).value));
+    expect(right).toContain('By Side');
   });
 
   it('handles an empty list', async () => {

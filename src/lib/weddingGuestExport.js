@@ -9,7 +9,7 @@
      Pending, green Confirmed, red Not coming). Sorted the way the page sorts:
      undecided and Pending first, then Confirmed, then Not coming, each by
      last name. Set up to print landscape, one page wide, header repeated.
-   - Summary: guest counts by status, category, group and guest-of. */
+   - Summary: guest counts by status, category, group, guest-of and side. */
 
 export const STATUS_ORDER = ['Pending', 'Confirmed', 'Not coming'];
 const STATUS_RANK = { Confirmed: 1, 'Not coming': 2 };
@@ -35,6 +35,7 @@ export const EXPORT_COLUMNS = [
   { key: 'category', header: 'Category', width: 16 },
   { key: 'subcategory', header: 'Subcategory', width: 18 },
   { key: 'guestOf', header: 'Guest Of', width: 16 },
+  { key: 'side', header: 'Side', width: 18 },
   { key: 'email', header: 'Email', width: 30 },
   { key: 'phone', header: 'Phone', width: 16 },
   { key: 'address', header: 'Address', width: 30 },
@@ -70,6 +71,7 @@ export function guestRow(c) {
     category: clean(c.category),
     subcategory: clean(c.subcategory),
     guestOf: clean(c.guestOf),
+    side: clean(c.side),
     email: clean(c.email),
     phone: clean(c.phone),
     address: clean(c.address),
@@ -259,7 +261,8 @@ function buildSummarySheet(wb, guests, { title, exportedOn }) {
   const leftEnd = table(4, 2, 'By Status', statusPairs, (label) => STATUS_STYLE[label]);
   table(leftEnd, 2, 'By Category', countBy(guests, 'category'));
   const rightEnd = table(4, 6, 'By Group', countBy(guests, 'group'));
-  table(rightEnd, 6, 'By Guest Of', countBy(guests, 'guestOf'));
+  const guestOfEnd = table(rightEnd, 6, 'By Guest Of', countBy(guests, 'guestOf'));
+  table(guestOfEnd, 6, 'By Side', countBy(guests, 'side'));
   return ws;
 }
 
