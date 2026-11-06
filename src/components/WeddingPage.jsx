@@ -8,6 +8,7 @@ import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
+import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName } from '../lib/weddingParty';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
@@ -159,6 +160,9 @@ const ALL_COLUMNS = [
   { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
   // Side of the family — free-form ("Mom's side", "Baldauf side"), its own list.
   { key: 'side', label: 'Side', defaultWidth: 150, sortBy: (c) => (c.side || '').toLowerCase() },
+  // Household / party (lib/weddingParty.js). Sorted by the table itself, not
+  // here: members sit together in their saved order, couples side by side.
+  { key: 'party', label: 'Wedding group', defaultWidth: 170, sortBy: (c) => partyKey(c.party) || '￿' },
   { key: 'friend', label: 'Friend', defaultWidth: 180, sortBy: (c) => c.friendId || '' },
   { key: 'email', label: 'Email', defaultWidth: 220, sortBy: (c) => (c.email || '').toLowerCase() },
   { key: 'phone', label: 'Phone', defaultWidth: 140, sortBy: (c) => c.phone || '' },
@@ -168,7 +172,7 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
 
-const DEFAULT_VISIBLE = ['name', 'status', 'group', 'category', 'subcategory', 'guestOf', 'side', 'friend', 'email', 'phone', 'city', 'state'];
+const DEFAULT_VISIBLE = ['name', 'status', 'group', 'category', 'subcategory', 'guestOf', 'side', 'party', 'friend', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
@@ -179,6 +183,7 @@ const EDITABLE_FIELDS = [
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'guestOf', label: 'Guest Of' },
   { key: 'side', label: 'Side of the family' },
+  { key: 'party', label: 'Wedding group' },
   { key: 'address', label: 'Address' },
   { key: 'city', label: 'City' },
   { key: 'state', label: 'State' },
@@ -203,6 +208,7 @@ const CONTACT_FORM_FIELDS = [
   { key: 'group', label: 'Group' },
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
+  { key: 'party', label: 'Wedding group', wide: true },
 ];
 
 // What the Friends pop-up doesn't already hold: the mailing address split the
@@ -263,6 +269,7 @@ const IMPORT_FIELDS = [
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'guestOf', label: 'Guest Of' },
+  { key: 'party', label: 'Wedding group' },
 ];
 
 const FIELD_PATTERNS = [
@@ -280,6 +287,7 @@ const FIELD_PATTERNS = [
   { key: 'subcategory', patterns: [/^sub[-\s]*category/i, /^sub[-\s]*type$/i] },
   { key: 'guestOf', patterns: [/^guest\s*of/i, /^plus\s*one/i, /^\+1$/i] },
   { key: 'side', patterns: [/side/i] },
+  { key: 'party', patterns: [/^wedding\s*group/i, /^party$/i, /^household/i] },
 ];
 
 function parseTSV(text) {
@@ -341,6 +349,7 @@ function renderCell(col, c) {
     case 'group': return c.group ? <span className={styles.groupBadge}>{c.group}</span> : <span className={styles.muted}>—</span>;
     case 'guestOf': return c.guestOf || <span className={styles.muted}>—</span>;
     case 'side': return c.side || <span className={styles.muted}>—</span>;
+    case 'party': return c.party ? <span className={styles.partyBadge}>{c.party}</span> : <span className={styles.muted}>—</span>;
     case 'email': return c.email ? <a className={styles.link} href={`mailto:${c.email}`}>{c.email}</a> : <span className={styles.muted}>—</span>;
     case 'phone': return c.phone ? <a className={styles.link} href={`tel:${c.phone.replace(/[^+\d]/g, '')}`}>{c.phone}</a> : <span className={styles.muted}>—</span>;
     case 'address': return c.address || <span className={styles.muted}>—</span>;
@@ -638,6 +647,16 @@ function GuestList() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [contacts, savedSides]);
 
+  // Wedding groups (households / parties): the names in use, couples from
+  // Comes With, and everyone's place in their group — lib/weddingParty.js.
+  const parties = useMemo(() => {
+    const byKey = new Map();
+    contacts.forEach((c) => { const k = partyKey(c.party); if (k && !byKey.has(k)) byKey.set(k, c.party.trim()); });
+    return Array.from(byKey.values()).sort((a, b) => a.localeCompare(b));
+  }, [contacts]);
+  const partners = useMemo(() => partnerMap(contacts, friendsById), [contacts, friendsById]);
+  const partyPos = useMemo(() => partyPositions(contacts, partners), [contacts, partners]);
+
   // A saved description (even an empty one, meaning "cleared") beats the default.
   const groupDescription = (g) => (
     Object.prototype.hasOwnProperty.call(groupDescriptions, g) ? groupDescriptions[g] : (TIER_DESCRIPTIONS[g] || '')
@@ -801,6 +820,9 @@ function GuestList() {
         case 'side':
           if (val === '__none__') return !c.side;
           return c.side === val;
+        case 'party':
+          if (val === '__none__') return !partyKey(c.party);
+          return partyKey(c.party) === partyKey(val);
         case 'state': return c.state === val;
         case 'status':
           if (val === '__none__') return !c.status;
@@ -828,14 +850,23 @@ function GuestList() {
     }
     if (q) {
       rows = rows.filter((c) => {
-        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.subcategory || ''} ${c.guestOf || ''} ${c.side || ''}`.toLowerCase();
+        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.subcategory || ''} ${c.guestOf || ''} ${c.side || ''} ${c.party || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
     const col = ALL_COLUMNS.find((c) => c.key === sortKey) || ALL_COLUMNS[0];
     const sorted = [...rows].sort((a, b) => {
       // Status groups come first whatever column is sorted, so Confirmed
-      // and Not coming always settle to the bottom.
+      // and Not coming always settle to the bottom — except by wedding group,
+      // where a household stays together whoever has RSVP'd.
+      if (sortKey === 'party') {
+        const ka = partyKey(a.party);
+        const kb = partyKey(b.party);
+        // Guests with no group stay at the bottom either way.
+        if (!ka !== !kb) return ka ? -1 : 1;
+        if (ka !== kb) return (ka < kb ? -1 : 1) * (sortDir === 'asc' ? 1 : -1);
+        return (partyPos.get(a.id) ?? 0) - (partyPos.get(b.id) ?? 0);
+      }
       if (sortKey !== 'status') {
         const ra = statusRank(a);
         const rb = statusRank(b);
@@ -854,7 +885,7 @@ function GuestList() {
       return 0;
     });
     return sorted;
-  }, [contacts, search, columnFilters, sortKey, sortDir, friendsById]);
+  }, [contacts, search, columnFilters, sortKey, sortDir, friendsById, partyPos]);
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -948,6 +979,10 @@ function GuestList() {
       // A new category takes its own subcategories, not the old one's.
       if (bulkField === 'category') {
         return c.category === bulkValue ? c : { ...c, category: bulkValue, subcategory: '' };
+      }
+      // Joining a different wedding group: their old place means nothing there.
+      if (bulkField === 'party') {
+        return partyKey(c.party) === partyKey(bulkValue) ? c : { ...c, party: bulkValue, partyOrder: null };
       }
       return { ...c, [bulkField]: bulkValue };
     });
@@ -1317,6 +1352,14 @@ function GuestList() {
             {sides.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         );
+      case 'party':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__none__">— None —</option>
+            {parties.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        );
       case 'status':
         return (
           <select className={styles.filterSelect} value={v} onChange={onSel}>
@@ -1390,6 +1433,8 @@ function GuestList() {
     if (!patch.category) patch.subcategory = '';
     const guest = contacts.find((c) => c.id === editing.id);
     if (!guest) return;
+    // A new wedding group starts them at the end of it.
+    if (partyKey(guest.party) !== partyKey(patch.party)) patch.partyOrder = null;
     const name = (friend.name || '').trim();
     if (name && name !== `${guest.firstName || ''} ${guest.lastName || ''}`.trim()) {
       Object.assign(patch, splitGuestName(name));
@@ -1418,7 +1463,7 @@ function GuestList() {
         <input
           className={styles.contactInput}
           type={f.type || 'text'}
-          list={f.key === 'group' ? 'wedding-groups' : f.key === 'side' ? 'wedding-sides' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
+          list={f.key === 'group' ? 'wedding-groups' : f.key === 'side' ? 'wedding-sides' : f.key === 'party' ? 'wedding-parties' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
           placeholder={f.key === 'subcategory' && !editing.draft.category.trim() ? 'Pick a category first' : undefined}
           disabled={f.key === 'subcategory' && !editing.draft.category.trim()}
           value={editing.draft[f.key]}
@@ -1430,6 +1475,7 @@ function GuestList() {
   );
   const draftDatalists = editing && (
     <>
+      <datalist id="wedding-parties">{parties.map((g) => <option key={g} value={g} />)}</datalist>
       <datalist id="wedding-sides">{sides.map((g) => <option key={g} value={g} />)}</datalist>
       <datalist id="wedding-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
       <datalist id="wedding-categories">{categories.map((g) => <option key={g} value={g} />)}</datalist>
@@ -1438,6 +1484,71 @@ function GuestList() {
       </datalist>
     </>
   );
+
+  /* Under the Wedding group field: who else is in the group, in order, with
+     ↑/↓ to reorder (saved straight away — it moves other guests too, so it
+     can't wait on this pop-up's Save). Couples from Comes With are one row and
+     move together. If this guest's Comes With partner is on the list but not
+     in the group, say so and offer to bring them in. */
+  const renderPartyPanel = () => {
+    if (!editing) return null;
+    const draftParty = String(editing.draft.party || '').trim();
+    const key = partyKey(draftParty);
+    const me = editing.id ? contacts.find((c) => c.id === editing.id) : null;
+    const partner = me && partners.has(me.id) ? contacts.find((c) => c.id === partners.get(me.id)) : null;
+    if (!key && !partner) return null;
+    const members = key ? contacts.filter((c) => partyKey(c.party) === key && !isHidden(c)) : [];
+    const units = partyUnits(members, partners);
+    const meSaved = !!me && partyKey(me.party) === key;
+    const myName = `${editing.draft.firstName || ''} ${editing.draft.lastName || ''}`.trim() || guestName(me) || 'this guest';
+    const reorder = async (i, dir) => {
+      const next = moveUnit(units, i, dir);
+      if (next === units) return;
+      const order = orderFromUnits(next);
+      await persistContacts(contacts.map((c) => (order.has(c.id) ? { ...c, partyOrder: order.get(c.id) } : c)));
+    };
+    const bringPartner = () => persistContacts(contacts.map((c) => (c.id === partner.id ? { ...c, party: draftParty, partyOrder: null } : c)));
+    const partnerOutside = partner && partyKey(partner.party) !== key;
+    return (
+      <div className={styles.partyPanel} data-testid="party-panel">
+        {partnerOutside && (
+          <div className={styles.partyCouple}>
+            <span>💑 Comes with <strong>{guestName(partner)}</strong>{partner.party ? ` · in ${partner.party}` : ''}</span>
+            {key ? (
+              <button type="button" className={styles.partyLink} onClick={bringPartner}>Add to {draftParty}</button>
+            ) : partner.party ? (
+              <button type="button" className={styles.partyLink} onClick={() => setDraftField('party', partner.party)}>Join {partner.party}</button>
+            ) : null}
+          </div>
+        )}
+        {key && (
+          <>
+            <div className={styles.partyHead}>
+              In {draftParty} · {members.length} {members.length === 1 ? 'person' : 'people'}
+            </div>
+            {!meSaved && <p className={styles.partyNote}>Save to add {myName} to this group.</p>}
+            {units.length > 0 && (
+              <ol className={styles.partyList}>
+                {units.map((u, i) => {
+                  const label = u.map(guestName).join(' & ');
+                  const mine = me && u.some((g) => g.id === me.id);
+                  return (
+                    <li key={u[0].id} className={mine ? styles.partyRowMine : styles.partyRow}>
+                      <span className={styles.partyPos}>{i + 1}</span>
+                      <span className={styles.partyName}>{u.length > 1 && <span aria-label="couple">💑 </span>}{label}</span>
+                      <button type="button" className={styles.partyMove} onClick={() => reorder(i, -1)} disabled={i === 0} aria-label={`Move ${label} up`}>↑</button>
+                      <button type="button" className={styles.partyMove} onClick={() => reorder(i, 1)} disabled={i === units.length - 1} aria-label={`Move ${label} down`}>↓</button>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
   // A new guest opens the same pop-up with an empty draft (id null). The
   // category tab you're on is filled in, so the guest lands where you are
   // looking; "Not categorized" means none.
@@ -1464,6 +1575,8 @@ function GuestList() {
       await addNewGuest(patch);
       return;
     }
+    const prev = contacts.find((c) => c.id === editing.id);
+    if (prev && partyKey(prev.party) !== partyKey(patch.party)) patch.partyOrder = null;
     const next = contacts.map((c) => (c.id === editing.id ? { ...c, ...patch } : c));
     setEditing(null);
     await persistContacts(next);
@@ -1859,6 +1972,7 @@ function GuestList() {
                 <div className={styles.contactGrid}>
                   {WEDDING_ONLY_FIELDS.map(renderDraftField)}
                 </div>
+                {renderPartyPanel()}
                 {draftDatalists}
               </div>
             ),
@@ -1911,6 +2025,7 @@ function GuestList() {
                   </select>
                 </label>
               </div>
+              {renderPartyPanel()}
               {draftDatalists}
             </div>
             <div className={styles.modalFooter}>

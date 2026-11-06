@@ -139,6 +139,21 @@
 .contactActions a { text-decoration: none; flex: 1; text-align: center; }
 /* The wedding fields, boxed at the top of the Friends pop-up's right column. */
 .friendWeddingBox { padding: 0.75rem 0.85rem; margin-bottom: 0.75rem; border: 1px solid var(--color-accent); border-radius: var(--radius-lg); background: var(--color-accent-light); }
+/* Wedding group members under the field in the contact pop-up. */
+.partyPanel { margin-top: 0.7rem; padding: 0.6rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); display: flex; flex-direction: column; gap: 0.45rem; }
+.partyHead { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.partyNote { margin: 0; font-size: 0.8rem; color: var(--color-text-secondary); }
+.partyList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.partyRow, .partyRowMine { display: flex; align-items: center; gap: 0.45rem; padding: 0.3rem 0.45rem; border-radius: var(--radius-md); font-size: 0.85rem; color: var(--color-text); }
+.partyRow { background: var(--color-surface-alt); }
+.partyRowMine { background: var(--color-accent-light); font-weight: 600; }
+.partyPos { min-width: 1.2rem; font-size: 0.72rem; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+.partyName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.partyMove { width: 1.7rem; height: 1.7rem; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); cursor: pointer; font-family: inherit; }
+.partyMove:disabled { opacity: 0.35; cursor: default; }
+.partyCouple { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem; font-size: 0.83rem; color: var(--color-text); }
+.partyLink { border: 1px solid var(--color-accent); border-radius: var(--radius-md); background: var(--color-accent-light); color: var(--color-accent); padding: 0.2rem 0.55rem; font-size: 0.78rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.partyBadge { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--color-surface-alt); border: 1px solid var(--color-border); color: var(--color-text); font-size: 0.78rem; font-weight: 500; }
 .friendWeddingTitle { margin-bottom: 0.55rem; font-size: 0.85rem; font-weight: 700; color: var(--color-accent); }
 .contactGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 0.75rem; }
 .contactWide { grid-column: 1 / -1; }
