@@ -99,8 +99,10 @@ export function partyPositions(guests, partners) {
 /* The table outlines households and couples, which only reads when they sit
    together. Couples are pulled together whatever the sort: the second half
    follows the first wherever the first lands. With `sameGroupOnly` (the
-   Wedding group sort) a partner in a different group stays in their own. */
-export function keepCouplesTogether(rows, partners, { sameGroupOnly = false } = {}) {
+   Wedding group sort) a partner in a different group stays in their own;
+   `canPair(a, b)` narrows it further (a column sort only pairs partners that
+   tie on that column, so the sort itself is never broken). */
+export function keepCouplesTogether(rows, partners, { sameGroupOnly = false, canPair } = {}) {
   const list = Array.isArray(rows) ? rows : [];
   const byId = new Map(list.map((r) => [r.id, r]));
   const placed = new Set();
@@ -112,6 +114,7 @@ export function keepCouplesTogether(rows, partners, { sameGroupOnly = false } = 
     const p = byId.get(partners?.get?.(r.id));
     if (!p || placed.has(p.id)) continue;
     if (sameGroupOnly && partyKey(p.party) !== partyKey(r.party)) continue;
+    if (canPair && !canPair(r, p)) continue;
     placed.add(p.id);
     out.push(p);
   }
