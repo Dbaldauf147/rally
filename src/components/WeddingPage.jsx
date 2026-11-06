@@ -7,6 +7,7 @@ import { API_BASE } from '../native';
 import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
+import { FriendsPage } from './FriendsPage';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
@@ -203,6 +204,19 @@ const CONTACT_FORM_FIELDS = [
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
 ];
+
+// What the Friends pop-up doesn't already hold: the mailing address split the
+// way invitations need it, and the wedding's own fields. Name, email and phone
+// come from the contact itself.
+const WEDDING_ONLY_FIELDS = CONTACT_FORM_FIELDS.filter((f) => !['firstName', 'lastName', 'phone', 'email'].includes(f.key))
+  .map((f) => (f.key === 'address' ? { ...f, label: 'Mailing address' } : f));
+
+// "Mary Ann Smith" → first "Mary Ann", last "Smith".
+function splitGuestName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  const lastName = parts.length > 1 ? parts.pop() : '';
+  return { firstName: parts.join(' '), lastName };
+}
 
 // A guest whose category is "Hide" drops out of the page: the table, every
 // count and summary, the other subtabs and the weekly email. They stay on the
@@ -1353,12 +1367,81 @@ function GuestList() {
   };
   const closeImport = () => setImportOpen(false);
 
+  // A guest linked to a Friends contact opens that contact's Friends pop-up
+  // (viaFriend); one without falls back to the guest-only pop-up below. The
+  // link is trusted rather than checked against `friends` here, which may not
+  // have loaded yet — if the contact turns out to be gone, the embedded pop-up
+  // reports it (onMissing) and the guest-only one opens instead.
   const openContact = (c) => {
     const draft = {};
     for (const f of CONTACT_FORM_FIELDS) draft[f.key] = c[f.key] || '';
     draft.friendId = c.friendId || '';
-    setEditing({ id: c.id, draft });
+    const viaFriend = !!c.friendId;
+    setEditing({ id: c.id, draft, viaFriend });
   };
+
+  /* Saving the Friends pop-up for a guest: the friend is already written (by
+     FriendsPage); this saves the wedding box and copies the name, email and
+     phone back so the guest row says what the contact says. The name is only
+     re-split when it actually changed, so "Mary Ann" / "Smith" survives. */
+  const saveGuestFromFriend = async (friend) => {
+    if (!editing) return;
+    const patch = {};
+    for (const f of WEDDING_ONLY_FIELDS) {
+      const v = editing.draft[f.key];
+      patch[f.key] = typeof v === 'string' ? v.trim() : v;
+    }
+    if (!patch.category) patch.subcategory = '';
+    const guest = contacts.find((c) => c.id === editing.id);
+    if (!guest) return;
+    const name = (friend.name || '').trim();
+    if (name && name !== `${guest.firstName || ''} ${guest.lastName || ''}`.trim()) {
+      Object.assign(patch, splitGuestName(name));
+    }
+    if ((friend.email || '') !== (guest.email || '').trim().toLowerCase()) patch.email = friend.email || '';
+    if ((friend.phone || '').trim() !== (guest.phone || '').trim()) patch.phone = (friend.phone || '').trim();
+    await persistContacts(contacts.map((c) => (c.id === editing.id ? { ...c, ...patch } : c)));
+  };
+
+  // One field of the guest pop-up's draft — shared by the guest-only pop-up
+  // and the wedding box inside the Friends one.
+  const renderDraftField = (f) => (
+    <label key={f.key} className={f.wide ? `${styles.contactField} ${styles.contactWide}` : styles.contactField}>
+      <span className={styles.contactLabel}>{f.label}</span>
+      {f.key === 'guestOf' ? (
+        <select className={styles.contactInput} value={editing.draft.guestOf} onChange={(e) => setDraftField('guestOf', e.target.value)}>
+          <option value="">— None —</option>
+          {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+      ) : f.key === 'status' ? (
+        <select className={styles.contactInput} value={editing.draft.status} onChange={(e) => setDraftField('status', e.target.value)}>
+          <option value="">— None —</option>
+          {STATUS_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+      ) : (
+        <input
+          className={styles.contactInput}
+          type={f.type || 'text'}
+          list={f.key === 'group' ? 'wedding-groups' : f.key === 'side' ? 'wedding-sides' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
+          placeholder={f.key === 'subcategory' && !editing.draft.category.trim() ? 'Pick a category first' : undefined}
+          disabled={f.key === 'subcategory' && !editing.draft.category.trim()}
+          value={editing.draft[f.key]}
+          onChange={(e) => setDraftField(f.key, e.target.value)}
+          autoComplete="off"
+        />
+      )}
+    </label>
+  );
+  const draftDatalists = editing && (
+    <>
+      <datalist id="wedding-sides">{sides.map((g) => <option key={g} value={g} />)}</datalist>
+      <datalist id="wedding-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+      <datalist id="wedding-categories">{categories.map((g) => <option key={g} value={g} />)}</datalist>
+      <datalist id="wedding-subcategories">
+        {subcategoriesFor(editing.draft.category).map((g) => <option key={g} value={g} />)}
+      </datalist>
+    </>
+  );
   // A new guest opens the same pop-up with an empty draft (id null). The
   // category tab you're on is filled in, so the guest lands where you are
   // looking; "Not categorized" means none.
@@ -1766,7 +1849,31 @@ function GuestList() {
         </div>
       )}
 
-      {editing && (
+      {/* A guest with a Friends contact opens that contact's own pop-up — the
+          fields you'd see on the Friends tab — with the wedding-only fields in
+          a box at the top of its right column. One Save writes both. */}
+      {editing?.viaFriend && (
+        <FriendsPage
+          key={editing.id}
+          embed={{
+            friendId: editing.draft.friendId,
+            onClose: closeContact,
+            onMissing: () => setEditing((e) => (e ? { ...e, viaFriend: false } : e)),
+            onSaved: saveGuestFromFriend,
+            extra: (
+              <div className={styles.friendWeddingBox}>
+                <div className={styles.friendWeddingTitle}>💒 Wedding</div>
+                <div className={styles.contactGrid}>
+                  {WEDDING_ONLY_FIELDS.map(renderDraftField)}
+                </div>
+                {draftDatalists}
+              </div>
+            ),
+          }}
+        />
+      )}
+
+      {editing && !editing.viaFriend && (
         <div className={styles.contactOverlay} onClick={closeContact}>
           <form
             className={styles.contactModal}
@@ -1797,33 +1904,7 @@ function GuestList() {
                 </div>
               )}
               <div className={styles.contactGrid}>
-                {CONTACT_FORM_FIELDS.map((f) => (
-                  <label key={f.key} className={f.wide ? `${styles.contactField} ${styles.contactWide}` : styles.contactField}>
-                    <span className={styles.contactLabel}>{f.label}</span>
-                    {f.key === 'guestOf' ? (
-                      <select className={styles.contactInput} value={editing.draft.guestOf} onChange={(e) => setDraftField('guestOf', e.target.value)}>
-                        <option value="">— None —</option>
-                        {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
-                      </select>
-                    ) : f.key === 'status' ? (
-                      <select className={styles.contactInput} value={editing.draft.status} onChange={(e) => setDraftField('status', e.target.value)}>
-                        <option value="">— None —</option>
-                        {STATUS_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        className={styles.contactInput}
-                        type={f.type || 'text'}
-                        list={f.key === 'group' ? 'wedding-groups' : f.key === 'side' ? 'wedding-sides' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
-                        placeholder={f.key === 'subcategory' && !editing.draft.category.trim() ? 'Pick a category first' : undefined}
-                        disabled={f.key === 'subcategory' && !editing.draft.category.trim()}
-                        value={editing.draft[f.key]}
-                        onChange={(e) => setDraftField(f.key, e.target.value)}
-                        autoComplete="off"
-                      />
-                    )}
-                  </label>
-                ))}
+                {CONTACT_FORM_FIELDS.map(renderDraftField)}
                 <label className={`${styles.contactField} ${styles.contactWide}`}>
                   <span className={styles.contactLabel}>Friend</span>
                   <select className={styles.contactInput} value={editing.draft.friendId} onChange={(e) => setDraftField('friendId', e.target.value)}>
@@ -1837,12 +1918,7 @@ function GuestList() {
                   </select>
                 </label>
               </div>
-              <datalist id="wedding-sides">{sides.map((g) => <option key={g} value={g} />)}</datalist>
-              <datalist id="wedding-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
-              <datalist id="wedding-categories">{categories.map((g) => <option key={g} value={g} />)}</datalist>
-              <datalist id="wedding-subcategories">
-                {subcategoriesFor(editing.draft.category).map((g) => <option key={g} value={g} />)}
-              </datalist>
+              {draftDatalists}
             </div>
             <div className={styles.modalFooter}>
               <span className={styles.modalCount}>
