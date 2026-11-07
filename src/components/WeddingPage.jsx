@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
+import { useEffect, useMemo, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -913,6 +913,36 @@ function GuestList() {
   }, [importRows, importMappings, importHasHeader, importOverwrite, contacts]);
   const importChangeCount = importPlan ? importPlan.added.length + importPlan.updated.length : 0;
 
+  /* The table's order for a set of rows: the picked column's sort (or the
+     default by name, RSVP'd sunk) and, in group view, each wedding group
+     pulled into one block. The export runs every tab through this too, so the
+     file lists guests exactly as the table does. */
+  const orderRows = useCallback((rows) => {
+    if (sortKey === 'party') {
+      // A household stays together in its saved order whoever has RSVP'd;
+      // guests with no group stay at the bottom either way.
+      const sign = sortDir === 'desc' ? -1 : 1;
+      const sorted = [...rows].sort((a, b) => {
+        const ka = partyKey(a.party);
+        const kb = partyKey(b.party);
+        if (!ka !== !kb) return ka ? -1 : 1;
+        if (ka !== kb) return ka.localeCompare(kb, undefined, { numeric: true }) * sign;
+        return (partyPos.get(a.id) ?? 0) - (partyPos.get(b.id) ?? 0);
+      });
+      return groupView ? keepCouplesTogether(sorted, partners, { sameGroupOnly: true }) : sorted;
+    }
+    // No header picked yet: by name, Confirmed and Not coming sunk to the
+    // bottom. A picked header sorts by that column alone.
+    const col = ALL_COLUMNS.find((c) => c.key === (sortKey || 'name')) || ALL_COLUMNS[0];
+    const value = sortKey === 'friend' ? (c) => friendsById.get(c.friendId)?.name || '' : col.sortBy;
+    const sorted = [...rows].sort(makeGuestComparator({ value, dir: sortDir, sinkStatus: !sortKey }));
+    if (!groupView) return sorted;
+    // Group view: each wedding group as one block where its first member
+    // landed; couples outside a group only paired when they tie on a picked
+    // column, so that column's order is never broken for them.
+    return groupPartiesTogether(sorted, partners, sortKey ? { canPair: (a, b) => sameSortValue(value(a), value(b)) } : {});
+  }, [sortKey, sortDir, friendsById, partyPos, partners, groupView]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const containsCi = (haystack, needle) => (haystack || '').toLowerCase().includes(needle.toLowerCase());
@@ -969,30 +999,8 @@ function GuestList() {
         return hay.includes(q);
       });
     }
-    if (sortKey === 'party') {
-      // A household stays together in its saved order whoever has RSVP'd;
-      // guests with no group stay at the bottom either way.
-      const sign = sortDir === 'desc' ? -1 : 1;
-      const sorted = [...rows].sort((a, b) => {
-        const ka = partyKey(a.party);
-        const kb = partyKey(b.party);
-        if (!ka !== !kb) return ka ? -1 : 1;
-        if (ka !== kb) return ka.localeCompare(kb, undefined, { numeric: true }) * sign;
-        return (partyPos.get(a.id) ?? 0) - (partyPos.get(b.id) ?? 0);
-      });
-      return groupView ? keepCouplesTogether(sorted, partners, { sameGroupOnly: true }) : sorted;
-    }
-    // No header picked yet: by name, Confirmed and Not coming sunk to the
-    // bottom. A picked header sorts by that column alone.
-    const col = ALL_COLUMNS.find((c) => c.key === (sortKey || 'name')) || ALL_COLUMNS[0];
-    const value = sortKey === 'friend' ? (c) => friendsById.get(c.friendId)?.name || '' : col.sortBy;
-    const sorted = [...rows].sort(makeGuestComparator({ value, dir: sortDir, sinkStatus: !sortKey }));
-    if (!groupView) return sorted;
-    // Group view: each wedding group as one block where its first member
-    // landed; couples outside a group only paired when they tie on a picked
-    // column, so that column's order is never broken for them.
-    return groupPartiesTogether(sorted, partners, sortKey ? { canPair: (a, b) => sameSortValue(value(a), value(b)) } : {});
-  }, [contacts, search, columnFilters, sortKey, sortDir, friendsById, partyPos, partners, groupView]);
+    return orderRows(rows);
+  }, [contacts, search, columnFilters, friendsById, orderRows]);
   // Boxes around wedding groups and couples — group view only.
   const outlines = useMemo(() => (groupView ? rowOutlines(filtered, partners) : new Map()), [filtered, partners, groupView]);
   // Their colours, as the CSS variables the outlines and the key's swatches read.
@@ -1010,7 +1018,28 @@ function GuestList() {
     setExporting(true);
     try {
       const { default: ExcelJS } = await import('exceljs');
-      const buf = await buildGuestWorkbook(ExcelJS, contacts);
+      // A sheet per tab you can click on the page, holding the guests that tab
+      // shows (whatever the search or column filters are), in the table's
+      // order. Empty category tabs are left out; All is always there.
+      const tabs = categoryTabs.map((t) => {
+        let rows;
+        if (!t.value) rows = contacts.filter((c) => !isHidden(c));
+        else if (t.value === UNSORTED) rows = contacts.filter((c) => !c.category);
+        else rows = contacts.filter((c) => c.category === t.value && (t.value.trim().toLowerCase() === HIDE_CATEGORY || !isHidden(c)));
+        const guests = orderRows(rows);
+        let boxes = null;
+        if (groupView) {
+          boxes = new Map();
+          for (const [id, o] of rowOutlines(guests, partners)) {
+            boxes.set(id, { group: hiddenOutlines.group ? undefined : o.group, couple: hiddenOutlines.couple ? undefined : o.couple });
+          }
+        }
+        return { label: t.label, guests, outlines: boxes };
+      }).filter((t, i) => i === 0 || t.guests.length > 0);
+      const buf = await buildGuestWorkbook(ExcelJS, contacts, {
+        tabs,
+        outlineColors: { group: outlineVars['--wd-group'], couple: outlineVars['--wd-couple'] },
+      });
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
