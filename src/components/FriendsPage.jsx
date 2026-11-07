@@ -276,6 +276,60 @@ function KidsEditor({ value, onChange }) {
   );
 }
 
+// "Merge with…" on the Edit Contact pop-up: a search box over the other
+// contacts; picking one hands both to the Merge pop-up.
+function MergeWithPicker({ friends, editFriendId, onPick }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  const term = search.trim().toLowerCase();
+  const matches = friends
+    .filter(f => f.id !== editFriendId)
+    .filter(f => !term || (f.name || '').toLowerCase().includes(term) || (f.email || '').toLowerCase().includes(term) || (f.phone || '').includes(term))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    .slice(0, 20);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      {!open ? (
+        <button type="button" onClick={() => { setOpen(true); setSearch(''); }} style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '0.35rem 0.7rem', color: 'var(--color-text-secondary)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+          Merge with…
+        </button>
+      ) : (
+        <input
+          autoFocus
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } if (e.key === 'Enter') e.preventDefault(); }}
+          placeholder="Merge with which contact?"
+          aria-label="Merge with which contact?"
+          style={{ width: '14rem', padding: '0.4rem 0.6rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', fontFamily: 'inherit' }}
+        />
+      )}
+      {open && (
+        <div role="listbox" style={{ position: 'absolute', bottom: '100%', left: 0, width: '18rem', marginBottom: '4px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 20, maxHeight: '220px', overflowY: 'auto' }}>
+          {matches.map(f => (
+            <button key={f.id} type="button" role="option" aria-selected="false" onClick={() => { setOpen(false); onPick(f); }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '100%', padding: '0.45rem 0.65rem', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-bg)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+            >
+              <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--color-text)' }}>{f.name || '(no name)'}</span>
+              {(f.email || f.phone) && <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>{f.email || f.phone}</span>}
+            </button>
+          ))}
+          {matches.length === 0 && <div style={{ padding: '0.5rem', fontSize: '0.82rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>No matches</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ComesWithPicker({ friends, editFriendId, value, onChange }) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -1498,6 +1552,24 @@ export function FriendsPage({ embed = null } = {}) {
     setSelectedIds(new Set());
   }
 
+  // "Merge with…" from the Edit Contact pop-up: save what's been typed, close
+  // the pop-up and open the Merge pop-up on the two contacts, this one carrying
+  // the edits just made.
+  async function mergeFromEdit(other) {
+    const cur = editLatest.current;
+    if (!cur) return;
+    cancelAutosave();
+    editLatest.current = null;
+    const payload = buildEditPayload(cur.fields, (cur.giftDraft || '').trim());
+    const stored = friendsRef.current.find(f => f.id === cur.friend.id) || cur.friend;
+    setEditFriend(null);
+    setShowFamilyTree(false);
+    setSaveStatus('');
+    await finishEdit(cur);
+    const latestOther = friendsRef.current.find(f => f.id === other.id) || other;
+    setMerging([{ ...stored, ...((payload.name || '').trim() ? payload : {}), id: cur.friend.id }, latestOther]);
+  }
+
   /* Fold `others` into `primary`. lib/friendMergeWrite.js does the writes —
    * kept contact first, duplicates deleted last — and moves "comes with"
    * links, Reach Out rows and wedding guests over to the kept one. */
@@ -2405,7 +2477,12 @@ export function FriendsPage({ embed = null } = {}) {
                       : saveStatus === 'error' ? 'Couldn’t save — check your connection'
                       : 'Changes save automatically'}
                   </span>
-                  <button type="button" onClick={deleteFromEdit} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--color-danger)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
+                  {!embedded && (
+                    <div style={{ marginLeft: 'auto' }}>
+                      <MergeWithPicker friends={friends} editFriendId={editFriend.id} onPick={mergeFromEdit} />
+                    </div>
+                  )}
+                  <button type="button" onClick={deleteFromEdit} style={{ marginLeft: embedded ? 'auto' : 0, background: 'none', border: 'none', color: 'var(--color-danger)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
                 </div>
 
               </form>
