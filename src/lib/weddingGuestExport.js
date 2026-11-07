@@ -49,6 +49,15 @@ export const EXPORT_COLUMNS = [
   { key: 'zip', header: 'Zip', width: 9 },
 ];
 
+/* The columns to write, in EXPORT_COLUMNS' order, from a list of keys. No
+   list (or nothing recognised in it) means every column. */
+export function pickExportColumns(keys) {
+  if (!Array.isArray(keys)) return EXPORT_COLUMNS;
+  const want = new Set(keys);
+  const cols = EXPORT_COLUMNS.filter((c) => want.has(c.key));
+  return cols.length ? cols : EXPORT_COLUMNS;
+}
+
 const isHidden = (c) => String(c?.category || '').trim().toLowerCase() === 'hide';
 const clean = (v) => String(v ?? '').trim();
 const fullName = (c) => [clean(c.firstName), clean(c.lastName)].filter(Boolean).join(' ');
@@ -168,9 +177,9 @@ function outlineBorder(o, colNumber, lastCol, colors) {
   return { top: side('top'), left: side('left'), bottom: side('bottom'), right: side('right') };
 }
 
-function buildGuestSheet(wb, guests, { title, exportedOn, sheetName = 'Guest List', outlines, colors }) {
+function buildGuestSheet(wb, guests, { title, exportedOn, sheetName = 'Guest List', outlines, colors, cols = EXPORT_COLUMNS }) {
   const ws = wb.addWorksheet(sheetName, {
-    views: [{ state: 'frozen', xSplit: 1, ySplit: 4, showGridLines: false }],
+    views: [{ state: 'frozen', xSplit: cols[0].key === 'name' ? 1 : 0, ySplit: 4, showGridLines: false }],
     properties: { defaultRowHeight: 18 },
     pageSetup: {
       orientation: 'landscape',
@@ -182,8 +191,8 @@ function buildGuestSheet(wb, guests, { title, exportedOn, sheetName = 'Guest Lis
     },
     headerFooter: { oddFooter: '&L&8Wedding Guest List&R&8Page &P of &N' },
   });
-  const last = colLetter(EXPORT_COLUMNS.length);
-  ws.columns = EXPORT_COLUMNS.map((c) => ({ key: c.key, width: c.width }));
+  const last = colLetter(cols.length);
+  ws.columns = cols.map((c) => ({ key: c.key, width: c.width }));
 
   // Title block: name, then a one-line tally, then a spacer.
   ws.mergeCells(`A1:${last}1`);
@@ -213,7 +222,7 @@ function buildGuestSheet(wb, guests, { title, exportedOn, sheetName = 'Guest Lis
   }
 
   const header = ws.getRow(4);
-  header.values = EXPORT_COLUMNS.map((c) => c.header);
+  header.values = cols.map((c) => c.header);
   header.height = 22;
   header.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
@@ -228,12 +237,12 @@ function buildGuestSheet(wb, guests, { title, exportedOn, sheetName = 'Guest Lis
     const band = i % 2 === 1 ? BAND_FILL : null;
     const o = outlines?.get(g.id);
     row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-      cell.border = o && (o.group || o.couple) ? outlineBorder(o, colNumber, EXPORT_COLUMNS.length, colors) : boxed;
+      cell.border = o && (o.group || o.couple) ? outlineBorder(o, colNumber, cols.length, colors) : boxed;
       cell.alignment = { vertical: 'middle', indent: 1 };
       cell.font = { color: { argb: INK }, size: 10 };
       if (st) cell.fill = fill(st.fill);
       else if (band) cell.fill = fill(band);
-      const key = EXPORT_COLUMNS[colNumber - 1]?.key;
+      const key = cols[colNumber - 1]?.key;
       if (key === 'name') cell.font = { color: { argb: INK }, size: 10, bold: true };
       if (key === 'status' && st) cell.font = { color: { argb: st.font }, size: 10, bold: true };
       if (key === 'email' && cell.value) {
@@ -245,10 +254,11 @@ function buildGuestSheet(wb, guests, { title, exportedOn, sheetName = 'Guest Lis
   });
 
   if (guests.length) {
-    ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4 + guests.length, column: EXPORT_COLUMNS.length } };
+    ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4 + guests.length, column: cols.length } };
     // Status picks from the same three choices as the page.
-    for (let r = 5; r <= 4 + guests.length; r += 1) {
-      ws.getCell(`B${r}`).dataValidation = {
+    const statusCol = cols.findIndex((c) => c.key === 'status') + 1;
+    for (let r = 5; statusCol && r <= 4 + guests.length; r += 1) {
+      ws.getRow(r).getCell(statusCol).dataValidation = {
         type: 'list',
         allowBlank: true,
         formulae: [`"${STATUS_ORDER.join(',')}"`],
@@ -335,9 +345,11 @@ function buildSummarySheet(wb, guests, { title, exportedOn }) {
    `tabs`: [{ label, guests, outlines }] — the page's tabs, each with its
    guests already in the table's order and, in group view, rowOutlines()'s
    Map of id → { group, couple } ('top' | 'mid' | 'bottom'). `outlineColors`
-   are the page's picked colours as hex. */
-export async function buildGuestWorkbook(ExcelJS, contacts, { title = 'Wedding Guest List', now = new Date(), tabs, outlineColors = {} } = {}) {
+   are the page's picked colours as hex. `columns`: the keys of the
+   EXPORT_COLUMNS to write on the guest sheets (all of them when left out). */
+export async function buildGuestWorkbook(ExcelJS, contacts, { title = 'Wedding Guest List', now = new Date(), tabs, outlineColors = {}, columns } = {}) {
   const guests = exportableGuests(contacts);
+  const cols = pickExportColumns(columns);
   const exportedOn = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Rally';
@@ -356,10 +368,11 @@ export async function buildGuestWorkbook(ExcelJS, contacts, { title = 'Wedding G
         sheetName: sheetNameFor(label, used),
         outlines: t.outlines instanceof Map ? t.outlines : null,
         colors,
+        cols,
       });
     }
   } else {
-    buildGuestSheet(wb, guests, { title, exportedOn });
+    buildGuestSheet(wb, guests, { title, exportedOn, cols });
   }
   buildSummarySheet(wb, guests, { title, exportedOn });
   return wb.xlsx.writeBuffer();

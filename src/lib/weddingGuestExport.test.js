@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
-import { buildGuestWorkbook, exportableGuests, countBy, statusCounts, exportFileName, sheetNameFor, EXPORT_COLUMNS } from './weddingGuestExport.js';
+import { buildGuestWorkbook, exportableGuests, countBy, statusCounts, exportFileName, sheetNameFor, EXPORT_COLUMNS, pickExportColumns } from './weddingGuestExport.js';
 
 const guests = [
   { id: '1', firstName: 'Zoe', lastName: 'Adams', status: 'Confirmed', category: 'A', group: 'College', side: "Mom's side", email: 'zoe@example.com', zip: '01234' },
@@ -147,5 +147,37 @@ describe('buildGuestWorkbook with tabs', () => {
     const ws = wb.getWorksheet('All');
     expect(ws.getRow(5).getCell(1).border.top.style).toBe('thin');
     expect(ws.getCell('A3').value).toBeNull();
+  });
+});
+
+describe('choosing columns', () => {
+  it('keeps the standard order and falls back to every column', () => {
+    expect(pickExportColumns(['email', 'name']).map((c) => c.key)).toEqual(['name', 'email']);
+    expect(pickExportColumns([])).toBe(EXPORT_COLUMNS);
+    expect(pickExportColumns(['nope'])).toBe(EXPORT_COLUMNS);
+    expect(pickExportColumns(undefined)).toBe(EXPORT_COLUMNS);
+  });
+
+  it('writes only the chosen columns on every guest sheet', async () => {
+    const guests = [
+      { id: 'a', firstName: 'Ann', lastName: 'Smith', status: 'Confirmed', email: 'ann@x.com', party: 'Smiths' },
+      { id: 'b', firstName: 'Bob', lastName: 'Smith', status: 'Pending', email: 'bob@x.com', party: 'Smiths' },
+    ];
+    const boxes = new Map([['a', { couple: 'top' }], ['b', { couple: 'bottom' }]]);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await buildGuestWorkbook(ExcelJS, guests, {
+      tabs: [{ label: 'All', guests, outlines: boxes }],
+      columns: ['email', 'party', 'status'],
+    }));
+    const ws = wb.getWorksheet('All');
+    expect(ws.getRow(4).values.slice(1)).toEqual(['Status', 'Wedding group', 'Email']);
+    expect(ws.getRow(5).getCell(1).value).toBe('Confirmed');
+    expect(ws.getRow(5).getCell(3).value).toMatchObject({ text: 'ann@x.com' });
+    expect(ws.getRow(5).getCell(4).value).toBeNull();
+    // Status keeps its pick list wherever it lands; the couple box closes on the last chosen column.
+    expect(ws.getRow(5).getCell(1).dataValidation).toMatchObject({ type: 'list' });
+    expect(ws.getRow(5).getCell(3).border.right.style).toBe('medium');
+    // The Summary is untouched.
+    expect(wb.getWorksheet('Summary').getCell('B2').value).toContain('2 guests');
   });
 });

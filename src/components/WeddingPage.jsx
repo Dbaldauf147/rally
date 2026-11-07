@@ -16,6 +16,7 @@ import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
 import { buildGuestWorkbook, exportFileName } from '../lib/weddingGuestExport';
+import { WeddingExportMenu } from './WeddingExportMenu';
 import { IMPORT_FIELDS, FIELD_LABELS, parsePastedCells, autoDetectMappings, looksLikeHeader, planGuestImport } from '../lib/weddingGuestImport';
 import { applyGuestMerge, findGuestDuplicateGroups } from '../lib/weddingGuestMerge';
 import { commitFriendMerge } from '../lib/friendMergeWrite';
@@ -1013,7 +1014,7 @@ function GuestList() {
 
   // The whole list (minus hidden guests) as a formatted .xlsx. ExcelJS is
   // big, so it only loads when someone actually exports.
-  async function exportToExcel() {
+  async function exportToExcel(columns) {
     if (exporting) return;
     setExporting(true);
     try {
@@ -1038,6 +1039,7 @@ function GuestList() {
       }).filter((t, i) => i === 0 || t.guests.length > 0);
       const buf = await buildGuestWorkbook(ExcelJS, contacts, {
         tabs,
+        columns,
         outlineColors: { group: outlineVars['--wd-group'], couple: outlineVars['--wd-couple'] },
       });
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -2176,9 +2178,7 @@ function GuestList() {
         >
           Group view: {groupView ? 'On' : 'Off'}
         </button>
-        <button className={styles.toolButton} type="button" onClick={exportToExcel} disabled={exporting}>
-          {exporting ? 'Exporting…' : 'Export to Excel'}
-        </button>
+        <WeddingExportMenu exporting={exporting} onExport={exportToExcel} />
         <div className={styles.colMenu} ref={columnsMenuRef}>
           <button className={styles.toolButton} type="button" onClick={() => setShowColumnsMenu((s) => !s)}>
             Columns ▾
