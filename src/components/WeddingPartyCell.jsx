@@ -15,6 +15,8 @@ export function WeddingPartyCell({ value, parties, onCommit, label }) {
   // What's typed while you're in the cell; null the rest of the time, when the
   // saved value shows (so someone else's change, or a partner following, does).
   const [draft, setDraft] = useState(null);
+  // Until you type, the list shows every group, not just the one already in the cell.
+  const [typedSinceFocus, setTypedSinceFocus] = useState(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [box, setBox] = useState(null);
@@ -23,7 +25,7 @@ export function WeddingPartyCell({ value, parties, onCommit, label }) {
   const settled = useRef(false);
 
   const text = draft ?? (value || '');
-  const { matches, canCreate } = partySuggestions(parties, text);
+  const { matches, canCreate } = partySuggestions(parties, typedSinceFocus ? text : '');
   const typed = text.trim();
   const options = [
     ...matches.map((p) => ({ kind: 'party', value: p })),
@@ -81,11 +83,12 @@ export function WeddingPartyCell({ value, parties, onCommit, label }) {
     }
   };
 
-  // Opens upward when there isn't room below.
   const listHeight = Math.min(options.length, 7) * 34 + 8;
+  // Opens upward when there isn't room below, and stays inside the window.
+  const left = box && Math.max(8, Math.min(box.left, window.innerWidth - box.width - 8));
   const style = box && (box.top + listHeight > window.innerHeight && box.above > listHeight
-    ? { left: box.left, top: box.above - listHeight - 2, width: box.width }
-    : { left: box.left, top: box.top, width: box.width });
+    ? { left, top: box.above - listHeight - 2, width: box.width }
+    : { left, top: box.top, width: box.width });
 
   return (
     <>
@@ -99,9 +102,9 @@ export function WeddingPartyCell({ value, parties, onCommit, label }) {
         aria-expanded={open}
         aria-autocomplete="list"
         autoComplete="off"
-        onFocus={() => { setDraft(value || ''); openList(); setActive(-1); }}
+        onFocus={(e) => { setDraft(value || ''); setTypedSinceFocus(false); openList(); setActive(-1); e.target.select(); }}
         onClick={() => { if (!open) openList(); }}
-        onChange={(e) => { setDraft(e.target.value); if (!open) openList(); setActive(-1); }}
+        onChange={(e) => { setDraft(e.target.value); setTypedSinceFocus(true); if (!open) openList(); setActive(-1); }}
         onKeyDown={onKeyDown}
         onBlur={() => {
           if (settled.current) { settled.current = false; return; }
