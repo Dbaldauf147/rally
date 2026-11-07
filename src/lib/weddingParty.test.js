@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, partyKey, keepCouplesTogether, rowOutlines, groupPartiesTogether } from './weddingParty';
+import { partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, partyKey, keepCouplesTogether, rowOutlines, groupPartiesTogether, partnersFollowGroup } from './weddingParty';
 
 const friendsById = new Map([
   ['fa', { id: 'fa', linkedTo: 'fb' }],   // Ann ↔ Bob, both ways
@@ -117,5 +117,74 @@ describe('groupPartiesTogether with canPair', () => {
     const rows = [g('a', ''), g('x', 'S'), g('b', ''), g('y', 'S')];
     const partners = new Map([['a', 'b'], ['b', 'a']]);
     expect(groupPartiesTogether(rows, partners, { canPair: () => false }).map((r) => r.id)).toEqual(['a', 'x', 'y', 'b']);
+  });
+});
+
+describe('partnersFollowGroup', () => {
+  const friends = new Map([
+    ['fa', { id: 'fa', name: 'Ann Lee', linkedTo: 'fb' }],
+    ['fb', { id: 'fb', name: 'Ben Lee' }],
+    ['fc', { id: 'fc', name: 'Cat Day', linkedTo: 'fd' }],
+    ['fd', { id: 'fd', name: 'Dov Day', linkedTo: 'fc' }],
+  ]);
+  const mk = (f) => ({ id: `new-${f.id}`, firstName: f.name.split(' ')[0], lastName: f.name.split(' ')[1], friendId: f.id });
+
+  it('moves a partner with no group into the new group', () => {
+    const prev = [{ id: 'a', friendId: 'fa', party: '' }, { id: 'b', friendId: 'fb', party: '' }];
+    const next = [{ id: 'a', friendId: 'fa', party: 'Lees' }, prev[1]];
+    const r = partnersFollowGroup(prev, next, friends, { makeGuest: mk });
+    expect(r.list.find((g) => g.id === 'b').party).toBe('Lees');
+    expect(r.moved).toHaveLength(1);
+  });
+
+  it('works when it is the pointed-at friend who moves', () => {
+    const prev = [{ id: 'a', friendId: 'fa', party: 'Old' }, { id: 'b', friendId: 'fb', party: 'Old' }];
+    const next = [prev[0], { id: 'b', friendId: 'fb', party: 'New' }];
+    const r = partnersFollowGroup(prev, next, friends, { makeGuest: mk });
+    expect(r.list.find((g) => g.id === 'a').party).toBe('New');
+    expect(r.list.find((g) => g.id === 'a').partyOrder).toBe(null);
+  });
+
+  it('follows typing: a partner in the old (half-typed) group follows', () => {
+    const prev = [{ id: 'c', friendId: 'fc', party: 'Da' }, { id: 'd', friendId: 'fd', party: 'Da' }];
+    const next = [{ id: 'c', friendId: 'fc', party: 'Days' }, prev[1]];
+    expect(partnersFollowGroup(prev, next, friends).list[1].party).toBe('Days');
+  });
+
+  it('leaves a partner placed in some other group alone', () => {
+    const prev = [{ id: 'c', friendId: 'fc', party: '' }, { id: 'd', friendId: 'fd', party: 'Work' }];
+    const next = [{ id: 'c', friendId: 'fc', party: 'Days' }, prev[1]];
+    const r = partnersFollowGroup(prev, next, friends);
+    expect(r.list[1].party).toBe('Work');
+    expect(r.moved).toHaveLength(0);
+  });
+
+  it('adds a partner who is not on the list yet, in the group', () => {
+    const prev = [{ id: 'a', friendId: 'fa', party: '' }];
+    const next = [{ id: 'a', friendId: 'fa', party: 'Lees' }];
+    const r = partnersFollowGroup(prev, next, friends, { makeGuest: mk });
+    expect(r.list).toHaveLength(2);
+    expect(r.list[1]).toMatchObject({ friendId: 'fb', party: 'Lees', partyOrder: null });
+    expect(r.added).toEqual(['Ben Lee']);
+  });
+
+  it('does not add anyone when the group is cleared, and leaves the list alone when no group changed', () => {
+    const prev = [{ id: 'a', friendId: 'fa', party: 'Lees' }];
+    expect(partnersFollowGroup(prev, [{ ...prev[0], party: '' }], friends, { makeGuest: mk }).list).toHaveLength(1);
+    const same = [{ ...prev[0], city: 'Rye' }];
+    expect(partnersFollowGroup(prev, same, friends, { makeGuest: mk }).list).toEqual(same);
+  });
+
+  it('clears the partner too when they were in the old group', () => {
+    const prev = [{ id: 'a', friendId: 'fa', party: 'Lees' }, { id: 'b', friendId: 'fb', party: 'Lees' }];
+    const next = [{ ...prev[0], party: '' }, prev[1]];
+    expect(partnersFollowGroup(prev, next, friends).list[1].party).toBe('');
+  });
+
+  it('moves both halves once when the two are moved together', () => {
+    const prev = [{ id: 'a', friendId: 'fa', party: '' }, { id: 'b', friendId: 'fb', party: '' }];
+    const next = [{ ...prev[0], party: 'X' }, { ...prev[1], party: 'X' }];
+    const r = partnersFollowGroup(prev, next, friends);
+    expect(r.moved).toHaveLength(0);
   });
 });

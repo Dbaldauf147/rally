@@ -9,7 +9,8 @@ import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
 import { makeGuestComparator, sameSortValue, statusOrder } from '../lib/weddingSort';
-import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName, keepCouplesTogether, rowOutlines, groupPartiesTogether } from '../lib/weddingParty';
+import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName, keepCouplesTogether, rowOutlines, groupPartiesTogether, partnersFollowGroup } from '../lib/weddingParty';
+import { guestFromFriend } from '../lib/weddingFriendMatch';
 import { addFriend } from '../lib/friends';
 import { findFriendForGuest, friendDataFromGuest } from '../lib/weddingGuestFriend';
 import { syncWeddingGuestsToFriends, SYNC_FLAG } from '../lib/weddingFriendSync';
@@ -383,6 +384,7 @@ function GuestList() {
   const [digestOpen, setDigestOpen] = useState(false);
   const [digestBusy, setDigestBusy] = useState(false);
   const [digestMsg, setDigestMsg] = useState(null);
+  const [partnerMsg, setPartnerMsg] = useState('');
   const seedAttempted = useRef(false);
   const columnsMenuRef = useRef(null);
   const columnConfigRef = useRef({});
@@ -493,9 +495,19 @@ function GuestList() {
     return () => document.removeEventListener('mousedown', onClick);
   }, [showColumnsMenu]);
 
+  // Every write of the guest list goes through here, so a Comes With partner
+  // follows a guest into (or out of) a wedding group however it was changed —
+  // the pop-up, the table cell, bulk edit. One not on the list yet is added.
   const persistContacts = async (next) => {
     if (!user) return;
-    await setDoc(doc(db, 'users', user.uid), { weddingContacts: next }, { merge: true });
+    const { list, moved, added } = partnersFollowGroup(contactsRef.current, next, friendsById, {
+      makeGuest: (f) => (f ? guestFromFriend(f, `friend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) : null),
+    });
+    await setDoc(doc(db, 'users', user.uid), { weddingContacts: list }, { merge: true });
+    const parts = [];
+    if (added.length) parts.push(`${added.join(', ')} added to the guest list with their partner`);
+    if (moved.length) parts.push(`${moved.join(', ')} moved with their partner`);
+    if (parts.length) setPartnerMsg(`💑 ${parts.join('; ')}.`);
   };
 
   /* Autosave for an existing guest. The guest-only pop-up saves its whole
@@ -2043,6 +2055,13 @@ function GuestList() {
         <p className={styles.categoryTabHint} role="status">
           {mergeMsg}{' '}
           <button type="button" className={styles.tierLegendEdit} onClick={() => setMergeMsg('')}>Dismiss</button>
+        </p>
+      )}
+
+      {partnerMsg && (
+        <p className={styles.categoryTabHint} role="status">
+          {partnerMsg}{' '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => setPartnerMsg('')}>Dismiss</button>
         </p>
       )}
 
