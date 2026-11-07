@@ -37,6 +37,7 @@ import { applyColumnFilters, activeColumnFilters } from '../lib/columnFilters';
 import { normalizeFamilyTree, treePhotoIds } from '../lib/familyTree';
 import { deleteFamilyPhoto } from '../lib/familyPhotos';
 import { syncWeddingGuestsToFriends, SYNC_FLAG as WEDDING_SYNC_FLAG } from '../lib/weddingFriendSync';
+import { planComesWithSync, planComesWithBackfill } from '../lib/comesWith';
 
 // Short date display: 7/30 for a birthday, 7/30/1985 for a date of birth.
 function fmtBirthday(v) {
@@ -1230,8 +1231,34 @@ export function FriendsPage({ embed = null } = {}) {
       lastSavedJson.current = ''; // so the next edit retries
       throw err;
     }
+    // Comes With is mutual: the other half (and anyone they leave) follows.
+    if ((payload.linkedTo || '') !== (stored.linkedTo || '')) {
+      await writeComesWith(planComesWithSync(friendsRef.current, friend.id, payload.linkedTo || ''));
+    }
     return true;
   }
+
+  async function writeComesWith(writes) {
+    if (!user || !writes.length) return;
+    const batch = writeBatch(db);
+    for (const w of writes) batch.update(doc(db, 'users', user.uid, 'friends', w.id), { linkedTo: w.linkedTo });
+    await batch.commit().catch(err => console.error('Comes With sync failed:', err));
+  }
+
+  // Links saved one-way before Comes With was mutual get their other half,
+  // once the list loads. Not for the contact open in the pop-up — its form
+  // would write the old value straight back.
+  const backfillDone = useRef(new Set());
+  useEffect(() => {
+    if (!user || loading || embedded) return;
+    const openId = editFriend?.id;
+    const writes = planComesWithBackfill(friends)
+      .filter(w => w.id !== openId && !backfillDone.current.has(w.id));
+    if (!writes.length) return;
+    writes.forEach(w => backfillDone.current.add(w.id));
+    writeComesWith(writes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friends, loading, user, embedded]);
 
   async function notifyEmbedSaved(payload) {
     if (!embedRef.current?.onSaved) return;

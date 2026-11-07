@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { doc, collection, onSnapshot, updateDoc, setDoc, arrayUnion, arrayRemove, getDocs, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { planMemberUpsert } from '../lib/members';
+import { planComesWithSync } from '../lib/comesWith';
 // Creating a friend from here writes through the same path the Friends page
 // uses, so someone added mid-invite is a real contact afterwards, not a
 // one-off row that only exists on this event.
@@ -5435,6 +5436,12 @@ export function EventDetail() {
                       }
                       if (Object.keys(updates).length > 0) {
                         await updateDoc(doc(db, 'users', user.uid, 'friends', friendMatch.id), updates).catch(() => {});
+                      }
+                      // Comes With is mutual: the other half (and anyone they leave) follows.
+                      if ('linkedTo' in updates) {
+                        for (const w of planComesWithSync(friends, friendMatch.id, updates.linkedTo)) {
+                          await updateDoc(doc(db, 'users', user.uid, 'friends', w.id), { linkedTo: w.linkedTo }).catch(() => {});
+                        }
                       }
                     }
                     // Sync contact info across ALL other events where this person is a member
