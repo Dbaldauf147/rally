@@ -1076,6 +1076,8 @@ export function FriendsPage({ embed = null } = {}) {
   const [showCustomFields, setShowCustomFields] = useState(false);
   const [editFriend, setEditFriend] = useState(null); // null=closed, object=editing
   const [editFields, setEditFields] = useState({});
+  // The contacts open in the Merge pop-up, or null.
+  const [merging, setMerging] = useState(null);
   const [giftDraft, setGiftDraft] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -1154,10 +1156,11 @@ export function FriendsPage({ embed = null } = {}) {
     else (embed.onMissing || embed.onClose)?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedFriendId, friends, loading]);
+  // A Merge started from the pop-up keeps the embed open until it's done.
   useEffect(() => {
-    if (embedFriendId && embedOpenedRef.current && !editFriend) embed.onClose?.();
+    if (embedFriendId && embedOpenedRef.current && !editFriend && !merging) embed.onClose?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [embedFriendId, editFriend]);
+  }, [embedFriendId, editFriend, merging]);
 
   async function addFriend(data) {
     if (!user) return;
@@ -1552,22 +1555,31 @@ export function FriendsPage({ embed = null } = {}) {
     setSelectedIds(new Set());
   }
 
-  // "Merge with…" from the Edit Contact pop-up: save what's been typed, close
-  // the pop-up and open the Merge pop-up on the two contacts, this one carrying
-  // the edits just made.
-  async function mergeFromEdit(other) {
+  // "Merge with…" from the Edit Contact pop-up: save what's been typed, swap
+  // the pop-up for the Merge pop-up on the two contacts (this one carrying the
+  // edits just made). Both change in the same render, so an embedded pop-up
+  // never sees a moment with neither open. Cancel goes back to the contact.
+  const mergeReturnTo = useRef(null);
+  function mergeFromEdit(other) {
     const cur = editLatest.current;
     if (!cur) return;
     cancelAutosave();
     editLatest.current = null;
     const payload = buildEditPayload(cur.fields, (cur.giftDraft || '').trim());
     const stored = friendsRef.current.find(f => f.id === cur.friend.id) || cur.friend;
+    const latestOther = friendsRef.current.find(f => f.id === other.id) || other;
+    mergeReturnTo.current = cur.friend.id;
+    setMerging([{ ...stored, ...((payload.name || '').trim() ? payload : {}), id: cur.friend.id }, latestOther]);
     setEditFriend(null);
     setShowFamilyTree(false);
     setSaveStatus('');
-    await finishEdit(cur);
-    const latestOther = friendsRef.current.find(f => f.id === other.id) || other;
-    setMerging([{ ...stored, ...((payload.name || '').trim() ? payload : {}), id: cur.friend.id }, latestOther]);
+    finishEdit(cur);
+  }
+  function cancelMerge() {
+    const back = mergeReturnTo.current && friendsRef.current.find(f => f.id === mergeReturnTo.current);
+    mergeReturnTo.current = null;
+    if (back) openEdit(back);
+    setMerging(null);
   }
 
   /* Fold `others` into `primary`. lib/friendMergeWrite.js does the writes —
@@ -1576,6 +1588,7 @@ export function FriendsPage({ embed = null } = {}) {
   async function mergeContacts(primary, others, choices) {
     if (!user) return;
     const merged = await commitFriendMerge(user.uid, friends, primary, others, choices);
+    mergeReturnTo.current = null;
     setMerging(null);
     setSelectedIds(new Set());
     setResult({ type: 'success', message: `Merged ${others.length + 1} contacts into ${merged.name || 'one'}` });
@@ -1983,7 +1996,6 @@ export function FriendsPage({ embed = null } = {}) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   // Merge: the contacts on the merge screen, and whether the suggested
   // duplicates list is open.
-  const [merging, setMerging] = useState(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [showFamilyTree, setShowFamilyTree] = useState(false);
   const [showBulkAction, setShowBulkAction] = useState(null); // null | 'delete' | 'group' | 'tag'
@@ -2389,7 +2401,7 @@ export function FriendsPage({ embed = null } = {}) {
             <div className={`${styles.modal} ${styles.modalWide}`} onClick={e => e.stopPropagation()}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <h2 className={styles.modalTitle}>Edit Contact</h2>
-                {!embedded && <MergeWithPicker friends={friends} editFriendId={editFriend.id} onPick={mergeFromEdit} />}
+                <MergeWithPicker friends={friends} editFriendId={editFriend.id} onPick={mergeFromEdit} />
               </div>
               <form onSubmit={e => { e.preventDefault(); closeEdit(); }} className={styles.form}>
                 <div className={styles.editColumns}>
@@ -2522,7 +2534,16 @@ export function FriendsPage({ embed = null } = {}) {
         )}
     </>
   );
-  if (embed) return editModals;
+  const mergeModal = merging && (
+    <MergeModal
+      contacts={merging}
+      friendsById={new Map(friends.map(f => [f.id, f]))}
+      onCancel={cancelMerge}
+      onConfirm={mergeContacts}
+    />
+  );
+
+  if (embed) return <>{editModals}{mergeModal}</>;
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -3035,14 +3056,7 @@ export function FriendsPage({ embed = null } = {}) {
           onClose={() => setShowDuplicates(false)}
         />
       )}
-      {merging && (
-        <MergeModal
-          contacts={merging}
-          friendsById={new Map(friends.map(f => [f.id, f]))}
-          onCancel={() => setMerging(null)}
-          onConfirm={mergeContacts}
-        />
-      )}
+      {mergeModal}
 
       {editModals}
 
