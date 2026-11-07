@@ -229,14 +229,39 @@ export function mergeFriends(primary, others, choices = {}) {
 }
 
 /* A list of records with a `friendId` (Reach Out rows, wedding guests) with the
- * removed contacts' ids pointed at the kept one. `changed` says whether it's
- * worth writing back. */
+ * removed contacts' ids pointed at the kept one. The merged contact is one
+ * person, so they keep one row: if both contacts had a row, the kept
+ * contact's row stays (in its place) with any blanks filled from the other,
+ * and the removed contact's row goes. `changed` says whether it's worth
+ * writing back. */
+const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' && !v.trim());
+
 export function repointFriendIds(list, removedIds, keptId) {
   const removed = new Set(removedIds);
+  const rows = Array.isArray(list) ? list : [];
   let changed = false;
-  const next = (Array.isArray(list) ? list : []).map((c) => {
-    if (c && removed.has(c.friendId)) { changed = true; return { ...c, friendId: keptId }; }
-    return c;
+  // Which row the merged contact keeps: one already theirs, else the first moved.
+  const keepIdx = rows.findIndex((c) => c && c.friendId === keptId);
+  const firstMoved = rows.findIndex((c) => c && removed.has(c.friendId));
+  const keeper = keepIdx >= 0 ? keepIdx : firstMoved;
+  if (keeper < 0) return { next: rows, changed: false };
+  let kept = { ...rows[keeper], friendId: keptId };
+  if (rows[keeper].friendId !== keptId) changed = true;
+  const next = [];
+  rows.forEach((c, i) => {
+    if (i === keeper) { next.push(null); return; }
+    if (c && (removed.has(c.friendId) || c.friendId === keptId)) {
+      // A second row for the same person: fold its details in and drop it.
+      for (const [k, v] of Object.entries(c)) {
+        if (k === 'id' || k === 'friendId') continue;
+        if (isBlank(kept[k]) && !isBlank(v)) kept = { ...kept, [k]: v };
+      }
+      changed = true;
+      return;
+    }
+    next.push(c);
   });
+  const at = next.indexOf(null);
+  next[at] = kept;
   return { next, changed };
 }

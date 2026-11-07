@@ -99,4 +99,28 @@ describe('repointFriendIds', () => {
     expect(next.map((c) => c.friendId)).toEqual(['a', 'c', undefined]);
     expect(repointFriendIds([{ friendId: 'c' }], ['b'], 'a').changed).toBe(false);
   });
+
+  it('keeps one row per person: the kept contact row, with blanks filled from the removed one', () => {
+    const rows = [
+      { id: 'g1', friendId: 'b', city: 'Rye', party: 'Lees', status: '' },
+      { id: 'g2', friendId: 'x', city: 'Elsewhere' },
+      { id: 'g3', friendId: 'a', city: '', party: '', status: 'Confirmed' },
+    ];
+    const { next, changed } = repointFriendIds(rows, ['b'], 'a');
+    expect(changed).toBe(true);
+    expect(next).toEqual([
+      { id: 'g2', friendId: 'x', city: 'Elsewhere' },
+      { id: 'g3', friendId: 'a', city: 'Rye', party: 'Lees', status: 'Confirmed' },
+    ]);
+  });
+
+  it('when only the removed contact had a row, that row stays and is repointed', () => {
+    const { next } = repointFriendIds([{ id: 'g1', friendId: 'b', city: 'Rye' }, { id: 'g2', friendId: 'c' }], ['b'], 'a');
+    expect(next).toEqual([{ id: 'g1', friendId: 'a', city: 'Rye' }, { id: 'g2', friendId: 'c' }]);
+  });
+
+  it('folds several removed contacts into one row', () => {
+    const { next } = repointFriendIds([{ id: 1, friendId: 'b' }, { id: 2, friendId: 'c', note: 'hi' }, { id: 3, friendId: 'z' }], ['b', 'c'], 'a');
+    expect(next).toEqual([{ id: 1, friendId: 'a', note: 'hi' }, { id: 3, friendId: 'z' }]);
+  });
 });
