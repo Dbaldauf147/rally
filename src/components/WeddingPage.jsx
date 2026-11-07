@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -388,6 +388,9 @@ function GuestList() {
   const [partnerMsg, setPartnerMsg] = useState('');
   const seedAttempted = useRef(false);
   const columnsMenuRef = useRef(null);
+  // Where the Columns list opens: whichever side of the button has room, and
+  // no taller than the space left on screen (it scrolls past that).
+  const [columnsMenuPos, setColumnsMenuPos] = useState(null);
   const columnConfigRef = useRef({});
   const dragRef = useRef(null);
   const resizedRef = useRef(false);
@@ -484,6 +487,40 @@ function GuestList() {
     );
     return unsub;
   }, [user]);
+
+  /* The list is ~15 columns tall and the button can sit anywhere the toolbar
+     wraps it — on a phone at the left edge, low on the screen, above the
+     bottom tab bar. Open it on the side with room, bring the button up if
+     there's barely any space below, and cap the height so every column can be
+     scrolled to instead of running off the page. */
+  useLayoutEffect(() => {
+    if (!showColumnsMenu) return undefined;
+    const place = () => {
+      const btn = columnsMenuRef.current;
+      if (!btn) return;
+      const GAP = 12;
+      const MENU_W = 200;
+      // Leave room for the phone's bottom tab bar (and a margin on desktop).
+      const BOTTOM = window.innerWidth < 768 ? 96 : GAP;
+      let r = btn.getBoundingClientRect();
+      // The whole list's height, so it can open without scrolling when the
+      // screen has room for it once the button is brought up.
+      const need = Math.min(btn.querySelector('[data-columns-menu]')?.scrollHeight || 280, window.innerHeight - BOTTOM - 140);
+      if (window.innerHeight - r.bottom - BOTTOM < need && r.top > 120) {
+        window.scrollBy({ top: r.top - 80 });
+        r = btn.getBoundingClientRect();
+      }
+      const alignLeft = r.left + MENU_W <= window.innerWidth - GAP || r.right < MENU_W + GAP;
+      setColumnsMenuPos({
+        ...(alignLeft ? { left: 0, right: 'auto' } : { right: 0, left: 'auto' }),
+        maxHeight: Math.max(180, window.innerHeight - r.bottom - BOTTOM - 4),
+        maxWidth: window.innerWidth - 2 * GAP,
+      });
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [showColumnsMenu]);
 
   useEffect(() => {
     if (!showColumnsMenu) return;
@@ -2118,7 +2155,7 @@ function GuestList() {
             Columns ▾
           </button>
           {showColumnsMenu && (
-            <div className={styles.colMenuPopover}>
+            <div className={styles.colMenuPopover} data-columns-menu style={columnsMenuPos || { visibility: 'hidden' }}>
               {ALL_COLUMNS.map((col) => {
                 const isVisible = visibleColumns.some((c) => c.key === col.key);
                 return (
