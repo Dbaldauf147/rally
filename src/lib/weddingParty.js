@@ -177,3 +177,59 @@ export function groupPartiesTogether(rows, partners, { canPair } = {}) {
   // given, limits which ungrouped couples get pulled together.
   return keepCouplesTogether(out, partners, { sameGroupOnly: true, canPair: canPair && ((x, y) => !!partyKey(x.party) || canPair(x, y)) });
 }
+
+/* A guest's Comes With partner goes where they go. Run over each write of the
+   guest list (`prev` → `next`): for every guest whose wedding group changed,
+   their partner — the Friends contact they point at, or the one pointing at
+   them — is put in the same group. A partner already on the list moves only
+   if they had no group or were in the guest's old group, so someone placed
+   elsewhere on purpose stays put (the pop-up offers to bring them over). A
+   partner not on the list yet is added to it, in that group.
+   Returns the list to write, plus the names moved and added. */
+export function partnersFollowGroup(prev, next, friendsById, { makeGuest } = {}) {
+  const list = Array.isArray(next) ? next.map((g) => g) : [];
+  const before = new Map((Array.isArray(prev) ? prev : []).map((g) => [g.id, g]));
+  const friendOf = (id) => friendsById?.get?.(id);
+  const partnerFriendId = (friendId) => {
+    const own = friendOf(friendId)?.linkedTo;
+    if (own && own !== friendId && friendOf(own)) return own;
+    const backs = [...(friendsById?.values?.() || [])].filter((f) => f?.linkedTo === friendId && f.id !== friendId);
+    return backs.length === 1 ? backs[0].id : '';
+  };
+  const indexByFriend = () => {
+    const m = new Map();
+    list.forEach((g, i) => { if (g?.friendId && !m.has(g.friendId)) m.set(g.friendId, i); });
+    return m;
+  };
+  const changed = list.filter((g) => {
+    if (!g?.friendId) return false;
+    const was = before.get(g.id);
+    return partyKey(was?.party) !== partyKey(g.party) && (was || partyKey(g.party));
+  });
+  const touched = new Set(changed.map((g) => g.id));
+  const moved = [];
+  const added = [];
+  for (const g of changed) {
+    const pid = partnerFriendId(g.friendId);
+    if (!pid) continue;
+    const at = indexByFriend().get(pid);
+    if (at !== undefined) {
+      const p = list[at];
+      if (touched.has(p.id)) continue; // they were moved in this same write
+      const from = partyKey(p.party);
+      if (from === partyKey(g.party)) continue;
+      if (from && from !== partyKey(before.get(g.id)?.party)) continue;
+      list[at] = { ...p, party: g.party || '', partyOrder: null };
+      touched.add(p.id);
+      moved.push(guestName(p));
+    } else if (partyKey(g.party) && makeGuest) {
+      const guest = makeGuest(friendOf(pid));
+      if (!guest) continue;
+      const row = { ...guest, party: g.party, partyOrder: null };
+      list.push(row);
+      touched.add(row.id);
+      added.push(guestName(row));
+    }
+  }
+  return { list, moved, added };
+}
