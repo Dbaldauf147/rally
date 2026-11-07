@@ -2048,7 +2048,7 @@ function GuestList() {
               onClick={() => toggleSummaryFilter('group', val)}
               title={groupDescription(val) || 'Filter by this tier'}
             >
-              <span className={styles.summaryChipKey}>{val === '—' ? 'Not categorized' : val}</span>
+              <span className={styles.summaryChipKey}>{val === '—' ? 'Not grouped' : val}</span>
               <span className={styles.summaryChipCount}>{n}</span>
             </button>
           ))}
