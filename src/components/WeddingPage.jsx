@@ -334,6 +334,10 @@ function GuestList() {
      column, no regrouping, no boxes. Saved on the user doc (weddingGroupView)
      so it's the same on the phone; on until switched off. */
   const [groupView, setGroupView] = useState(true);
+  // Outline kinds switched off in the key ({ group, couple }: true = hidden),
+  // saved as weddingOutlinesHidden. Hiding one only drops its boxes — group
+  // view still keeps the rows together.
+  const [hiddenOutlines, setHiddenOutlines] = useState({});
   const [sortDir, setSortDir] = useState('asc');
   const [selected, setSelected] = useState(() => new Set());
   const [bulkField, setBulkField] = useState('group');
@@ -406,6 +410,7 @@ function GuestList() {
           setOutlineColors(data.weddingOutlineColors && typeof data.weddingOutlineColors === 'object' ? data.weddingOutlineColors : {});
         }
         setGroupView(data.weddingGroupView !== false);
+        setHiddenOutlines(data.weddingOutlinesHidden && typeof data.weddingOutlinesHidden === 'object' ? data.weddingOutlinesHidden : {});
         // Defaults chosen so switching it on is a one-click decision: their own
         // address, Sunday morning, whatever timezone the browser is in.
         const wd = data.weddingDigest && typeof data.weddingDigest === 'object' ? data.weddingDigest : {};
@@ -649,6 +654,17 @@ function GuestList() {
       await setDoc(doc(db, 'users', user.uid), { weddingGroupView: next }, { merge: true });
     } catch (err) {
       console.error('Failed to save group view:', err);
+    }
+  };
+
+  const toggleOutline = async (key) => {
+    const next = { ...hiddenOutlines, [key]: !hiddenOutlines[key] };
+    setHiddenOutlines(next);
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), { weddingOutlinesHidden: next }, { merge: true });
+    } catch (err) {
+      console.error('Failed to save outline visibility:', err);
     }
   };
 
@@ -1968,7 +1984,13 @@ function GuestList() {
           { key: 'group', label: 'Wedding group', swatch: styles.outlineSwatchGroup, fallback: DEFAULT_OUTLINE_COLORS.group },
           { key: 'couple', label: 'Couple', swatch: styles.outlineSwatchCouple, fallback: DEFAULT_OUTLINE_COLORS.couple },
         ].map((o) => (
-          <label key={o.key} className={styles.tierLegendItem}>
+          <label key={o.key} className={`${styles.tierLegendItem} ${hiddenOutlines[o.key] ? styles.outlineHidden : ''}`}>
+            <input
+              type="checkbox"
+              checked={!hiddenOutlines[o.key]}
+              onChange={() => toggleOutline(o.key)}
+              aria-label={`Show ${o.label.toLowerCase()} outlines`}
+            />
             <span className={`${styles.outlineSwatch} ${o.swatch}`} aria-hidden="true" />
             {o.label}
             <input
@@ -2592,8 +2614,8 @@ function GuestList() {
                   key={c.id}
                   className={[
                     STATUS_CLASS[c.status] ? styles[STATUS_CLASS[c.status]] : '',
-                    outlines.get(c.id)?.group ? `${styles.groupBox} ${styles[`groupBox_${outlines.get(c.id).group}`]}` : '',
-                    outlines.get(c.id)?.couple ? `${styles.coupleBox} ${styles[`coupleBox_${outlines.get(c.id).couple}`]}` : '',
+                    !hiddenOutlines.group && outlines.get(c.id)?.group ? `${styles.groupBox} ${styles[`groupBox_${outlines.get(c.id).group}`]}` : '',
+                    !hiddenOutlines.couple && outlines.get(c.id)?.couple ? `${styles.coupleBox} ${styles[`coupleBox_${outlines.get(c.id).couple}`]}` : '',
                   ].filter(Boolean).join(' ') || undefined}
                 >
                   <td className={styles.checkCell}>

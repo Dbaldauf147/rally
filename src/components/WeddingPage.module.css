@@ -280,3 +280,5 @@
 .outlineSwatchGroup { border: 2px dotted var(--wd-group); }
 .outlineSwatchCouple { border: 2px solid var(--wd-couple); border-radius: 2px; }
 .outlineColor { width: 1.9rem; height: 1.5rem; padding: 0; border: 1px solid var(--color-border); border-radius: 4px; background: none; cursor: pointer; }
+.outlineHidden .outlineSwatch, .outlineHidden .outlineColor { opacity: 0.35; }
+.outlineHidden { color: var(--color-text-muted); }
