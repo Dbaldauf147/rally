@@ -8,6 +8,7 @@ import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
+import { WeddingPartyCell } from './WeddingPartyCell';
 import { makeGuestComparator, sameSortValue, statusOrder } from '../lib/weddingSort';
 import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName, keepCouplesTogether, rowOutlines, groupPartiesTogether, partnersFollowGroup } from '../lib/weddingParty';
 import { guestFromFriend } from '../lib/weddingFriendMatch';
@@ -1242,6 +1243,18 @@ function GuestList() {
     const side = val === NEW_SIDE_SENTINEL ? promptNewSide() : val;
     if (val === NEW_SIDE_SENTINEL && !side) return;
     const next = contacts.map((c) => (c.id === id ? { ...c, side } : c));
+    await persistContacts(next);
+  };
+
+  // Typed or picked in the Wedding group cell. A new group starts them at the
+  // end of it; their Comes With partner follows (persistContacts).
+  const handleRowPartyChange = async (id, val) => {
+    const party = String(val || '').trim();
+    const next = contacts.map((c) => {
+      if (c.id !== id) return c;
+      if (partyKey(c.party) === partyKey(party)) return party === (c.party || '').trim() ? c : { ...c, party };
+      return { ...c, party, partyOrder: null };
+    });
     await persistContacts(next);
   };
 
@@ -2711,6 +2724,13 @@ function GuestList() {
                           {sides.map((g) => <option key={g} value={g}>{g}</option>)}
                           <option value={NEW_SIDE_SENTINEL}>+ New side…</option>
                         </select>
+                      ) : col.key === 'party' ? (
+                        <WeddingPartyCell
+                          value={c.party || ''}
+                          parties={parties}
+                          onCommit={(v) => handleRowPartyChange(c.id, v).catch((err) => console.error('Saving wedding group failed:', err))}
+                          label={`Wedding group for ${`${c.firstName || ''} ${c.lastName || ''}`.trim()}`}
+                        />
                       ) : col.key === 'guestOf' ? (
                         <select
                           className={styles.cellSelect}

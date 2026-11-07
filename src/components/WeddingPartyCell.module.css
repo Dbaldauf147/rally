@@ -1,0 +1,11 @@
+/* Looks like the table's other cell controls until you hover or click in. */
+.input { width: 100%; box-sizing: border-box; padding: 0.25rem 0.45rem; border: 1px solid transparent; background: transparent; font: inherit; font-size: 0.85rem; color: var(--color-text); border-radius: var(--radius-sm); cursor: text; }
+.input::placeholder { color: var(--color-text-muted); }
+.input:hover { border-color: var(--color-border); background: var(--color-surface); }
+.input:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+
+.list { position: fixed; z-index: 1000; margin: 0; padding: 4px 0; list-style: none; max-height: 246px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.12); font-size: 0.85rem; }
+.option { padding: 0.45rem 0.75rem; cursor: pointer; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+.active { background: var(--color-accent-light); }
+.current { font-weight: 600; }
+.action { color: var(--color-accent); }
