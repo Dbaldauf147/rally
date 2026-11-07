@@ -45,15 +45,21 @@ export function WeddingExportMenu({ exporting, onExport }) {
     };
   }, [open]);
 
-  // Open on the side with room, and cap the height so the Export button at
-  // the bottom can always be scrolled to.
+  // Open on the side with room, bring the button up when there's barely any
+  // space below it (on a phone it often sits near the tab bar), and cap the
+  // height so the Export button at the bottom can always be scrolled to.
   function toggle() {
     if (open) { setOpen(false); return; }
-    const r = wrapRef.current?.getBoundingClientRect();
+    let r = wrapRef.current?.getBoundingClientRect();
     if (r) {
       const GAP = 12;
       const W = 230;
       const bottom = window.innerWidth < 768 ? 96 : GAP;
+      const need = Math.min(560, window.innerHeight - bottom - 140);
+      if (window.innerHeight - r.bottom - bottom < need && r.top > 120) {
+        window.scrollBy({ top: r.top - 80 });
+        r = wrapRef.current.getBoundingClientRect();
+      }
       const alignLeft = r.left + W <= window.innerWidth - GAP || r.right < W + GAP;
       setPos({
         ...(alignLeft ? { left: 0, right: 'auto' } : { right: 0, left: 'auto' }),
