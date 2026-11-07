@@ -2,8 +2,12 @@
 
    Pure apart from the ExcelJS module, which the caller passes in (the page
    loads it on demand so the library stays out of the main bundle, and the
-   tests pass the real one). Two sheets:
+   tests pass the real one). Sheets:
 
+   - One per tab on the page (All, Not categorized, each category, Hide),
+     when the page passes its tabs in — each guest on the same sheets, in the
+     same order, with the same wedding-group and couple boxes as the table.
+     Called with no tabs it writes the single "Guest List" sheet below.
    - Guest List: a title block, then one row per guest with a dark header,
      frozen panes, filter arrows, and the page's status colours (yellow
      Pending, green Confirmed, red Not coming). Sorted the way the page sorts:
@@ -36,6 +40,7 @@ export const EXPORT_COLUMNS = [
   { key: 'subcategory', header: 'Subcategory', width: 18 },
   { key: 'guestOf', header: 'Guest Of', width: 16 },
   { key: 'side', header: 'Side', width: 18 },
+  { key: 'party', header: 'Wedding group', width: 20 },
   { key: 'email', header: 'Email', width: 30 },
   { key: 'phone', header: 'Phone', width: 16 },
   { key: 'address', header: 'Address', width: 30 },
@@ -72,6 +77,7 @@ export function guestRow(c) {
     subcategory: clean(c.subcategory),
     guestOf: clean(c.guestOf),
     side: clean(c.side),
+    party: clean(c.party),
     email: clean(c.email),
     phone: clean(c.phone),
     address: clean(c.address),
@@ -119,8 +125,51 @@ function colLetter(n) {
   return s;
 }
 
-function buildGuestSheet(wb, guests, { title, exportedOn }) {
-  const ws = wb.addWorksheet('Guest List', {
+/* A tab's label as an Excel sheet name: no []:*?/\, at most 31 characters,
+   and unique in the workbook (case-insensitively, as Excel compares them). */
+export function sheetNameFor(label, used = new Set()) {
+  const base = (String(label || '').replace(/[[\]:*?/\\]/g, ' ').replace(/\s+/g, ' ').trim() || 'Sheet').slice(0, 31);
+  let name = base;
+  for (let n = 2; used.has(name.toLowerCase()); n += 1) {
+    const tag = ` (${n})`;
+    name = base.slice(0, 31 - tag.length) + tag;
+  }
+  used.add(name.toLowerCase());
+  return name;
+}
+
+export const DEFAULT_EXPORT_OUTLINE_COLORS = { group: '#4f46e5', couple: '#e11d74' };
+const argbOf = (hex, fallback) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  return `FF${(m ? m[1] : fallback.slice(1)).toUpperCase()}`;
+};
+
+/* The cell border for a guest row, drawing the page's boxes: a dashed box
+   round each wedding group, a solid one round each couple. A cell has one
+   line per side, so where the two meet the couple keeps its top and bottom
+   (the lines that set it apart inside its group) and the group keeps its
+   sides — both boxes still read. */
+function outlineBorder(o, colNumber, lastCol, colors) {
+  const groupLine = { style: 'mediumDashed', color: { argb: colors.group } };
+  const coupleLine = { style: 'medium', color: { argb: colors.couple } };
+  const edges = (pos) => ({
+    top: pos === 'top',
+    bottom: pos === 'bottom',
+    left: !!pos && colNumber === 1,
+    right: !!pos && colNumber === lastCol,
+  });
+  const g = o?.group ? edges(o.group) : {};
+  const c = o?.couple ? edges(o.couple) : {};
+  const side = (k) => {
+    const [first, second] = k === 'top' || k === 'bottom' ? [c, g] : [g, c];
+    const [l1, l2] = first === c ? [coupleLine, groupLine] : [groupLine, coupleLine];
+    return first[k] ? l1 : second[k] ? l2 : hair;
+  };
+  return { top: side('top'), left: side('left'), bottom: side('bottom'), right: side('right') };
+}
+
+function buildGuestSheet(wb, guests, { title, exportedOn, sheetName = 'Guest List', outlines, colors }) {
+  const ws = wb.addWorksheet(sheetName, {
     views: [{ state: 'frozen', xSplit: 1, ySplit: 4, showGridLines: false }],
     properties: { defaultRowHeight: 18 },
     pageSetup: {
@@ -149,7 +198,19 @@ function buildGuestSheet(wb, guests, { title, exportedOn }) {
   const sub = ws.getCell('A2');
   sub.value = `${guests.length} guests  ·  ${s.Confirmed} confirmed  ·  ${s.Pending} pending  ·  ${s['Not coming']} not coming  ·  ${s['No status']} no status yet  ·  Exported ${exportedOn}`;
   sub.font = { size: 10, italic: true, color: { argb: MUTED } };
-  ws.getRow(3).height = 6;
+  const boxedGuests = outlines ? guests.filter((g) => outlines.get(g.id)?.group || outlines.get(g.id)?.couple).length : 0;
+  if (boxedGuests) {
+    // A key for the boxes, in their colours, where the spacer row was.
+    ws.mergeCells(`A3:${last}3`);
+    const key = ws.getCell('A3');
+    const parts = [];
+    if (guests.some((g) => outlines.get(g.id)?.group)) parts.push({ text: '- - -  Dashed box: wedding group', font: { size: 9, bold: true, color: { argb: colors.group } } });
+    if (guests.some((g) => outlines.get(g.id)?.couple)) parts.push({ text: '———  Solid box: couple', font: { size: 9, bold: true, color: { argb: colors.couple } } });
+    key.value = { richText: parts.flatMap((p, i) => (i ? [{ text: '      ', font: { size: 9 } }, p] : [p])) };
+    ws.getRow(3).height = 16;
+  } else {
+    ws.getRow(3).height = 6;
+  }
 
   const header = ws.getRow(4);
   header.values = EXPORT_COLUMNS.map((c) => c.header);
@@ -165,8 +226,9 @@ function buildGuestSheet(wb, guests, { title, exportedOn }) {
     const row = ws.addRow(guestRow(g));
     const st = STATUS_STYLE[g.status];
     const band = i % 2 === 1 ? BAND_FILL : null;
+    const o = outlines?.get(g.id);
     row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-      cell.border = boxed;
+      cell.border = o && (o.group || o.couple) ? outlineBorder(o, colNumber, EXPORT_COLUMNS.length, colors) : boxed;
       cell.alignment = { vertical: 'middle', indent: 1 };
       cell.font = { color: { argb: INK }, size: 10 };
       if (st) cell.fill = fill(st.fill);
@@ -267,14 +329,38 @@ function buildSummarySheet(wb, guests, { title, exportedOn }) {
 }
 
 /* Builds the workbook and returns its bytes (an ArrayBuffer-like Buffer).
-   `contacts` is the raw guest list; hidden guests are dropped here. */
-export async function buildGuestWorkbook(ExcelJS, contacts, { title = 'Wedding Guest List', now = new Date() } = {}) {
+   `contacts` is the raw guest list; hidden guests are dropped from the
+   Summary (and from the lone Guest List sheet when no tabs are given).
+
+   `tabs`: [{ label, guests, outlines }] — the page's tabs, each with its
+   guests already in the table's order and, in group view, rowOutlines()'s
+   Map of id → { group, couple } ('top' | 'mid' | 'bottom'). `outlineColors`
+   are the page's picked colours as hex. */
+export async function buildGuestWorkbook(ExcelJS, contacts, { title = 'Wedding Guest List', now = new Date(), tabs, outlineColors = {} } = {}) {
   const guests = exportableGuests(contacts);
   const exportedOn = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Rally';
   wb.created = now;
-  buildGuestSheet(wb, guests, { title, exportedOn });
+  if (Array.isArray(tabs) && tabs.length) {
+    const colors = {
+      group: argbOf(outlineColors.group, DEFAULT_EXPORT_OUTLINE_COLORS.group),
+      couple: argbOf(outlineColors.couple, DEFAULT_EXPORT_OUTLINE_COLORS.couple),
+    };
+    const used = new Set(['summary']);
+    for (const t of tabs) {
+      const label = clean(t.label) || 'Guests';
+      buildGuestSheet(wb, t.guests || [], {
+        title: label === 'All' ? title : `${title} — ${label}`,
+        exportedOn,
+        sheetName: sheetNameFor(label, used),
+        outlines: t.outlines instanceof Map ? t.outlines : null,
+        colors,
+      });
+    }
+  } else {
+    buildGuestSheet(wb, guests, { title, exportedOn });
+  }
   buildSummarySheet(wb, guests, { title, exportedOn });
   return wb.xlsx.writeBuffer();
 }
