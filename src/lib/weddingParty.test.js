@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, partyKey, keepCouplesTogether, rowOutlines, groupPartiesTogether, partnersFollowGroup } from './weddingParty';
+import { partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, partyKey, keepCouplesTogether, rowOutlines, groupPartiesTogether, partnersFollowGroup, partySuggestions } from './weddingParty';
 
 const friendsById = new Map([
   ['fa', { id: 'fa', linkedTo: 'fb' }],   // Ann ↔ Bob, both ways
@@ -186,5 +186,19 @@ describe('partnersFollowGroup', () => {
     const next = [{ ...prev[0], party: 'X' }, { ...prev[1], party: 'X' }];
     const r = partnersFollowGroup(prev, next, friends);
     expect(r.moved).toHaveLength(0);
+  });
+});
+
+describe('partySuggestions', () => {
+  const parties = ['College', 'Smith family', 'Work', 'The Smiths'];
+  it('offers every group before anything is typed', () => {
+    expect(partySuggestions(parties, '  ')).toEqual({ matches: parties, exact: '', canCreate: false });
+  });
+  it('narrows to groups containing the text, prefix matches first', () => {
+    expect(partySuggestions(parties, 'smi').matches).toEqual(['Smith family', 'The Smiths']);
+  });
+  it('recognises an existing group whatever the case, and offers to create a new one', () => {
+    expect(partySuggestions(parties, 'smith FAMILY ')).toMatchObject({ exact: 'Smith family', canCreate: false });
+    expect(partySuggestions(parties, 'Book club')).toEqual({ matches: [], exact: '', canCreate: true });
   });
 });

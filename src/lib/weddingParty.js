@@ -233,3 +233,17 @@ export function partnersFollowGroup(prev, next, friendsById, { makeGuest } = {})
   }
   return { list, moved, added };
 }
+
+/* The Wedding group cell's suggestions for what's typed: every group when
+   nothing is, otherwise the ones containing it (those starting with it
+   first). `exact` is the existing group the text names, case aside, so typing
+   "smith family" files them under "Smith family" rather than a second group. */
+export function partySuggestions(parties, query) {
+  const q = partyKey(query);
+  const all = Array.isArray(parties) ? parties.filter((p) => partyKey(p)) : [];
+  const exact = q ? all.find((p) => partyKey(p) === q) || '' : '';
+  if (!q) return { matches: all, exact, canCreate: false };
+  const starts = all.filter((p) => partyKey(p).startsWith(q));
+  const contains = all.filter((p) => !partyKey(p).startsWith(q) && partyKey(p).includes(q));
+  return { matches: [...starts, ...contains], exact, canCreate: !exact };
+}
