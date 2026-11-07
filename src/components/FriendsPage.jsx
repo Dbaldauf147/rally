@@ -308,11 +308,11 @@ function MergeWithPicker({ friends, editFriendId, onPick }) {
           onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } if (e.key === 'Enter') e.preventDefault(); }}
           placeholder="Merge with which contact?"
           aria-label="Merge with which contact?"
-          style={{ width: '14rem', padding: '0.4rem 0.6rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', fontFamily: 'inherit' }}
+          style={{ width: '14rem', maxWidth: '60vw', padding: '0.4rem 0.6rem', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', fontFamily: 'inherit' }}
         />
       )}
       {open && (
-        <div role="listbox" style={{ position: 'absolute', bottom: '100%', left: 0, width: '18rem', marginBottom: '4px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 20, maxHeight: '220px', overflowY: 'auto' }}>
+        <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, minWidth: '12rem', marginTop: '4px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 20, maxHeight: '220px', overflowY: 'auto' }}>
           {matches.map(f => (
             <button key={f.id} type="button" role="option" aria-selected="false" onClick={() => { setOpen(false); onPick(f); }}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '100%', padding: '0.45rem 0.65rem', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
@@ -2387,7 +2387,10 @@ export function FriendsPage({ embed = null } = {}) {
         {editFriend && (
           <div className={styles.overlay} onClick={closeEdit}>
             <div className={`${styles.modal} ${styles.modalWide}`} onClick={e => e.stopPropagation()}>
-              <h2 className={styles.modalTitle}>Edit Contact</h2>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <h2 className={styles.modalTitle}>Edit Contact</h2>
+                {!embedded && <MergeWithPicker friends={friends} editFriendId={editFriend.id} onPick={mergeFromEdit} />}
+              </div>
               <form onSubmit={e => { e.preventDefault(); closeEdit(); }} className={styles.form}>
                 <div className={styles.editColumns}>
                 {/* Left: how to reach them. Right: who they are. */}
@@ -2477,12 +2480,7 @@ export function FriendsPage({ embed = null } = {}) {
                       : saveStatus === 'error' ? 'Couldn’t save — check your connection'
                       : 'Changes save automatically'}
                   </span>
-                  {!embedded && (
-                    <div style={{ marginLeft: 'auto' }}>
-                      <MergeWithPicker friends={friends} editFriendId={editFriend.id} onPick={mergeFromEdit} />
-                    </div>
-                  )}
-                  <button type="button" onClick={deleteFromEdit} style={{ marginLeft: embedded ? 'auto' : 0, background: 'none', border: 'none', color: 'var(--color-danger)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
+                  <button type="button" onClick={deleteFromEdit} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--color-danger)', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
                 </div>
 
               </form>
