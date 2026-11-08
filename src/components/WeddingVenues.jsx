@@ -293,7 +293,7 @@ export function WeddingVenues() {
       ) : (
         <div className={styles.tableWrap}>
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
+            <table className={`${styles.table} ${vs.venueTable}`}>
               <thead>
                 <tr>
                   <th>Venue</th><th>Status</th><th>Contact</th><th>Location</th><th>Pricing</th><th>Next step</th><th>Last contact</th>
