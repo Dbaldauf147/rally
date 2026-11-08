@@ -1013,12 +1013,32 @@ export function phaseProgress(phase, done) {
   return { complete, total, finished: total > 0 && complete === total };
 }
 
-// Counted off the tasks, not the keys in `done`, which also hold part-way steps.
+/* How far through the list you are.
+
+   `complete` counts finished tasks, off the tasks rather than the keys in
+   `done` (which also hold part-way steps). The percentage gives a task with
+   steps credit for the share of them ticked — three of five steps is 0.6 of a
+   task — so ticking steps moves the bar before the whole task is finished.
+   It only reads 100 when every task is done, and never 0 once a step is.
+   `stepsDone` counts the ticked steps on tasks that aren't finished yet. */
 export function overallProgress(list) {
   const { phases, done } = normalizeChecklist(list);
-  const total = totalTasks(phases);
-  const complete = allTasks(phases).filter((t) => isDone(done, t.key)).length;
-  return { complete, total, pct: total ? Math.round((complete / total) * 100) : 0 };
+  const tasks = allTasks(phases);
+  const total = tasks.length;
+  let complete = 0;
+  let credit = 0;
+  let stepsDone = 0;
+  for (const t of tasks) {
+    if (isDone(done, t.key)) { complete += 1; credit += 1; continue; }
+    if (!t.steps.length) continue;
+    const n = t.steps.filter((s) => isDone(done, stepKey(t.phaseId, t.id, s.id))).length;
+    stepsDone += n;
+    credit += n / t.steps.length;
+  }
+  let pct = total ? Math.round((credit / total) * 100) : 0;
+  if (complete < total) pct = Math.min(pct, 99);
+  if (credit > 0) pct = Math.max(pct, 1);
+  return { complete, total, pct, stepsDone };
 }
 
 /* The first thing still outstanding, in timeline order.

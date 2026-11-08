@@ -207,6 +207,15 @@ function guestFootnote(stats) {
   </div>`;
 }
 
+/* Steps ticked this week on tasks that aren't finished, each with the task it
+   belongs to — a step alone ("Agree one total budget") can read like a task. */
+function stepLines(steps, afterTasks) {
+  if (!steps || steps.length === 0) return '';
+  const shown = steps.slice(0, MAX_NAMES).map((s) => `&#10003; ${esc(s.text)} <span style="color:#4d7c0f;">(step ${s.number} of ${s.of}, ${esc(s.taskText)})</span>`);
+  const more = steps.length > MAX_NAMES ? `<br><span style="color:#4d7c0f;">+${steps.length - MAX_NAMES} more steps</span>` : '';
+  return `${afterTasks ? '<br>' : ''}${shown.join('<br>')}${more}`;
+}
+
 // Exported for tests: the handler is the default export, so named exports here
 // are invisible to Vercel's function routing.
 export function buildEmailHtml(list, delta, tz, now, stats) {
@@ -219,10 +228,13 @@ export function buildEmailHtml(list, delta, tz, now, stats) {
           <div style="font-size:0.88rem;color:#14532d;line-height:1.7;">
             ${delta.ticked.slice(0, MAX_NAMES).map((t) => `&#10003; ${esc(t.text)}`).join('<br>')}
             ${delta.ticked.length > MAX_NAMES ? `<br><span style="color:#4d7c0f;">+${delta.ticked.length - MAX_NAMES} more</span>` : ''}
+            ${stepLines(delta.stepsTicked, delta.ticked.length > 0)}
             ${delta.unticked > 0 ? `<br><span style="color:#a16207;">${delta.unticked} reopened</span>` : ''}
           </div>
         </div>`
-      : '<p style="color:#9ca3af;margin:0 0 1.25rem;font-size:0.9rem;">Nothing ticked off since last week.</p>')
+      : (delta.stepsSoFar > 0
+        ? `<p style="color:#6b7280;margin:0 0 1.25rem;font-size:0.9rem;">No task finished since last week, but ${delta.stepsSoFar} step${delta.stepsSoFar === 1 ? ' is' : 's are'} ticked on tasks in progress.</p>`
+        : '<p style="color:#9ca3af;margin:0 0 1.25rem;font-size:0.9rem;">Nothing ticked off since last week.</p>'))
     : '<p style="color:#9ca3af;margin:0 0 1.25rem;font-size:0.9rem;">First digest — next week will show what you got done.</p>';
 
   const nextUpBlock = sum.next
@@ -257,7 +269,7 @@ export function buildEmailHtml(list, delta, tz, now, stats) {
       <div style="height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin-top:0.5rem;">
         <div style="height:8px;width:${sum.pct}%;background:#16a34a;"></div>
       </div>
-      <div style="font-size:0.78rem;color:#6b7280;margin-top:0.3rem;">${sum.pct}% of the checklist complete</div>
+      <div style="font-size:0.78rem;color:#6b7280;margin-top:0.3rem;">${sum.pct}% of the checklist complete${sum.stepsDone > 0 ? `, counting ${sum.stepsDone} step${sum.stepsDone === 1 ? '' : 's'} done on tasks in progress` : ''}</div>
     </div>
 
     ${nextUpBlock}
