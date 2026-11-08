@@ -28,6 +28,13 @@ export default async function handler(req, res) {
   const { code, error, state } = req.query;
   const isNative = state === 'native';
 
+  // The Wedding Venues tab's Gmail sign-in rides on this same redirect URI,
+  // marked by a `gmail.<nonce>` state. Its token stays on the server
+  // (lib/weddingGmailAuth.js); the page only hears which inbox was linked.
+  if (typeof state === 'string' && state.startsWith('gmail.')) {
+    return gmailConnectPage(req, res, { code, error, nonce: state.slice('gmail.'.length) });
+  }
+
   if (error || !code) {
     if (isNative) return res.status(200).send(nativePage({ error: error || 'no code' }));
     return res.status(400).send(`<html><body><script>window.opener?.postMessage({type:'google-auth-error',error:'${error || 'no code'}'},'*');window.close();</script></body></html>`);
@@ -73,5 +80,29 @@ export default async function handler(req, res) {
   } catch (err) {
     if (isNative) return res.status(200).send(nativePage({ error: err.message }));
     return res.status(500).send(`<html><body><script>window.opener?.postMessage({type:'google-auth-error',error:'${err.message}'},'*');window.close();</script></body></html>`);
+  }
+}
+
+async function gmailConnectPage(req, res, { code, error, nonce }) {
+  const reply = (payload) => {
+    // Escaped so an error message can't close the <script> it's written into.
+    const data = JSON.stringify(payload).replace(/</g, '\\u003c');
+    const ok = payload.type === 'gmail-connected';
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Rally</title></head>
+<body style="font-family:-apple-system,system-ui,sans-serif;text-align:center;padding:2.5rem 1.5rem;color:#111">
+<h2 style="font-size:1.2rem">${ok ? 'Gmail connected' : 'Could not connect Gmail'}</h2>
+<p style="color:#555">${ok ? 'You can close this window.' : 'Close this window and try again from the Venues tab.'}</p>
+<script>try { window.opener && window.opener.postMessage(${data}, location.origin); } catch (e) {} setTimeout(function(){ window.close(); }, ${ok ? 300 : 4000});</script>
+</body></html>`);
+  };
+  if (error || !code) return reply({ type: 'gmail-error', error: error || 'No code returned' });
+  try {
+    const { finishGmailConnect } = await import('../lib/weddingGmailAuth.js');
+    const redirectUri = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/api/google-callback`;
+    const { email } = await finishGmailConnect({ nonce, code, redirectUri });
+    return reply({ type: 'gmail-connected', email });
+  } catch (err) {
+    return reply({ type: 'gmail-error', error: err.message || 'Sign-in failed' });
   }
 }
