@@ -2970,6 +2970,32 @@ export function EventDetail() {
 
       {result && <div style={{ padding: '0.4rem 0.75rem', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', fontWeight: 500, marginBottom: '0.5rem', background: 'var(--color-success-light)', color: 'var(--color-success)' }}>{result.message}</div>}
 
+      {/* The Guys Night steakhouse list from Prep Day, on the steak-night
+          event its owner organizes (the server checks both again). Above the
+          tabs: a finalized event opens on Itinerary, and the list is the
+          point of this event. */}
+      {(() => {
+        const organizer = Object.values(event.members || {}).find(m => m?.role === 'owner');
+        if (!isOwnerEmail(organizer?.email)) return null;
+        if (steakhouseListOn(event)) {
+          return (
+            <SteakhouseList
+              key={eventId}
+              eventId={eventId}
+              event={event}
+              user={user}
+              isOrganizer={isOwner}
+              onHide={() => updateEvent(eventId, { steakhouseList: false })}
+            />
+          );
+        }
+        return isOwner && event.steakhouseList === false && /\bsteak/i.test(event.title || '') ? (
+          <button type="button" className={styles.editBtn} style={{ marginBottom: '1rem', fontSize: '0.78rem' }} onClick={() => updateEvent(eventId, { steakhouseList: true })}>
+            🥩 Show the steakhouse list
+          </button>
+        ) : null;
+      })()}
+
       <div className={styles.tabs}>
         {tabs.map(t => (
           <button key={t.key} className={activeTab === t.key ? styles.tabActive : styles.tab} onClick={() => setActiveTab(t.key)}>{t.label}</button>
@@ -2984,30 +3010,6 @@ export function EventDetail() {
               <p className={styles.description}>{event.description}</p>
             </div>
           )}
-
-          {/* The Guys Night steakhouse list from Prep Day, on the steak-night
-              event its owner organizes (the server checks both again). */}
-          {(() => {
-            const organizer = Object.values(event.members || {}).find(m => m?.role === 'owner');
-            if (!isOwnerEmail(organizer?.email)) return null;
-            if (steakhouseListOn(event)) {
-              return (
-                <SteakhouseList
-                  key={eventId}
-                  eventId={eventId}
-                  event={event}
-                  user={user}
-                  isOrganizer={isOwner}
-                  onHide={() => updateEvent(eventId, { steakhouseList: false })}
-                />
-              );
-            }
-            return isOwner && event.steakhouseList === false && /\bsteak/i.test(event.title || '') ? (
-              <button type="button" className={styles.editBtn} style={{ marginBottom: '1rem', fontSize: '0.78rem' }} onClick={() => updateEvent(eventId, { steakhouseList: true })}>
-                🥩 Show the steakhouse list
-              </button>
-            ) : null;
-          })()}
 
           <div className={styles.membersSection}>
             <h3 className={styles.sectionTitle}>
