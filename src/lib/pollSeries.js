@@ -285,6 +285,8 @@ export function buildNextRound(event, eventId, { timeZone = 'America/New_York', 
   if (shareToken) doc.shareToken = shareToken;
   if (Array.isArray(event.hiddenFrom)) doc.hiddenFrom = [...event.hiddenFrom];
   if (event.keyConsiderationsEnabled != null) doc.keyConsiderationsEnabled = event.keyConsiderationsEnabled;
+  // Next year's steak night keeps the steakhouse list switched on (or off).
+  if (typeof event.steakhouseList === 'boolean') doc.steakhouseList = event.steakhouseList;
   // The reminder schedule carries over, counted from when this round opens.
   if (reminders) doc.autoReminders = { ...reminders, ...(reminders.enabled ? { startedAt: new Date().toISOString() } : {}) };
   return { doc, target, window };
