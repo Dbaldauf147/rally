@@ -218,10 +218,13 @@
 /* Subtab bar: the guest list and the checklist. Matches the Plans page's bar so
    the two read as the same mechanism. */
 .subtabBar { border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
-.subtabInner { max-width: 1400px; margin: 0 auto; padding: 0 1rem; display: flex; gap: 0.25rem; }
+/* Five tabs don't fit a phone: the row scrolls sideways on its own rather than
+   widening the page. */
+.subtabInner { max-width: 1400px; margin: 0 auto; padding: 0 1rem; display: flex; gap: 0.25rem; overflow-x: auto; scrollbar-width: none; }
+.subtabInner::-webkit-scrollbar { display: none; }
 .subtab, .subtabActive {
   padding: 0.75rem 0.9rem; border: none; background: none; border-bottom: 2px solid transparent;
-  font-family: inherit; font-size: 0.88rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer;
+  font-family: inherit; font-size: 0.88rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; white-space: nowrap; flex-shrink: 0;
 }
 .subtab:hover { color: var(--color-text); }
 .subtabActive { color: var(--color-accent); border-bottom-color: var(--color-accent); }

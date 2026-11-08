@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../native';
 import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
+import { WeddingVenues } from './WeddingVenues';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
 import { WeddingPartyCell } from './WeddingPartyCell';
@@ -2850,7 +2851,7 @@ export function WeddingPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawView = searchParams.get('view');
-  const view = ['checklist', 'timeline', 'friends'].includes(rawView) ? rawView : 'guests';
+  const view = ['checklist', 'timeline', 'venues', 'friends'].includes(rawView) ? rawView : 'guests';
   const setView = (v) => setSearchParams(v === 'guests' ? {} : { view: v });
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
@@ -2876,12 +2877,17 @@ export function WeddingPage() {
           >Timeline</button>
           <button
             type="button"
+            className={view === 'venues' ? styles.subtabActive : styles.subtab}
+            onClick={() => setView('venues')}
+          >Venues</button>
+          <button
+            type="button"
             className={view === 'friends' ? styles.subtabActive : styles.subtab}
             onClick={() => setView('friends')}
           >Friends not on list</button>
         </div>
       </div>
-      {view === 'friends' ? <WeddingFriendsNotInvited /> : view === 'timeline' ? (
+      {view === 'friends' ? <WeddingFriendsNotInvited /> : view === 'venues' ? <WeddingVenues /> : view === 'timeline' ? (
         <div className={styles.page}>
           <div className={styles.header}>
             <h1 className={styles.title}>Wedding</h1>
