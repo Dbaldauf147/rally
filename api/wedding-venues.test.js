@@ -1,3 +1,4 @@
+/* global process */
 // The Venues tab's Gmail endpoint and the callback half, against an in-memory
 // Firestore, with Google and the inbox scan stubbed out.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
