@@ -54,6 +54,8 @@ import { isPinned, togglePin, renamePin, subscribePins } from '../pinnedTrips';
 import { isHiddenFrom, hiddenPeople, addHiddenFrom, removeHiddenFrom, cleanEmail } from '../lib/eventVisibility';
 import styles from './EventDetail.module.css';
 import { DateField } from './DateField';
+import { SteakhouseList } from './SteakhouseList';
+import { steakhouseListOn } from '../lib/guysNight';
 
 // Shared style for items inside the calendar-sync gear dropdown.
 const calMenuItemStyle = {
@@ -2982,6 +2984,30 @@ export function EventDetail() {
               <p className={styles.description}>{event.description}</p>
             </div>
           )}
+
+          {/* The Guys Night steakhouse list from Prep Day, on the steak-night
+              event its owner organizes (the server checks both again). */}
+          {(() => {
+            const organizer = Object.values(event.members || {}).find(m => m?.role === 'owner');
+            if (!isOwnerEmail(organizer?.email)) return null;
+            if (steakhouseListOn(event)) {
+              return (
+                <SteakhouseList
+                  key={eventId}
+                  eventId={eventId}
+                  event={event}
+                  user={user}
+                  isOrganizer={isOwner}
+                  onHide={() => updateEvent(eventId, { steakhouseList: false })}
+                />
+              );
+            }
+            return isOwner && event.steakhouseList === false && /\bsteak/i.test(event.title || '') ? (
+              <button type="button" className={styles.editBtn} style={{ marginBottom: '1rem', fontSize: '0.78rem' }} onClick={() => updateEvent(eventId, { steakhouseList: true })}>
+                🥩 Show the steakhouse list
+              </button>
+            ) : null;
+          })()}
 
           <div className={styles.membersSection}>
             <h3 className={styles.sectionTitle}>
