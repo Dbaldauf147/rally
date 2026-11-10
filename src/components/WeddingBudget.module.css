@@ -134,3 +134,26 @@
   .text { min-width: 6rem; }
   .totalInput { width: 100%; }
 }
+
+/* A markup's % opens its settings in a pop-up rather than a row that's
+   always there. */
+.derivedBtn {
+  font: inherit; font-variant-numeric: tabular-nums; color: var(--color-accent); background: none; cursor: pointer;
+  border: none; border-bottom: 1px dashed currentColor; padding: 0; border-radius: 0;
+}
+.derivedBtn:hover { color: var(--color-text); }
+.markupPop {
+  position: fixed; z-index: 400; width: min(420px, calc(100vw - 16px)); box-sizing: border-box;
+  padding: 0.7rem 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  background: var(--color-surface); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16); font-size: 0.85rem;
+}
+.markupPopHead { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.55rem; }
+.markupPopClose { border: none; background: none; cursor: pointer; font-size: 1.15rem; line-height: 1; color: var(--color-text-muted); padding: 0 0.2rem; }
+.markupPopClose:hover { color: var(--color-text); }
+.markupPopRate { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.markupPopBases { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.markupPopSum { margin: 0.6rem 0 0; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.markupPopFoot { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-top: 0.7rem; padding-top: 0.55rem; border-top: 1px solid var(--color-border-light); }
+.markupPopOff { border: none; background: none; cursor: pointer; font: inherit; font-size: 0.8rem; color: var(--color-text-muted); padding: 0.2rem 0; }
+.markupPopOff:hover { color: var(--color-danger); }
+.markupPopDone { border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font: inherit; font-weight: 600; font-size: 0.82rem; padding: 0.35rem 0.85rem; cursor: pointer; }
