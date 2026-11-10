@@ -3,9 +3,10 @@
 
    Stored as one field, `weddingBudgetPlan`, on the owner's user document:
 
-     { v: 2,
+     { v: 3,
        total: number|null,
        guests: { source, count },
+       salesTax: { rate },
        contributors: [{ id, name, low, high, note }],
        categories:   [{ id, name, pct, items: [{ id, name, pct, perPlate?, markup? }] }] }
 
@@ -14,16 +15,25 @@
    - per plate (`perPlate: { price }`): price × the guest count; its % follows
      from its dollars.
    - a markup (`markup: { rate, of: [itemId] }`): rate % of other lines — the
-     service charge on food and bar, the tax on those plus the service charge.
+     service charge on food and bar.
    A category with items is the sum of its items; one without items carries
-   its own percentage. */
+   its own percentage.
+
+   Sales tax sits on top: one rate for the plan, added to every line marked
+   `taxed` (a category without items carries its own flag). A line's % and
+   amount are before tax; what has to fit in the total is the lines plus
+   their tax. */
 
 const FOOD = 'Food (cocktail hour, dinner, vendor meals)';
 const BAR = 'Bar and beverages';
 const SERVICE = 'Service charge and gratuity';
 // Typical catering service charge, and New York City sales tax (Brooklyn).
 const SERVICE_RATE = 22;
-const TAX_RATE = 8.875;
+export const DEFAULT_TAX_RATE = 8.875;
+const TAX_RATE = DEFAULT_TAX_RATE;
+
+// Lines a planner, the clerk or the post office charge — no sales tax on them.
+const UNTAXED = new Set(['c-planner-or-coordinator', 'c-officiant-and-marriage-license', 'c-contingency', 'i-postage']);
 
 const SEED = [
   ['Venue, catering, bar, rentals', 48, [
@@ -31,7 +41,6 @@ const SEED = [
     [FOOD, 18],
     [BAR, 7],
     [SERVICE, { rate: SERVICE_RATE, of: [FOOD, BAR] }],
-    ['Tax', { rate: TAX_RATE, of: [FOOD, BAR, SERVICE] }],
     ['Rentals (tables, chairs, linens, china, glassware)', 4],
   ]],
   ['Photography and videography', 12, [
@@ -85,9 +94,10 @@ export function seedCategories() {
     id: `c-${slug(name)}`,
     name,
     pct,
+    taxed: !UNTAXED.has(`c-${slug(name)}`),
     items: items.map(([n, p]) => (typeof p === 'number'
-      ? { id: itemId(n), name: n, pct: p, perPlate: null, markup: null }
-      : { id: itemId(n), name: n, pct: 0, perPlate: null, markup: { rate: p.rate, of: p.of.map(itemId) } })),
+      ? { id: itemId(n), name: n, pct: p, perPlate: null, markup: null, taxed: !UNTAXED.has(itemId(n)) }
+      : { id: itemId(n), name: n, pct: 0, perPlate: null, markup: { rate: p.rate, of: p.of.map(itemId) }, taxed: !UNTAXED.has(itemId(n)) })),
   }));
 }
 
@@ -174,6 +184,21 @@ function upgradeServiceLine(categories) {
   });
 }
 
+/* Plans from before the tax column had sales tax as a computed "Tax" line.
+   The line goes and its rate becomes the plan's. */
+function liftTaxLine(categories) {
+  let rate = null;
+  const next = categories.map((c) => {
+    const items = c.items.filter((i) => {
+      const isTax = i.markup && (i.id === itemId('Tax') || i.name.trim().toLowerCase() === 'tax');
+      if (isTax && rate == null) rate = i.markup.rate;
+      return !isTax;
+    });
+    return items.length === c.items.length ? c : { ...c, items };
+  });
+  return { categories: next, rate };
+}
+
 export function normalizePlan(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const contributors = Array.isArray(r.contributors) ? r.contributors : [];
@@ -187,21 +212,32 @@ export function normalizePlan(raw) {
     id: str(c.id) || newId('c'),
     name: str(c.name),
     pct: pctOf(c.pct),
+    taxed: typeof c.taxed === 'boolean' ? c.taxed : !UNTAXED.has(str(c.id)),
     items: (Array.isArray(c.items) ? c.items : []).filter((i) => i && typeof i === 'object').map((i) => {
       const markup = normalizeMarkup(i.markup);
+      const id = str(i.id) || newId('i');
       return {
-        id: str(i.id) || newId('i'),
+        id,
         name: str(i.name),
         pct: pctOf(i.pct),
         perPlate: markup ? null : normalizePerPlate(i.perPlate),
         markup,
+        taxed: typeof i.taxed === 'boolean' ? i.taxed : !UNTAXED.has(id),
       };
     }),
   }));
-  if ((num(r.v) ?? 1) < 2) categories = upgradeServiceLine(categories);
+  const version = num(r.v) ?? 1;
+  if (version < 2) categories = upgradeServiceLine(categories);
+  let taxRate = r.salesTax && typeof r.salesTax === 'object' ? num(r.salesTax.rate) : null;
+  if (version < 3) {
+    const lifted = liftTaxLine(categories);
+    categories = lifted.categories;
+    if (taxRate == null) taxRate = lifted.rate;
+  }
   return {
-    v: 2,
+    v: 3,
     total: money(r.total),
+    salesTax: { rate: Math.max(0, taxRate ?? DEFAULT_TAX_RATE) },
     guests: normalizeGuests(r.guests || legacyGuests),
     contributors: contributors.filter((c) => c && typeof c === 'object').map((c) => ({
       id: str(c.id) || newId('p'),
@@ -265,6 +301,23 @@ export function totalPct(categories) {
   return roundPct(categories.reduce((s, c) => s + categoryPct(c), 0));
 }
 
+/* Sales tax, in the same % of total units as the lines. */
+export const lineTaxPct = (pct, taxed, rate) => (taxed ? (pct * rate) / 100 : 0);
+
+export function categoryTaxPct(cat, rate) {
+  if (!cat.items.length) return roundPct(lineTaxPct(cat.pct, cat.taxed, rate));
+  return roundPct(cat.items.reduce((s, i) => s + lineTaxPct(i.pct, i.taxed, rate), 0));
+}
+
+export function totalTaxPct(categories, rate) {
+  return roundPct(categories.reduce((s, c) => s + categoryTaxPct(c, rate), 0));
+}
+
+/* Lines plus their tax: what has to fit inside the total budget. */
+export function grossPct(categories, rate) {
+  return roundPct(totalPct(categories) + totalTaxPct(categories, rate));
+}
+
 /* What everyone can give. A person with only one end of the range filled in
    counts that number at both ends. */
 export function contributorTotals(contributors) {
@@ -322,7 +375,7 @@ function solveFactor(sumAt, target) {
 // Rounding leaves a few thousandths over or under; put them on the largest
 // free line — preferably one no markup is charged on, so the fix doesn't
 // ripple (and a couple of passes for when there's no such line).
-function settleDrift(categories, sumOf, target, inCat = null) {
+function settleDrift(categories, sumOf, target, inCat = null, rate = 0) {
   const charged = new Set(categories.flatMap((c) => c.items.flatMap((i) => i.markup?.of || [])));
   let next = categories;
   for (let k = 0; k < 3; k += 1) {
@@ -339,10 +392,13 @@ function settleDrift(categories, sumOf, target, inCat = null) {
       } else if (!inCat && better(c.pct, false)) best = { ci, ii: -1, pct: c.pct, ripples: false };
     });
     if (!best) break;
+    // A taxed line moves the sum by its tax too.
+    const line = best.ii < 0 ? next[best.ci] : next[best.ci].items[best.ii];
+    const d = drift / (1 + (line.taxed ? rate / 100 : 0));
     next = resolveMarkups(next.map((c, ci) => {
       if (ci !== best.ci) return c;
-      if (best.ii < 0) return { ...c, pct: roundPct(Math.max(0, c.pct + drift)) };
-      return { ...c, items: c.items.map((i, ii) => (ii === best.ii ? { ...i, pct: roundPct(Math.max(0, i.pct + drift)) } : i)) };
+      if (best.ii < 0) return { ...c, pct: roundPct(Math.max(0, c.pct + d)) };
+      return { ...c, items: c.items.map((i, ii) => (ii === best.ii ? { ...i, pct: roundPct(Math.max(0, i.pct + d)) } : i)) };
     }));
   }
   return next;
@@ -368,12 +424,14 @@ export function setCategoryPct(categories, catId, pct) {
   return settleDrift(scaleFree(cats, f, catId), catSum, Math.max(target, catSum(scaleFree(cats, 0, catId))), catId);
 }
 
-/* Rescale the plain lines so the whole split adds to exactly 100%. */
-export function scaleTo100(categories) {
-  const f = solveFactor((x) => totalPct(scaleFree(categories, x)), 100);
+/* Rescale the plain lines so the whole split — sales tax included — adds to
+   exactly 100%. */
+export function scaleTo100(categories, taxRate = 0) {
+  const sum = (cs) => grossPct(cs, taxRate);
+  const f = solveFactor((x) => sum(scaleFree(categories, x)), 100);
   if (f == null) return categories;
-  const floor = totalPct(scaleFree(categories, 0));
-  return settleDrift(scaleFree(categories, f), totalPct, Math.max(100, floor));
+  const floor = sum(scaleFree(categories, 0));
+  return settleDrift(scaleFree(categories, f), sum, Math.max(100, floor), null, taxRate);
 }
 
 /* "$40,000", "40k", "1.2m", "40000" → number. Blank → null. */

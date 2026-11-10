@@ -3,6 +3,7 @@ import {
   seedCategories, normalizePlan, categoryPct, totalPct, contributorTotals, effectiveTotal,
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, formatRate,
   guestCounts, headcount, plateAmount, resolveCategories, resolveMarkups,
+  categoryTaxPct, totalTaxPct, grossPct,
 } from './weddingBudgetPlan';
 
 const FOOD = 'i-food-cocktail-hour-dinner-vendor-meals';
@@ -10,13 +11,22 @@ const item = (id, pct, extra = {}) => ({ id, name: id, pct, perPlate: null, mark
 const find = (cats, id) => cats.flatMap((c) => c.items).find((i) => i.id === id);
 
 describe('seed split', () => {
-  it('charges service on food + bar and tax on those plus service', () => {
+  it('charges service on food + bar, with no separate tax line', () => {
     const cats = resolveMarkups(seedCategories());
     expect(find(cats, 'i-service-charge-and-gratuity').pct).toBe(5.5); // 22% of 25
-    expect(find(cats, 'i-tax').pct).toBe(2.707); // 8.875% of 30.5
-    expect(categoryPct(cats[0])).toBe(47.207);
-    expect(totalPct(cats)).toBe(99.207);
+    expect(find(cats, 'i-tax')).toBeUndefined();
+    expect(categoryPct(cats[0])).toBe(44.5);
+    expect(totalPct(cats)).toBe(96.5);
     expect(cats).toHaveLength(11);
+  });
+  it('taxes everything but the planner, officiant, contingency and postage', () => {
+    const cats = resolveMarkups(seedCategories());
+    const untaxed = cats.flatMap((c) => (c.items.length ? c.items : [c])).filter((l) => !l.taxed).map((l) => l.id);
+    expect(untaxed.sort()).toEqual(['c-contingency', 'c-officiant-and-marriage-license', 'c-planner-or-coordinator', 'i-postage']);
+    // 86% of the split is taxed: 86 × 8.875% = 7.6325
+    expect(totalTaxPct(cats, 8.875)).toBe(7.633);
+    expect(grossPct(cats, 8.875)).toBe(104.133);
+    expect(categoryTaxPct(cats.find((c) => c.id === 'c-stationery'), 10)).toBe(0.25); // 2.5 of 3 taxed
   });
   it('has unique ids', () => {
     const ids = seedCategories().flatMap((c) => [c.id, ...c.items.map((i) => i.id)]);
@@ -28,8 +38,9 @@ describe('normalizePlan', () => {
   it('starts a missing plan from the seed with no total', () => {
     const p = normalizePlan(undefined);
     expect(p.total).toBeNull();
-    expect(p.v).toBe(2);
+    expect(p.v).toBe(3);
     expect(p.guests).toEqual({ source: 'all', count: null });
+    expect(p.salesTax).toEqual({ rate: 8.875 });
     expect(p.contributors).toEqual([]);
     expect(p.categories).toHaveLength(11);
   });
@@ -54,12 +65,23 @@ describe('normalizePlan', () => {
     };
     const p = normalizePlan(old);
     const names = p.categories[0].items.map((i) => i.name);
-    expect(names).toEqual(['Venue site fee', 'Food (cocktail hour, dinner, vendor meals)', 'Bar and beverages', 'Service charge and gratuity', 'Tax']);
+    expect(names).toEqual(['Venue site fee', 'Food (cocktail hour, dinner, vendor meals)', 'Bar and beverages', 'Service charge and gratuity']);
     expect(p.categories[0].items[3].markup).toEqual({ rate: 22, of: [FOOD, 'i-bar-and-beverages'] });
-    expect(p.categories[0].items[4].markup.of).toEqual([FOOD, 'i-bar-and-beverages', 'i-service-charge-and-gratuity']);
+    expect(p.salesTax.rate).toBe(8.875);
     // Once upgraded it doesn't happen again, even if a flat line comes back.
     const again = normalizePlan({ ...p, categories: [{ ...p.categories[0], items: [...p.categories[0].items, { id: 'x', name: 'Service charge, tax, gratuity', pct: 1 }] }] });
-    expect(again.categories[0].items).toHaveLength(6);
+    expect(again.categories[0].items).toHaveLength(5);
+  });
+  it('lifts a v2 tax line into the plan rate and keeps its own rate', () => {
+    const p = normalizePlan({ v: 2, categories: [{ id: 'c', name: 'Venue', items: [
+      { id: 'i-bar-and-beverages', name: 'Bar', pct: 7 },
+      { id: 'i-tax', name: 'Tax', pct: 0, markup: { rate: 8, of: ['i-bar-and-beverages'] } },
+    ] }] });
+    expect(p.categories[0].items.map((i) => i.id)).toEqual(['i-bar-and-beverages']);
+    expect(p.salesTax.rate).toBe(8);
+    expect(p.categories[0].items[0].taxed).toBe(true);
+    // A saved rate wins and nothing is lifted twice.
+    expect(normalizePlan({ v: 3, salesTax: { rate: 6 }, categories: [] }).salesTax.rate).toBe(6);
   });
   it('moves an old per-line guest count up to the plan', () => {
     const p = normalizePlan({ categories: [{ name: 'Food', items: [{ name: 'Dinner', pct: 5, perPlate: { price: '150', source: 'manual', count: 99.6 } }] }] });
@@ -122,10 +144,12 @@ describe('editing percentages', () => {
   it('sets a plain category directly', () => {
     expect(setCategoryPct([{ id: 'c', name: 'Cake', pct: 2, items: [] }], 'c', 3.5)[0].pct).toBe(3.5);
   });
-  it('scales the whole split, markups included, to exactly 100%', () => {
+  it('scales the whole split, markups and tax included, to exactly 100%', () => {
     const cats = resolveMarkups(seedCategories());
-    expect(totalPct(cats)).toBe(99.207);
     expect(totalPct(scaleTo100(cats))).toBe(100);
+    const withTax = scaleTo100(cats, 8.875);
+    expect(grossPct(withTax, 8.875)).toBe(100);
+    expect(totalPct(withTax)).toBeLessThan(93);
     const odd = [{ id: 'a', pct: 1, items: [] }, { id: 'b', pct: 1, items: [] }, { id: 'c', pct: 1, items: [] }];
     expect(totalPct(scaleTo100(odd))).toBe(100);
   });
