@@ -14,7 +14,10 @@
 .splitTable { table-layout: fixed; }
 .pctCol { width: 6.5rem; }
 .amtCol { width: 8.5rem; }
-.actCol { width: 5.6rem; }
+.ppCol { width: 6.5rem; }
+.actCol { width: 6.9rem; }
+.perPerson, .perPersonStrong { text-align: right; font-variant-numeric: tabular-nums; padding-right: 0.75rem !important; white-space: nowrap; color: var(--color-text-secondary); }
+.perPersonStrong { font-weight: 650; color: var(--color-text); }
 .table th, .splitTable th { text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); padding: 0.3rem 0.3rem; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 .table th.numHead, .splitTable th.numHead { text-align: right; }
 .table td, .splitTable td { padding: 0.15rem 0.3rem; vertical-align: middle; }
@@ -47,6 +50,22 @@
 .plateBtn { opacity: 0.35; filter: grayscale(1); }
 .plateBtn:hover { opacity: 1; filter: none; background: var(--color-surface-alt); }
 .plateBtnOn { border-color: var(--color-accent); background: var(--color-accent-light); }
+.markupBtn, .markupBtnOn { width: 26px; height: 26px; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; font-family: inherit; font-size: 0.8rem; font-weight: 700; line-height: 1; cursor: pointer; }
+.markupBtn { color: var(--color-text-muted); opacity: 0.6; }
+.markupBtn:hover { opacity: 1; background: var(--color-surface-alt); color: var(--color-text); }
+.markupBtnOn { border-color: var(--color-accent); background: var(--color-accent-light); color: var(--color-accent); }
+.bases { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; }
+.base, .baseOn { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0.5rem 0.15rem 0.35rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface); font-size: 0.78rem; color: var(--color-text-secondary); cursor: pointer; }
+.baseOn { border-color: var(--color-accent); color: var(--color-text); }
+.base input, .baseOn input { width: 13px; height: 13px; margin: 0; accent-color: var(--color-accent); }
+.plateNote { font-size: 0.75rem; color: var(--color-text-muted); }
+
+.guestsRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin: 0 0 0.6rem; }
+.guestsLabel { font-size: 0.85rem; font-weight: 650; }
+.guestsSelect { padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-family: inherit; font-size: 0.85rem; color: var(--color-text); max-width: 100%; }
+.guestsSelect:focus, .guestsNum:focus { outline: none; border-color: var(--color-accent); }
+.guestsNum { width: 5.5rem; padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.guestsHint { font-size: 0.78rem; color: var(--color-text-muted); }
 
 .derived { text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); padding-right: 0.75rem !important; white-space: nowrap; }
 .plateRow td { padding-top: 0; }
@@ -93,9 +112,13 @@
   .itemName { padding-left: 0.8rem; }
   .pctCol { width: 3.9rem; }
   .amtCol { width: 5.2rem; }
-  .actCol { width: 3.6rem; }
+  .splitTable { min-width: 36rem; }
+  .pctCol { width: 4.4rem; }
+  .amtCol { width: 5.6rem; }
+  .ppCol { width: 5.2rem; }
+  .actCol { width: 5.4rem; }
   .plate { margin-left: 0.4rem; }
-  .plateSelect { flex: 1 1 100%; }
+  .guestsSelect { flex: 1 1 100%; }
   /* Reordering is a desk job; on a phone the row keeps just its ×. */
   .iconBtn { display: none; }
   .num, .numStrong { min-width: 4.6rem; }
