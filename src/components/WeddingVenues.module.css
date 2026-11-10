@@ -33,10 +33,23 @@
 /* A spreadsheet: every cell is a box you can type in. Each column keeps a
    readable minimum width; on a phone the table scrolls inside its box
    (tableScroll) instead of squeezing them. */
-.venueTable { width: max-content; min-width: 100%; }
-.venueTable tbody td.cell { padding: 0.2rem 0.3rem; vertical-align: middle; }
+.venueTable { table-layout: fixed; border-collapse: collapse; }
+/* Grid lines on every cell, like a sheet. */
+.venueTable th, .venueTable td { border: 1px solid var(--color-border) !important; }
+.venueTable thead th { position: relative; }
+.venueTable tbody tr:last-child td { border-bottom: 1px solid var(--color-border) !important; }
+.venueTable tbody td.cell { padding: 0.15rem 0.25rem; vertical-align: middle; overflow: hidden; }
+.resizableTh { padding-right: 1rem !important; }
+/* The drag handle: a strip over the header's right edge, wide enough for a
+   finger, showing a line while you hover or drag. */
+.resizer {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 10px; z-index: 2;
+  cursor: col-resize; touch-action: none;
+}
+.resizer::after { content: ''; position: absolute; top: 20%; bottom: 20%; right: 0; width: 2px; border-radius: 1px; background: transparent; }
+.resizer:hover::after, :global(body.rally-col-resizing) .resizer:active::after { background: var(--color-accent); }
 .cellInput {
-  width: 100%; min-width: 0; box-sizing: border-box; padding: 0.35rem 0.45rem;
+  width: 100%; min-width: 0; text-overflow: ellipsis; box-sizing: border-box; padding: 0.35rem 0.45rem;
   border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent;
   font: inherit; font-size: 0.86rem; color: var(--color-text);
 }
@@ -45,7 +58,7 @@
 .cellWithLink { display: flex; align-items: center; gap: 0.15rem; }
 .cellLink { flex: none; padding: 0.2rem 0.3rem; text-decoration: none; color: var(--color-accent); font-size: 0.85rem; }
 
-.venueTable th.starCol, .venueTable td.starCol { width: 4.2rem; min-width: 4.2rem; padding-left: 0.4rem; padding-right: 0.2rem; white-space: nowrap; vertical-align: middle; }
+.venueTable th.starCol, .venueTable td.starCol { padding-left: 0.4rem; padding-right: 0.2rem; white-space: nowrap; vertical-align: middle; }
 .star, .starOn, .openBtn { background: none; border: none; cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0.25rem; font-family: inherit; }
 .star { color: var(--color-text-muted); }
 .star:hover, .starOn { color: #eab308; }
