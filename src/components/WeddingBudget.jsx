@@ -6,6 +6,7 @@ import {
   normalizePlan, seedCategories, newId, categoryPct, totalPct, contributorTotals, effectiveTotal,
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
   formatRate, guestCounts, headcount, plateAmount, resolveCategories,
+  categoryTaxPct, totalTaxPct, grossPct,
 } from '../lib/weddingBudgetPlan';
 import styles from './WeddingBudget.module.css';
 
@@ -291,7 +292,23 @@ function TotalCard({ plan, update, counts }) {
   );
 }
 
-const COLS = 5;
+const COLS = 6;
+
+/* The Tax column's tick: on a line, whether sales tax is added to it; on a
+   category with items, all of them at once (half-ticked when they differ). */
+function TaxCheck({ checked, mixed, label, onChange }) {
+  return (
+    <input
+      type="checkbox"
+      className={styles.taxCheck}
+      checked={checked}
+      ref={(el) => { if (el) el.indeterminate = !!mixed; }}
+      aria-label={label}
+      title={checked ? 'Sales tax added — untick for no tax' : 'No sales tax — tick to add it'}
+      onChange={(e) => onChange(e.target.checked)}
+    />
+  );
+}
 
 /* Under a per-plate item: price × the guest count = dollars. */
 function PlateRow({ item, guestN, onChange }) {
@@ -359,8 +376,17 @@ function Split({ plan, update, counts }) {
   // Per-plate lines and markups get their % before anything sums.
   const cats = resolveCategories(plan.categories, total, guestN);
   const sum = totalPct(cats);
+  const rate = plan.salesTax.rate;
+  const taxSum = totalTaxPct(cats, rate);
+  // Lines plus their tax is what has to fit in the total.
+  const gross = grossPct(cats, rate);
   const canMoney = total > 0;
+  // Per person is what each guest costs: the line and its tax.
   const perPerson = (pct) => (canMoney && guestN > 0 ? formatMoney(amountFor(pct, total) / guestN) : '—');
+  const setRate = (v) => update((p) => ({ ...p, salesTax: { rate: v ?? 0 } }));
+  const setCatTaxed = (cat, taxed) => editCat(cat.id, (c) => (c.items.length
+    ? { ...c, items: c.items.map((i) => ({ ...i, taxed })) }
+    : { ...c, taxed }));
 
   const editCat = (id, fn) => update((p) => ({ ...p, categories: p.categories.map((c) => (c.id === id ? fn(c) : c)) }));
   // Scaling has to see computed lines at their real size, so it runs on the
@@ -408,12 +434,16 @@ function Split({ plan, update, counts }) {
     return { ...p, categories: list };
   });
   const reset = () => {
-    if (!window.confirm('Replace every line item with the suggested split? Your total, guests and the people helping stay.')) return;
-    update((p) => ({ ...p, categories: seedCategories() }));
+    if (!window.confirm('Replace every line item with the suggested split? Your total, guests, tax rate and the people helping stay.')) return;
+    // Scaled so the suggested split and its tax fit the total exactly.
+    update((p) => ({
+      ...p,
+      categories: scaleTo100(resolveCategories(seedCategories(), effectiveTotal(p).amount, headcount(p.guests, counts)), p.salesTax.rate),
+    }));
   };
 
   const fromAmount = (v) => (v == null ? 0 : pctFromAmount(v, total));
-  const diff = roundPct(100 - sum);
+  const diff = roundPct(100 - gross);
 
   return (
     <section className={styles.card}>
@@ -422,10 +452,15 @@ function Split({ plan, update, counts }) {
           <h2 className={styles.cardTitle}>Budget split</h2>
           <p className={styles.cardHint}>
             Change any % or $ — the other follows. A category's % is the sum of its items; changing it scales them together.
-            {' '}🍽 prices a line per plate; % makes it a percentage of other lines (like service charge and tax).
+            {' '}🍽 prices a line per plate; % makes it a percentage of other lines (like the service charge).
           </p>
         </div>
         <button type="button" className={styles.link} onClick={reset}>Reset to suggested split</button>
+      </div>
+      <div className={styles.taxRow}>
+        <span className={styles.guestsLabel}>Sales tax</span>
+        <NumberField format={formatRate} parse={parsePct} className={styles.guestsNum} label="Sales tax rate" placeholder="0%" value={rate} onCommit={setRate} />
+        <span className={styles.guestsHint}>added to every line ticked in the Sales tax column; the lines plus their tax have to fit in the total</span>
       </div>
       <div className={styles.scroll}>
         <table className={styles.splitTable}>
@@ -433,6 +468,7 @@ function Split({ plan, update, counts }) {
             <col />
             <col className={styles.pctCol} />
             <col className={styles.amtCol} />
+            <col className={styles.taxCol} />
             <col className={styles.ppCol} />
             <col className={styles.actCol} />
           </colgroup>
@@ -441,12 +477,17 @@ function Split({ plan, update, counts }) {
               <th>Line item</th>
               <th className={styles.numHead}>% of total</th>
               <th className={styles.numHead}>Amount</th>
-              <th className={styles.numHead}>Per person</th>
+              <th className={styles.numHead}>Sales tax</th>
+              <th className={styles.numHead} title="Amount plus its sales tax, divided by the guests">Per person</th>
               <th aria-label="Actions" />
             </tr>
           </thead>
           {cats.map((cat, ci) => {
             const cp = categoryPct(cat);
+            const ctax = categoryTaxPct(cat, rate);
+            const lines = cat.items.length ? cat.items : [cat];
+            const allTaxed = lines.every((l) => l.taxed);
+            const someTaxed = lines.some((l) => l.taxed);
             return (
               <tbody key={cat.id} className={styles.catGroup}>
                 <tr className={styles.catRow}>
@@ -467,7 +508,11 @@ function Split({ plan, update, counts }) {
                       ? <NumberField {...moneyField} className={styles.numStrong} label={`${cat.name} amount`} value={amountFor(cp, total)} onCommit={(v) => scaleCat(cat.id, fromAmount(v))} />
                       : <span className={styles.dash}>—</span>}
                   </td>
-                  <td className={styles.perPersonStrong} data-testid={`pp-${cat.id}`}>{perPerson(cp)}</td>
+                  <td className={styles.taxCell}>
+                    <TaxCheck checked={allTaxed} mixed={someTaxed && !allTaxed} label={`${cat.name} sales tax`} onChange={(on) => setCatTaxed(cat, on)} />
+                    <span className={styles.taxAmtStrong} data-testid={`tax-${cat.id}`}>{canMoney && ctax > 0 ? formatMoney(amountFor(ctax, total)) : '—'}</span>
+                  </td>
+                  <td className={styles.perPersonStrong} data-testid={`pp-${cat.id}`}>{perPerson(cp + ctax)}</td>
                   <td className={styles.actions}>
                     <button type="button" className={styles.iconBtn} title="Move up" aria-label={`Move ${cat.name} up`} disabled={ci === 0} onClick={() => moveCat(ci, -1)}>↑</button>
                     <button type="button" className={styles.iconBtn} title="Move down" aria-label={`Move ${cat.name} down`} disabled={ci === cats.length - 1} onClick={() => moveCat(ci, 1)}>↓</button>
@@ -477,6 +522,8 @@ function Split({ plan, update, counts }) {
                 {cat.items.map((item) => {
                   const computed = item.perPlate || item.markup;
                   const dollars = item.perPlate ? plateAmount(item.perPlate, guestN) : amountFor(item.pct, total);
+                  const taxDollars = item.taxed ? (dollars * rate) / 100 : 0;
+                  const showMoney = canMoney || !!item.perPlate;
                   return (
                     <Fragment key={item.id}>
                       <tr className={styles.itemRow}>
@@ -506,7 +553,11 @@ function Split({ plan, update, counts }) {
                             </td>
                           </>
                         )}
-                        <td className={styles.perPerson} data-testid={`pp-${item.id}`}>{guestN > 0 && (canMoney || item.perPlate) ? formatMoney(dollars / guestN) : '—'}</td>
+                        <td className={styles.taxCell}>
+                          <TaxCheck checked={item.taxed} label={`${item.name} sales tax`} onChange={(on) => editItem(cat.id, item.id, { taxed: on })} />
+                          <span className={styles.taxAmt} data-testid={`tax-${item.id}`}>{showMoney && item.taxed ? formatMoney(taxDollars) : '—'}</span>
+                        </td>
+                        <td className={styles.perPerson} data-testid={`pp-${item.id}`}>{guestN > 0 && showMoney ? formatMoney((dollars + taxDollars) / guestN) : '—'}</td>
                         <td className={styles.actions}>
                           <button
                             type="button"
@@ -546,10 +597,19 @@ function Split({ plan, update, counts }) {
           })}
           <tfoot>
             <tr className={styles.sumRow}>
-              <td className={styles.footLabel}>Total</td>
-              <td className={diff === 0 ? styles.footNum : styles.footNumWarn} data-testid="split-pct">{formatPct(sum)}</td>
-              <td className={styles.footNum} data-testid="split-amount">{canMoney ? formatMoney(amountFor(sum, total)) : '—'}</td>
-              <td className={styles.footNum} data-testid="split-pp">{perPerson(sum)}</td>
+              <td className={styles.footLabel}>Subtotal</td>
+              <td className={styles.footNumLight} data-testid="split-pct-pretax">{formatPct(sum)}</td>
+              <td className={styles.footNumLight} data-testid="split-amount-pretax">{canMoney ? formatMoney(amountFor(sum, total)) : '—'}</td>
+              <td className={styles.footNumLight} data-testid="split-tax">{canMoney ? formatMoney(amountFor(taxSum, total)) : '—'}</td>
+              <td />
+              <td />
+            </tr>
+            <tr className={styles.grossRow}>
+              <td className={styles.footLabel}>Total with tax</td>
+              <td className={diff === 0 ? styles.footNum : styles.footNumWarn} data-testid="split-pct">{formatPct(gross)}</td>
+              <td className={styles.footNum} data-testid="split-amount">{canMoney ? formatMoney(amountFor(gross, total)) : '—'}</td>
+              <td />
+              <td className={styles.footNum} data-testid="split-pp">{perPerson(gross)}</td>
               <td />
             </tr>
           </tfoot>
@@ -562,7 +622,7 @@ function Split({ plan, update, counts }) {
             {diff > 0
               ? <>{formatPct(diff)}{canMoney ? ` (${formatMoney(amountFor(diff, total))})` : ''} not assigned yet.</>
               : <>{formatPct(-diff)}{canMoney ? ` (${formatMoney(amountFor(-diff, total))})` : ''} over the total.</>}
-            {sum > 0 && <button type="button" className={styles.link} onClick={() => update((p) => ({ ...p, categories: scaleTo100(resolved(p)) }))}>Scale to 100%</button>}
+            {gross > 0 && <button type="button" className={styles.link} onClick={() => update((p) => ({ ...p, categories: scaleTo100(resolved(p), p.salesTax.rate) }))}>Scale to 100%</button>}
           </span>
         )}
       </div>
