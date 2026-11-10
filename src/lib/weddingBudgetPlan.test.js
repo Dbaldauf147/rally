@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   seedCategories, normalizePlan, categoryPct, totalPct, contributorTotals, effectiveTotal,
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct,
+  guestCounts, plateGuests, plateAmount, resolveCategories,
 } from './weddingBudgetPlan';
 
 describe('seed split', () => {
@@ -101,5 +102,41 @@ describe('parsing and formatting', () => {
     expect(formatMoney(9000.4)).toBe('$9,000');
     expect(formatPct(1.5)).toBe('1.5%');
     expect(formatPct(33.3333)).toBe('33.33%');
+  });
+});
+
+describe('per plate', () => {
+  const counts = guestCounts([
+    { status: 'Confirmed' }, { status: 'Confirmed' }, { status: 'Pending' }, { status: 'Not coming' },
+    { status: 'Confirmed', category: 'Hide' }, {},
+  ]);
+  it('counts the guest list three ways, never the hidden', () => {
+    expect(counts).toEqual({ all: 5, attending: 4, confirmed: 2 });
+  });
+  it('prices price × guests from the chosen count', () => {
+    expect(plateAmount({ price: 150, source: 'all' }, counts)).toBe(750);
+    expect(plateAmount({ price: 150, source: 'confirmed' }, counts)).toBe(300);
+    expect(plateAmount({ price: 150, source: 'manual', count: 120 }, counts)).toBe(18000);
+    expect(plateAmount({ price: null, source: 'all' }, counts)).toBe(0);
+    expect(plateGuests({ source: 'manual', count: null }, counts)).toBe(0);
+  });
+  it('round-trips through normalizePlan', () => {
+    const p = normalizePlan({ categories: [{ name: 'Food', items: [{ name: 'Dinner', pct: 5, perPlate: { price: '150', source: 'bogus', count: 99.6 } }, { name: 'Bar', pct: 3 }] }] });
+    expect(p.categories[0].items[0].perPlate).toEqual({ price: 150, source: 'all', count: 100 });
+    expect(p.categories[0].items[1].perPlate).toBeNull();
+  });
+  it('fills in the % from dollars and leaves the line alone when scaling', () => {
+    const cats = normalizePlan({ categories: [
+      { name: 'Food', items: [{ id: 'd', name: 'Dinner', pct: 1, perPlate: { price: 100, source: 'manual', count: 200 } }, { id: 'b', name: 'Bar', pct: 10 }] },
+      { name: 'Other', pct: 50, items: [] },
+    ] }).categories;
+    const r = resolveCategories(cats, 100000, counts);
+    expect(r[0].items[0].pct).toBe(20); // $20,000 of $100,000
+    expect(totalPct(r)).toBe(80);
+    const scaled = scaleTo100(r);
+    expect(scaled[0].items[0].pct).toBe(20);
+    expect(totalPct(scaled)).toBe(100);
+    const cat = setCategoryPct(r[0], 40);
+    expect(cat.items.map((i) => i.pct)).toEqual([20, 20]);
   });
 });

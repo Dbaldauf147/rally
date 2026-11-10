@@ -84,6 +84,61 @@ const pctOf = (v) => Math.max(0, num(v) ?? 0);
 const money = (v) => { const n = num(v); return n == null ? null : Math.max(0, n); };
 const str = (v) => (typeof v === 'string' ? v : '');
 
+/* Per plate: an item priced as a cost per guest rather than a share. Its
+   dollars are price × guests and its % follows from the total, the reverse
+   of every other line. The guest count is linked to the guest list or typed:
+     source 'all'       — everyone on the list (bar hidden guests)
+            'attending' — the list less anyone marked Not coming
+            'confirmed' — only those marked Confirmed
+            'manual'    — `count` as typed */
+export const GUEST_SOURCES = ['all', 'attending', 'confirmed', 'manual'];
+
+function normalizePerPlate(pp) {
+  if (!pp || typeof pp !== 'object') return null;
+  return {
+    price: money(pp.price),
+    source: GUEST_SOURCES.includes(pp.source) ? pp.source : 'all',
+    count: money(pp.count) == null ? null : Math.round(money(pp.count)),
+  };
+}
+
+/* Head counts from the Wedding guest list, for the per-plate links. Hidden
+   guests are off the list for every count, as on the guest page. */
+export function guestCounts(contacts) {
+  const list = (Array.isArray(contacts) ? contacts : [])
+    .filter((c) => c && String(c.category || '').trim().toLowerCase() !== 'hide');
+  return {
+    all: list.length,
+    attending: list.filter((c) => c.status !== 'Not coming').length,
+    confirmed: list.filter((c) => c.status === 'Confirmed').length,
+  };
+}
+
+export function plateGuests(perPlate, counts) {
+  if (!perPlate) return 0;
+  if (perPlate.source === 'manual') return perPlate.count ?? 0;
+  return counts?.[perPlate.source] ?? 0;
+}
+
+export function plateAmount(perPlate, counts) {
+  return (perPlate?.price ?? 0) * plateGuests(perPlate, counts);
+}
+
+/* The split with every per-plate item's % filled in from its dollars, so the
+   sums, category totals and scaling below can treat all lines alike. Those
+   items are marked `fixed`: rescaling leaves them alone, because their size
+   comes from the plate price and head count, not from the total. */
+export function resolveCategories(categories, total, counts) {
+  return categories.map((c) => (c.items.some((i) => i.perPlate)
+    ? {
+      ...c,
+      items: c.items.map((i) => (i.perPlate
+        ? { ...i, pct: total > 0 ? roundPct((plateAmount(i.perPlate, counts) / total) * 100) : 0, fixed: true }
+        : i)),
+    }
+    : c));
+}
+
 export function normalizePlan(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const contributors = Array.isArray(r.contributors) ? r.contributors : [];
@@ -105,6 +160,7 @@ export function normalizePlan(raw) {
         id: str(i.id) || newId('i'),
         name: str(i.name),
         pct: pctOf(i.pct),
+        perPlate: normalizePerPlate(i.perPlate),
       })),
     })),
   };
@@ -157,10 +213,15 @@ export function pctFromAmount(amount, total) {
 export function setCategoryPct(cat, pct) {
   const target = Math.max(0, pct);
   if (!cat.items.length) return { ...cat, pct: roundPct(target) };
-  const current = categoryPct(cat);
-  const items = cat.items.map((i) => ({
+  // Per-plate items keep their size; the rest share what's left.
+  const fixedSum = cat.items.filter((i) => i.fixed).reduce((s, i) => s + i.pct, 0);
+  const free = cat.items.filter((i) => !i.fixed);
+  if (!free.length) return cat;
+  const want = Math.max(0, target - fixedSum);
+  const current = free.reduce((s, i) => s + i.pct, 0);
+  const items = cat.items.map((i) => (i.fixed ? i : {
     ...i,
-    pct: roundPct(current > 0 ? (i.pct / current) * target : target / cat.items.length),
+    pct: roundPct(current > 0 ? (i.pct / current) * want : want / free.length),
   }));
   return { ...cat, items };
 }
@@ -169,18 +230,22 @@ export function setCategoryPct(cat, pct) {
    on the largest line so the sum is exact. */
 export function scaleTo100(categories) {
   const sum = totalPct(categories);
-  if (!(sum > 0)) return categories;
-  const f = 100 / sum;
+  // Per-plate lines are fixed in dollars; the other lines absorb the change.
+  const fixed = categories.reduce((s, c) => s + c.items.filter((i) => i.fixed).reduce((t, i) => t + i.pct, 0), 0);
+  const free = sum - fixed;
+  if (!(free > 0)) return categories;
+  const f = Math.max(0, 100 - fixed) / free;
   const next = categories.map((c) => (c.items.length
-    ? { ...c, items: c.items.map((i) => ({ ...i, pct: roundPct(i.pct * f) })) }
+    ? { ...c, items: c.items.map((i) => (i.fixed ? i : { ...i, pct: roundPct(i.pct * f) })) }
     : { ...c, pct: roundPct(c.pct * f) }));
-  const drift = roundPct(100 - totalPct(next));
+  const drift = roundPct(Math.max(100, fixed) - totalPct(next));
   if (drift === 0) return next;
   let best = null;
   next.forEach((c, ci) => {
-    if (c.items.length) c.items.forEach((i, ii) => { if (!best || i.pct > best.pct) best = { ci, ii, pct: i.pct }; });
+    if (c.items.length) c.items.forEach((i, ii) => { if (!i.fixed && (!best || i.pct > best.pct)) best = { ci, ii, pct: i.pct }; });
     else if (!best || c.pct > best.pct) best = { ci, ii: -1, pct: c.pct };
   });
+  if (!best) return next;
   return next.map((c, ci) => {
     if (ci !== best.ci) return c;
     if (best.ii < 0) return { ...c, pct: roundPct(c.pct + drift) };
