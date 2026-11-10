@@ -56,6 +56,18 @@
 .cellInput:hover { border-color: var(--color-border-light); }
 .cellInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
 .cellWithLink { display: flex; align-items: center; gap: 0.15rem; }
+.nameLink {
+  flex: 1; min-width: 0; padding: 0.35rem 0.45rem; border: 1px solid transparent;
+  font-size: 0.86rem; font-weight: 600; color: var(--color-text); text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nameLink:hover { color: var(--color-accent); text-decoration: underline; }
+.nameEdit {
+  flex: none; background: none; border: none; cursor: pointer; padding: 0.2rem 0.3rem;
+  color: var(--color-text-muted); font: inherit; font-size: 0.85rem; opacity: 0;
+}
+.cellWithLink:hover .nameEdit, .nameEdit:focus-visible { opacity: 1; }
+@media (hover: none) { .nameEdit { opacity: 1; } }
 .cellLink { flex: none; padding: 0.2rem 0.3rem; text-decoration: none; color: var(--color-accent); font-size: 0.85rem; }
 
 .venueTable th.starCol, .venueTable td.starCol { padding-left: 0.4rem; padding-right: 0.2rem; white-space: nowrap; vertical-align: middle; }

@@ -9,7 +9,7 @@ import {
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
   moveColumn, normalizeColumnConfig, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
-  toggleColumn, withCellValue,
+  toggleColumn, venueSearchUrl, withCellValue,
 } from '../lib/venueTable';
 import { applyColumnFilters } from '../lib/columnFilters';
 import { parsePastedCells } from '../lib/weddingGuestImport';
@@ -66,6 +66,8 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
   const saved = cellValue(venue, col.key);
   const [val, setVal] = useState(saved);
   const [focused, setFocused] = useState(false);
+  // The name reads as a link to a Google search; ✎ swaps it for the input.
+  const [editingName, setEditingName] = useState(false);
   // A save or scan from elsewhere shows up, unless you're mid-edit here.
   const [seen, setSeen] = useState(saved);
   if (seen !== saved && !focused) {
@@ -104,8 +106,9 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
         // A date picker has no "leaving the cell" moment worth waiting for.
         if (col.key === 'lastContactDate') onCommit(e.target.value);
       }}
+      autoFocus={editingName}
       onFocus={() => setFocused(true)}
-      onBlur={() => { setFocused(false); commit(); }}
+      onBlur={() => { setFocused(false); setEditingName(false); commit(); }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur();
         else if (e.key === 'Escape') { e.stopPropagation(); setVal(saved); setTimeout(() => e.target.blur(), 0); }
@@ -116,6 +119,16 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
       }}
     />
   );
+  if (col.key === 'name' && saved && !editingName) {
+    return (
+      <div className={vs.cellWithLink}>
+        <a className={vs.nameLink} href={venueSearchUrl(venue)} target="_blank" rel="noreferrer" title={`Search Google for ${saved}`}>
+          {saved}
+        </a>
+        <button type="button" className={vs.nameEdit} onClick={() => setEditingName(true)} title="Rename" aria-label={`Rename ${saved}`}>✎</button>
+      </div>
+    );
+  }
   const link = !saved ? null
     : col.key === 'email' ? `mailto:${saved}`
       : col.key === 'phone' ? `tel:${saved.replace(/[^+\d]/g, '')}`
@@ -649,7 +662,7 @@ export function WeddingVenues() {
           </div>
         </div>
       )}
-      <p className={styles.muted + ' ' + vs.tableHint}>Click a cell to edit it. Copy a range from Google Sheets or Excel and paste it onto the page to add or update venues.</p>
+      <p className={styles.muted + ' ' + vs.tableHint}>Click a cell to edit it, or a venue name to search Google for it (✎ renames). Copy a range from Google Sheets or Excel and paste it onto the page to add or update venues.</p>
 
       {pasteText !== null && (
         <div className={styles.modalOverlay} onClick={closePaste}>

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeColumnConfig, visibleVenueColumns, toggleColumn, moveColumn, addCustomColumn, removeCustomColumn,
   renameCustomColumn, setColumnWidth, MIN_COL_WIDTH, MAX_COL_WIDTH, cellValue, withCellValue, sortVenueRows, matchStatus, parseVenueDate,
-  autoMapVenueHeaders, looksLikeVenueHeader, guessVenueColumns, planVenuePaste, DEFAULT_HIDDEN,
+  autoMapVenueHeaders, looksLikeVenueHeader, guessVenueColumns, planVenuePaste, DEFAULT_HIDDEN, venueSearchUrl,
 } from './venueTable';
 import { normalizeVenue, mergeScannedVenues } from './weddingVenues';
 
@@ -132,5 +132,18 @@ describe('pasting', () => {
     expect(skipped).toBe(1);
     expect(list[0]).toMatchObject({ name: 'The Foundry', phone: '111', location: 'Huntington', status: 'Toured', custom: { c_x: 'yes' } });
     expect(list[1]).toMatchObject({ id: 'new1', name: 'Oheka Castle', phone: '516-555-0000', status: 'Inquired', custom: { c_x: 'pool' } });
+  });
+});
+
+describe('venueSearchUrl', () => {
+  it('searches the name plus the location', () => {
+    expect(venueSearchUrl({ name: 'The Barn & Co', location: 'Hudson, NY' }))
+      .toBe('https://www.google.com/search?q=The%20Barn%20%26%20Co%20Hudson%2C%20NY');
+  });
+  it('searches the name alone without a location', () => {
+    expect(venueSearchUrl({ name: ' Rose Hall ', location: '' })).toBe('https://www.google.com/search?q=Rose%20Hall');
+  });
+  it('has nothing to search without a name or location', () => {
+    expect(venueSearchUrl({ name: '' })).toBeNull();
   });
 });

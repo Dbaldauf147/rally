@@ -127,6 +127,13 @@ export function removeCustomColumn(config, key) {
 
 /* ── Cells ── */
 
+// A Google search for the venue, with its location when known so a common
+// name ("The Barn") finds the right place.
+export function venueSearchUrl(v) {
+  const q = [v?.name, v?.location].map((s) => String(s || '').trim()).filter(Boolean).join(' ');
+  return q ? `https://www.google.com/search?q=${encodeURIComponent(q)}` : null;
+}
+
 export function cellValue(v, key) {
   if (isCustomKey(key)) return str(v?.custom?.[key]);
   if (key === 'emails') return v?.threadIds?.length ? String(v.threadIds.length) : '';
