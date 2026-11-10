@@ -7,6 +7,7 @@ import { API_BASE } from '../native';
 import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingVenues } from './WeddingVenues';
+import { WeddingBudget } from './WeddingBudget';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
 import { WeddingPartyCell } from './WeddingPartyCell';
@@ -2851,7 +2852,7 @@ export function WeddingPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawView = searchParams.get('view');
-  const view = ['checklist', 'timeline', 'venues', 'friends'].includes(rawView) ? rawView : 'guests';
+  const view = ['checklist', 'timeline', 'venues', 'budget', 'friends'].includes(rawView) ? rawView : 'guests';
   const setView = (v) => setSearchParams(v === 'guests' ? {} : { view: v });
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
@@ -2882,6 +2883,11 @@ export function WeddingPage() {
           >Venues</button>
           <button
             type="button"
+            className={view === 'budget' ? styles.subtabActive : styles.subtab}
+            onClick={() => setView('budget')}
+          >Budget</button>
+          <button
+            type="button"
             className={view === 'friends' ? styles.subtabActive : styles.subtab}
             onClick={() => setView('friends')}
           >Friends not on list</button>
@@ -2894,6 +2900,14 @@ export function WeddingPage() {
           </div>
           <p className={styles.subtitle}>The plan on real dates, from booking the venue to the last thank-you note.</p>
           <WeddingTimeline />
+        </div>
+      ) : view === 'budget' ? (
+        <div className={styles.page}>
+          <div className={styles.header}>
+            <h1 className={styles.title}>Wedding</h1>
+          </div>
+          <p className={styles.subtitle}>Who's helping, the total that makes, and how it's split.</p>
+          <WeddingBudget />
         </div>
       ) : view === 'checklist' ? (
         <div className={styles.page}>
