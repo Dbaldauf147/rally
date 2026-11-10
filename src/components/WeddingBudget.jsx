@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   normalizePlan, seedCategories, newId, categoryPct, totalPct, contributorTotals, effectiveTotal,
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
-  guestCounts, plateGuests, plateAmount, resolveCategories,
+  formatRate, guestCounts, headcount, plateAmount, resolveCategories,
 } from '../lib/weddingBudgetPlan';
 import styles from './WeddingBudget.module.css';
 
@@ -204,7 +204,53 @@ function Contributors({ plan, update }) {
   );
 }
 
-function TotalCard({ plan, update }) {
+const SOURCE_LABELS = {
+  all: (n) => `Guest list — everyone (${n})`,
+  attending: (n) => `Guest list — not counting “Not coming” (${n})`,
+  confirmed: (n) => `Guest list — confirmed only (${n})`,
+  manual: () => 'A number I type',
+};
+
+/* How many people the wedding is for: linked to the guest list or typed.
+   Per-plate lines and the per-person column both count from it. */
+function GuestsField({ plan, update, counts }) {
+  const g = plan.guests;
+  const n = headcount(g, counts);
+  const set = (patch) => update((p) => ({ ...p, guests: { ...p.guests, ...patch } }));
+  return (
+    <div className={styles.guestsRow}>
+      <span className={styles.guestsLabel}>Guests</span>
+      <select
+        className={styles.guestsSelect}
+        aria-label="Guest count"
+        value={g.source}
+        onChange={(e) => set({
+          source: e.target.value,
+          // Switching to a typed number starts from the count you were on.
+          ...(e.target.value === 'manual' && g.count == null ? { count: n } : {}),
+        })}
+      >
+        {Object.entries(SOURCE_LABELS).map(([k, label]) => (
+          <option key={k} value={k}>{label(counts[k])}</option>
+        ))}
+      </select>
+      {g.source === 'manual' && (
+        <NumberField
+          format={(v) => String(v)}
+          parse={(t) => { const v = parseMoney(t); return v == null ? null : Math.round(v); }}
+          className={styles.guestsNum}
+          label="Number of guests"
+          placeholder="0"
+          value={g.count}
+          onCommit={(v) => set({ count: v })}
+        />
+      )}
+      <span className={styles.guestsHint} data-testid="guest-n">{n} {n === 1 ? 'guest' : 'guests'} — used for per-plate lines and the per-person column</span>
+    </div>
+  );
+}
+
+function TotalCard({ plan, update, counts }) {
   const totals = contributorTotals(plan.contributors);
   const eff = effectiveTotal(plan);
   const set = (v) => update((p) => ({ ...p, total: v }));
@@ -234,6 +280,7 @@ function TotalCard({ plan, update }) {
           </div>
         )}
       </div>
+      <GuestsField plan={plan} update={update} counts={counts} />
       <p className={styles.cardHint}>
         {totals.counted > 0 ? <>Everyone together can give <strong>{formatMoney(totals.low)}–{formatMoney(totals.high)}</strong>. </> : null}
         {eff.source === 'contributors' && <>No total set yet, so the split below uses the middle, {formatMoney(eff.amount)}.</>}
@@ -244,20 +291,14 @@ function TotalCard({ plan, update }) {
   );
 }
 
-const SOURCE_LABELS = {
-  all: (n) => `Guest list — everyone (${n})`,
-  attending: (n) => `Guest list — not counting “Not coming” (${n})`,
-  confirmed: (n) => `Guest list — confirmed only (${n})`,
-  manual: () => 'Type a number',
-};
+const COLS = 5;
 
-/* The line under a per-plate item: price × guests = dollars. */
-function PlateRow({ item, counts, onChange }) {
+/* Under a per-plate item: price × the guest count = dollars. */
+function PlateRow({ item, guestN, onChange }) {
   const pp = item.perPlate;
-  const guests = plateGuests(pp, counts);
   return (
     <tr className={styles.plateRow}>
-      <td colSpan={4}>
+      <td colSpan={COLS}>
         <div className={styles.plate}>
           <NumberField
             {...moneyField}
@@ -267,35 +308,45 @@ function PlateRow({ item, counts, onChange }) {
             value={pp.price}
             onCommit={(v) => onChange({ ...pp, price: v })}
           />
-          <span className={styles.plateOp}>per plate ×</span>
-          <select
-            className={styles.plateSelect}
-            aria-label={`${item.name} guest count`}
-            value={pp.source}
-            onChange={(e) => onChange({
-              ...pp,
-              source: e.target.value,
-              // Switching to a typed number starts from the count you were on.
-              count: e.target.value === 'manual' && pp.count == null ? guests : pp.count,
-            })}
-          >
-            {Object.entries(SOURCE_LABELS).map(([k, label]) => (
-              <option key={k} value={k}>{label(counts[k])}</option>
+          <span className={styles.plateOp}>per plate × {guestN} {guestN === 1 ? 'guest' : 'guests'} =</span>
+          <strong className={styles.plateTotal} data-testid={`plate-total-${item.id}`}>{formatMoney(plateAmount(pp, guestN))}</strong>
+          <span className={styles.plateNote}>Guests are set beside the total budget.</span>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/* Under a markup: rate % of the lines ticked. Any line in the same category
+   can be ticked, other markups included (tax on the service charge). */
+function MarkupRow({ item, cat, total, onChange }) {
+  const m = item.markup;
+  const others = cat.items.filter((i) => i.id !== item.id);
+  const base = cat.items.filter((i) => m.of.includes(i.id)).reduce((s, i) => s + i.pct, 0);
+  const toggle = (id) => onChange({ ...m, of: m.of.includes(id) ? m.of.filter((x) => x !== id) : [...m.of, id] });
+  return (
+    <tr className={styles.plateRow}>
+      <td colSpan={COLS}>
+        <div className={styles.plate}>
+          <NumberField
+            format={formatRate}
+            parse={parsePct}
+            className={styles.plateNum}
+            label={`${item.name} rate`}
+            placeholder="0%"
+            value={m.rate}
+            onCommit={(v) => onChange({ ...m, rate: v ?? 0 })}
+          />
+          <span className={styles.plateOp}>of</span>
+          <span className={styles.bases}>
+            {others.map((o) => (
+              <label key={o.id} className={m.of.includes(o.id) ? styles.baseOn : styles.base}>
+                <input type="checkbox" checked={m.of.includes(o.id)} onChange={() => toggle(o.id)} aria-label={`${item.name} includes ${o.name}`} />
+                {o.name || 'Untitled'}
+              </label>
             ))}
-          </select>
-          {pp.source === 'manual' && (
-            <NumberField
-              format={(n) => String(n)}
-              parse={(t) => { const n = parseMoney(t); return n == null ? null : Math.round(n); }}
-              className={styles.plateNum}
-              label={`${item.name} number of guests`}
-              placeholder="0"
-              value={pp.count}
-              onCommit={(v) => onChange({ ...pp, count: v })}
-            />
-          )}
-          <span className={styles.plateOp}>{pp.source === 'manual' ? 'guests' : ''} =</span>
-          <strong className={styles.plateTotal} data-testid={`plate-total-${item.id}`}>{formatMoney(plateAmount(pp, counts))}</strong>
+          </span>
+          {total > 0 && <span className={styles.plateOp}>= {formatRate(m.rate)} of {formatMoney(amountFor(base, total))}</span>}
         </div>
       </td>
     </tr>
@@ -304,32 +355,34 @@ function PlateRow({ item, counts, onChange }) {
 
 function Split({ plan, update, counts }) {
   const { amount: total } = effectiveTotal(plan);
-  // Per-plate items get their % from their dollars before anything sums.
-  const cats = resolveCategories(plan.categories, total, counts);
+  const guestN = headcount(plan.guests, counts);
+  // Per-plate lines and markups get their % before anything sums.
+  const cats = resolveCategories(plan.categories, total, guestN);
   const sum = totalPct(cats);
   const canMoney = total > 0;
+  const perPerson = (pct) => (canMoney && guestN > 0 ? formatMoney(amountFor(pct, total) / guestN) : '—');
 
   const editCat = (id, fn) => update((p) => ({ ...p, categories: p.categories.map((c) => (c.id === id ? fn(c) : c)) }));
-  // Scaling has to see per-plate items at their real size, so it runs on
-  // the resolved split.
-  const resolved = (p) => resolveCategories(p.categories, effectiveTotal(p).amount, counts);
-  const scaleCat = (id, pct) => update((p) => ({ ...p, categories: resolved(p).map((c) => (c.id === id ? setCategoryPct(c, pct) : c)) }));
-  const togglePlate = (catId, item) => editCat(catId, (c) => ({
-    ...c,
-    items: c.items.map((i) => {
-      if (i.id !== item.id) return i;
-      if (i.perPlate) {
-        // Back to a share: keep the dollars it had as its %.
-        const pct = total > 0 ? roundPct((plateAmount(i.perPlate, counts) / total) * 100) : i.pct;
-        return { ...i, pct, perPlate: null };
-      }
-      // Into per plate: start at the price that keeps today's dollars.
-      const guests = counts.all;
-      const price = guests > 0 && total > 0 ? Math.round(amountFor(i.pct, total) / guests) : null;
-      return { ...i, perPlate: { price, source: 'all', count: null } };
-    }),
-  }));
+  // Scaling has to see computed lines at their real size, so it runs on the
+  // resolved split.
+  const resolved = (p) => resolveCategories(p.categories, effectiveTotal(p).amount, headcount(p.guests, counts));
+  const scaleCat = (id, pct) => update((p) => ({ ...p, categories: setCategoryPct(resolved(p), id, pct) }));
   const editItem = (catId, itemId, patch) => editCat(catId, (c) => ({ ...c, items: c.items.map((i) => (i.id === itemId ? { ...i, ...patch } : i)) }));
+  // Switching a line between plain %, per plate and markup keeps the dollars
+  // it shows right now, so nothing jumps.
+  const shown = (itemId) => cats.flatMap((c) => c.items).find((i) => i.id === itemId)?.pct ?? 0;
+  const togglePlate = (catId, item) => {
+    if (item.perPlate) return editItem(catId, item.id, { perPlate: null, pct: shown(item.id) });
+    const price = guestN > 0 && total > 0 ? Math.round(amountFor(shown(item.id), total) / guestN) : null;
+    editItem(catId, item.id, { perPlate: { price }, markup: null });
+  };
+  const toggleMarkup = (cat, item) => {
+    if (item.markup) return editItem(cat.id, item.id, { markup: null, pct: shown(item.id) });
+    const of = cat.items.filter((i) => i.id !== item.id && !i.markup).map((i) => i.id);
+    const base = cat.items.filter((i) => of.includes(i.id)).reduce((s, i) => s + i.pct, 0);
+    const rate = base > 0 ? roundPct((shown(item.id) / base) * 100) : 0;
+    editItem(cat.id, item.id, { markup: { rate, of }, perPlate: null });
+  };
   const removeItem = (catId, itemId) => editCat(catId, (c) => {
     const items = c.items.filter((i) => i.id !== itemId);
     // An item takes its share with it, the last one included.
@@ -348,14 +401,14 @@ function Split({ plan, update, counts }) {
   };
   const addCat = () => update((p) => ({ ...p, categories: [...p.categories, { id: newId('c'), name: '', pct: 0, items: [] }] }));
   const moveCat = (idx, dir) => update((p) => {
-    const cats = [...p.categories];
+    const list = [...p.categories];
     const j = idx + dir;
-    if (j < 0 || j >= cats.length) return p;
-    [cats[idx], cats[j]] = [cats[j], cats[idx]];
-    return { ...p, categories: cats };
+    if (j < 0 || j >= list.length) return p;
+    [list[idx], list[j]] = [list[j], list[idx]];
+    return { ...p, categories: list };
   });
   const reset = () => {
-    if (!window.confirm('Replace every line item with the suggested split? Your total and the people helping stay.')) return;
+    if (!window.confirm('Replace every line item with the suggested split? Your total, guests and the people helping stay.')) return;
     update((p) => ({ ...p, categories: seedCategories() }));
   };
 
@@ -367,7 +420,10 @@ function Split({ plan, update, counts }) {
       <div className={styles.splitHead}>
         <div>
           <h2 className={styles.cardTitle}>Budget split</h2>
-          <p className={styles.cardHint}>Change any % or $ — the other follows. A category's % is the sum of its items; changing it scales them together. 🍽 prices an item per plate instead.</p>
+          <p className={styles.cardHint}>
+            Change any % or $ — the other follows. A category's % is the sum of its items; changing it scales them together.
+            {' '}🍽 prices a line per plate; % makes it a percentage of other lines (like service charge and tax).
+          </p>
         </div>
         <button type="button" className={styles.link} onClick={reset}>Reset to suggested split</button>
       </div>
@@ -377,6 +433,7 @@ function Split({ plan, update, counts }) {
             <col />
             <col className={styles.pctCol} />
             <col className={styles.amtCol} />
+            <col className={styles.ppCol} />
             <col className={styles.actCol} />
           </colgroup>
           <thead>
@@ -384,6 +441,7 @@ function Split({ plan, update, counts }) {
               <th>Line item</th>
               <th className={styles.numHead}>% of total</th>
               <th className={styles.numHead}>Amount</th>
+              <th className={styles.numHead}>Per person</th>
               <th aria-label="Actions" />
             </tr>
           </thead>
@@ -409,60 +467,77 @@ function Split({ plan, update, counts }) {
                       ? <NumberField {...moneyField} className={styles.numStrong} label={`${cat.name} amount`} value={amountFor(cp, total)} onCommit={(v) => scaleCat(cat.id, fromAmount(v))} />
                       : <span className={styles.dash}>—</span>}
                   </td>
+                  <td className={styles.perPersonStrong} data-testid={`pp-${cat.id}`}>{perPerson(cp)}</td>
                   <td className={styles.actions}>
                     <button type="button" className={styles.iconBtn} title="Move up" aria-label={`Move ${cat.name} up`} disabled={ci === 0} onClick={() => moveCat(ci, -1)}>↑</button>
                     <button type="button" className={styles.iconBtn} title="Move down" aria-label={`Move ${cat.name} down`} disabled={ci === cats.length - 1} onClick={() => moveCat(ci, 1)}>↓</button>
                     <button type="button" className={styles.remove} title="Remove category" aria-label={`Remove ${cat.name}`} onClick={() => removeCat(cat)}>×</button>
                   </td>
                 </tr>
-                {cat.items.map((item) => (
-                  <Fragment key={item.id}>
-                  <tr className={styles.itemRow}>
-                    <td>
-                      <input
-                        className={styles.itemName}
-                        aria-label="Line item"
-                        placeholder="Line item"
-                        value={item.name}
-                        title={item.name}
-                        autoFocus={!item.name && item === cat.items[cat.items.length - 1]}
-                        onChange={(e) => editItem(cat.id, item.id, { name: e.target.value })}
-                      />
-                    </td>
-                    {item.perPlate ? (
-                      <>
-                        <td className={styles.derived} data-testid={`pct-${item.id}`} title="Worked out from the price per plate">{canMoney ? formatPct(item.pct) : '—'}</td>
-                        <td className={styles.derived} data-testid={`amount-${item.id}`} title="Price per plate × guests">{formatMoney(plateAmount(item.perPlate, counts))}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td><NumberField {...pctField} label={`${item.name} %`} value={item.pct} onCommit={(v) => editItem(cat.id, item.id, { pct: v ?? 0 })} /></td>
+                {cat.items.map((item) => {
+                  const computed = item.perPlate || item.markup;
+                  const dollars = item.perPlate ? plateAmount(item.perPlate, guestN) : amountFor(item.pct, total);
+                  return (
+                    <Fragment key={item.id}>
+                      <tr className={styles.itemRow}>
                         <td>
-                          {canMoney
-                            ? <NumberField {...moneyField} label={`${item.name} amount`} value={amountFor(item.pct, total)} onCommit={(v) => editItem(cat.id, item.id, { pct: fromAmount(v) })} />
-                            : <span className={styles.dash}>—</span>}
+                          <input
+                            className={styles.itemName}
+                            aria-label="Line item"
+                            placeholder="Line item"
+                            value={item.name}
+                            title={item.name}
+                            autoFocus={!item.name && item === cat.items[cat.items.length - 1]}
+                            onChange={(e) => editItem(cat.id, item.id, { name: e.target.value })}
+                          />
                         </td>
-                      </>
-                    )}
-                    <td className={styles.actions}>
-                      <button
-                        type="button"
-                        className={item.perPlate ? styles.plateBtnOn : styles.plateBtn}
-                        title={item.perPlate ? 'Per plate — click to go back to a % of the total' : 'Price this per plate'}
-                        aria-label={`${item.name} per plate`}
-                        aria-pressed={!!item.perPlate}
-                        onClick={() => togglePlate(cat.id, item)}
-                      >🍽</button>
-                      <button type="button" className={styles.remove} title="Remove item" aria-label={`Remove ${item.name}`} onClick={() => removeItem(cat.id, item.id)}>×</button>
-                    </td>
-                  </tr>
-                  {item.perPlate && (
-                    <PlateRow item={item} counts={counts} onChange={(perPlate) => editItem(cat.id, item.id, { perPlate })} />
-                  )}
-                  </Fragment>
-                ))}
+                        {computed ? (
+                          <>
+                            <td className={styles.derived} data-testid={`pct-${item.id}`} title={item.perPlate ? 'Worked out from the price per plate' : 'Worked out from the lines it’s charged on'}>{canMoney ? formatPct(item.pct) : '—'}</td>
+                            <td className={styles.derived} data-testid={`amount-${item.id}`}>{canMoney || item.perPlate ? formatMoney(dollars) : '—'}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td><NumberField {...pctField} label={`${item.name} %`} value={item.pct} onCommit={(v) => editItem(cat.id, item.id, { pct: v ?? 0 })} /></td>
+                            <td>
+                              {canMoney
+                                ? <NumberField {...moneyField} label={`${item.name} amount`} value={dollars} onCommit={(v) => editItem(cat.id, item.id, { pct: fromAmount(v) })} />
+                                : <span className={styles.dash}>—</span>}
+                            </td>
+                          </>
+                        )}
+                        <td className={styles.perPerson} data-testid={`pp-${item.id}`}>{guestN > 0 && (canMoney || item.perPlate) ? formatMoney(dollars / guestN) : '—'}</td>
+                        <td className={styles.actions}>
+                          <button
+                            type="button"
+                            className={item.perPlate ? styles.plateBtnOn : styles.plateBtn}
+                            title={item.perPlate ? 'Per plate — click to go back to a % of the total' : 'Price this per plate'}
+                            aria-label={`${item.name} per plate`}
+                            aria-pressed={!!item.perPlate}
+                            onClick={() => togglePlate(cat.id, item)}
+                          >🍽</button>
+                          <button
+                            type="button"
+                            className={item.markup ? styles.markupBtnOn : styles.markupBtn}
+                            title={item.markup ? 'A % of other lines — click to go back to a % of the total' : 'Make this a % of other lines (service charge, tax)'}
+                            aria-label={`${item.name} percent of other lines`}
+                            aria-pressed={!!item.markup}
+                            onClick={() => toggleMarkup(cat, item)}
+                          >%</button>
+                          <button type="button" className={styles.remove} title="Remove item" aria-label={`Remove ${item.name}`} onClick={() => removeItem(cat.id, item.id)}>×</button>
+                        </td>
+                      </tr>
+                      {item.perPlate && (
+                        <PlateRow item={item} guestN={guestN} onChange={(perPlate) => editItem(cat.id, item.id, { perPlate })} />
+                      )}
+                      {item.markup && (
+                        <MarkupRow item={item} cat={cat} total={total} onChange={(markup) => editItem(cat.id, item.id, { markup })} />
+                      )}
+                    </Fragment>
+                  );
+                })}
                 <tr className={styles.addRow}>
-                  <td colSpan={4}>
+                  <td colSpan={COLS}>
                     <button type="button" className={styles.addItem} onClick={() => addItem(cat.id)}>+ item</button>
                   </td>
                 </tr>
@@ -474,6 +549,7 @@ function Split({ plan, update, counts }) {
               <td className={styles.footLabel}>Total</td>
               <td className={diff === 0 ? styles.footNum : styles.footNumWarn} data-testid="split-pct">{formatPct(sum)}</td>
               <td className={styles.footNum} data-testid="split-amount">{canMoney ? formatMoney(amountFor(sum, total)) : '—'}</td>
+              <td className={styles.footNum} data-testid="split-pp">{perPerson(sum)}</td>
               <td />
             </tr>
           </tfoot>
@@ -502,7 +578,7 @@ export function WeddingBudget() {
     <div className={styles.wrap}>
       <div className={styles.status} data-testid="budget-status">{saved ? 'Saved' : 'Saving…'}</div>
       <Contributors plan={plan} update={update} />
-      <TotalCard plan={plan} update={update} />
+      <TotalCard plan={plan} update={update} counts={counts} />
       <Split plan={plan} update={update} counts={counts} />
     </div>
   );

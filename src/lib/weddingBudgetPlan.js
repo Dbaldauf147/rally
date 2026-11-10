@@ -1,22 +1,37 @@
-/* The wedding budget: who is chipping in, the total that adds up to, and how
-   that total is split across line items by percentage.
+/* The wedding budget: who is chipping in, the total that adds up to, how many
+   guests it feeds, and how that total is split across line items.
 
    Stored as one field, `weddingBudgetPlan`, on the owner's user document:
 
-     { total: number|null,
+     { v: 2,
+       total: number|null,
+       guests: { source, count },
        contributors: [{ id, name, low, high, note }],
-       categories:   [{ id, name, pct, items: [{ id, name, pct }] }] }
+       categories:   [{ id, name, pct, items: [{ id, name, pct, perPlate?, markup? }] }] }
 
-   Percentages are the source of truth and dollar amounts are derived from
-   them, so changing the total moves every line. A category with items is the
-   sum of its items; one without items carries its own percentage. */
+   Most lines are a percentage of the total, and their dollars follow from it.
+   Two kinds of line work the other way round:
+   - per plate (`perPlate: { price }`): price × the guest count; its % follows
+     from its dollars.
+   - a markup (`markup: { rate, of: [itemId] }`): rate % of other lines — the
+     service charge on food and bar, the tax on those plus the service charge.
+   A category with items is the sum of its items; one without items carries
+   its own percentage. */
+
+const FOOD = 'Food (cocktail hour, dinner, vendor meals)';
+const BAR = 'Bar and beverages';
+const SERVICE = 'Service charge and gratuity';
+// Typical catering service charge, and New York City sales tax (Brooklyn).
+const SERVICE_RATE = 22;
+const TAX_RATE = 8.875;
 
 const SEED = [
   ['Venue, catering, bar, rentals', 48, [
     ['Venue site fee', 10],
-    ['Food (cocktail hour, dinner, vendor meals)', 18],
-    ['Bar and beverages', 7],
-    ['Service charge, tax, gratuity', 9],
+    [FOOD, 18],
+    [BAR, 7],
+    [SERVICE, { rate: SERVICE_RATE, of: [FOOD, BAR] }],
+    ['Tax', { rate: TAX_RATE, of: [FOOD, BAR, SERVICE] }],
     ['Rentals (tables, chairs, linens, china, glassware)', 4],
   ]],
   ['Photography and videography', 12, [
@@ -59,6 +74,7 @@ const SEED = [
 ];
 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+const itemId = (name) => `i-${slug(name)}`;
 
 export function newId(prefix = 'b') {
   return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -69,7 +85,9 @@ export function seedCategories() {
     id: `c-${slug(name)}`,
     name,
     pct,
-    items: items.map(([n, p]) => ({ id: `i-${slug(n)}`, name: n, pct: p })),
+    items: items.map(([n, p]) => (typeof p === 'number'
+      ? { id: itemId(n), name: n, pct: p, perPlate: null, markup: null }
+      : { id: itemId(n), name: n, pct: 0, perPlate: null, markup: { rate: p.rate, of: p.of.map(itemId) } })),
   }));
 }
 
@@ -84,26 +102,25 @@ const pctOf = (v) => Math.max(0, num(v) ?? 0);
 const money = (v) => { const n = num(v); return n == null ? null : Math.max(0, n); };
 const str = (v) => (typeof v === 'string' ? v : '');
 
-/* Per plate: an item priced as a cost per guest rather than a share. Its
-   dollars are price × guests and its % follows from the total, the reverse
-   of every other line. The guest count is linked to the guest list or typed:
+/* The guest count every per-plate line and the per-person column use, set
+   beside the total budget. Linked to the Wedding guest list or typed:
      source 'all'       — everyone on the list (bar hidden guests)
             'attending' — the list less anyone marked Not coming
             'confirmed' — only those marked Confirmed
             'manual'    — `count` as typed */
 export const GUEST_SOURCES = ['all', 'attending', 'confirmed', 'manual'];
 
-function normalizePerPlate(pp) {
-  if (!pp || typeof pp !== 'object') return null;
+function normalizeGuests(g) {
+  const o = g && typeof g === 'object' ? g : {};
+  const count = money(o.count);
   return {
-    price: money(pp.price),
-    source: GUEST_SOURCES.includes(pp.source) ? pp.source : 'all',
-    count: money(pp.count) == null ? null : Math.round(money(pp.count)),
+    source: GUEST_SOURCES.includes(o.source) ? o.source : 'all',
+    count: count == null ? null : Math.round(count),
   };
 }
 
-/* Head counts from the Wedding guest list, for the per-plate links. Hidden
-   guests are off the list for every count, as on the guest page. */
+/* Head counts from the Wedding guest list. Hidden guests are off the list
+   for every count, as on the guest page. */
 export function guestCounts(contacts) {
   const list = (Array.isArray(contacts) ? contacts : [])
     .filter((c) => c && String(c.category || '').trim().toLowerCase() !== 'hide');
@@ -114,37 +131,78 @@ export function guestCounts(contacts) {
   };
 }
 
-export function plateGuests(perPlate, counts) {
-  if (!perPlate) return 0;
-  if (perPlate.source === 'manual') return perPlate.count ?? 0;
-  return counts?.[perPlate.source] ?? 0;
+export function headcount(guests, counts) {
+  if (!guests) return 0;
+  if (guests.source === 'manual') return guests.count ?? 0;
+  return counts?.[guests.source] ?? 0;
 }
 
-export function plateAmount(perPlate, counts) {
-  return (perPlate?.price ?? 0) * plateGuests(perPlate, counts);
+export function plateAmount(perPlate, guestN) {
+  return (perPlate?.price ?? 0) * (guestN || 0);
 }
 
-/* The split with every per-plate item's % filled in from its dollars, so the
-   sums, category totals and scaling below can treat all lines alike. Those
-   items are marked `fixed`: rescaling leaves them alone, because their size
-   comes from the plate price and head count, not from the total. */
-export function resolveCategories(categories, total, counts) {
-  return categories.map((c) => (c.items.some((i) => i.perPlate)
-    ? {
-      ...c,
-      items: c.items.map((i) => (i.perPlate
-        ? { ...i, pct: total > 0 ? roundPct((plateAmount(i.perPlate, counts) / total) * 100) : 0, fixed: true }
-        : i)),
-    }
-    : c));
+function normalizePerPlate(pp) {
+  if (!pp || typeof pp !== 'object') return null;
+  return { price: money(pp.price) };
+}
+
+function normalizeMarkup(m) {
+  if (!m || typeof m !== 'object') return null;
+  return {
+    rate: pctOf(m.rate),
+    of: Array.isArray(m.of) ? [...new Set(m.of.filter((x) => typeof x === 'string' && x))] : [],
+  };
+}
+
+/* Plans saved before markups had one "Service charge, tax, gratuity" line at
+   a flat 9%. Where food and bar sit beside it, it becomes the two computed
+   lines the seed now has. Anything renamed or rearranged is left alone. */
+function upgradeServiceLine(categories) {
+  return categories.map((c) => {
+    const idx = c.items.findIndex((i) => !i.markup
+      && (i.id === 'i-service-charge-tax-gratuity' || i.name.trim().toLowerCase() === 'service charge, tax, gratuity'));
+    if (idx < 0) return c;
+    const find = (id, re) => c.items.find((i) => i.id === id) || c.items.find((i) => re.test(i.name));
+    const food = find(itemId(FOOD), /^food\b/i);
+    const bar = find(itemId(BAR), /^bar\b/i);
+    if (!food || !bar) return c;
+    const service = { id: itemId(SERVICE), name: SERVICE, pct: 0, perPlate: null, markup: { rate: SERVICE_RATE, of: [food.id, bar.id] } };
+    const tax = { id: itemId('Tax'), name: 'Tax', pct: 0, perPlate: null, markup: { rate: TAX_RATE, of: [food.id, bar.id, service.id] } };
+    const items = [...c.items];
+    items.splice(idx, 1, service, tax);
+    return { ...c, items };
+  });
 }
 
 export function normalizePlan(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const contributors = Array.isArray(r.contributors) ? r.contributors : [];
-  const categories = Array.isArray(r.categories) ? r.categories : seedCategories();
+  const rawCats = Array.isArray(r.categories) ? r.categories : seedCategories();
+  // The guest count used to live on each per-plate line; the first one found
+  // becomes the plan's.
+  const legacyGuests = !r.guests && rawCats
+    .flatMap((c) => (Array.isArray(c?.items) ? c.items : []))
+    .find((i) => i?.perPlate?.source)?.perPlate;
+  let categories = rawCats.filter((c) => c && typeof c === 'object').map((c) => ({
+    id: str(c.id) || newId('c'),
+    name: str(c.name),
+    pct: pctOf(c.pct),
+    items: (Array.isArray(c.items) ? c.items : []).filter((i) => i && typeof i === 'object').map((i) => {
+      const markup = normalizeMarkup(i.markup);
+      return {
+        id: str(i.id) || newId('i'),
+        name: str(i.name),
+        pct: pctOf(i.pct),
+        perPlate: markup ? null : normalizePerPlate(i.perPlate),
+        markup,
+      };
+    }),
+  }));
+  if ((num(r.v) ?? 1) < 2) categories = upgradeServiceLine(categories);
   return {
+    v: 2,
     total: money(r.total),
+    guests: normalizeGuests(r.guests || legacyGuests),
     contributors: contributors.filter((c) => c && typeof c === 'object').map((c) => ({
       id: str(c.id) || newId('p'),
       name: str(c.name),
@@ -152,18 +210,50 @@ export function normalizePlan(raw) {
       high: money(c.high),
       note: str(c.note),
     })),
-    categories: categories.filter((c) => c && typeof c === 'object').map((c) => ({
-      id: str(c.id) || newId('c'),
-      name: str(c.name),
-      pct: pctOf(c.pct),
-      items: (Array.isArray(c.items) ? c.items : []).filter((i) => i && typeof i === 'object').map((i) => ({
-        id: str(i.id) || newId('i'),
-        name: str(i.name),
-        pct: pctOf(i.pct),
-        perPlate: normalizePerPlate(i.perPlate),
-      })),
-    })),
+    categories,
   };
+}
+
+/* Fill in every markup's % from the lines it's charged on. Markups can be
+   charged on other markups (tax on the service charge), so they settle in
+   dependency order; one caught in a loop counts as 0%. A line it names that
+   no longer exists is skipped. */
+export function resolveMarkups(categories) {
+  const all = new Map();
+  for (const c of categories) for (const i of c.items) all.set(i.id, i);
+  const pct = new Map();
+  for (const [id, i] of all) if (!i.markup) pct.set(id, i.pct);
+  let pending = [...all.values()].filter((i) => i.markup);
+  for (let pass = 0; pending.length && pass <= all.size; pass += 1) {
+    const next = [];
+    for (const m of pending) {
+      const bases = m.markup.of.filter((id) => all.has(id) && id !== m.id);
+      if (bases.every((id) => pct.has(id))) {
+        pct.set(m.id, roundPct((m.markup.rate / 100) * bases.reduce((s, id) => s + pct.get(id), 0)));
+      } else next.push(m);
+    }
+    if (next.length === pending.length) break; // a loop: nothing more settles
+    pending = next;
+  }
+  return categories.map((c) => (c.items.some((i) => i.markup)
+    ? { ...c, items: c.items.map((i) => (i.markup ? { ...i, pct: pct.get(i.id) ?? 0, derived: true } : i)) }
+    : c));
+}
+
+/* The split with every computed line's % filled in, so sums, category totals
+   and scaling can treat all lines alike. Per-plate lines are marked `fixed`
+   (their dollars come from price × guests, not from the total), markups
+   `derived` (they follow whatever they're charged on). */
+export function resolveCategories(categories, total, guestN) {
+  const plated = categories.map((c) => (c.items.some((i) => i.perPlate)
+    ? {
+      ...c,
+      items: c.items.map((i) => (i.perPlate
+        ? { ...i, pct: total > 0 ? roundPct((plateAmount(i.perPlate, guestN) / total) * 100) : 0, fixed: true }
+        : i)),
+    }
+    : c));
+  return resolveMarkups(plated);
 }
 
 export function categoryPct(cat) {
@@ -208,49 +298,82 @@ export function pctFromAmount(amount, total) {
   return roundPct((Math.max(0, amount) / total) * 100);
 }
 
-/* Setting a whole category's share: one with items rescales them so they keep
-   their proportions to each other (or splits evenly when they're all 0%). */
-export function setCategoryPct(cat, pct) {
-  const target = Math.max(0, pct);
-  if (!cat.items.length) return { ...cat, pct: roundPct(target) };
-  // Per-plate items keep their size; the rest share what's left.
-  const fixedSum = cat.items.filter((i) => i.fixed).reduce((s, i) => s + i.pct, 0);
-  const free = cat.items.filter((i) => !i.fixed);
-  if (!free.length) return cat;
-  const want = Math.max(0, target - fixedSum);
-  const current = free.reduce((s, i) => s + i.pct, 0);
-  const items = cat.items.map((i) => (i.fixed ? i : {
-    ...i,
-    pct: roundPct(current > 0 ? (i.pct / current) * want : want / free.length),
+/* Scaling. Only "free" lines — plain percentages — are multiplied; per-plate
+   lines hold still and markups are recomputed from their (scaled) bases.
+   Everything is linear in the factor, so the sum at factor 0 and factor 1
+   gives the exact factor for any target. */
+const isFree = (i) => !i.fixed && !i.derived;
+
+function scaleFree(categories, f, inCat = null) {
+  return resolveMarkups(categories.map((c) => {
+    if (inCat && c.id !== inCat) return c;
+    if (!c.items.length) return inCat ? c : { ...c, pct: roundPct(c.pct * f) };
+    return { ...c, items: c.items.map((i) => (isFree(i) ? { ...i, pct: roundPct(i.pct * f) } : i)) };
   }));
-  return { ...cat, items };
 }
 
-/* Rescale every line so the split adds to exactly 100%. Rounding drift lands
-   on the largest line so the sum is exact. */
+function solveFactor(sumAt, target) {
+  const a = sumAt(0);
+  const b = sumAt(1) - a;
+  if (!(b > 0)) return null;
+  return Math.max(0, (target - a) / b);
+}
+
+// Rounding leaves a few thousandths over or under; put them on the largest
+// free line — preferably one no markup is charged on, so the fix doesn't
+// ripple (and a couple of passes for when there's no such line).
+function settleDrift(categories, sumOf, target, inCat = null) {
+  const charged = new Set(categories.flatMap((c) => c.items.flatMap((i) => i.markup?.of || [])));
+  let next = categories;
+  for (let k = 0; k < 3; k += 1) {
+    const drift = roundPct(target - sumOf(next));
+    if (drift === 0) break;
+    let best = null;
+    const better = (pct, ripples) => !best || (best.ripples && !ripples) || (best.ripples === ripples && pct > best.pct);
+    next.forEach((c, ci) => {
+      if (inCat && c.id !== inCat) return;
+      if (c.items.length) {
+        c.items.forEach((i, ii) => {
+          if (isFree(i) && better(i.pct, charged.has(i.id))) best = { ci, ii, pct: i.pct, ripples: charged.has(i.id) };
+        });
+      } else if (!inCat && better(c.pct, false)) best = { ci, ii: -1, pct: c.pct, ripples: false };
+    });
+    if (!best) break;
+    next = resolveMarkups(next.map((c, ci) => {
+      if (ci !== best.ci) return c;
+      if (best.ii < 0) return { ...c, pct: roundPct(Math.max(0, c.pct + drift)) };
+      return { ...c, items: c.items.map((i, ii) => (ii === best.ii ? { ...i, pct: roundPct(Math.max(0, i.pct + drift)) } : i)) };
+    }));
+  }
+  return next;
+}
+
+/* Set one category's share (on a resolved split). One with items rescales its
+   plain items so they keep their proportions — or splits evenly when they're
+   all 0% — while its per-plate lines hold and its markups follow. */
+export function setCategoryPct(categories, catId, pct) {
+  const target = Math.max(0, pct);
+  const cat = categories.find((c) => c.id === catId);
+  if (!cat) return categories;
+  if (!cat.items.length) return categories.map((c) => (c.id === catId ? { ...c, pct: roundPct(target) } : c));
+  let cats = categories;
+  const free = cat.items.filter(isFree);
+  if (!free.length) return categories;
+  if (free.every((i) => i.pct === 0)) {
+    cats = resolveMarkups(cats.map((c) => (c.id === catId ? { ...c, items: c.items.map((i) => (isFree(i) ? { ...i, pct: 1 } : i)) } : c)));
+  }
+  const catSum = (cs) => categoryPct(cs.find((c) => c.id === catId));
+  const f = solveFactor((x) => catSum(scaleFree(cats, x, catId)), target);
+  if (f == null) return categories;
+  return settleDrift(scaleFree(cats, f, catId), catSum, Math.max(target, catSum(scaleFree(cats, 0, catId))), catId);
+}
+
+/* Rescale the plain lines so the whole split adds to exactly 100%. */
 export function scaleTo100(categories) {
-  const sum = totalPct(categories);
-  // Per-plate lines are fixed in dollars; the other lines absorb the change.
-  const fixed = categories.reduce((s, c) => s + c.items.filter((i) => i.fixed).reduce((t, i) => t + i.pct, 0), 0);
-  const free = sum - fixed;
-  if (!(free > 0)) return categories;
-  const f = Math.max(0, 100 - fixed) / free;
-  const next = categories.map((c) => (c.items.length
-    ? { ...c, items: c.items.map((i) => (i.fixed ? i : { ...i, pct: roundPct(i.pct * f) })) }
-    : { ...c, pct: roundPct(c.pct * f) }));
-  const drift = roundPct(Math.max(100, fixed) - totalPct(next));
-  if (drift === 0) return next;
-  let best = null;
-  next.forEach((c, ci) => {
-    if (c.items.length) c.items.forEach((i, ii) => { if (!i.fixed && (!best || i.pct > best.pct)) best = { ci, ii, pct: i.pct }; });
-    else if (!best || c.pct > best.pct) best = { ci, ii: -1, pct: c.pct };
-  });
-  if (!best) return next;
-  return next.map((c, ci) => {
-    if (ci !== best.ci) return c;
-    if (best.ii < 0) return { ...c, pct: roundPct(c.pct + drift) };
-    return { ...c, items: c.items.map((i, ii) => (ii === best.ii ? { ...i, pct: roundPct(i.pct + drift) } : i)) };
-  });
+  const f = solveFactor((x) => totalPct(scaleFree(categories, x)), 100);
+  if (f == null) return categories;
+  const floor = totalPct(scaleFree(categories, 0));
+  return settleDrift(scaleFree(categories, f), totalPct, Math.max(100, floor));
 }
 
 /* "$40,000", "40k", "1.2m", "40000" → number. Blank → null. */
@@ -278,4 +401,10 @@ export function formatMoney(n) {
 export function formatPct(n) {
   if (n == null || !Number.isFinite(n)) return '';
   return `${Math.round(n * 100) / 100}%`;
+}
+
+// A rate like a sales tax needs its third decimal (8.875%).
+export function formatRate(n) {
+  if (n == null || !Number.isFinite(n)) return '';
+  return `${Math.round(n * 1000) / 1000}%`;
 }
