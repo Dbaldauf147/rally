@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { Fragment, useState, useEffect, useRef, useCallback } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
   normalizePlan, seedCategories, newId, categoryPct, totalPct, contributorTotals, effectiveTotal,
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
+  guestCounts, plateGuests, plateAmount, resolveCategories,
 } from '../lib/weddingBudgetPlan';
 import styles from './WeddingBudget.module.css';
 
@@ -25,6 +26,8 @@ function usePlan(userId) {
     return null;
   });
   const [saved, setSaved] = useState(true);
+  // Head counts off the guest list on the same document, for per-plate lines.
+  const [counts, setCounts] = useState(() => guestCounts([]));
   const localEdits = useRef(0);
   const syncedEdits = useRef(0);
   const appliedJson = useRef(null);
@@ -48,6 +51,8 @@ function usePlan(userId) {
   useEffect(() => {
     if (!userId) return;
     return onSnapshot(doc(db, 'users', userId), (snap) => {
+      const nextCounts = guestCounts(snap.exists() ? snap.data()?.weddingContacts : []);
+      setCounts((prev) => (JSON.stringify(prev) === JSON.stringify(nextCounts) ? prev : nextCounts));
       // Not skipped on hasPendingWrites: another field's write to this doc
       // (e.g. on sign-in) would hide the first load, and the server ack is a
       // metadata-only change that never fires here. Our own echo matches
@@ -84,7 +89,7 @@ function usePlan(userId) {
     });
   }, [flushWrite]);
 
-  return { plan, update, saved };
+  return { plan, update, saved, counts };
 }
 
 /* A number field ("$12,000", "7.5%") that only commits when you leave it or
@@ -239,12 +244,91 @@ function TotalCard({ plan, update }) {
   );
 }
 
-function Split({ plan, update }) {
+const SOURCE_LABELS = {
+  all: (n) => `Guest list — everyone (${n})`,
+  attending: (n) => `Guest list — not counting “Not coming” (${n})`,
+  confirmed: (n) => `Guest list — confirmed only (${n})`,
+  manual: () => 'Type a number',
+};
+
+/* The line under a per-plate item: price × guests = dollars. */
+function PlateRow({ item, counts, onChange }) {
+  const pp = item.perPlate;
+  const guests = plateGuests(pp, counts);
+  return (
+    <tr className={styles.plateRow}>
+      <td colSpan={4}>
+        <div className={styles.plate}>
+          <NumberField
+            {...moneyField}
+            className={styles.plateNum}
+            label={`${item.name} price per plate`}
+            placeholder="$0"
+            value={pp.price}
+            onCommit={(v) => onChange({ ...pp, price: v })}
+          />
+          <span className={styles.plateOp}>per plate ×</span>
+          <select
+            className={styles.plateSelect}
+            aria-label={`${item.name} guest count`}
+            value={pp.source}
+            onChange={(e) => onChange({
+              ...pp,
+              source: e.target.value,
+              // Switching to a typed number starts from the count you were on.
+              count: e.target.value === 'manual' && pp.count == null ? guests : pp.count,
+            })}
+          >
+            {Object.entries(SOURCE_LABELS).map(([k, label]) => (
+              <option key={k} value={k}>{label(counts[k])}</option>
+            ))}
+          </select>
+          {pp.source === 'manual' && (
+            <NumberField
+              format={(n) => String(n)}
+              parse={(t) => { const n = parseMoney(t); return n == null ? null : Math.round(n); }}
+              className={styles.plateNum}
+              label={`${item.name} number of guests`}
+              placeholder="0"
+              value={pp.count}
+              onCommit={(v) => onChange({ ...pp, count: v })}
+            />
+          )}
+          <span className={styles.plateOp}>{pp.source === 'manual' ? 'guests' : ''} =</span>
+          <strong className={styles.plateTotal} data-testid={`plate-total-${item.id}`}>{formatMoney(plateAmount(pp, counts))}</strong>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function Split({ plan, update, counts }) {
   const { amount: total } = effectiveTotal(plan);
-  const sum = totalPct(plan.categories);
+  // Per-plate items get their % from their dollars before anything sums.
+  const cats = resolveCategories(plan.categories, total, counts);
+  const sum = totalPct(cats);
   const canMoney = total > 0;
 
   const editCat = (id, fn) => update((p) => ({ ...p, categories: p.categories.map((c) => (c.id === id ? fn(c) : c)) }));
+  // Scaling has to see per-plate items at their real size, so it runs on
+  // the resolved split.
+  const resolved = (p) => resolveCategories(p.categories, effectiveTotal(p).amount, counts);
+  const scaleCat = (id, pct) => update((p) => ({ ...p, categories: resolved(p).map((c) => (c.id === id ? setCategoryPct(c, pct) : c)) }));
+  const togglePlate = (catId, item) => editCat(catId, (c) => ({
+    ...c,
+    items: c.items.map((i) => {
+      if (i.id !== item.id) return i;
+      if (i.perPlate) {
+        // Back to a share: keep the dollars it had as its %.
+        const pct = total > 0 ? roundPct((plateAmount(i.perPlate, counts) / total) * 100) : i.pct;
+        return { ...i, pct, perPlate: null };
+      }
+      // Into per plate: start at the price that keeps today's dollars.
+      const guests = counts.all;
+      const price = guests > 0 && total > 0 ? Math.round(amountFor(i.pct, total) / guests) : null;
+      return { ...i, perPlate: { price, source: 'all', count: null } };
+    }),
+  }));
   const editItem = (catId, itemId, patch) => editCat(catId, (c) => ({ ...c, items: c.items.map((i) => (i.id === itemId ? { ...i, ...patch } : i)) }));
   const removeItem = (catId, itemId) => editCat(catId, (c) => {
     const items = c.items.filter((i) => i.id !== itemId);
@@ -283,7 +367,7 @@ function Split({ plan, update }) {
       <div className={styles.splitHead}>
         <div>
           <h2 className={styles.cardTitle}>Budget split</h2>
-          <p className={styles.cardHint}>Change any % or $ — the other follows. A category's % is the sum of its items; changing it scales them together.</p>
+          <p className={styles.cardHint}>Change any % or $ — the other follows. A category's % is the sum of its items; changing it scales them together. 🍽 prices an item per plate instead.</p>
         </div>
         <button type="button" className={styles.link} onClick={reset}>Reset to suggested split</button>
       </div>
@@ -303,7 +387,7 @@ function Split({ plan, update }) {
               <th aria-label="Actions" />
             </tr>
           </thead>
-          {plan.categories.map((cat, ci) => {
+          {cats.map((cat, ci) => {
             const cp = categoryPct(cat);
             return (
               <tbody key={cat.id} className={styles.catGroup}>
@@ -315,24 +399,25 @@ function Split({ plan, update }) {
                       placeholder="Category"
                       value={cat.name}
                       title={cat.name}
-                      autoFocus={!cat.name && ci === plan.categories.length - 1}
+                      autoFocus={!cat.name && ci === cats.length - 1}
                       onChange={(e) => editCat(cat.id, (c) => ({ ...c, name: e.target.value }))}
                     />
                   </td>
-                  <td><NumberField {...pctField} className={styles.numStrong} label={`${cat.name} %`} value={cp} onCommit={(v) => editCat(cat.id, (c) => setCategoryPct(c, v ?? 0))} /></td>
+                  <td><NumberField {...pctField} className={styles.numStrong} label={`${cat.name} %`} value={cp} onCommit={(v) => scaleCat(cat.id, v ?? 0)} /></td>
                   <td>
                     {canMoney
-                      ? <NumberField {...moneyField} className={styles.numStrong} label={`${cat.name} amount`} value={amountFor(cp, total)} onCommit={(v) => editCat(cat.id, (c) => setCategoryPct(c, fromAmount(v)))} />
+                      ? <NumberField {...moneyField} className={styles.numStrong} label={`${cat.name} amount`} value={amountFor(cp, total)} onCommit={(v) => scaleCat(cat.id, fromAmount(v))} />
                       : <span className={styles.dash}>—</span>}
                   </td>
                   <td className={styles.actions}>
                     <button type="button" className={styles.iconBtn} title="Move up" aria-label={`Move ${cat.name} up`} disabled={ci === 0} onClick={() => moveCat(ci, -1)}>↑</button>
-                    <button type="button" className={styles.iconBtn} title="Move down" aria-label={`Move ${cat.name} down`} disabled={ci === plan.categories.length - 1} onClick={() => moveCat(ci, 1)}>↓</button>
+                    <button type="button" className={styles.iconBtn} title="Move down" aria-label={`Move ${cat.name} down`} disabled={ci === cats.length - 1} onClick={() => moveCat(ci, 1)}>↓</button>
                     <button type="button" className={styles.remove} title="Remove category" aria-label={`Remove ${cat.name}`} onClick={() => removeCat(cat)}>×</button>
                   </td>
                 </tr>
                 {cat.items.map((item) => (
-                  <tr key={item.id} className={styles.itemRow}>
+                  <Fragment key={item.id}>
+                  <tr className={styles.itemRow}>
                     <td>
                       <input
                         className={styles.itemName}
@@ -344,16 +429,37 @@ function Split({ plan, update }) {
                         onChange={(e) => editItem(cat.id, item.id, { name: e.target.value })}
                       />
                     </td>
-                    <td><NumberField {...pctField} label={`${item.name} %`} value={item.pct} onCommit={(v) => editItem(cat.id, item.id, { pct: v ?? 0 })} /></td>
-                    <td>
-                      {canMoney
-                        ? <NumberField {...moneyField} label={`${item.name} amount`} value={amountFor(item.pct, total)} onCommit={(v) => editItem(cat.id, item.id, { pct: fromAmount(v) })} />
-                        : <span className={styles.dash}>—</span>}
-                    </td>
+                    {item.perPlate ? (
+                      <>
+                        <td className={styles.derived} data-testid={`pct-${item.id}`} title="Worked out from the price per plate">{canMoney ? formatPct(item.pct) : '—'}</td>
+                        <td className={styles.derived} data-testid={`amount-${item.id}`} title="Price per plate × guests">{formatMoney(plateAmount(item.perPlate, counts))}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td><NumberField {...pctField} label={`${item.name} %`} value={item.pct} onCommit={(v) => editItem(cat.id, item.id, { pct: v ?? 0 })} /></td>
+                        <td>
+                          {canMoney
+                            ? <NumberField {...moneyField} label={`${item.name} amount`} value={amountFor(item.pct, total)} onCommit={(v) => editItem(cat.id, item.id, { pct: fromAmount(v) })} />
+                            : <span className={styles.dash}>—</span>}
+                        </td>
+                      </>
+                    )}
                     <td className={styles.actions}>
+                      <button
+                        type="button"
+                        className={item.perPlate ? styles.plateBtnOn : styles.plateBtn}
+                        title={item.perPlate ? 'Per plate — click to go back to a % of the total' : 'Price this per plate'}
+                        aria-label={`${item.name} per plate`}
+                        aria-pressed={!!item.perPlate}
+                        onClick={() => togglePlate(cat.id, item)}
+                      >🍽</button>
                       <button type="button" className={styles.remove} title="Remove item" aria-label={`Remove ${item.name}`} onClick={() => removeItem(cat.id, item.id)}>×</button>
                     </td>
                   </tr>
+                  {item.perPlate && (
+                    <PlateRow item={item} counts={counts} onChange={(perPlate) => editItem(cat.id, item.id, { perPlate })} />
+                  )}
+                  </Fragment>
                 ))}
                 <tr className={styles.addRow}>
                   <td colSpan={4}>
@@ -380,7 +486,7 @@ function Split({ plan, update }) {
             {diff > 0
               ? <>{formatPct(diff)}{canMoney ? ` (${formatMoney(amountFor(diff, total))})` : ''} not assigned yet.</>
               : <>{formatPct(-diff)}{canMoney ? ` (${formatMoney(amountFor(-diff, total))})` : ''} over the total.</>}
-            {sum > 0 && <button type="button" className={styles.link} onClick={() => update((p) => ({ ...p, categories: scaleTo100(p.categories) }))}>Scale to 100%</button>}
+            {sum > 0 && <button type="button" className={styles.link} onClick={() => update((p) => ({ ...p, categories: scaleTo100(resolved(p)) }))}>Scale to 100%</button>}
           </span>
         )}
       </div>
@@ -390,14 +496,14 @@ function Split({ plan, update }) {
 
 export function WeddingBudget() {
   const { user } = useAuth();
-  const { plan, update, saved } = usePlan(user?.uid);
+  const { plan, update, saved, counts } = usePlan(user?.uid);
   if (!plan) return <p className={styles.loading}>Loading…</p>;
   return (
     <div className={styles.wrap}>
       <div className={styles.status} data-testid="budget-status">{saved ? 'Saved' : 'Saving…'}</div>
       <Contributors plan={plan} update={update} />
       <TotalCard plan={plan} update={update} />
-      <Split plan={plan} update={update} />
+      <Split plan={plan} update={update} counts={counts} />
     </div>
   );
 }
