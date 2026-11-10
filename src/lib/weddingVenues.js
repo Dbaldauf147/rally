@@ -5,7 +5,13 @@
    A scan never undoes what was typed: it fills fields that are still empty,
    moves the status forward (never back), keeps the latest contact date, and
    adds the threads it found. A venue that was deleted is remembered by key in
-   `weddingVenueDismissed`, so the next scan doesn't bring it back. */
+   `weddingVenueDismissed`, so the next scan doesn't bring it back.
+
+   A researched list can also be pasted in (parseVenueImport, then
+   mergeImportedVenues): a JSON array, or cells copied from a spreadsheet with
+   a header row. */
+
+import { parsePastedCells } from './weddingGuestImport.js';
 
 export const VENUE_STATUSES = ['Researching', 'Inquired', 'Replied', 'Tour scheduled', 'Toured', 'Quote received', 'Booked', 'Not a fit'];
 
@@ -135,4 +141,91 @@ export function sortVenues(list) {
 export function gmailThreadUrl(threadId, account) {
   const who = account ? encodeURIComponent(account) : '0';
   return `https://mail.google.com/mail/u/${who}/#all/${encodeURIComponent(threadId)}`;
+}
+
+/* ── Pasted lists ── */
+
+// Which venue field a spreadsheet column or JSON key means.
+const IMPORT_HEADERS = [
+  ['name', /^(venue|name|venue\s*name)$/i],
+  ['status', /^status$/i],
+  ['contactName', /^contact(\s*name)?$/i],
+  ['email', /^e[-\s]?mail$/i],
+  ['phone', /^(phone|tel|telephone|mobile)$/i],
+  ['website', /^(website|site|url|link)$/i],
+  ['location', /^(location|address|city|town|where)$/i],
+  ['price', /^(pricing|price|cost)$/i],
+  ['capacity', /^(capacity|guests|holds)$/i],
+  ['availability', /^availability$/i],
+  ['nextStep', /^next\s*step$/i],
+  ['lastContactDate', /^last\s*contact(\s*date)?$/i],
+  ['notes', /^notes?$/i],
+];
+const importKey = (header) => {
+  const h = str(header);
+  return IMPORT_HEADERS.find(([key, re]) => key === h || re.test(h))?.[0] || '';
+};
+const cellText = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : str(v));
+
+/* Read a pasted list into venue records. Returns { venues, error }: `error`
+   says what to fix when nothing could be read. Rows without a name are
+   dropped; columns that aren't venue fields are ignored. */
+export function parseVenueImport(text) {
+  const raw = str(text);
+  if (!raw) return { venues: [], error: 'Paste a list of venues first.' };
+  let rows;
+  if (raw[0] === '[' || raw[0] === '{') {
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return { venues: [], error: 'That looks like JSON but could not be read. Check that the whole list was copied.' }; }
+    const arr = Array.isArray(parsed) ? parsed : parsed?.venues;
+    if (!Array.isArray(arr)) return { venues: [], error: 'Expected a list of venues.' };
+    rows = arr.filter((r) => r && typeof r === 'object').map((r) => {
+      const out = {};
+      for (const [k, v] of Object.entries(r)) {
+        const key = importKey(k);
+        if (key && !out[key]) out[key] = cellText(v);
+      }
+      return out;
+    });
+  } else {
+    const cells = parsePastedCells(raw);
+    const keys = (cells[0] || []).map(importKey);
+    if (!keys.includes('name')) return { venues: [], error: 'The first row needs column headers, including one called Venue.' };
+    rows = cells.slice(1).map((r) => {
+      const out = {};
+      keys.forEach((key, i) => { if (key && !out[key]) out[key] = cellText(r[i]); });
+      return out;
+    });
+  }
+  const venues = rows.filter((r) => r.name);
+  return venues.length ? { venues, error: '' } : { venues: [], error: 'No rows with a venue name were found.' };
+}
+
+/* Fold a pasted list into the saved one. A venue already on the list (by
+   sameVenue) only has its blanks filled: status, dates and anything typed or
+   scanned stay as they are. The rest are added as hand-entered venues. The
+   same venue twice in the paste is one venue. Unlike a scan, this ignores the
+   dismissed list: pasting a venue in is asking for it. */
+export function mergeImportedVenues(existing, imported) {
+  const list = (Array.isArray(existing) ? existing : []).map((v) => normalizeVenue(v));
+  const added = [];
+  const updated = [];
+  for (const raw of Array.isArray(imported) ? imported : []) {
+    const found = normalizeVenue({ ...raw, id: '', source: 'manual', threadIds: [] });
+    if (!found.name) continue;
+    const at = list.findIndex((v) => sameVenue(v, found));
+    if (at < 0) {
+      list.push(found);
+      added.push(found.name);
+      continue;
+    }
+    const cur = list[at];
+    const next = { ...cur };
+    for (const k of TEXT_KEYS) if (!next[k] && found[k]) next[k] = found[k];
+    if (JSON.stringify(next) !== JSON.stringify(cur)) {
+      list[at] = next;
+      if (!added.includes(cur.name) && !updated.includes(cur.name)) updated.push(cur.name);
+    }
+  }
+  return { list, added, updated };
 }
