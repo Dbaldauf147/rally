@@ -147,7 +147,7 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
 /* Wedding venues: the places being considered, filled in from a linked Gmail
    inbox (api/wedding-venues.js reads it; lib/weddingVenues.js folds the
    results in) and editable by hand. Edits in the pop-up save themselves. */
-export function WeddingVenues() {
+export function WeddingVenues({ subnav } = {}) {
   const { user } = useAuth();
   const [venues, setVenues] = useState([]);
   const [dismissed, setDismissed] = useState([]);
@@ -502,6 +502,7 @@ export function WeddingVenues() {
         <h1 className={styles.title}>Wedding</h1>
         <span className={styles.count}>{venues.length} venue{venues.length === 1 ? '' : 's'}</span>
       </div>
+      {subnav}
       <p className={styles.subtitle}>Venues you're talking to, pulled from the wedding inbox and kept up to date each time you scan.</p>
 
       <section className={vs.gmailCard} aria-label="Gmail inbox">
