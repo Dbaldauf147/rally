@@ -1,4 +1,5 @@
-import { Fragment, useState, useEffect, useRef, useCallback } from 'react';
+import { Fragment, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -334,39 +335,96 @@ function PlateRow({ item, guestN, onChange }) {
   );
 }
 
-/* Under a markup: rate % of the lines ticked. Any line in the same category
-   can be ticked, other markups included (tax on the service charge). */
-function MarkupRow({ item, cat, total, onChange }) {
+/* A markup's settings — rate % of the lines ticked — in a pop-up beside the
+   line, opened by clicking its % or its % button. Any line in the same
+   category can be ticked, other markups included (tax on the service charge).
+   Closes on a click outside, Escape, or Done. */
+function MarkupPopover({ item, cat, total, anchor, onChange, onOff, onClose }) {
   const m = item.markup;
   const others = cat.items.filter((i) => i.id !== item.id);
   const base = cat.items.filter((i) => m.of.includes(i.id)).reduce((s, i) => s + i.pct, 0);
   const toggle = (id) => onChange({ ...m, of: m.of.includes(id) ? m.of.filter((x) => x !== id) : [...m.of, id] });
-  return (
-    <tr className={styles.plateRow}>
-      <td colSpan={COLS}>
-        <div className={styles.plate}>
-          <NumberField
-            format={formatRate}
-            parse={parsePct}
-            className={styles.plateNum}
-            label={`${item.name} rate`}
-            placeholder="0%"
-            value={m.rate}
-            onCommit={(v) => onChange({ ...m, rate: v ?? 0 })}
-          />
-          <span className={styles.plateOp}>of</span>
-          <span className={styles.bases}>
-            {others.map((o) => (
-              <label key={o.id} className={m.of.includes(o.id) ? styles.baseOn : styles.base}>
-                <input type="checkbox" checked={m.of.includes(o.id)} onChange={() => toggle(o.id)} aria-label={`${item.name} includes ${o.name}`} />
-                {o.name || 'Untitled'}
-              </label>
-            ))}
-          </span>
-          {total > 0 && <span className={styles.plateOp}>= {formatRate(m.rate)} of {formatMoney(amountFor(base, total))}</span>}
-        </div>
-      </td>
-    </tr>
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  // Below the line, right-aligned to the button, flipped above when there's
+  // no room underneath, and kept on screen. Follows the page as it scrolls.
+  useLayoutEffect(() => {
+    const place = () => {
+      const r = anchor?.getBoundingClientRect?.();
+      const el = ref.current;
+      if (!r || !el) return;
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+      const below = r.bottom + 6;
+      const top = below + h > window.innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : below;
+      setPos({ top, left });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place); };
+  }, [anchor, m.of.length, others.length]);
+
+  useEffect(() => {
+    // A rate still being typed is saved by its box losing focus, so let it
+    // go first: closing pulls the box out from under it.
+    const close = () => {
+      const a = document.activeElement;
+      if (a && ref.current?.contains(a)) a.blur();
+      onClose();
+    };
+    const onDown = (e) => {
+      if (ref.current?.contains(e.target) || anchor?.contains?.(e.target)) return;
+      close();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [anchor, onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className={styles.markupPop}
+      role="dialog"
+      aria-label={`${item.name || 'Line'} calculation`}
+      style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden', top: 0, left: 0 }}
+    >
+      <div className={styles.markupPopHead}>
+        <strong>{item.name || 'Untitled'}</strong>
+        <button type="button" className={styles.markupPopClose} onClick={onClose} aria-label="Close">×</button>
+      </div>
+      <div className={styles.markupPopRate}>
+        <NumberField
+          format={formatRate}
+          parse={parsePct}
+          className={styles.plateNum}
+          label={`${item.name} rate`}
+          placeholder="0%"
+          value={m.rate}
+          onCommit={(v) => onChange({ ...m, rate: v ?? 0 })}
+        />
+        <span className={styles.plateOp}>of</span>
+      </div>
+      <div className={styles.markupPopBases}>
+        {others.map((o) => (
+          <label key={o.id} className={m.of.includes(o.id) ? styles.baseOn : styles.base}>
+            <input type="checkbox" checked={m.of.includes(o.id)} onChange={() => toggle(o.id)} aria-label={`${item.name} includes ${o.name}`} />
+            {o.name || 'Untitled'}
+          </label>
+        ))}
+        {others.length === 0 && <span className={styles.plateOp}>No other lines in this category yet.</span>}
+      </div>
+      {total > 0 && <p className={styles.markupPopSum}>= {formatRate(m.rate)} of {formatMoney(amountFor(base, total))}</p>}
+      <div className={styles.markupPopFoot}>
+        <button type="button" className={styles.markupPopOff} onClick={onOff} title="Stop working this out from other lines">Back to a plain %</button>
+        <button type="button" className={styles.markupPopDone} onClick={onClose}>Done</button>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -384,6 +442,10 @@ function Split({ plan, update, counts }) {
   // Per person is what each guest costs: the line and its tax.
   const perPerson = (pct) => (canMoney && guestN > 0 ? formatMoney(amountFor(pct, total) / guestN) : '—');
   const setRate = (v) => update((p) => ({ ...p, salesTax: { rate: v ?? 0 } }));
+  // The markup pop-up that's open: which line, and what it's pinned beside.
+  const [markupPop, setMarkupPop] = useState(null); // { id, anchor }
+  const closeMarkupPop = useCallback(() => setMarkupPop(null), []);
+  const openMarkupPop = (item, el) => setMarkupPop((cur) => (cur?.id === item.id ? null : { id: item.id, anchor: el }));
   const setCatTaxed = (cat, taxed) => editCat(cat.id, (c) => (c.items.length
     ? { ...c, items: c.items.map((i) => ({ ...i, taxed })) }
     : { ...c, taxed }));
@@ -540,7 +602,18 @@ function Split({ plan, update, counts }) {
                         </td>
                         {computed ? (
                           <>
-                            <td className={styles.derived} data-testid={`pct-${item.id}`} title={item.perPlate ? 'Worked out from the price per plate' : 'Worked out from the lines it’s charged on'}>{canMoney ? formatPct(item.pct) : '—'}</td>
+                            <td className={styles.derived} data-testid={`pct-${item.id}`} title={item.perPlate ? 'Worked out from the price per plate' : 'Worked out from the lines it’s charged on'}>
+                              {item.markup ? (
+                                <button
+                                  type="button"
+                                  className={styles.derivedBtn}
+                                  onClick={(e) => openMarkupPop(item, e.currentTarget.closest('tr'))}
+                                  aria-haspopup="dialog"
+                                  aria-expanded={markupPop?.id === item.id}
+                                  title={`${formatRate(item.markup.rate)} of ${item.markup.of.length} line${item.markup.of.length === 1 ? '' : 's'} — click to change`}
+                                >{canMoney ? formatPct(item.pct) : formatRate(item.markup.rate)}</button>
+                              ) : (canMoney ? formatPct(item.pct) : '—')}
+                            </td>
                             <td className={styles.derived} data-testid={`amount-${item.id}`}>{canMoney || item.perPlate ? formatMoney(dollars) : '—'}</td>
                           </>
                         ) : (
@@ -570,10 +643,17 @@ function Split({ plan, update, counts }) {
                           <button
                             type="button"
                             className={item.markup ? styles.markupBtnOn : styles.markupBtn}
-                            title={item.markup ? 'A % of other lines — click to go back to a % of the total' : 'Make this a % of other lines (service charge, tax)'}
+                            title={item.markup ? 'A % of other lines — click to change what it’s charged on' : 'Make this a % of other lines (service charge, tax)'}
                             aria-label={`${item.name} percent of other lines`}
                             aria-pressed={!!item.markup}
-                            onClick={() => toggleMarkup(cat, item)}
+                            aria-haspopup="dialog"
+                            onClick={(e) => {
+                              const row = e.currentTarget.closest('tr');
+                              if (!item.markup) {
+                                toggleMarkup(cat, item);
+                                setMarkupPop({ id: item.id, anchor: row });
+                              } else openMarkupPop(item, row);
+                            }}
                           >%</button>
                           <button type="button" className={styles.remove} title="Remove item" aria-label={`Remove ${item.name}`} onClick={() => removeItem(cat.id, item.id)}>×</button>
                         </td>
@@ -581,8 +661,16 @@ function Split({ plan, update, counts }) {
                       {item.perPlate && (
                         <PlateRow item={item} guestN={guestN} onChange={(perPlate) => editItem(cat.id, item.id, { perPlate })} />
                       )}
-                      {item.markup && (
-                        <MarkupRow item={item} cat={cat} total={total} onChange={(markup) => editItem(cat.id, item.id, { markup })} />
+                      {item.markup && markupPop?.id === item.id && (
+                        <MarkupPopover
+                          item={item}
+                          cat={cat}
+                          total={total}
+                          anchor={markupPop.anchor}
+                          onChange={(markup) => editItem(cat.id, item.id, { markup })}
+                          onOff={() => { closeMarkupPop(); toggleMarkup(cat, item); }}
+                          onClose={closeMarkupPop}
+                        />
                       )}
                     </Fragment>
                   );
