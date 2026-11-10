@@ -1,0 +1,77 @@
+/* Sits inside the Wedding page's .page wrapper. */
+.wrap { max-width: 860px; position: relative; }
+.loading { color: var(--color-text-muted); }
+.status { position: absolute; top: -2.1rem; right: 0; font-size: 0.75rem; color: var(--color-text-muted); }
+
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem 1.1rem; margin-bottom: 1.25rem; box-shadow: var(--shadow-sm); }
+.cardTitle { font-size: 1.05rem; font-weight: 650; margin: 0 0 0.2rem; }
+.cardHint { font-size: 0.82rem; color: var(--color-text-secondary); line-height: 1.45; margin: 0 0 0.75rem; }
+.cardHint strong { color: var(--color-text); }
+
+.scroll { overflow-x: auto; margin: 0 -0.3rem; }
+.table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.table th { text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); padding: 0.3rem 0.3rem; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.table th.numHead { text-align: right; }
+.table td { padding: 0.15rem 0.3rem; vertical-align: middle; }
+
+.text, .catName, .itemName, .num, .numStrong {
+  width: 100%; box-sizing: border-box; padding: 0.35rem 0.45rem;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent;
+  font-family: inherit; font-size: 0.88rem; color: var(--color-text);
+}
+.text:hover, .catName:hover, .itemName:hover, .num:hover, .numStrong:hover { border-color: var(--color-border); }
+.text:focus, .catName:focus, .itemName:focus, .num:focus, .numStrong:focus { outline: none; border-color: var(--color-accent); background: var(--color-bg); }
+.text { min-width: 8rem; }
+.num, .numStrong { text-align: right; font-variant-numeric: tabular-nums; min-width: 5.5rem; }
+.numStrong { font-weight: 650; }
+.catName { font-weight: 650; min-width: 12rem; }
+.itemName { padding-left: 1.4rem; color: var(--color-text-secondary); min-width: 12rem; }
+.dash { display: block; text-align: right; color: var(--color-text-muted); padding-right: 0.45rem; }
+
+.catGroup { border-top: 1px solid var(--color-border-light); }
+.catRow td { padding-top: 0.45rem; }
+.addRow td { padding-bottom: 0.4rem; }
+
+.actions { white-space: nowrap; text-align: right; width: 1%; }
+.iconBtn, .remove { width: 26px; height: 26px; border: none; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); font-family: inherit; font-size: 0.85rem; line-height: 1; cursor: pointer; }
+.iconBtn:hover:not(:disabled) { background: var(--color-surface-alt); color: var(--color-text); }
+.iconBtn:disabled { opacity: 0.3; cursor: default; }
+.remove { font-size: 1.05rem; }
+.remove:hover { background: var(--color-danger-light); color: var(--color-danger); }
+
+.addItem { margin-left: 1.4rem; padding: 0.15rem 0.45rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); font-family: inherit; font-size: 0.74rem; font-weight: 600; cursor: pointer; }
+.addItem:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.add { margin-top: 0.6rem; padding: 0.4rem 0.8rem; border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: none; color: var(--color-text-secondary); font-family: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+.add:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.link { padding: 0; border: none; background: none; color: var(--color-accent); font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.link:hover { text-decoration: underline; }
+
+.table tfoot td { border-top: 2px solid var(--color-border); padding-top: 0.5rem; padding-bottom: 0.3rem; }
+.footLabel { font-weight: 700; padding-left: 0.75rem !important; }
+.footNum, .footNumWarn { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; padding-right: 0.75rem !important; white-space: nowrap; }
+.footNumWarn { color: var(--color-warning); }
+
+.totalRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0.4rem 0 0.6rem; }
+.totalInput { width: 12rem; padding: 0.5rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); font-family: inherit; font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.totalInput:focus { outline: none; border-color: var(--color-accent); }
+.quick { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.quick button { padding: 0.3rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface); color: var(--color-text-secondary); font-family: inherit; font-size: 0.78rem; cursor: pointer; }
+.quick button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.gapOk, .gapWarn { margin: 0; font-size: 0.82rem; font-weight: 600; }
+.gapOk { color: var(--color-success); }
+.gapWarn { color: var(--color-warning); }
+
+.splitHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.splitFoot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
+.balance { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.6rem; font-size: 0.82rem; color: var(--color-warning); font-weight: 600; }
+
+@media (max-width: 600px) {
+  .card { padding: 0.85rem 0.7rem; }
+  .noteCol { display: none; }
+  .splitHead { flex-direction: column; gap: 0.25rem; }
+  .catName, .itemName { min-width: 9rem; }
+  .itemName { padding-left: 0.8rem; }
+  .num, .numStrong { min-width: 4.6rem; }
+  .text { min-width: 6rem; }
+  .totalInput { width: 100%; }
+}
