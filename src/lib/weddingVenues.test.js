@@ -1,6 +1,6 @@
 /* global Buffer */
 import { describe, it, expect } from 'vitest';
-import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl } from './weddingVenues';
+import { mergeScannedVenues, mergeImportedVenues, parseVenueImport, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl } from './weddingVenues';
 import { buildGmailQuery, dropQuoted, messageBody, threadText } from '../../lib/weddingVenueScan.js';
 
 describe('venueNameKey / sameVenue', () => {
@@ -122,5 +122,57 @@ describe('scanInbox (Gmail stubbed)', () => {
     expect(batches).toEqual([10, 10, 3]);
     expect(out.venues.map((v) => v.name)).toEqual(['V1', 'V2', 'V3']);
     expect(decodeURIComponent(urls[0])).toContain('newer_than:2y');
+  });
+});
+
+describe('parseVenueImport', () => {
+  it('reads a JSON list, mapping keys and labels and dropping unknown ones', () => {
+    const { venues, error } = parseVenueImport(JSON.stringify([
+      { name: 'Sound River Studios', Location: 'Long Island City', pricing: '$8,000', capacity: 270, estimate: 50088 },
+      { location: 'nowhere' },
+    ]));
+    expect(error).toBe('');
+    expect(venues).toEqual([{ name: 'Sound River Studios', location: 'Long Island City', price: '$8,000', capacity: '270' }]);
+  });
+
+  it('reads cells pasted from a spreadsheet with a header row', () => {
+    const { venues } = parseVenueImport('Venue\tCity\tPricing\tIgnored\nLiberty House\tJersey City\t"$218\nper guest"\tx\n\tNo name\t\t');
+    expect(venues).toEqual([{ name: 'Liberty House', location: 'Jersey City', price: '$218\nper guest' }]);
+  });
+
+  it('says what is wrong instead of importing nothing silently', () => {
+    expect(parseVenueImport('').error).toMatch(/Paste/);
+    expect(parseVenueImport('[{"name": "A"').error).toMatch(/JSON/);
+    expect(parseVenueImport('Liberty House\tJersey City').error).toMatch(/headers/);
+    expect(parseVenueImport('[{"location":"x"}]').error).toMatch(/No rows/);
+  });
+});
+
+describe('mergeImportedVenues', () => {
+  it('adds new venues as hand-entered, at Researching', () => {
+    const { list, added, updated } = mergeImportedVenues([], [{ name: 'Maritime Parc', price: 'from $160/pp' }]);
+    expect(added).toEqual(['Maritime Parc']);
+    expect(updated).toEqual([]);
+    expect(list[0]).toMatchObject({ name: 'Maritime Parc', price: 'from $160/pp', status: 'Researching', source: 'manual', threadIds: [] });
+    expect(list[0].id).toMatch(/^venue-/);
+  });
+
+  it('fills blanks on a venue already listed and leaves the rest alone', () => {
+    const mine = normalizeVenue({ id: 'v1', name: 'Liberty House', price: 'quoted $240/pp', status: 'Toured', source: 'gmail', threadIds: ['t1'], lastContactDate: '2026-10-01' });
+    const { list, added, updated } = mergeImportedVenues([mine], [{ name: 'The Liberty House', price: '$218-$325', capacity: '600', status: 'Researching' }]);
+    expect(added).toEqual([]);
+    expect(updated).toEqual(['Liberty House']);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ id: 'v1', price: 'quoted $240/pp', capacity: '600', status: 'Toured', source: 'gmail', threadIds: ['t1'], lastContactDate: '2026-10-01' });
+  });
+
+  it('keeps one copy of a venue pasted twice, and reports no change when nothing is new', () => {
+    const { list, added } = mergeImportedVenues([], [{ name: 'Dobbin St' }, { name: 'Dobbin St', capacity: '200' }]);
+    expect(added).toEqual(['Dobbin St']);
+    expect(list).toHaveLength(1);
+    expect(list[0].capacity).toBe('200');
+    const again = mergeImportedVenues(list, [{ name: 'Dobbin St', capacity: '200' }]);
+    expect(again.added).toEqual([]);
+    expect(again.updated).toEqual([]);
   });
 });

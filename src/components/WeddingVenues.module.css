@@ -34,3 +34,8 @@
    scrolls inside its box (tableScroll) instead of squeezing every column. */
 .venueTable { min-width: 980px; }
 .venueTable td:nth-child(3) { min-width: 13rem; }
+
+/* Import list pop-up */
+.importHelp { margin: 0 0 0.75rem; font-size: 0.85rem; line-height: 1.45; color: var(--color-text-secondary); }
+.importBox { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; resize: vertical; }
+.importFile { display: block; margin-top: 0.6rem; font-size: 0.82rem; max-width: 100%; }

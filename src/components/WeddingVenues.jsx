@@ -3,8 +3,8 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeScannedVenues, newVenueId,
-  normalizeVenue, sortVenues, venueNameKey,
+  VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeImportedVenues, mergeScannedVenues, newVenueId,
+  normalizeVenue, parseVenueImport, sortVenues, venueNameKey,
 } from '../lib/weddingVenues';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
@@ -59,6 +59,9 @@ export function WeddingVenues() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [editing, setEditing] = useState(null); // a venue draft, or null
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importError, setImportError] = useState('');
 
   useEffect(() => {
     if (!user) return undefined;
@@ -149,6 +152,32 @@ export function WeddingVenues() {
     } finally {
       setBusy('');
     }
+  };
+
+  /* ── Pasting a researched list in ── */
+  const closeImport = () => { setImportOpen(false); setImportText(''); setImportError(''); };
+  const runImport = async () => {
+    const { venues: found, error } = parseVenueImport(importText);
+    if (error) { setImportError(error); return; }
+    setBusy('import');
+    try {
+      const { list, added, updated } = mergeImportedVenues(venuesRef.current, found);
+      if (added.length || updated.length) await persist(list);
+      const parts = [];
+      if (added.length) parts.push(`${added.length} added`);
+      if (updated.length) parts.push(`${updated.length} already listed had blanks filled in`);
+      if (!parts.length) parts.push('Nothing new: every venue was already on the list');
+      setMessage({ type: 'ok', text: `${parts.join(' · ')}.` });
+      closeImport();
+    } catch (err) {
+      setImportError(`Could not save: ${err.message}`);
+    } finally {
+      setBusy('');
+    }
+  };
+  const readImportFile = async (file) => {
+    if (!file) return;
+    try { setImportText(await file.text()); setImportError(''); } catch { setImportError('That file could not be read.'); }
   };
 
   /* ── Editing (autosaves, like the contact pop-ups) ── */
@@ -280,6 +309,7 @@ export function WeddingVenues() {
           {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}{counts.get(s) ? ` (${counts.get(s)})` : ''}</option>)}
         </select>
         <button type="button" className={styles.toolButton} onClick={() => setEditing(normalizeVenue({ id: newVenueId(), status: 'Researching' }))}>+ Add venue</button>
+        <button type="button" className={styles.toolButton} onClick={() => setImportOpen(true)}>Import list</button>
       </div>
 
       {shown.length === 0 ? (
@@ -333,6 +363,48 @@ export function WeddingVenues() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className={styles.contactOverlay} onClick={closeImport}>
+          <form
+            className={styles.contactModal}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Import venues"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => { e.preventDefault(); runImport(); }}
+          >
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Import venues</h2>
+              <button className={styles.modalClose} type="button" onClick={closeImport} aria-label="Close">×</button>
+            </div>
+            <div className={styles.modalBody}>
+              <p className={vs.importHelp}>
+                Paste a list of venues, or choose a file. It can be rows copied from a spreadsheet with a header row
+                (Venue, Location, Pricing, Capacity, Website, Next step, Notes…) or a JSON list. Venues already here
+                keep what they have; only their blanks are filled.
+              </p>
+              <textarea
+                className={`${styles.contactInput} ${vs.importBox}`}
+                rows={9}
+                value={importText}
+                onChange={(e) => { setImportText(e.target.value); setImportError(''); }}
+                placeholder="Paste venues here"
+                aria-label="Venues to import"
+                autoFocus
+              />
+              <input className={vs.importFile} type="file" accept=".json,.tsv,.txt,application/json,text/plain" onChange={(e) => readImportFile(e.target.files?.[0])} aria-label="Choose a file of venues" />
+              {importError && <p className={styles.digestErrMsg} role="alert">{importError}</p>}
+            </div>
+            <div className={styles.modalFooter}>
+              <button className={styles.modalSecondary} type="button" onClick={closeImport}>Cancel</button>
+              <button className={styles.modalPrimary} type="submit" disabled={!importText.trim() || busy === 'import'}>
+                {busy === 'import' ? 'Importing…' : 'Import'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
