@@ -37,6 +37,13 @@ export function normalizeVenue(v, { id } = {}) {
   out.lastContactDate = /^\d{4}-\d{2}-\d{2}$/.test(str(v?.lastContactDate)) ? str(v.lastContactDate) : '';
   out.threadIds = [...new Set((Array.isArray(v?.threadIds) ? v.threadIds : []).map(str).filter(Boolean))];
   out.source = v?.source === 'gmail' ? 'gmail' : 'manual';
+  // Starred to keep at the top of the table, and the values of the columns
+  // added by hand (lib/venueTable.js), by column key.
+  out.starred = v?.starred === true;
+  out.custom = {};
+  if (v?.custom && typeof v.custom === 'object') {
+    for (const [k, val] of Object.entries(v.custom)) if (/^c_[a-z0-9]+$/.test(k) && str(val)) out.custom[k] = str(val);
+  }
   return out;
 }
 

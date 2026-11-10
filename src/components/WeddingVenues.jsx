@@ -4,8 +4,15 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
   VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeScannedVenues, newVenueId,
-  normalizeVenue, sortVenues, venueNameKey,
+  normalizeVenue, venueNameKey,
 } from '../lib/weddingVenues';
+import {
+  addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
+  moveColumn, normalizeColumnConfig, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
+  toggleColumn, withCellValue,
+} from '../lib/venueTable';
+import { applyColumnFilters } from '../lib/columnFilters';
+import { parsePastedCells } from '../lib/weddingGuestImport';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 
@@ -45,6 +52,85 @@ const fmtWhen = (ts) => {
 };
 const siteHref = (w) => (/^https?:\/\//i.test(w) ? w : `https://${w}`);
 
+// A paste that spans more than one cell is a range from a spreadsheet, not
+// a value for the cell it landed in.
+const isGrid = (text) => /\t/.test(text) || /\n\s*\S/.test(String(text).trim());
+
+const isTyping = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+
+const cellWidth = (col) => (col.wide ? '14rem' : col.key === 'emails' ? '6rem' : col.key === 'name' ? '12rem' : '9.5rem');
+
+/* One editable cell. Typing stays local and saves when you leave the cell or
+   press Enter (Escape puts it back), so a save never lands mid-word. */
+function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
+  const saved = cellValue(venue, col.key);
+  const [val, setVal] = useState(saved);
+  const [focused, setFocused] = useState(false);
+  // A save or scan from elsewhere shows up, unless you're mid-edit here.
+  const [seen, setSeen] = useState(saved);
+  if (seen !== saved && !focused) {
+    setSeen(saved);
+    setVal(saved);
+  }
+
+  if (col.key === 'emails') {
+    return venue.threadIds.length > 0 ? (
+      <a className={styles.link} href={gmailThreadUrl(venue.threadIds[venue.threadIds.length - 1], gmailEmail)} target="_blank" rel="noreferrer">
+        {venue.threadIds.length} email{venue.threadIds.length === 1 ? '' : 's'} ↗
+      </a>
+    ) : <span className={styles.muted}>—</span>;
+  }
+  if (col.key === 'status') {
+    return (
+      <select className={`${vs.statusSelect} ${STATUS_CLASS[venue.status] || ''}`} value={venue.status} onChange={(e) => onCommit(e.target.value)} aria-label={`Status of ${venue.name}`}>
+        {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+      </select>
+    );
+  }
+  const commit = () => {
+    if (val === saved) return;
+    // A venue's name can't be emptied from here — it's what it's filed under.
+    if (col.key === 'name' && !val.trim()) setVal(saved);
+    else onCommit(val);
+  };
+  const input = (
+    <input
+      className={vs.cellInput}
+      type={col.key === 'lastContactDate' ? 'date' : 'text'}
+      value={val}
+      aria-label={`${col.label} for ${venue.name || 'venue'}`}
+      onChange={(e) => {
+        setVal(e.target.value);
+        // A date picker has no "leaving the cell" moment worth waiting for.
+        if (col.key === 'lastContactDate') onCommit(e.target.value);
+      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => { setFocused(false); commit(); }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        else if (e.key === 'Escape') { e.stopPropagation(); setVal(saved); setTimeout(() => e.target.blur(), 0); }
+      }}
+      onPaste={(e) => {
+        const text = e.clipboardData?.getData('text/plain') || '';
+        if (isGrid(text)) { e.preventDefault(); onPasteGrid(text); }
+      }}
+    />
+  );
+  const link = !saved ? null
+    : col.key === 'email' ? `mailto:${saved}`
+      : col.key === 'phone' ? `tel:${saved.replace(/[^+\d]/g, '')}`
+        : col.key === 'website' ? siteHref(saved) : null;
+  if (!link) return input;
+  return (
+    <div className={vs.cellWithLink}>
+      {input}
+      <a className={vs.cellLink} href={link} target={col.key === 'website' ? '_blank' : undefined} rel="noreferrer" title={col.key === 'website' ? 'Open website' : col.key === 'email' ? 'Send email' : 'Call'}>
+        {col.key === 'website' ? '↗' : col.key === 'email' ? '✉' : '☎'}
+      </a>
+    </div>
+  );
+}
+
 /* Wedding venues: the places being considered, filled in from a linked Gmail
    inbox (api/wedding-venues.js reads it; lib/weddingVenues.js folds the
    results in) and editable by hand. Edits in the pop-up save themselves. */
@@ -57,8 +143,18 @@ export function WeddingVenues() {
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [editing, setEditing] = useState(null); // a venue draft, or null
+  // The table's columns: order, hidden, and the ones added by hand.
+  const [colConfig, setColConfig] = useState(() => normalizeColumnConfig(null));
+  const [colFilters, setColFilters] = useState({});
+  const [sort, setSort] = useState(null); // { key, dir } or null = newest contact first
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const colMenuRef = useRef(null);
+  // Pasting a range in: the text, whether its first row is headings, and
+  // where each of its columns goes (null = the automatic guess).
+  const [pasteText, setPasteText] = useState(null);
+  const [pasteHeader, setPasteHeader] = useState(null);
+  const [pasteMap, setPasteMap] = useState(null);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -67,6 +163,7 @@ export function WeddingVenues() {
       setVenues(Array.isArray(data.weddingVenues) ? data.weddingVenues.map((v) => normalizeVenue(v)) : []);
       setDismissed(Array.isArray(data.weddingVenueDismissed) ? data.weddingVenueDismissed : []);
       setGmail(data.weddingGmail?.email ? data.weddingGmail : null);
+      setColConfig(normalizeColumnConfig(data.weddingVenueColumns));
       setLoading(false);
     }, () => setLoading(false));
   }, [user]);
@@ -203,22 +300,146 @@ export function WeddingVenues() {
     await persist(venuesRef.current.filter((x) => x.id !== v.id), extra);
   };
 
-  const setStatus = (v, status) => persist(venuesRef.current.map((x) => (x.id === v.id ? { ...x, status } : x)));
+  /* ── The table ── */
+  const saveError = (err) => setMessage({ type: 'error', text: `Could not save: ${err.message}` });
+
+  const updateVenue = (id, change) => {
+    const next = venuesRef.current.map((x) => (x.id === id ? change(x) : x));
+    persist(next).catch(saveError);
+  };
+  const setCell = (v, key, value) => {
+    if (key === 'name' && !String(value).trim()) return;
+    updateVenue(v.id, (x) => withCellValue(x, key, value));
+  };
+  const toggleStar = (v) => updateVenue(v.id, (x) => ({ ...x, starred: !x.starred }));
+
+  const saveColumns = (next, extra = {}) => {
+    setColConfig(next);
+    if (!user) return Promise.resolve();
+    return setDoc(doc(db, 'users', user.uid), { weddingVenueColumns: next, ...extra }, { merge: true }).catch(saveError);
+  };
+  const addColumn = () => {
+    const label = prompt('Name the new column');
+    if (!label || !label.trim()) return;
+    saveColumns(addCustomColumn(colConfig, label).config);
+  };
+  const renameColumn = (col) => {
+    const label = prompt('Rename column', col.label);
+    if (!label || !label.trim()) return;
+    saveColumns(renameCustomColumn(colConfig, col.key, label));
+  };
+  const deleteColumn = async (col) => {
+    const used = venues.filter((v) => cellValue(v, col.key)).length;
+    if (!confirm(`Delete the “${col.label}” column?${used ? ` Its values on ${used} venue${used === 1 ? '' : 's'} go too.` : ''}`)) return;
+    const list = venuesRef.current.map((v) => {
+      if (!v.custom?.[col.key]) return v;
+      const custom = { ...v.custom };
+      delete custom[col.key];
+      return { ...v, custom };
+    });
+    venuesRef.current = list;
+    setVenues(list);
+    setColFilters((f) => { const n = { ...f }; delete n[col.key]; return n; });
+    if (sort?.key === col.key) setSort(null);
+    await saveColumns(removeCustomColumn(colConfig, col.key), { weddingVenues: list });
+  };
+
+  useEffect(() => {
+    if (!colMenuOpen) return undefined;
+    const onDown = (e) => { if (colMenuRef.current && !colMenuRef.current.contains(e.target)) setColMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [colMenuOpen]);
+
+  const columns = useMemo(() => allVenueColumns(colConfig), [colConfig]);
+  const visible = useMemo(() => columns.filter((c) => !c.hidden), [columns]);
+
+  const clickSort = (key) => setSort((s) => (s?.key !== key ? { key, dir: 'asc' } : s.dir === 'asc' ? { key, dir: 'desc' } : null));
 
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return sortVenues(venues).filter((v) => {
-      if (statusFilter && v.status !== statusFilter) return false;
-      if (!term) return true;
-      return [v.name, v.contactName, v.email, v.location, v.notes, v.summary].some((s) => (s || '').toLowerCase().includes(term));
-    });
-  }, [venues, search, statusFilter]);
+    let rows = sortVenueRows(venues, sort);
+    if (term) {
+      rows = rows.filter((v) => [v.name, v.contactName, v.email, v.location, v.notes, v.summary, ...Object.values(v.custom || {})]
+        .some((x) => (x || '').toLowerCase().includes(term)));
+    }
+    const { star, status, ...text } = colFilters;
+    if (star) rows = rows.filter((v) => (star === 'starred' ? v.starred : !v.starred));
+    if (status) rows = rows.filter((v) => v.status === status);
+    const textOf = (v, key) => (key === 'lastContactDate' ? `${v.lastContactDate} ${fmtDate(v.lastContactDate)}` : cellValue(v, key));
+    return applyColumnFilters(rows, text, textOf, ['phone']);
+  }, [venues, search, sort, colFilters]);
+  const filtersOn = Object.values(colFilters).some((x) => String(x || '').trim());
 
-  const counts = useMemo(() => {
-    const m = new Map();
-    venues.forEach((v) => m.set(v.status, (m.get(v.status) || 0) + 1));
-    return m;
-  }, [venues]);
+  /* ── Pasting a spreadsheet range ── */
+  const openPaste = (text = '') => {
+    setPasteText(text);
+    setPasteHeader(null);
+    setPasteMap(null);
+  };
+  const closePaste = () => setPasteText(null);
+  // Pasting anywhere on the tab (not into a box) opens the dialog with it.
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (pasteText !== null || editing || isTyping(document.activeElement)) return;
+      const text = e.clipboardData?.getData('text/plain') || '';
+      if (!text.trim()) return;
+      e.preventDefault();
+      openPaste(text);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [pasteText, editing]);
+
+  const pasteRows = useMemo(() => parsePastedCells(pasteText || '').filter((r) => r.some((c) => String(c).trim())), [pasteText]);
+  const pasteWidth = Math.max(0, ...pasteRows.map((r) => r.length));
+  const hasHeader = pasteHeader ?? looksLikeVenueHeader(pasteRows);
+  const pasteBody = hasHeader ? pasteRows.slice(1) : pasteRows;
+  const pasteHeads = hasHeader ? pasteRows[0] || [] : [];
+  const autoMap = useMemo(() => {
+    const m = hasHeader ? autoMapVenueHeaders(pasteRows[0], colConfig.custom) : guessVenueColumns(pasteRows);
+    return Array.from({ length: pasteWidth }, (_, i) => m[i] || '');
+  }, [pasteRows, hasHeader, pasteWidth, colConfig.custom]);
+  const mapping = pasteMap && pasteMap.length === pasteWidth ? pasteMap : autoMap;
+  const setMapAt = (i, key) => setPasteMap(mapping.map((k, j) => (j === i ? key : k === key && key && key !== 'new' ? '' : k)));
+  const newColName = (i) => String(pasteHeads[i] || '').trim() || `Column ${i + 1}`;
+
+  // 'new' columns become real ones; the preview uses stand-in keys.
+  const resolveMapping = (config, makeKey) => {
+    let cfg = config;
+    const keys = mapping.map((k, i) => {
+      if (k !== 'new') return k;
+      const { config: c, key } = addCustomColumn(cfg, newColName(i), makeKey ? makeKey(i) : undefined);
+      cfg = c;
+      return key;
+    });
+    return { config: cfg, keys };
+  };
+  const pastePlan = useMemo(() => {
+    if (pasteText === null || !pasteBody.length) return null;
+    const { keys } = resolveMapping(colConfig, (i) => `c_preview${i}`);
+    return planVenuePaste(venues, pasteBody, keys);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pasteText, pasteBody, mapping, venues, colConfig]);
+
+  const applyPaste = async () => {
+    const { config, keys } = resolveMapping(colConfig);
+    const { list, added, updated, skipped } = planVenuePaste(venuesRef.current, pasteBody, keys, { makeId: newVenueId });
+    closePaste();
+    try {
+      setColConfig(config);
+      await persist(list, { weddingVenueColumns: config });
+      const parts = [];
+      if (added.length) parts.push(`${added.length} venue${added.length === 1 ? '' : 's'} added`);
+      if (updated.length) parts.push(`${updated.length} updated`);
+      if (skipped) parts.push(`${skipped} row${skipped === 1 ? '' : 's'} with no venue name skipped`);
+      setMessage({ type: 'ok', text: `${parts.join(' · ') || 'Nothing new in that paste'}.` });
+    } catch (err) {
+      saveError(err);
+    }
+  };
+
+  const fieldOptions = columns.filter((c) => !c.readOnly);
 
   if (loading) return <div className={styles.page}><p className={styles.muted}>Loading…</p></div>;
 
@@ -275,19 +496,43 @@ export function WeddingVenues() {
 
       <div className={styles.toolbar}>
         <input className={styles.search} placeholder="Search venues…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search venues" />
-        <select className={styles.select} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">All statuses</option>
-          {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}{counts.get(s) ? ` (${counts.get(s)})` : ''}</option>)}
-        </select>
+        {filtersOn && <button type="button" className={styles.toolButton} onClick={() => setColFilters({})}>Clear filters</button>}
+        <div className={styles.colMenu} ref={colMenuRef}>
+          <button type="button" className={styles.toolButton} onClick={() => setColMenuOpen((o) => !o)} aria-expanded={colMenuOpen}>Columns ▾</button>
+          {colMenuOpen && (
+            <div className={`${styles.colMenuPopover} ${vs.colMenu}`} role="menu" aria-label="Columns">
+              <p className={vs.colMenuHint}>Tick to show · arrows to reorder</p>
+              {columns.map((col) => {
+                const at = visible.findIndex((c) => c.key === col.key);
+                return (
+                  <div key={col.key} className={vs.colMenuRow}>
+                    <label className={vs.colMenuLabel}>
+                      <input type="checkbox" checked={!col.hidden} onChange={() => saveColumns(toggleColumn(colConfig, col.key))} />
+                      <span>{col.label}</span>
+                    </label>
+                    {col.custom && (
+                      <>
+                        <button type="button" className={vs.iconBtn} onClick={() => renameColumn(col)} title="Rename" aria-label={`Rename ${col.label}`}>✎</button>
+                        <button type="button" className={vs.iconBtn} onClick={() => deleteColumn(col)} title="Delete column" aria-label={`Delete ${col.label}`}>🗑</button>
+                      </>
+                    )}
+                    <button type="button" className={vs.iconBtn} disabled={col.hidden || at <= 0} onClick={() => saveColumns(moveColumn(colConfig, col.key, -1))} title="Move left" aria-label={`Move ${col.label} left`}>↑</button>
+                    <button type="button" className={vs.iconBtn} disabled={col.hidden || at < 0 || at >= visible.length - 1} onClick={() => saveColumns(moveColumn(colConfig, col.key, 1))} title="Move right" aria-label={`Move ${col.label} right`}>↓</button>
+                  </div>
+                );
+              })}
+              <button type="button" className={vs.colMenuAdd} onClick={addColumn}>+ Add column</button>
+            </div>
+          )}
+        </div>
+        <button type="button" className={styles.toolButton} onClick={() => openPaste('')} title="Paste a range copied from Google Sheets or Excel">📋 Paste from sheet</button>
         <button type="button" className={styles.toolButton} onClick={() => setEditing(normalizeVenue({ id: newVenueId(), status: 'Researching' }))}>+ Add venue</button>
       </div>
 
-      {shown.length === 0 ? (
+      {venues.length === 0 ? (
         <div className={styles.tableWrap}>
           <p className={vs.empty}>
-            {venues.length === 0
-              ? (gmail ? 'No venues yet — scan the inbox, or add one by hand.' : 'No venues yet — connect the inbox above, or add one by hand.')
-              : 'No venues match.'}
+            {gmail ? 'No venues yet — scan the inbox, add one by hand, or paste rows from a spreadsheet.' : 'No venues yet — connect the inbox above, add one by hand, or paste rows from a spreadsheet.'}
           </p>
         </div>
       ) : (
@@ -296,42 +541,130 @@ export function WeddingVenues() {
             <table className={`${styles.table} ${vs.venueTable}`}>
               <thead>
                 <tr>
-                  <th>Venue</th><th>Status</th><th>Contact</th><th>Location</th><th>Pricing</th><th>Next step</th><th>Last contact</th>
+                  <th className={vs.starCol} onClick={() => setColFilters((f) => ({ ...f, star: f.star === 'starred' ? '' : 'starred' }))} title="Show only starred venues">★</th>
+                  {visible.map((col) => (
+                    <th key={col.key} style={{ minWidth: cellWidth(col) }} onClick={() => clickSort(col.key)} aria-sort={sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+                      {col.label}
+                      {sort?.key === col.key && <span className={styles.sortArrow}>{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                    </th>
+                  ))}
+                </tr>
+                <tr className={styles.filterRow}>
+                  <th className={vs.starCol}>
+                    <select className={styles.filterSelect} value={colFilters.star || ''} onChange={(e) => setColFilters((f) => ({ ...f, star: e.target.value }))} aria-label="Filter by star">
+                      <option value="">All</option>
+                      <option value="starred">★</option>
+                      <option value="unstarred">☆</option>
+                    </select>
+                  </th>
+                  {visible.map((col) => (
+                    <th key={col.key}>
+                      {col.key === 'status' ? (
+                        <select className={styles.filterSelect} value={colFilters.status || ''} onChange={(e) => setColFilters((f) => ({ ...f, status: e.target.value }))} aria-label="Filter by status">
+                          <option value="">All</option>
+                          {VENUE_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+                        </select>
+                      ) : (
+                        <input className={styles.filterInput} value={colFilters[col.key] || ''} onChange={(e) => setColFilters((f) => ({ ...f, [col.key]: e.target.value }))} placeholder="Filter…" aria-label={`Filter ${col.label}`} />
+                      )}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
+                {shown.length === 0 && (
+                  <tr><td colSpan={visible.length + 1} className={vs.empty}>No venues match.</td></tr>
+                )}
                 {shown.map((v) => (
-                  <tr key={v.id}>
-                    <td className={styles.nameCell}>
-                      <button type="button" className={styles.nameButton} onClick={() => setEditing({ ...v })} title="Edit venue">{v.name}</button>
-                      {v.website && <div><a className={styles.link} href={siteHref(v.website)} target="_blank" rel="noreferrer">{v.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a></div>}
+                  <tr key={v.id} className={v.starred ? vs.starredRow : undefined}>
+                    <td className={vs.starCol}>
+                      <button type="button" className={v.starred ? vs.starOn : vs.star} onClick={() => toggleStar(v)} aria-pressed={v.starred} aria-label={v.starred ? `Unstar ${v.name}` : `Star ${v.name}`} title={v.starred ? 'Unstar' : 'Star — keeps it at the top'}>
+                        {v.starred ? '★' : '☆'}
+                      </button>
+                      <button type="button" className={vs.openBtn} onClick={() => setEditing({ ...v })} title="Open venue details" aria-label={`Open ${v.name}`}>⤢</button>
                     </td>
-                    <td>
-                      <select className={`${vs.statusSelect} ${STATUS_CLASS[v.status] || ''}`} value={v.status} onChange={(e) => setStatus(v, e.target.value)} aria-label={`Status of ${v.name}`}>
-                        {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      {v.contactName && <div>{v.contactName}</div>}
-                      {v.email && <div><a className={styles.link} href={`mailto:${v.email}`}>{v.email}</a></div>}
-                      {v.phone && <div><a className={styles.link} href={`tel:${v.phone.replace(/[^+\d]/g, '')}`}>{v.phone}</a></div>}
-                      {!v.contactName && !v.email && !v.phone && <span className={styles.muted}>—</span>}
-                    </td>
-                    <td>{v.location || <span className={styles.muted}>—</span>}</td>
-                    <td>{v.price || <span className={styles.muted}>—</span>}{v.capacity && <div className={styles.muted}>{v.capacity}</div>}</td>
-                    <td>{v.nextStep || <span className={styles.muted}>—</span>}</td>
-                    <td className={styles.mono}>
-                      {fmtDate(v.lastContactDate) || <span className={styles.muted}>—</span>}
-                      {v.threadIds.length > 0 && (
-                        <div><a className={styles.link} href={gmailThreadUrl(v.threadIds[v.threadIds.length - 1], gmail?.email)} target="_blank" rel="noreferrer">
-                          {v.threadIds.length} email{v.threadIds.length === 1 ? '' : 's'} ↗
-                        </a></div>
-                      )}
-                    </td>
+                    {visible.map((col) => (
+                      <td key={col.key} className={vs.cell}>
+                        <EditCell venue={v} col={col} gmailEmail={gmail?.email} onCommit={(val) => setCell(v, col.key, val)} onPasteGrid={openPaste} />
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+      <p className={styles.muted + ' ' + vs.tableHint}>Click a cell to edit it. Copy a range from Google Sheets or Excel and paste it onto the page to add or update venues.</p>
+
+      {pasteText !== null && (
+        <div className={styles.modalOverlay} onClick={closePaste}>
+          <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Paste venues from a spreadsheet" onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Paste venues from a spreadsheet</h2>
+              <button className={styles.modalClose} type="button" onClick={closePaste} aria-label="Close">×</button>
+            </div>
+            <div className={styles.modalBody}>
+              <p className={styles.modalHint}>
+                Copy a range of cells from Google Sheets or Excel and paste it here, then say where each column goes.
+                Venues already on the list (same name or email) are updated with the pasted values; blank cells leave
+                what's there alone. Everything else is added.
+              </p>
+              <textarea
+                className={styles.modalTextarea}
+                value={pasteText}
+                onChange={(e) => { setPasteText(e.target.value); setPasteMap(null); setPasteHeader(null); }}
+                placeholder={'Paste here — e.g.\nVenue\tContact\tEmail\tPrice\nThe Foundry\tMaria\tmaria@foundry.com\t$12,000'}
+                rows={5}
+                autoFocus
+                aria-label="Pasted cells"
+              />
+              {pasteWidth > 0 && (
+                <>
+                  <label className={styles.modalCheckRow}>
+                    <input type="checkbox" checked={hasHeader} onChange={(e) => { setPasteHeader(e.target.checked); setPasteMap(null); }} />
+                    First row is headings
+                  </label>
+                  <div className={styles.mapScroll}>
+                    <table className={styles.mapTable}>
+                      <thead>
+                        <tr>
+                          {Array.from({ length: pasteWidth }).map((_, i) => (
+                            <th key={i}>
+                              <select className={styles.mapSelect} value={mapping[i] || ''} onChange={(e) => setMapAt(i, e.target.value)} aria-label={`Column ${i + 1} goes to`}>
+                                <option value="">— Skip —</option>
+                                {fieldOptions.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                                <option value="new">+ New column “{newColName(i)}”</option>
+                              </select>
+                            </th>
+                          ))}
+                        </tr>
+                        {hasHeader && (
+                          <tr>{Array.from({ length: pasteWidth }).map((_, i) => <th key={i} className={styles.mapHeaderCell}>{pasteHeads[i]}</th>)}</tr>
+                        )}
+                      </thead>
+                      <tbody>
+                        {pasteBody.slice(0, 5).map((r, ri) => (
+                          <tr key={ri}>{Array.from({ length: pasteWidth }).map((_, i) => <td key={i}>{r[i]}</td>)}</tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {pasteBody.length > 5 && <p className={styles.modalHint}>…and {pasteBody.length - 5} more row{pasteBody.length - 5 === 1 ? '' : 's'}.</p>}
+                  {!mapping.includes('name') && <p className={styles.digestErrMsg}>Pick which column is the Venue — rows are matched and filed by it.</p>}
+                </>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalCount}>
+                {!pastePlan ? 'Paste cells to begin'
+                  : `${pastePlan.added.length} new · ${pastePlan.updated.length} updated${pastePlan.skipped ? ` · ${pastePlan.skipped} without a name skipped` : ''}`}
+              </span>
+              <button className={styles.modalSecondary} type="button" onClick={closePaste}>Cancel</button>
+              <button className={styles.modalPrimary} type="button" onClick={applyPaste} disabled={!pastePlan || !mapping.includes('name') || (!pastePlan.added.length && !pastePlan.updated.length)}>
+                Import
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -372,6 +705,17 @@ export function WeddingVenues() {
                         autoComplete="off"
                       />
                     )}
+                  </label>
+                ))}
+                {colConfig.custom.map((c) => (
+                  <label key={c.key} className={styles.contactField}>
+                    <span className={styles.contactLabel}>{c.label}</span>
+                    <input
+                      className={styles.contactInput}
+                      value={editing.custom?.[c.key] || ''}
+                      onChange={(e) => setEditing((d) => (d ? { ...d, custom: { ...(d.custom || {}), [c.key]: e.target.value } } : d))}
+                      autoComplete="off"
+                    />
                   </label>
                 ))}
               </div>

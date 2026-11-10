@@ -30,7 +30,38 @@
 .stBooked { background: rgba(34, 197, 94, 0.2); color: #15803d; }
 .stNo { background: rgba(239, 68, 68, 0.14); color: #b91c1c; }
 
-/* Wide enough that contact details stay readable; on a phone the table
-   scrolls inside its box (tableScroll) instead of squeezing every column. */
-.venueTable { min-width: 980px; }
-.venueTable td:nth-child(3) { min-width: 13rem; }
+/* A spreadsheet: every cell is a box you can type in. Each column keeps a
+   readable minimum width; on a phone the table scrolls inside its box
+   (tableScroll) instead of squeezing them. */
+.venueTable { width: max-content; min-width: 100%; }
+.venueTable tbody td.cell { padding: 0.2rem 0.3rem; vertical-align: middle; }
+.cellInput {
+  width: 100%; min-width: 0; box-sizing: border-box; padding: 0.35rem 0.45rem;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent;
+  font: inherit; font-size: 0.86rem; color: var(--color-text);
+}
+.cellInput:hover { border-color: var(--color-border-light); }
+.cellInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+.cellWithLink { display: flex; align-items: center; gap: 0.15rem; }
+.cellLink { flex: none; padding: 0.2rem 0.3rem; text-decoration: none; color: var(--color-accent); font-size: 0.85rem; }
+
+.venueTable th.starCol, .venueTable td.starCol { width: 4.2rem; min-width: 4.2rem; padding-left: 0.4rem; padding-right: 0.2rem; white-space: nowrap; vertical-align: middle; }
+.star, .starOn, .openBtn { background: none; border: none; cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0.25rem; font-family: inherit; }
+.star { color: var(--color-text-muted); }
+.star:hover, .starOn { color: #eab308; }
+.openBtn { color: var(--color-text-muted); font-size: 0.95rem; }
+.openBtn:hover { color: var(--color-accent); }
+.starredRow { background: rgba(234, 179, 8, 0.06); }
+.tableHint { font-size: 0.8rem; margin: 0.5rem 0 0; }
+
+.colMenu { min-width: 260px; max-height: min(70vh, 520px); }
+.colMenuHint { margin: 0.2rem 0.85rem 0.35rem; font-size: 0.75rem; color: var(--color-text-muted); }
+.colMenuRow { display: flex; align-items: center; gap: 0.1rem; padding: 0.1rem 0.4rem 0.1rem 0.85rem; }
+.colMenuRow:hover { background: var(--color-surface-alt); }
+.colMenuLabel { flex: 1; display: flex; align-items: center; gap: 0.55rem; padding: 0.3rem 0; font-size: 0.85rem; color: var(--color-text); cursor: pointer; user-select: none; min-width: 0; }
+.colMenuLabel input { accent-color: var(--color-accent); cursor: pointer; }
+.iconBtn { background: none; border: none; cursor: pointer; padding: 0.2rem 0.35rem; font-size: 0.82rem; color: var(--color-text-muted); border-radius: var(--radius-sm); font-family: inherit; }
+.iconBtn:hover:not(:disabled) { color: var(--color-text); background: var(--color-border-light); }
+.iconBtn:disabled { opacity: 0.3; cursor: default; }
+.colMenuAdd { display: block; width: 100%; text-align: left; margin-top: 0.25rem; padding: 0.5rem 0.85rem; border: none; border-top: 1px solid var(--color-border-light); background: none; cursor: pointer; font: inherit; font-size: 0.85rem; color: var(--color-accent); }
+.colMenuAdd:hover { background: var(--color-surface-alt); }
