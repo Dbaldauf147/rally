@@ -9,10 +9,15 @@
 .cardHint strong { color: var(--color-text); }
 
 .scroll { overflow-x: auto; margin: 0 -0.3rem; }
-.table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-.table th { text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); padding: 0.3rem 0.3rem; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
-.table th.numHead { text-align: right; }
-.table td { padding: 0.15rem 0.3rem; vertical-align: middle; }
+.table, .splitTable { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+/* The split is a fixed grid so long item names get the room, not the numbers. */
+.splitTable { table-layout: fixed; }
+.pctCol { width: 6.5rem; }
+.amtCol { width: 8.5rem; }
+.actCol { width: 5.6rem; }
+.table th, .splitTable th { text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); padding: 0.3rem 0.3rem; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.table th.numHead, .splitTable th.numHead { text-align: right; }
+.table td, .splitTable td { padding: 0.15rem 0.3rem; vertical-align: middle; }
 
 .text, .catName, .itemName, .num, .numStrong {
   width: 100%; box-sizing: border-box; padding: 0.35rem 0.45rem;
@@ -24,8 +29,9 @@
 .text { min-width: 8rem; }
 .num, .numStrong { text-align: right; font-variant-numeric: tabular-nums; min-width: 5.5rem; }
 .numStrong { font-weight: 650; }
-.catName { font-weight: 650; min-width: 12rem; }
-.itemName { padding-left: 1.4rem; color: var(--color-text-secondary); min-width: 12rem; }
+.catName { font-weight: 650; text-overflow: ellipsis; }
+.itemName { padding-left: 1.4rem; color: var(--color-text-secondary); text-overflow: ellipsis; }
+.splitTable .num, .splitTable .numStrong { min-width: 0; }
 .dash { display: block; text-align: right; color: var(--color-text-muted); padding-right: 0.45rem; }
 
 .catGroup { border-top: 1px solid var(--color-border-light); }
@@ -46,7 +52,7 @@
 .link { padding: 0; border: none; background: none; color: var(--color-accent); font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .link:hover { text-decoration: underline; }
 
-.table tfoot td { border-top: 2px solid var(--color-border); padding-top: 0.5rem; padding-bottom: 0.3rem; }
+.table tfoot td, .splitTable tfoot td { border-top: 2px solid var(--color-border); padding-top: 0.5rem; padding-bottom: 0.3rem; }
 .footLabel { font-weight: 700; padding-left: 0.75rem !important; }
 .footNum, .footNumWarn { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; padding-right: 0.75rem !important; white-space: nowrap; }
 .footNumWarn { color: var(--color-warning); }
@@ -69,8 +75,14 @@
   .card { padding: 0.85rem 0.7rem; }
   .noteCol { display: none; }
   .splitHead { flex-direction: column; gap: 0.25rem; }
-  .catName, .itemName { min-width: 9rem; }
   .itemName { padding-left: 0.8rem; }
+  .catName, .itemName, .splitTable .num, .splitTable .numStrong { font-size: 0.82rem; padding-left: 0.3rem; padding-right: 0.3rem; }
+  .itemName { padding-left: 0.8rem; }
+  .pctCol { width: 3.9rem; }
+  .amtCol { width: 5.2rem; }
+  .actCol { width: 1.9rem; }
+  /* Reordering is a desk job; on a phone the row keeps just its ×. */
+  .iconBtn { display: none; }
   .num, .numStrong { min-width: 4.6rem; }
   .text { min-width: 6rem; }
   .totalInput { width: 100%; }

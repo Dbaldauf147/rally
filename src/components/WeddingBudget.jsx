@@ -48,7 +48,10 @@ function usePlan(userId) {
   useEffect(() => {
     if (!userId) return;
     return onSnapshot(doc(db, 'users', userId), (snap) => {
-      if (snap.metadata.hasPendingWrites) return; // our own write echoing back
+      // Not skipped on hasPendingWrites: another field's write to this doc
+      // (e.g. on sign-in) would hide the first load, and the server ack is a
+      // metadata-only change that never fires here. Our own echo matches
+      // appliedJson and is dropped below.
       if (localEdits.current !== syncedEdits.current) return; // unsent edit wins
       const remote = normalizePlan(snap.exists() ? snap.data()?.[FIELD] : null);
       const json = JSON.stringify(remote);
@@ -84,9 +87,9 @@ function usePlan(userId) {
   return { plan, update, saved };
 }
 
-/* A number field that shows "$12,000" or "7.5%" at rest and the raw number
-   while you type, and only commits when you leave it or press Enter — so a
-   half-typed "1." doesn't rescale anything. Blank commits null. */
+/* A number field ("$12,000", "7.5%") that only commits when you leave it or
+   press Enter — so a half-typed "1." doesn't rescale anything. Blank commits
+   null; text that doesn't read as a number keeps the old value. */
 function NumberField({ value, format, parse, onCommit, label, placeholder, className }) {
   const [draft, setDraft] = useState(null);
   const startDraft = useRef('');
@@ -107,7 +110,9 @@ function NumberField({ value, format, parse, onCommit, label, placeholder, class
       placeholder={placeholder}
       value={draft ?? (value == null ? '' : format(value))}
       onFocus={(e) => {
-        const start = value == null ? '' : String(Math.round(value * 100) / 100);
+        // Starts from exactly what's shown — the parsers read "$12,000" and
+        // "7.5%" — so focusing never rewrites the text under the cursor.
+        const start = value == null ? '' : format(value);
         startDraft.current = start;
         setDraft(start);
         requestAnimationFrame(() => e.target.select());
@@ -283,7 +288,13 @@ function Split({ plan, update }) {
         <button type="button" className={styles.link} onClick={reset}>Reset to suggested split</button>
       </div>
       <div className={styles.scroll}>
-        <table className={styles.table}>
+        <table className={styles.splitTable}>
+          <colgroup>
+            <col />
+            <col className={styles.pctCol} />
+            <col className={styles.amtCol} />
+            <col className={styles.actCol} />
+          </colgroup>
           <thead>
             <tr>
               <th>Line item</th>
@@ -303,6 +314,7 @@ function Split({ plan, update }) {
                       aria-label="Category"
                       placeholder="Category"
                       value={cat.name}
+                      title={cat.name}
                       autoFocus={!cat.name && ci === plan.categories.length - 1}
                       onChange={(e) => editCat(cat.id, (c) => ({ ...c, name: e.target.value }))}
                     />
@@ -327,6 +339,7 @@ function Split({ plan, update }) {
                         aria-label="Line item"
                         placeholder="Line item"
                         value={item.name}
+                        title={item.name}
                         autoFocus={!item.name && item === cat.items[cat.items.length - 1]}
                         onChange={(e) => editItem(cat.id, item.id, { name: e.target.value })}
                       />
