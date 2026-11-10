@@ -8,7 +8,7 @@ import {
 } from '../lib/weddingVenues';
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
-  moveColumn, normalizeColumnConfig, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
+  moveColumn, normalizeColumnConfig, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
   toggleColumn, withCellValue,
 } from '../lib/venueTable';
 import { applyColumnFilters } from '../lib/columnFilters';
@@ -58,7 +58,7 @@ const isGrid = (text) => /\t/.test(text) || /\n\s*\S/.test(String(text).trim());
 
 const isTyping = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 
-const cellWidth = (col) => (col.wide ? '14rem' : col.key === 'emails' ? '6rem' : col.key === 'name' ? '12rem' : '9.5rem');
+const STAR_COL_WIDTH = 68;
 
 /* One editable cell. Typing stays local and saves when you leave the cell or
    press Enter (Escape puts it back), so a save never lands mid-word. */
@@ -354,7 +354,47 @@ export function WeddingVenues() {
   const columns = useMemo(() => allVenueColumns(colConfig), [colConfig]);
   const visible = useMemo(() => columns.filter((c) => !c.hidden), [columns]);
 
-  const clickSort = (key) => setSort((s) => (s?.key !== key ? { key, dir: 'asc' } : s.dir === 'asc' ? { key, dir: 'desc' } : null));
+  /* Dragging a header's right edge. The width follows the pointer locally and
+     is saved once, when you let go. A click right after a drag isn't a sort. */
+  const colConfigRef = useRef(colConfig);
+  useEffect(() => { colConfigRef.current = colConfig; }, [colConfig]);
+  const justResized = useRef(false);
+  const startResize = (e, col) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const x0 = e.clientX;
+    const w0 = col.width;
+    document.body.classList.add('rally-col-resizing');
+    let width = w0;
+    const onMove = (ev) => {
+      width = w0 + ev.clientX - x0;
+      setColConfig((c) => setColumnWidth(c, col.key, width));
+    };
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      document.body.classList.remove('rally-col-resizing');
+      justResized.current = true;
+      setTimeout(() => { justResized.current = false; }, 0);
+      // From the drag's own last width: the ref can be a render behind.
+      if (width !== w0) saveColumns(setColumnWidth(colConfigRef.current, col.key, width));
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  };
+  const resetWidth = (e, col) => {
+    e.stopPropagation();
+    const c = normalizeColumnConfig(colConfigRef.current);
+    const widths = { ...c.widths };
+    delete widths[col.key];
+    saveColumns(normalizeColumnConfig({ ...c, widths }));
+  };
+  const tableWidth = STAR_COL_WIDTH + visible.reduce((sum, c) => sum + c.width, 0);
+
+  const clickSort = (key) => { if (justResized.current) return; doSort(key); };
+  const doSort = (key) => setSort((s) => (s?.key !== key ? { key, dir: 'asc' } : s.dir === 'asc' ? { key, dir: 'desc' } : null));
 
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -538,14 +578,28 @@ export function WeddingVenues() {
       ) : (
         <div className={styles.tableWrap}>
           <div className={styles.tableScroll}>
-            <table className={`${styles.table} ${vs.venueTable}`}>
+            <table className={`${styles.table} ${vs.venueTable}`} style={{ width: tableWidth }}>
+              <colgroup>
+                <col style={{ width: STAR_COL_WIDTH }} />
+                {visible.map((col) => <col key={col.key} style={{ width: col.width }} />)}
+              </colgroup>
               <thead>
                 <tr>
                   <th className={vs.starCol} onClick={() => setColFilters((f) => ({ ...f, star: f.star === 'starred' ? '' : 'starred' }))} title="Show only starred venues">★</th>
                   {visible.map((col) => (
-                    <th key={col.key} style={{ minWidth: cellWidth(col) }} onClick={() => clickSort(col.key)} aria-sort={sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+                    <th key={col.key} className={vs.resizableTh} onClick={() => clickSort(col.key)} aria-sort={sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} title={col.label}>
                       {col.label}
                       {sort?.key === col.key && <span className={styles.sortArrow}>{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                      <span
+                        className={vs.resizer}
+                        onPointerDown={(e) => startResize(e, col)}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => resetWidth(e, col)}
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`Resize ${col.label}`}
+                        title="Drag to resize · double-click to reset"
+                      />
                     </th>
                   ))}
                 </tr>

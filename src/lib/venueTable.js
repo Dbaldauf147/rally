@@ -3,7 +3,7 @@
    in from Sheets or Excel.
 
    The column setup is kept on the user doc as `weddingVenueColumns`:
-     { order: [key…], hidden: [key…], custom: [{ key, label }…] }
+     { order: [key…], hidden: [key…], custom: [{ key, label }…], widths: { key: px } }
    A custom column's values live on each venue under `custom[key]`. Pure, so it
    can be tested without React. */
 
@@ -16,6 +16,16 @@ export const BUILTIN_COLUMNS = [
   { key: 'emails', label: 'Emails', readOnly: true },
 ];
 const BUILTIN_KEYS = BUILTIN_COLUMNS.map((c) => c.key);
+
+// Starting widths in pixels, before a column is dragged. A dragged width is
+// kept per column, clamped so it can't vanish or swallow the screen.
+export const MIN_COL_WIDTH = 60;
+export const MAX_COL_WIDTH = 800;
+const DEFAULT_WIDTHS = { name: 200, status: 140, email: 210, website: 180, lastContactDate: 140, emails: 100 };
+export function defaultColumnWidth(col) {
+  return DEFAULT_WIDTHS[col?.key] || (col?.wide ? 230 : 160);
+}
+const clampWidth = (w) => Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, Math.round(w)));
 
 // What a fresh table leaves out, so it opens about as wide as it used to.
 export const DEFAULT_HIDDEN = ['website', 'capacity', 'availability', 'notes'];
@@ -44,7 +54,17 @@ export function normalizeColumnConfig(raw) {
     ? r.hidden.filter((k, i, a) => valid.has(k) && a.indexOf(k) === i)
     : [...DEFAULT_HIDDEN];
   if (hidden.length >= order.length) hidden = hidden.filter((k) => k !== 'name');
-  return { order, hidden, custom };
+  const widths = {};
+  Object.entries(r.widths && typeof r.widths === 'object' ? r.widths : {}).forEach(([k, w]) => {
+    const n = Number(w);
+    if (valid.has(k) && Number.isFinite(n)) widths[k] = clampWidth(n);
+  });
+  return { order, hidden, custom, widths };
+}
+
+export function setColumnWidth(config, key, width) {
+  const c = normalizeColumnConfig(config);
+  return normalizeColumnConfig({ ...c, widths: { ...c.widths, [key]: width } });
 }
 
 // Every column (shown or not) in table order, each { key, label, custom?, hidden }.
@@ -52,7 +72,10 @@ export function allVenueColumns(config) {
   const c = normalizeColumnConfig(config);
   const byKey = new Map([...BUILTIN_COLUMNS, ...c.custom.map((x) => ({ ...x, custom: true }))].map((x) => [x.key, x]));
   const hidden = new Set(c.hidden);
-  return c.order.map((k) => ({ ...byKey.get(k), hidden: hidden.has(k) }));
+  return c.order.map((k) => {
+    const col = byKey.get(k);
+    return { ...col, hidden: hidden.has(k), width: c.widths[k] ?? defaultColumnWidth(col) };
+  });
 }
 
 export const visibleVenueColumns = (config) => allVenueColumns(config).filter((c) => !c.hidden);
@@ -92,10 +115,13 @@ export function renameCustomColumn(config, key, label) {
 
 export function removeCustomColumn(config, key) {
   const c = normalizeColumnConfig(config);
+  const widths = { ...c.widths };
+  delete widths[key];
   return normalizeColumnConfig({
     order: c.order.filter((k) => k !== key),
     hidden: c.hidden.filter((k) => k !== key),
     custom: c.custom.filter((x) => x.key !== key),
+    widths,
   });
 }
 

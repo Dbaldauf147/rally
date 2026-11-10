@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeColumnConfig, visibleVenueColumns, toggleColumn, moveColumn, addCustomColumn, removeCustomColumn,
-  renameCustomColumn, cellValue, withCellValue, sortVenueRows, matchStatus, parseVenueDate,
+  renameCustomColumn, setColumnWidth, MIN_COL_WIDTH, MAX_COL_WIDTH, cellValue, withCellValue, sortVenueRows, matchStatus, parseVenueDate,
   autoMapVenueHeaders, looksLikeVenueHeader, guessVenueColumns, planVenuePaste, DEFAULT_HIDDEN,
 } from './venueTable';
 import { normalizeVenue, mergeScannedVenues } from './weddingVenues';
@@ -35,6 +35,16 @@ describe('column setup', () => {
     expect(c.hidden).not.toContain('name');
     expect(c.order[0]).toBe('notes');
     expect(c.order).not.toContain('bogus');
+  });
+
+  it('keeps dragged widths, clamped, and forgets ones for gone columns', () => {
+    let c = setColumnWidth(undefined, 'name', 333.4);
+    expect(visibleVenueColumns(c)[0].width).toBe(333);
+    expect(setColumnWidth(c, 'notes', 5).widths.notes).toBe(MIN_COL_WIDTH);
+    expect(setColumnWidth(c, 'notes', 9999).widths.notes).toBe(MAX_COL_WIDTH);
+    expect(normalizeColumnConfig({ widths: { bogus: 100, price: 'x' } }).widths).toEqual({});
+    const { config } = addCustomColumn(c, 'Food', 'c_food');
+    expect(removeCustomColumn(setColumnWidth(config, 'c_food', 200), 'c_food').widths).toEqual({ name: 333 });
   });
 
   it('adds, renames and removes custom columns', () => {
