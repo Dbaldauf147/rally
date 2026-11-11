@@ -23,7 +23,7 @@ export const VENUE_FIELDS = [
   { key: 'perPersonLow', label: 'Per person low', type: 'money' },
   { key: 'perPersonHigh', label: 'Per person high', type: 'money' },
   { key: 'allInclusive', label: 'All-inclusive', type: 'yesno' },
-  { key: 'capacity', label: 'Capacity' },
+  { key: 'capacity', label: 'Max guests' },
   { key: 'availability', label: 'Availability' },
   { key: 'nextStep', label: 'Next step', wide: true },
   { key: 'lastContactDate', label: 'Last contact', type: 'date' },
