@@ -18,7 +18,7 @@ import vs from './WeddingVenues.module.css';
 import { VenueReplyDraft } from './VenueReplyDraft';
 import { VenueAreasEditor } from './VenueAreasEditor';
 import { VenueNoFitPrompt } from './VenueNoFitPrompt';
-import { noFitReasonOptions, normalizeReasonList } from '../lib/venueNoFit';
+import { noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
 
 // The inbox the venue mail goes to. Only a hint for Google's account picker —
@@ -228,8 +228,8 @@ export function WeddingVenues({ subnav } = {}) {
   // The couple's list of locations, and whether its editor is open.
   const [areas, setAreas] = useState([]);
   const [areasOpen, setAreasOpen] = useState(false);
-  // Reasons typed in for "Not a fit", offered as checkboxes from then on.
-  const [noFitSaved, setNoFitSaved] = useState([]);
+  // The reasons offered for "Not a fit", as the user has edited them.
+  const [noFitList, setNoFitList] = useState([]);
   // The "why not a fit?" pop-up: the venue, and whether it came from the
   // table or the venue pop-up (which saves through its own draft).
   const [noFitFor, setNoFitFor] = useState(null); // { venue, from: 'table' | 'editor' }
@@ -265,7 +265,7 @@ export function WeddingVenues({ subnav } = {}) {
       setGmail(data.weddingGmail?.email ? data.weddingGmail : null);
       setColConfig(folded.changed ? folded.config : normalizeColumnConfig(data.weddingVenueColumns));
       setAreas(normalizeAreas(data.weddingVenueAreas));
-      setNoFitSaved(normalizeReasonList(data.weddingVenueNoFitReasons));
+      setNoFitList(noFitReasonList(data, folded.venues));
       setLoading(false);
     }, () => setLoading(false));
   }, [user]);
@@ -432,8 +432,8 @@ export function WeddingVenues({ subnav } = {}) {
 
   /* ── Not a fit: why ── */
   const noFitOptions = useMemo(
-    () => noFitReasonOptions(noFitSaved, noFitFor ? venues.filter((v) => v.id !== noFitFor.venue.id) : venues),
-    [noFitSaved, venues, noFitFor],
+    () => noFitReasonOptions(noFitList, noFitFor ? venues.filter((v) => v.id !== noFitFor.venue.id) : venues),
+    [noFitList, venues, noFitFor],
   );
   const closeNoFit = useCallback(() => setNoFitFor(null), []);
   const saveNoFit = (reasons, newReasons) => {
@@ -441,17 +441,30 @@ export function WeddingVenues({ subnav } = {}) {
     setNoFitFor(null);
     const extra = {};
     if (newReasons.length) {
-      const nextSaved = normalizeReasonList([...noFitSaved, ...newReasons]);
-      setNoFitSaved(nextSaved);
-      extra.weddingVenueNoFitReasons = nextSaved;
+      const nextList = normalizeReasonList([...noFitList, ...newReasons]);
+      setNoFitList(nextList);
+      extra.weddingVenueNoFitReasonList = nextList;
     }
     if (from === 'editor') {
       setEditing((d) => (d ? { ...d, status: 'Not a fit', noFitReasons: reasons } : d));
-      if (extra.weddingVenueNoFitReasons && user) setDoc(doc(db, 'users', user.uid), extra, { merge: true }).catch(saveError);
+      if (extra.weddingVenueNoFitReasonList && user) setDoc(doc(db, 'users', user.uid), extra, { merge: true }).catch(saveError);
       return;
     }
     const next = venuesRef.current.map((x) => (x.id === venue.id ? normalizeVenue({ ...x, status: 'Not a fit', noFitReasons: reasons }) : x));
     persist(next, extra).catch(saveError);
+  };
+  // The list edited in the pop-up: saved whole, and renames carried onto
+  // every venue (and the open venue's draft) that has the old name.
+  const editNoFitList = (list, renames) => {
+    setNoFitList(list);
+    const has = Object.keys(renames).length > 0;
+    const rename = (v) => (has && v.noFitReasons?.length ? { ...v, noFitReasons: renameReasons(v.noFitReasons, renames) } : v);
+    if (has) {
+      setEditing((d) => (d ? rename(d) : d));
+      setNoFitFor((f) => (f ? { ...f, venue: rename(f.venue) } : f));
+    }
+    const next = has ? venuesRef.current.map((v) => (v.noFitReasons?.length ? normalizeVenue(rename(v)) : v)) : venuesRef.current;
+    persist(next, { weddingVenueNoFitReasonList: list }).catch(saveError);
   };
 
   const saveColumns = (next, extra = {}) => {
@@ -1099,7 +1112,7 @@ export function WeddingVenues({ subnav } = {}) {
         </div>
       )}
       {noFitFor && (
-        <VenueNoFitPrompt venue={noFitFor.venue} options={noFitOptions} onSave={saveNoFit} onCancel={closeNoFit} />
+        <VenueNoFitPrompt venue={noFitFor.venue} options={noFitOptions} onSave={saveNoFit} onCancel={closeNoFit} onEditList={editNoFitList} />
       )}
       {areasOpen && (
         <VenueAreasEditor areas={areas} venues={venues} onSave={saveAreas} onClose={closeAreas} />
