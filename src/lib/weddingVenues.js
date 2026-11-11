@@ -34,6 +34,17 @@ const TEXT_KEYS = ['name', 'contactName', 'email', 'phone', 'website', 'location
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
+// What a reader sometimes writes instead of leaving a field empty. From a
+// scan, these mean "nothing" — kept, they'd block the real value a later
+// email gives, since a scan only fills what's blank.
+const FILLER = /^(?:n\/?a|none|null|unknown|tbd|tba|unspecified|not\s+(?:stated|specified|mentioned|given|provided|listed|available|known|applicable)(?:\s+yet)?|-+|—)\.?$/i;
+export const isFiller = (v) => FILLER.test(str(v));
+
+// Details a newer email can update, as long as the cell still holds what a
+// scan put there (it hasn't been typed over). Who to talk to and where the
+// venue is don't change email to email; these do.
+const SCAN_UPDATABLE = ['price', 'capacity', 'availability', 'allInclusive'];
+
 /* ── Prices ──
    Two ranges, each a low and a high in whole dollars: the venue fee (site or
    rental fee plus any admin fee — the flat total, whatever the head count)
@@ -136,6 +147,12 @@ export function normalizeVenue(v, { id } = {}) {
   if (v?.custom && typeof v.custom === 'object') {
     for (const [k, val] of Object.entries(v.custom)) if (/^c_[a-z0-9]+$/.test(k) && str(val)) out.custom[k] = str(val);
   }
+  // What the last scan wrote into each cell, so a newer email can tell a
+  // scanned value (fine to update) from one typed over it (left alone).
+  out.scanned = {};
+  if (v?.scanned && typeof v.scanned === 'object') {
+    for (const [k, val] of Object.entries(v.scanned)) if ([...TEXT_KEYS, ...MONEY_KEYS].includes(k) && typeof val === 'string') out.scanned[k] = val;
+  }
   return out;
 }
 
@@ -198,17 +215,26 @@ export function mergeScannedVenues(existing, scanned, dismissed = []) {
     const found = normalizeVenue({ ...raw, source: 'gmail' });
     if (!found.name) continue;
     if (gone.has(venueNameKey(found.name))) continue;
+    const keys = [...TEXT_KEYS, ...MONEY_KEYS];
+    for (const k of keys) if (isFiller(found[k])) found[k] = '';
     const at = list.findIndex((v) => sameVenue(v, found));
     if (at < 0) {
+      found.scanned = Object.fromEntries(keys.filter((k) => found[k]).map((k) => [k, found[k]]));
       list.push(found);
       added.push(found.name);
       continue;
     }
     const cur = list[at];
-    const next = { ...cur };
-    for (const k of [...TEXT_KEYS, ...MONEY_KEYS]) if (!next[k] && found[k]) next[k] = found[k];
+    const next = { ...cur, scanned: { ...cur.scanned } };
+    const take = (k) => { next[k] = found[k]; next.scanned[k] = found[k]; };
+    // Blank cells (or ones a scan left a filler in) take what was found.
+    for (const k of keys) if ((!next[k] || isFiller(next[k])) && found[k]) take(k);
     next.status = laterStatus(cur.status, found.status);
     if (found.lastContactDate > (cur.lastContactDate || '')) {
+      // A newer email's details replace older scanned ones, never typed ones.
+      for (const k of SCAN_UPDATABLE) {
+        if (found[k] && found[k] !== next[k] && cur.scanned?.[k] !== undefined && cur[k] === cur.scanned[k]) take(k);
+      }
       next.lastContactDate = found.lastContactDate;
       // A newer email's next step and summary are the current ones.
       if (found.nextStep && cur.source === 'gmail') next.nextStep = found.nextStep;
