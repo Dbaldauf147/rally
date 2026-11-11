@@ -78,15 +78,22 @@ describe('cells', () => {
     expect(list[0]).toMatchObject({ starred: true, custom: { c_x: 'yes' }, email: 'a@foundry.com' });
   });
 
-  it('sorts starred first, then by the column, blanks last', () => {
+  it('sorts by the column, blanks last (an old star no longer pins a row)', () => {
     const list = [
       normalizeVenue({ id: '1', name: 'B', price: '$9,000' }),
       normalizeVenue({ id: '2', name: 'A' }),
       normalizeVenue({ id: '3', name: 'C', price: '$12,000', starred: true }),
       normalizeVenue({ id: '4', name: 'D', price: '$10,000' }),
     ];
-    expect(sortVenueRows(list, { key: 'name', dir: 'asc' }).map((v) => v.name)).toEqual(['C', 'A', 'B', 'D']);
+    expect(sortVenueRows(list, { key: 'name', dir: 'asc' }).map((v) => v.name)).toEqual(['A', 'B', 'C', 'D']);
     expect(sortVenueRows(list, { key: 'price', dir: 'desc' }).map((v) => v.name)).toEqual(['C', 'D', 'B', 'A']);
+  });
+
+  it('keeps a hidden venue hidden through a scan', () => {
+    const saved = [normalizeVenue({ id: 'v1', name: 'Regatta Place', hidden: true })];
+    const { list } = mergeScannedVenues(saved, [{ name: 'Regatta Place', status: 'Replied', email: 'a@regatta.com' }]);
+    expect(list[0]).toMatchObject({ hidden: true, status: 'Replied', email: 'a@regatta.com' });
+    expect(normalizeVenue({ id: 'v2', name: 'X' }).hidden).toBe(false);
   });
 });
 

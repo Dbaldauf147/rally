@@ -59,7 +59,22 @@ const isGrid = (text) => /\t/.test(text) || /\n\s*\S/.test(String(text).trim());
 
 const isTyping = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 
-const STAR_COL_WIDTH = 90;
+const EyeOff = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
+const Eye = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const STAR_COL_WIDTH = 92;
 
 /* One editable cell. Typing stays local and saves when you leave the cell or
    press Enter (Escape puts it back), so a save never lands mid-word. */
@@ -342,7 +357,13 @@ export function WeddingVenues({ subnav } = {}) {
     if (key === 'name' && !String(value).trim()) return;
     updateVenue(v.id, (x) => withCellValue(x, key, value));
   };
-  const toggleStar = (v) => updateVenue(v.id, (x) => ({ ...x, starred: !x.starred }));
+  // Hiding takes a row off the table (not off the list); Undo puts it back.
+  const setHidden = (v, hidden) => {
+    updateVenue(v.id, (x) => ({ ...x, hidden }));
+    setMessage(hidden
+      ? { type: 'ok', text: `Hid ${v.name}. Hidden venues are under “Hidden” in the first column's filter.`, undo: () => setHidden(v, false) }
+      : { type: 'ok', text: `${v.name} is back on the table.` });
+  };
 
   const saveColumns = (next, extra = {}) => {
     setColConfig(next);
@@ -434,25 +455,30 @@ export function WeddingVenues({ subnav } = {}) {
       rows = rows.filter((v) => [v.name, v.contactName, v.email, v.location, v.notes, v.summary, ...Object.values(v.custom || {})]
         .some((x) => (x || '').toLowerCase().includes(term)));
     }
-    const { star, status, ...text } = colFilters;
-    if (star) rows = rows.filter((v) => (star === 'starred' ? v.starred : !v.starred));
+    const { shown: showing, status, ...text } = colFilters;
+    // Hidden venues are left out unless the first column's filter asks for them.
+    if (showing === 'hidden') rows = rows.filter((v) => v.hidden);
+    else if (showing !== 'all') rows = rows.filter((v) => !v.hidden);
     if (status) rows = rows.filter((v) => v.status === status);
     const textOf = (v, key) => (key === 'lastContactDate' ? `${v.lastContactDate} ${fmtDate(v.lastContactDate)}` : cellValue(v, key));
     return applyColumnFilters(rows, text, textOf, ['phone']);
   }, [venues, search, sort, colFilters]);
   const filtersOn = Object.values(colFilters).some((x) => String(x || '').trim());
+  const hiddenCount = venues.filter((v) => v.hidden).length;
   // Subtabs by status. The tab is the Status column's filter, not a second
   // one beside it, so the tab and the column header can never disagree.
   // Empty statuses get no tab unless you're on it.
+  // Counted over the venues the hide filter lets through, so they match the rows.
   const statusTabs = useMemo(() => {
+    const pool = colFilters.shown === 'all' ? venues : venues.filter((v) => (colFilters.shown === 'hidden' ? v.hidden : !v.hidden));
     const counts = new Map(VENUE_STATUSES.map((st) => [st, 0]));
-    for (const v of venues) if (counts.has(v.status)) counts.set(v.status, counts.get(v.status) + 1);
+    for (const v of pool) if (counts.has(v.status)) counts.set(v.status, counts.get(v.status) + 1);
     return [
-      { value: '', label: 'All', count: venues.length },
+      { value: '', label: 'All', count: pool.length },
       ...VENUE_STATUSES.filter((st) => counts.get(st) > 0 || colFilters.status === st)
         .map((st) => ({ value: st, label: st, count: counts.get(st) })),
     ];
-  }, [venues, colFilters.status]);
+  }, [venues, colFilters.status, colFilters.shown]);
   const activeStatusTab = colFilters.status || '';
 
   /* ── Pasting a spreadsheet range ── */
@@ -531,7 +557,9 @@ export function WeddingVenues({ subnav } = {}) {
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>Wedding</h1>
-        <span className={styles.count}>{venues.length} venue{venues.length === 1 ? '' : 's'}</span>
+        <span className={styles.count}>
+          {venues.length} venue{venues.length === 1 ? '' : 's'}{hiddenCount ? ` · ${hiddenCount} hidden` : ''}
+        </span>
       </div>
       {subnav}
       <p className={styles.subtitle}>Venues you're talking to, pulled from the wedding inbox and kept up to date each time you scan.</p>
@@ -590,6 +618,7 @@ export function WeddingVenues({ subnav } = {}) {
       {message && (
         <p className={message.type === 'error' ? styles.digestErrMsg : styles.digestOkMsg} role="status">
           {message.text}{' '}
+          {message.undo && <button type="button" className={styles.tierLegendEdit} onClick={message.undo}>Undo</button>}{' '}
           <button type="button" className={styles.tierLegendEdit} onClick={() => setMessage(null)}>Dismiss</button>
         </p>
       )}
@@ -703,7 +732,7 @@ export function WeddingVenues({ subnav } = {}) {
               </colgroup>
               <thead>
                 <tr>
-                  <th className={vs.starCol} onClick={() => setColFilters((f) => ({ ...f, star: f.star === 'starred' ? '' : 'starred' }))} title="Show only starred venues">★</th>
+                  <th className={vs.starCol} title="Hide a venue to take it off the table without deleting it">Hide</th>
                   {visible.map((col) => (
                     <th key={col.key} className={vs.resizableTh} onClick={() => clickSort(col.key)} aria-sort={sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} title={col.label}>
                       {col.label}
@@ -723,10 +752,10 @@ export function WeddingVenues({ subnav } = {}) {
                 </tr>
                 <tr className={styles.filterRow}>
                   <th className={vs.starCol}>
-                    <select className={styles.filterSelect} value={colFilters.star || ''} onChange={(e) => setColFilters((f) => ({ ...f, star: e.target.value }))} aria-label="Filter by star">
-                      <option value="">All</option>
-                      <option value="starred">★</option>
-                      <option value="unstarred">☆</option>
+                    <select className={styles.filterSelect} value={colFilters.shown || ''} onChange={(e) => setColFilters((f) => ({ ...f, shown: e.target.value }))} aria-label="Show hidden venues">
+                      <option value="">Shown</option>
+                      <option value="hidden">Hidden{hiddenCount ? ` (${hiddenCount})` : ''}</option>
+                      <option value="all">All</option>
                     </select>
                   </th>
                   {visible.map((col) => (
@@ -745,13 +774,21 @@ export function WeddingVenues({ subnav } = {}) {
               </thead>
               <tbody>
                 {shown.length === 0 && (
-                  <tr><td colSpan={visible.length + 1} className={vs.empty}>No venues match.</td></tr>
+                  <tr><td colSpan={visible.length + 1} className={vs.empty}>
+                    {colFilters.shown === 'hidden' ? 'No hidden venues.' : 'No venues match.'}
+                  </td></tr>
                 )}
                 {shown.map((v) => (
-                  <tr key={v.id} className={v.starred ? vs.starredRow : undefined}>
+                  <tr key={v.id} className={v.hidden ? vs.hiddenRow : undefined}>
                     <td className={vs.starCol}>
-                      <button type="button" className={v.starred ? vs.starOn : vs.star} onClick={() => toggleStar(v)} aria-pressed={v.starred} aria-label={v.starred ? `Unstar ${v.name}` : `Star ${v.name}`} title={v.starred ? 'Unstar' : 'Star — keeps it at the top'}>
-                        {v.starred ? '★' : '☆'}
+                      <button
+                        type="button"
+                        className={v.hidden ? vs.unhideBtn : vs.hideBtn}
+                        onClick={() => setHidden(v, !v.hidden)}
+                        aria-label={v.hidden ? `Show ${v.name} again` : `Hide ${v.name}`}
+                        title={v.hidden ? 'Show it on the table again' : 'Hide — takes it off the table, keeps it on the list'}
+                      >
+                        {v.hidden ? <Eye /> : <EyeOff />}
                       </button>
                       <button type="button" className={vs.openBtn} onClick={() => setEditing({ ...v })} title="Open venue details" aria-label={`Open ${v.name}`}>⤢</button>
                       <button type="button" className={vs.draftBtn} onClick={() => setReplyTo(v)} title="Draft a reply with your wedding details" aria-label={`Draft a reply to ${v.name}`}>✉</button>

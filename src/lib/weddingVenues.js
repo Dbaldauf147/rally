@@ -126,6 +126,9 @@ export function normalizeVenue(v, { id } = {}) {
   // Starred to keep at the top of the table, and the values of the columns
   // added by hand (lib/venueTable.js), by column key.
   out.starred = v?.starred === true;
+  // Hidden from the table (the first column's button), not deleted: a scan
+  // still keeps it up to date, and the column's filter shows it again.
+  out.hidden = v?.hidden === true;
   out.custom = {};
   if (v?.custom && typeof v.custom === 'object') {
     for (const [k, val] of Object.entries(v.custom)) if (/^c_[a-z0-9]+$/.test(k) && str(val)) out.custom[k] = str(val);

@@ -76,12 +76,15 @@
 .cellLink { flex: none; padding: 0.2rem 0.3rem; text-decoration: none; color: var(--color-accent); font-size: 0.85rem; }
 
 .venueTable th.starCol, .venueTable td.starCol { padding-left: 0.4rem; padding-right: 0.2rem; white-space: nowrap; vertical-align: middle; }
-.star, .starOn, .openBtn { background: none; border: none; cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0.25rem; font-family: inherit; }
-.star { color: var(--color-text-muted); }
-.star:hover, .starOn { color: #eab308; }
+.hideBtn, .unhideBtn, .openBtn { background: none; border: none; cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0.25rem; font-family: inherit; vertical-align: middle; }
+.hideBtn { color: var(--color-text-muted); }
+.hideBtn:hover { color: var(--color-danger); }
+.unhideBtn { color: var(--color-accent); }
+.hideBtn svg, .unhideBtn svg { display: block; }
 .openBtn { color: var(--color-text-muted); font-size: 0.95rem; }
 .openBtn:hover { color: var(--color-accent); }
-.starredRow { background: rgba(234, 179, 8, 0.06); }
+.hiddenRow td { opacity: 0.55; }
+.hiddenRow td.starCol { opacity: 1; }
 .tableHint { font-size: 0.8rem; margin: 0.5rem 0 0; }
 
 .colMenu { min-width: 260px; max-height: min(70vh, 520px); }
