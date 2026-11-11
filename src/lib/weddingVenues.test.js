@@ -124,3 +124,56 @@ describe('scanInbox (Gmail stubbed)', () => {
     expect(decodeURIComponent(urls[0])).toContain('newer_than:2y');
   });
 });
+
+describe('details from a later email (Champlin’s: the guest count came in the second reply)', () => {
+  const first = { name: "Champlin's Marina and Resort", status: 'Replied', lastContactDate: '2026-11-11', threadIds: ['t1'], capacity: 'Not specified' };
+  const second = { ...first, capacity: '170 seated; more as cocktail-style', lastContactDate: '2026-11-12', availability: 'Sep 25, 2027 open' };
+
+  it('a filler like "Not specified" is never saved, so the real number lands later', () => {
+    const a = mergeScannedVenues([], [first]).list;
+    expect(a[0].capacity).toBe('');
+    const b = mergeScannedVenues(a, [second]).list;
+    expect(b[0].capacity).toBe('170 seated; more as cocktail-style');
+  });
+
+  it('a filler saved by an older scan is filled over too', () => {
+    const old = [normalizeVenue({ id: 'v1', name: "Champlin's Marina", capacity: 'N/A', source: 'gmail' })];
+    expect(mergeScannedVenues(old, [second]).list[0].capacity).toBe('170 seated; more as cocktail-style');
+  });
+
+  it('a newer email updates what an earlier scan wrote', () => {
+    const a = mergeScannedVenues([], [{ ...first, capacity: 'up to 250 standing' }]).list;
+    const b = mergeScannedVenues(a, [second]);
+    expect(b.list[0].capacity).toBe('170 seated; more as cocktail-style');
+    expect(b.updated).toEqual(["Champlin's Marina and Resort"]);
+    // …but an older email read later doesn't undo it.
+    const c = mergeScannedVenues(b.list, [{ ...first, capacity: 'up to 250 standing' }]).list;
+    expect(c[0].capacity).toBe('170 seated; more as cocktail-style');
+  });
+
+  it('a value typed over a scanned one is left alone', () => {
+    const a = mergeScannedVenues([], [{ ...first, capacity: 'up to 250 standing' }]).list;
+    const typed = [{ ...a[0], capacity: '160 (our number)' }];
+    expect(mergeScannedVenues(typed, [second]).list[0].capacity).toBe('160 (our number)');
+  });
+
+  it('a venue saved before scans were remembered keeps its typed value', () => {
+    const legacy = [normalizeVenue({ id: 'v1', name: "Champlin's Marina", capacity: '150' })];
+    expect(mergeScannedVenues(legacy, [second]).list[0].capacity).toBe('150');
+  });
+});
+
+describe('the Champlin’s reply reaches the reader', () => {
+  it('keeps the guest count from an HTML-only Tripleseat message', () => {
+    const html = '<table><tr><td>To:</td><td>Joanne Seo</td></tr></table><p>Absolutely! I have September 25th available!</p>'
+      + '<p>For an event of this size we would not have formal seating, it would be more of a cocktail style event. '
+      + 'We really max out at 170 for an event with arranged seating.</p><p>Please keep this when replying: [TS/818fxqz241t30mgfaffy]</p>';
+    const thread = { id: 't1', messages: [{ internalDate: String(Date.UTC(2026, 10, 11, 16, 32)), payload: {
+      headers: [{ name: 'From', value: 'Ryann Liguori <tpg.ryann.liguori@discussions.tripleseat.com>' }, { name: 'Subject', value: "Champlin's Marina and Resort: Lead Comment" }],
+      mimeType: 'text/html', body: { data: Buffer.from(html).toString('base64url') },
+    } }] };
+    const text = threadText(thread);
+    expect(text).toContain('We really max out at 170 for an event with arranged seating.');
+    expect(text).toContain('Absolutely! I have September 25th available!');
+  });
+});
