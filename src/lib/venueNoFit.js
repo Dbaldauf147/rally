@@ -42,15 +42,24 @@ export function standardReason(typed, known) {
   return (known || []).find((r) => reasonKey(r) === k) || str(typed).slice(0, 60);
 }
 
-/* The checkboxes to offer: the starter set and the saved ones, plus any
-   reason found on a venue that isn't on either list. Most-used first, then
-   in list order, with how many Not-a-fit venues each is on. */
-export function noFitReasonOptions(saved, venues) {
-  const all = normalizeReasonList([
+/* The list of reasons to offer, in its saved order. Once the list has been
+   edited it's saved whole as `weddingVenueNoFitReasonList`, and that is the
+   list — a starter reason that was removed stays removed. Before then it's
+   the starter set, plus reasons typed in earlier (`weddingVenueNoFitReasons`,
+   which held only the additions) and any found on a Not-a-fit venue. */
+export function noFitReasonList(data, venues) {
+  if (Array.isArray(data?.weddingVenueNoFitReasonList)) return normalizeReasonList(data.weddingVenueNoFitReasonList);
+  return normalizeReasonList([
     ...DEFAULT_NO_FIT_REASONS,
-    ...(Array.isArray(saved) ? saved : []),
+    ...(Array.isArray(data?.weddingVenueNoFitReasons) ? data.weddingVenueNoFitReasons : []),
     ...(venues || []).flatMap((v) => (v?.status === 'Not a fit' ? v.noFitReasons || [] : [])),
   ]);
+}
+
+/* The checkboxes: each reason on the list with how many Not-a-fit venues
+   it's on, most-used first, then in list order. */
+export function noFitReasonOptions(list, venues) {
+  const all = normalizeReasonList(list);
   const counts = new Map(all.map((r) => [reasonKey(r), 0]));
   for (const v of venues || []) {
     if (v?.status !== 'Not a fit') continue;
@@ -60,4 +69,26 @@ export function noFitReasonOptions(saved, venues) {
     .map((reason, i) => ({ reason, count: counts.get(reasonKey(reason)), i }))
     .sort((a, b) => b.count - a.count || a.i - b.i)
     .map(({ reason, count }) => ({ reason, count }));
+}
+
+/* Renames from editing the list ({ old spelling: new spelling }) applied to
+   a venue's reasons. Renaming one reason to another's name merges them.
+   A reason removed from the list stays on the venues that have it. */
+export function renameReasons(reasons, renames) {
+  const byKey = new Map(Object.entries(renames || {}).map(([from, to]) => [reasonKey(from), to]));
+  if (!byKey.size) return normalizeReasonList(reasons);
+  return normalizeReasonList((reasons || []).map((r) => byKey.get(reasonKey(r)) ?? r));
+}
+
+/* An edited list: rows of { from, text } (from = the reason it started as,
+   blank for a row added while editing). Blank rows are removals. Returns the
+   new list and the renames to carry onto the venues. */
+export function applyListEdits(rows) {
+  const list = normalizeReasonList(rows.map((r) => r.text));
+  const renames = {};
+  for (const r of rows) {
+    const to = standardReason(r.text, list);
+    if (r.from && to && to !== r.from) renames[r.from] = to;
+  }
+  return { list, renames };
 }

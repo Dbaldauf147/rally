@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_NO_FIT_REASONS, noFitReasonOptions, normalizeReasonList, standardReason } from './venueNoFit.js';
+import {
+  DEFAULT_NO_FIT_REASONS, applyListEdits, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason,
+} from './venueNoFit.js';
 import { normalizeVenue } from './weddingVenues.js';
 
 describe('venue not-a-fit reasons', () => {
@@ -20,7 +22,7 @@ describe('venue not-a-fit reasons', () => {
       { status: 'Not a fit', noFitReasons: ['Not our style'] },
       { status: 'Toured', noFitReasons: ['Too expensive'] }, // not counted
     ];
-    const opts = noFitReasonOptions(['Rude staff'], venues);
+    const opts = noFitReasonOptions(noFitReasonList({ weddingVenueNoFitReasons: ['Rude staff'] }, venues), venues);
     expect(opts[0]).toEqual({ reason: 'Not our style', count: 2 });
     expect(opts[1]).toEqual({ reason: 'No parking', count: 1 });
     expect(opts.map((o) => o.reason)).toContain('Rude staff');
@@ -31,5 +33,25 @@ describe('venue not-a-fit reasons', () => {
   it('keeps the reasons on a saved venue', () => {
     expect(normalizeVenue({ name: 'A', status: 'Not a fit', noFitReasons: ['Too expensive', ' ', 'too expensive'] }).noFitReasons).toEqual(['Too expensive']);
     expect(normalizeVenue({ name: 'B' }).noFitReasons).toEqual([]);
+  });
+
+  it('uses the edited list as-is once there is one', () => {
+    const venues = [{ status: 'Not a fit', noFitReasons: ['No parking'] }];
+    expect(noFitReasonList({ weddingVenueNoFitReasonList: ['Too expensive', 'Vibe'] }, venues)).toEqual(['Too expensive', 'Vibe']);
+    expect(noFitReasonList({ weddingVenueNoFitReasonList: [] }, venues)).toEqual([]);
+    expect(noFitReasonList({}, venues)).toContain('No parking');
+  });
+
+  it('turns edited rows into a list and renames, merging same-named ones', () => {
+    const { list, renames } = applyListEdits([
+      { from: 'Too expensive', text: 'Over budget' },
+      { from: 'Not our style', text: '' }, // removed
+      { from: 'Didn’t respond', text: 'over BUDGET' }, // merged into the first
+      { from: 'Date not available', text: 'Date not available' },
+      { from: '', text: 'No parking' },
+    ]);
+    expect(list).toEqual(['Over budget', 'Date not available', 'No parking']);
+    expect(renames).toEqual({ 'Too expensive': 'Over budget', 'Didn’t respond': 'Over budget' });
+    expect(renameReasons(['Too expensive', 'Didn’t respond', 'Not our style'], renames)).toEqual(['Over budget', 'Not our style']);
   });
 });
