@@ -229,8 +229,8 @@ export function withCellValue(v, key, value) {
   return normalizeVenue({ ...v, [key]: value });
 }
 
-/* Starred venues first, then by the clicked column (blanks last either way),
-   or the usual newest-contact-first when nothing's been clicked. */
+/* By the clicked column (blanks last either way), or the usual
+   newest-contact-first when nothing's been clicked. */
 export function sortVenueRows(list, sort) {
   const base = sort?.key ? [...(list || [])] : sortVenues(list);
   const dir = sort?.dir === 'desc' ? -1 : 1;
@@ -250,7 +250,7 @@ export function sortVenueRows(list, sort) {
       return dir * x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' });
     });
   }
-  return [...base.filter((v) => v.starred), ...base.filter((v) => !v.starred)];
+  return base;
 }
 
 /* ── Values typed or pasted ── */
