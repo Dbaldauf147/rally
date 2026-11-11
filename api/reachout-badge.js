@@ -6,30 +6,13 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import http2 from 'node:http2';
-import crypto from 'node:crypto';
+import { apnsJwt, sendApns } from '../lib/apns.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
   if (sa.project_id) {
     initializeApp({ credential: cert(sa) });
   }
-}
-
-const b64url = (input) =>
-  Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-
-// Token-based APNs auth: a short-lived ES256 JWT signed with the .p8 key,
-// reusable across every request in this run (APNs allows up to 1 hour).
-function apnsJwt({ keyId, teamId, privateKey }) {
-  const header = b64url(JSON.stringify({ alg: 'ES256', kid: keyId }));
-  const iat = Math.floor(Date.now() / 1000);
-  const payload = b64url(JSON.stringify({ iss: teamId, iat }));
-  const signingInput = `${header}.${payload}`;
-  const signature = crypto.sign('sha256', Buffer.from(signingInput), {
-    key: privateKey,
-    dsaEncoding: 'ieee-p1363', // raw r||s, as ES256 JWT requires
-  });
-  return `${signingInput}.${b64url(signature)}`;
 }
 
 // Local calendar date (YYYY-MM-DD) in a given IANA timezone — the cron runs in
@@ -50,36 +33,6 @@ function unmetCount(reachOuts, todayK) {
   const family = reachedToday((cat) => cat === 'Family');
   const friend = reachedToday((cat) => /friend/i.test(cat));
   return (family ? 0 : 1) + (friend ? 0 : 1);
-}
-
-// Send one push over the shared HTTP/2 connection. Resolves { status, reason }.
-function sendApns(client, { token, jwt, bundleId, payload, pushType, priority }) {
-  return new Promise((resolve, reject) => {
-    const body = Buffer.from(JSON.stringify(payload));
-    const req = client.request({
-      ':method': 'POST',
-      ':path': `/3/device/${token}`,
-      authorization: `bearer ${jwt}`,
-      'apns-topic': bundleId,
-      'apns-push-type': pushType,
-      'apns-priority': priority,
-      'content-type': 'application/json',
-      'content-length': body.length,
-    });
-    let status = 0;
-    let data = '';
-    req.on('response', (headers) => { status = headers[':status']; });
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => { data += chunk; });
-    req.on('end', () => {
-      let reason = '';
-      try { reason = data ? (JSON.parse(data).reason || '') : ''; } catch { /* non-JSON */ }
-      resolve({ status, reason });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
 }
 
 export default async function handler(req, res) {

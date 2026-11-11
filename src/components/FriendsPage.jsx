@@ -33,6 +33,10 @@ import { commitFriendMerge } from '../lib/friendMergeWrite';
 import { DuplicatesModal, MergeModal } from './MergeContacts';
 import { FamilyTreeModal } from './FamilyTree';
 import { GroupPicker } from './GroupPicker';
+import { HolidayTagsPicker } from './HolidayTagsPicker';
+import { holidayTagsOf } from '../lib/holidayReachOut';
+import { syncHolidayList } from '../lib/holidaySync';
+import { loadHolidays } from '../lib/holidayStore';
 import { applyColumnFilters, activeColumnFilters } from '../lib/columnFilters';
 import { normalizeFamilyTree, treePhotoIds } from '../lib/familyTree';
 import { deleteFamilyPhoto } from '../lib/familyPhotos';
@@ -1203,6 +1207,7 @@ export function FriendsPage({ embed = null } = {}) {
       kids: kidsForEditing(friend.kids),
       isMom: friend.isMom === true,
       isDad: friend.isDad === true,
+      holidayTags: holidayTagsOf(friend),
       familyTree: normalizeFamilyTree(friend.familyTree),
       notes: friend.notes || '',
       linkedTo: friend.linkedTo || '',
@@ -1259,6 +1264,7 @@ export function FriendsPage({ embed = null } = {}) {
       dob: normalizeDob(fields.dob),
       anniversary: normalizeAnnualDate(fields.anniversary),
       kids: kidsForSaving(fields.kids),
+      holidayTags: holidayTagsOf(fields),
       addresses: cleanedAddresses,
       address: cleanedAddresses[0]?.value || '',
       notes: (fields.notes || '').trim(),
@@ -1288,6 +1294,9 @@ export function FriendsPage({ embed = null } = {}) {
       lastSavedJson.current = ''; // so the next edit retries
       throw err;
     }
+    // The holiday reminder cron reads the holiday list off the user doc, so
+    // make sure it has this device's copy once anyone is tagged.
+    if (payload.holidayTags.length) syncHolidayList(user.uid, loadHolidays());
     // Comes With is mutual: the other half (and anyone they leave) follows.
     if ((payload.linkedTo || '') !== (stored.linkedTo || '')) {
       await writeComesWith(planComesWithSync(friendsRef.current, friend.id, payload.linkedTo || ''));
@@ -2423,6 +2432,10 @@ export function FriendsPage({ embed = null } = {}) {
                 <label className={styles.label}><span>Anniversary<YearsNote value={editFields.anniversary} /></span><input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
                 <div className={styles.label}>Kids<KidsEditor value={editFields.kids} onChange={v => editSet('kids', v)} /></div>
                 <ParentBoxes isMom={editFields.isMom} isDad={editFields.isDad} onChange={editSet} />
+                <div className={styles.label}>
+                  <span title="On each of these holidays, this person shows up on Reach Out and you get a notification to reach out">Holiday reach-out</span>
+                  <HolidayTagsPicker value={editFields.holidayTags} onChange={v => editSet('holidayTags', v)} inputClassName={styles.input} />
+                </div>
                 <button type="button" className={styles.familyTreeBtn} onClick={() => setShowFamilyTree(true)}>
                   👪 Family tree
                   {(editFields.familyTree?.people?.length || 0) > 0 && <span className={styles.familyTreeCount}>{editFields.familyTree.people.length} more</span>}

@@ -8,6 +8,7 @@ import {
   occurrencesForYear, nextOccurrences, parseIso, toIso, ordinal,
 } from '../lib/holidayRules';
 import { loadHolidays, saveHolidays, makeHolidayId, missingDefaults } from '../lib/holidayStore';
+import { syncHolidayList } from '../lib/holidaySync';
 
 const SHORT_DAYS = WEEKDAY_NAMES.map((d) => d.slice(0, 3));
 const SHORT_MONTHS = MONTH_NAMES.map((m) => m.slice(0, 3));
@@ -111,6 +112,14 @@ export function HolidaysPage() {
   useEffect(() => {
     saveHolidays(holidays);
   }, [holidays]);
+
+  // The holiday reach-out reminders run on the server, which can't read this
+  // device's list — mirror it onto the user doc (debounced while typing).
+  useEffect(() => {
+    if (!user?.uid) return;
+    const t = setTimeout(() => syncHolidayList(user.uid, holidays), 1500);
+    return () => clearTimeout(t);
+  }, [holidays, user?.uid]);
 
   // One row per holiday: every date it has in the chosen year, and the one to
   // lead with — the next one still to come, or failing that the last one.

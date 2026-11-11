@@ -11,6 +11,8 @@ import { DateField } from './DateField';
 import { annualDateInfo, formatAnnualDate } from '../lib/looseDate';
 import { kidsWithBirthdayToday, kidBirthdayLine } from '../lib/friendKids';
 import { parentHolidayOn, parentsFor } from '../lib/parentHolidays';
+import { holidayReachOutsOn, holidayTagsOf } from '../lib/holidayReachOut';
+import { loadHolidays } from '../lib/holidayStore';
 
 const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -367,6 +369,7 @@ export function ReachOutPage() {
           id: d.id, name: d.data().name || '', anniversary: d.data().anniversary || '',
           kids: Array.isArray(d.data().kids) ? d.data().kids : [],
           isMom: d.data().isMom === true, isDad: d.data().isDad === true,
+          holidayTags: holidayTagsOf(d.data()),
         }))
         .sort((a, b) => a.name.localeCompare(b.name)));
     }, () => setFriendsList([]));
@@ -630,6 +633,22 @@ export function ReachOutPage() {
       .filter(x => !x.contact?._retired);
   }, [parentFriends, decorated]);
 
+  // Any other holiday starting today that someone was tagged with on their
+  // Friends pop-up ("Holiday reach-out") — one card per holiday.
+  const holidayGroupsToday = useMemo(() => {
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const rowByFriend = new Map();
+    for (const c of decorated) {
+      if (c.friendId && !rowByFriend.has(c.friendId)) rowByFriend.set(c.friendId, c);
+    }
+    return holidayReachOutsOn(friendsList, loadHolidays(), iso)
+      .map(g => ({
+        holiday: g.holiday,
+        people: g.friends.map(f => ({ friend: f, contact: rowByFriend.get(f.id) || null })).filter(x => !x.contact?._retired),
+      }))
+      .filter(g => g.people.length > 0);
+  }, [friendsList, decorated, today]);
+
   // Fuzzy-predicted Friends match for each unlinked person (id -> friend).
   const predictions = useMemo(() => {
     const map = {};
@@ -645,6 +664,30 @@ export function ReachOutPage() {
 
   // Daily goal: reach out to at least one family member and one friend today.
   const todayK = todayKey();
+
+  // One person on a holiday card (Mother's / Father's Day, or a tagged holiday).
+  const holidayPersonCard = ({ friend, contact }) => {
+    const reachedAlready = contact?.lastReachOut === todayK;
+    const meta = [contact?.category, contact?.method ? `${contact.method} them` : null].filter(Boolean).join(' · ');
+    return (
+      <div key={friend.id} className={styles.bdayCard}>
+        {contact
+          ? <button className={styles.bdayName} onClick={() => openDetails(contact)}>{friend.name}</button>
+          : <Link className={styles.bdayName} to={`/friends?open=${friend.id}`}>{friend.name}</Link>}
+        {meta && <p className={styles.bdayMeta}>{meta}</p>}
+        {contact?.note && <p className={styles.bdayNote}>{contact.note}</p>}
+        <div className={styles.bdayActions}>
+          {contact && (reachedAlready
+            ? <span className={styles.bdayDone}>✅ Reached out today</span>
+            : <button className={styles.bdayBtn} onClick={() => setConfirmReach(contact)}>Reach out now</button>)}
+          {contact
+            ? <button className={styles.bdayBtnGhost} onClick={() => openDetails(contact)}>Details</button>
+            : <Link className={styles.bdayBtnGhost} to={`/friends?open=${friend.id}`}>Open in Contacts</Link>}
+        </div>
+      </div>
+    );
+  };
+
   const reachedToday = (match) => (contacts || []).some(c => c.lastReachOut === todayK && match(c.category || ''));
   const reachedFamilyToday = reachedToday(cat => cat === 'Family');
   const reachedFriendToday = reachedToday(cat => /friend/i.test(cat));
@@ -798,29 +841,22 @@ export function ReachOutPage() {
               Happy {parentHoliday.name} — {parentsToday.length} {parentsToday.length === 1 ? parentHoliday.label.slice(0, -1) : parentHoliday.label} to reach out to
             </span>
           </div>
-          {parentsToday.map(({ friend, contact }) => {
-            const reachedAlready = contact?.lastReachOut === todayK;
-            const meta = [contact?.category, contact?.method ? `${contact.method} them` : null].filter(Boolean).join(' · ');
-            return (
-              <div key={friend.id} className={styles.bdayCard}>
-                {contact
-                  ? <button className={styles.bdayName} onClick={() => openDetails(contact)}>{friend.name}</button>
-                  : <Link className={styles.bdayName} to={`/friends?open=${friend.id}`}>{friend.name}</Link>}
-                {meta && <p className={styles.bdayMeta}>{meta}</p>}
-                {contact?.note && <p className={styles.bdayNote}>{contact.note}</p>}
-                <div className={styles.bdayActions}>
-                  {contact && (reachedAlready
-                    ? <span className={styles.bdayDone}>✅ Reached out today</span>
-                    : <button className={styles.bdayBtn} onClick={() => setConfirmReach(contact)}>Reach out now</button>)}
-                  {contact
-                    ? <button className={styles.bdayBtnGhost} onClick={() => openDetails(contact)}>Details</button>
-                    : <Link className={styles.bdayBtnGhost} to={`/friends?open=${friend.id}`}>Open in Contacts</Link>}
-                </div>
-              </div>
-            );
-          })}
+          {parentsToday.map(holidayPersonCard)}
         </section>
       )}
+
+      {/* Holidays a contact was tagged with on the Friends pop-up. */}
+      {holidayGroupsToday.map(({ holiday, people }) => (
+        <section key={holiday.id} className={`${styles.bdayHero} ${styles.parentHero}`} aria-label={`${holiday.name} today`}>
+          <div className={styles.bdayHeroTop}>
+            <span className={styles.bdayHeroCake} aria-hidden="true">🎉</span>
+            <span className={styles.bdayHeroKicker}>
+              {holiday.name} — {people.length} {people.length === 1 ? 'person' : 'people'} to reach out to
+            </span>
+          </div>
+          {people.map(holidayPersonCard)}
+        </section>
+      ))}
 
       {/* The daily 9am nudge only reaches a device that registered for push, and
           every way that fails is silent on the phone — so say so here. */}
