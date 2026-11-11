@@ -3,7 +3,7 @@ import {
   normalizeColumnConfig, visibleVenueColumns, toggleColumn, moveColumn, addCustomColumn, removeCustomColumn,
   renameCustomColumn, setColumnWidth, MIN_COL_WIDTH, MAX_COL_WIDTH, cellValue, withCellValue, sortVenueRows, matchStatus, parseVenueDate,
   autoMapVenueHeaders, looksLikeVenueHeader, guessVenueColumns, planVenuePaste, DEFAULT_HIDDEN, venueSearchUrl,
-  toggleFavoriteColumn, dropColumn,
+  toggleFavoriteColumn, dropColumn, foldGuestYesNoColumn,
 } from './venueTable';
 import { normalizeVenue, mergeScannedVenues, normalizeAllInclusive, rangesFromText } from './weddingVenues';
 
@@ -283,5 +283,40 @@ describe('prices read out of a quote', () => {
     expect(normalizeVenue({ id: 'b', name: 'Y', price: '$9k site fee + $150/pp' })).toMatchObject({ venueFeeLow: '$9,000', perPersonLow: '$150' });
     // Once the cells are saved — even cleared — the old text isn't read again.
     expect(normalizeVenue({ id: 'c', name: 'Z', price: '$9k', venueFeeLow: '', venueFeeHigh: '', perPersonLow: '', perPersonHigh: '' }).venueFeeLow).toBe('');
+  });
+});
+
+describe('"Holds my guests" yes/no column folds into Max guests', () => {
+  const setup = () => {
+    const { config, key } = addCustomColumn(normalizeColumnConfig({ hidden: ['website', 'price', 'capacity', 'availability', 'notes'] }), 'Holds my guests', 'c_hold');
+    const moved = dropColumn(config, key, 'email', false);
+    return { config: setColumnWidth(moved, key, 140), key };
+  };
+  it('puts Max guests in its place and drops the yes/no values', () => {
+    const { config } = setup();
+    const venues = [
+      normalizeVenue({ id: '1', name: 'A', capacity: '170 seated', custom: { c_hold: 'Yes', c_other: 'keep' } }),
+      normalizeVenue({ id: '2', name: 'B', custom: { c_hold: 'no' } }),
+      normalizeVenue({ id: '3', name: 'C' }),
+    ];
+    const out = foldGuestYesNoColumn(config, venues);
+    expect(out.changed).toBe(true);
+    expect(out.config.custom.map((c) => c.key)).not.toContain('c_hold');
+    expect(out.config.order.indexOf('capacity')).toBe(config.order.indexOf('c_hold'));
+    expect(out.config.hidden).not.toContain('capacity');
+    expect(out.config.widths.capacity).toBe(140);
+    expect(out.venues.map((v) => v.custom)).toEqual([{ c_other: 'keep' }, {}, {}]);
+    expect(out.venues[0].capacity).toBe('170 seated');
+    // Once folded, nothing's left to find.
+    expect(foldGuestYesNoColumn(out.config, out.venues).changed).toBe(false);
+  });
+  it('leaves a column of numbers by that name alone', () => {
+    const { config } = setup();
+    const venues = [normalizeVenue({ id: '1', name: 'A', custom: { c_hold: '200' } })];
+    expect(foldGuestYesNoColumn(config, venues).changed).toBe(false);
+  });
+  it('ignores other column names', () => {
+    const { config } = addCustomColumn(normalizeColumnConfig({}), 'Parking', 'c_park');
+    expect(foldGuestYesNoColumn(config, [normalizeVenue({ id: '1', name: 'A', custom: { c_park: 'yes' } })]).changed).toBe(false);
   });
 });
