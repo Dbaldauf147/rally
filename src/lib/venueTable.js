@@ -415,3 +415,47 @@ export function planVenuePaste(existing, rows, mapping, { makeId } = {}) {
   }
   return { list, added, updated, skipped };
 }
+
+/* ── One-time: "Holds my guests" → Max guests ──
+   A column added by hand to say whether a venue holds the guest list, as
+   yes/no. The built-in Max guests column (`capacity`, filled from the venue's
+   emails) answers it with the number, so it takes that column's place —
+   same spot, width, star and visibility — and the yes/no values go. Only when the
+   column holds nothing but yes/no, so a hand-kept column of numbers by that
+   name is never touched. Runs again harmlessly: once folded, there's nothing
+   left to find. */
+const GUEST_YES_NO_LABEL = /^holds?\s+(my\s+|our\s+|the\s+)?guests\??$/i;
+const YES_NO = /^(y|n|yes|no|true|false|✓|✔|x)$/i;
+
+export function foldGuestYesNoColumn(config, venues) {
+  const c = normalizeColumnConfig(config);
+  const list = venues || [];
+  const col = c.custom.find((x) => GUEST_YES_NO_LABEL.test(x.label));
+  if (!col) return { config: c, venues: list, changed: false };
+  const yesNoOnly = list.every((v) => { const s = str(v?.custom?.[col.key]); return !s || YES_NO.test(s); });
+  if (!yesNoOnly) return { config: c, venues: list, changed: false };
+  const swap = (k) => (k === col.key ? 'capacity' : k);
+  const at = c.order.indexOf(col.key);
+  const order = c.order.filter((k) => k !== 'capacity').map(swap);
+  if (at < 0) order.push('capacity');
+  const favorites = c.favorites.filter((k) => k !== 'capacity').map(swap);
+  if (!c.favorites.includes(col.key) && c.favorites.includes('capacity')) favorites.push('capacity');
+  const widths = { ...c.widths };
+  if (widths[col.key] !== undefined) widths.capacity = widths[col.key];
+  delete widths[col.key];
+  const config2 = normalizeColumnConfig({
+    ...c,
+    order,
+    favorites,
+    widths,
+    hidden: [...c.hidden.filter((k) => k !== col.key && k !== 'capacity'), ...(c.hidden.includes(col.key) ? ['capacity'] : [])],
+    custom: c.custom.filter((x) => x.key !== col.key),
+  });
+  const venues2 = list.map((v) => {
+    if (!v?.custom || !(col.key in v.custom)) return v;
+    const custom = { ...v.custom };
+    delete custom[col.key];
+    return { ...v, custom };
+  });
+  return { config: config2, venues: venues2, changed: true };
+}

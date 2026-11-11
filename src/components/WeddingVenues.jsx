@@ -9,7 +9,7 @@ import {
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
   dropColumn, moveColumn, normalizeColumnConfig, toggleFavoriteColumn, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
-  toggleColumn, venueSearchUrl, withCellValue,
+  toggleColumn, venueSearchUrl, withCellValue, foldGuestYesNoColumn,
 } from '../lib/venueTable';
 import { applyColumnFilters } from '../lib/columnFilters';
 import { parsePastedCells } from '../lib/weddingGuestImport';
@@ -235,10 +235,18 @@ export function WeddingVenues({ subnav } = {}) {
     if (!user) return undefined;
     return onSnapshot(doc(db, 'users', user.uid), (snap) => {
       const data = snap.data() || {};
-      setVenues(Array.isArray(data.weddingVenues) ? data.weddingVenues.map((v) => normalizeVenue(v)) : []);
+      const loaded = Array.isArray(data.weddingVenues) ? data.weddingVenues.map((v) => normalizeVenue(v)) : [];
+      // One-time: a hand-made yes/no "Holds my guests" column becomes the
+      // built-in Max guests column, saved so it only happens once.
+      const folded = foldGuestYesNoColumn(data.weddingVenueColumns, loaded);
+      if (folded.changed) {
+        setDoc(doc(db, 'users', user.uid), { weddingVenues: folded.venues, weddingVenueColumns: folded.config }, { merge: true })
+          .catch((err) => console.error('Could not save the Max guests column', err));
+      }
+      setVenues(folded.venues);
       setDismissed(Array.isArray(data.weddingVenueDismissed) ? data.weddingVenueDismissed : []);
       setGmail(data.weddingGmail?.email ? data.weddingGmail : null);
-      setColConfig(normalizeColumnConfig(data.weddingVenueColumns));
+      setColConfig(folded.changed ? folded.config : normalizeColumnConfig(data.weddingVenueColumns));
       setAreas(normalizeAreas(data.weddingVenueAreas));
       setLoading(false);
     }, () => setLoading(false));
