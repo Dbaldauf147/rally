@@ -129,6 +129,9 @@ export function normalizeVenue(v, { id } = {}) {
   // Hidden from the table (the first column's button), not deleted: a scan
   // still keeps it up to date, and the column's filter shows it again.
   out.hidden = v?.hidden === true;
+  // Which of the couple's locations it's in, when picked by hand (an id from
+  // weddingVenueAreas, or '__none'); blank means matched from the address.
+  out.area = str(v?.area);
   out.custom = {};
   if (v?.custom && typeof v.custom === 'object') {
     for (const [k, val] of Object.entries(v.custom)) if (/^c_[a-z0-9]+$/.test(k) && str(val)) out.custom[k] = str(val);

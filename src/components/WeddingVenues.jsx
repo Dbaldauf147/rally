@@ -16,6 +16,8 @@ import { parsePastedCells } from '../lib/weddingGuestImport';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 import { VenueReplyDraft } from './VenueReplyDraft';
+import { VenueAreasEditor } from './VenueAreasEditor';
+import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
 
 // The inbox the venue mail goes to. Only a hint for Google's account picker —
 // any inbox can be linked.
@@ -76,9 +78,35 @@ const Eye = () => (
 
 const STAR_COL_WIDTH = 92;
 
+/* Which of the couple's locations a venue is in: matched from its address
+   ("Auto"), or picked. A venue that matches none is flagged ⚠ until a
+   keyword is added for its town or a location is picked for it. */
+function AreaSelect({ venue, areas, onCommit, className = '' }) {
+  if (!areas.length) return <span className={styles.muted} title="Set up your locations with 📍 Locations">—</span>;
+  const r = venueArea(venue, areas);
+  const warn = r.how === 'unmapped';
+  const auto = venueArea({ ...venue, area: '' }, areas);
+  const title = warn
+    ? `“${venue.location || venue.name}” doesn't match any of your locations — add a keyword for it in 📍 Locations, or pick one here`
+    : r.how === 'auto' ? `Matched on “${r.term}”` : r.how === 'manual' ? 'Picked by hand' : 'Marked as in none of your locations';
+  return (
+    <select
+      className={`${vs.statusSelect} ${warn ? vs.areaUnmapped : r.how === 'none' ? '' : vs.areaMapped} ${className}`}
+      value={venue.area && (venue.area === NO_AREA || areas.some((a) => a.id === venue.area)) ? venue.area : ''}
+      onChange={(e) => onCommit(e.target.value)}
+      aria-label={`Area of ${venue.name}`}
+      title={title}
+    >
+      <option value="">{auto.area ? auto.area.name : '⚠ Can’t map'}</option>
+      {areas.map((a) => <option key={a.id} value={a.id}>{a.name} (picked)</option>)}
+      <option value={NO_AREA}>None of these</option>
+    </select>
+  );
+}
+
 /* One editable cell. Typing stays local and saves when you leave the cell or
    press Enter (Escape puts it back), so a save never lands mid-word. */
-function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
+function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, areas = [] }) {
   const saved = cellValue(venue, col.key);
   const [val, setVal] = useState(saved);
   const [focused, setFocused] = useState(false);
@@ -91,6 +119,7 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
     setVal(saved);
   }
 
+  if (col.key === 'area') return <AreaSelect venue={venue} areas={areas} onCommit={onCommit} />;
   if (col.key === 'emails') {
     return venue.threadIds.length > 0 ? (
       <a className={styles.link} href={gmailThreadUrl(venue.threadIds[venue.threadIds.length - 1], gmailEmail)} target="_blank" rel="noreferrer">
@@ -184,6 +213,9 @@ export function WeddingVenues({ subnav } = {}) {
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null); // a venue draft, or null
   const [replyTo, setReplyTo] = useState(null); // the venue a reply is being drafted for
+  // The couple's list of locations, and whether its editor is open.
+  const [areas, setAreas] = useState([]);
+  const [areasOpen, setAreasOpen] = useState(false);
   // The table's columns: order, hidden, and the ones added by hand.
   const [colConfig, setColConfig] = useState(() => normalizeColumnConfig(null));
   const [colFilters, setColFilters] = useState({});
@@ -207,6 +239,7 @@ export function WeddingVenues({ subnav } = {}) {
       setDismissed(Array.isArray(data.weddingVenueDismissed) ? data.weddingVenueDismissed : []);
       setGmail(data.weddingGmail?.email ? data.weddingGmail : null);
       setColConfig(normalizeColumnConfig(data.weddingVenueColumns));
+      setAreas(normalizeAreas(data.weddingVenueAreas));
       setLoading(false);
     }, () => setLoading(false));
   }, [user]);
@@ -224,6 +257,7 @@ export function WeddingVenues({ subnav } = {}) {
 
   const callApi = useCallback((body) => callVenuesApi(user, body), [user]);
   const closeReply = useCallback(() => setReplyTo(null), []);
+  const closeAreas = useCallback(() => setAreasOpen(false), []);
 
   /* ── Gmail ── */
   const connect = async () => {
@@ -450,19 +484,32 @@ export function WeddingVenues({ subnav } = {}) {
 
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
-    let rows = sortVenueRows(venues, sort);
+    let rows = sortVenueRows(venues, sort, { valueFor: (v, key) => (key === 'area' ? areaName(v, areas) : cellValue(v, key)) });
     if (term) {
-      rows = rows.filter((v) => [v.name, v.contactName, v.email, v.location, v.notes, v.summary, ...Object.values(v.custom || {})]
+      rows = rows.filter((v) => [v.name, v.contactName, v.email, v.location, areaName(v, areas), v.notes, v.summary, ...Object.values(v.custom || {})]
         .some((x) => (x || '').toLowerCase().includes(term)));
     }
-    const { shown: showing, status, ...text } = colFilters;
+    const { shown: showing, status, area, ...text } = colFilters;
     // Hidden venues are left out unless the first column's filter asks for them.
     if (showing === 'hidden') rows = rows.filter((v) => v.hidden);
     else if (showing !== 'all') rows = rows.filter((v) => !v.hidden);
     if (status) rows = rows.filter((v) => v.status === status);
+    if (area) {
+      rows = rows.filter((v) => {
+        const r = venueArea(v, areas);
+        return area === 'unmapped' ? r.how === 'unmapped' : area === NO_AREA ? r.how === 'none' : r.area?.id === area;
+      });
+    }
     const textOf = (v, key) => (key === 'lastContactDate' ? `${v.lastContactDate} ${fmtDate(v.lastContactDate)}` : cellValue(v, key));
     return applyColumnFilters(rows, text, textOf, ['phone']);
-  }, [venues, search, sort, colFilters]);
+  }, [venues, search, sort, colFilters, areas]);
+  // The venues on the table that match none of the locations.
+  const unmapped = useMemo(() => unmappedVenues(venues.filter((v) => !v.hidden), areas), [venues, areas]);
+  const saveAreas = (next) => {
+    setAreas(next);
+    if (!user) return Promise.resolve();
+    return setDoc(doc(db, 'users', user.uid), { weddingVenueAreas: next }, { merge: true }).catch(saveError);
+  };
   const filtersOn = Object.values(colFilters).some((x) => String(x || '').trim());
   const hiddenCount = venues.filter((v) => v.hidden).length;
   // Subtabs by status. The tab is the Status column's filter, not a second
@@ -622,6 +669,14 @@ export function WeddingVenues({ subnav } = {}) {
           <button type="button" className={styles.tierLegendEdit} onClick={() => setMessage(null)}>Dismiss</button>
         </p>
       )}
+      {unmapped.length > 0 && (
+        <p className={vs.areaBanner} role="status">
+          ⚠ {unmapped.length} venue{unmapped.length === 1 ? '' : 's'} can&apos;t be mapped to any of your locations:{' '}
+          {unmapped.slice(0, 6).map((v) => v.name).join(', ')}{unmapped.length > 6 ? `, and ${unmapped.length - 6} more` : ''}.{' '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => setColFilters((f) => ({ ...f, area: 'unmapped', shown: '' }))}>Show them</button>{' · '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => setAreasOpen(true)}>Edit locations</button>
+        </p>
+      )}
 
       {venues.length > 0 && (
         <div className={styles.categoryTabs} role="tablist" aria-label="Venues by status">
@@ -712,6 +767,7 @@ export function WeddingVenues({ subnav } = {}) {
             </div>
           )}
         </div>
+        <button type="button" className={styles.toolButton} onClick={() => setAreasOpen(true)} title="The locations each venue is matched to">📍 Locations{areas.length ? ` (${areas.length})` : ''}</button>
         <button type="button" className={styles.toolButton} onClick={() => openPaste('')} title="Paste a range copied from Google Sheets or Excel">📋 Paste from sheet</button>
         <button type="button" className={styles.toolButton} onClick={() => setEditing(normalizeVenue({ id: newVenueId(), status: 'Researching' }))}>+ Add venue</button>
       </div>
@@ -765,6 +821,13 @@ export function WeddingVenues({ subnav } = {}) {
                           <option value="">All</option>
                           {VENUE_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
                         </select>
+                      ) : col.key === 'area' ? (
+                        <select className={styles.filterSelect} value={colFilters.area || ''} onChange={(e) => setColFilters((f) => ({ ...f, area: e.target.value }))} aria-label="Filter by area">
+                          <option value="">All</option>
+                          {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          {areas.length > 0 && <option value="unmapped">⚠ Can’t map{unmapped.length ? ` (${unmapped.length})` : ''}</option>}
+                          {areas.length > 0 && <option value={NO_AREA}>None of these</option>}
+                        </select>
                       ) : (
                         <input className={styles.filterInput} value={colFilters[col.key] || ''} onChange={(e) => setColFilters((f) => ({ ...f, [col.key]: e.target.value }))} placeholder="Filter…" aria-label={`Filter ${col.label}`} />
                       )}
@@ -795,7 +858,7 @@ export function WeddingVenues({ subnav } = {}) {
                     </td>
                     {visible.map((col) => (
                       <td key={col.key} className={vs.cell}>
-                        <EditCell venue={v} col={col} gmailEmail={gmail?.email} onCommit={(val) => setCell(v, col.key, val)} onPasteGrid={openPaste} />
+                        <EditCell venue={v} col={col} areas={areas} gmailEmail={gmail?.email} onCommit={(val) => setCell(v, col.key, val)} onPasteGrid={openPaste} />
                       </td>
                     ))}
                   </tr>
@@ -923,6 +986,12 @@ export function WeddingVenues({ subnav } = {}) {
                     )}
                   </label>
                 ))}
+                {areas.length > 0 && (
+                  <label className={styles.contactField}>
+                    <span className={styles.contactLabel}>Area</span>
+                    <AreaSelect venue={editing} areas={areas} onCommit={(val) => setField('area', val)} className={vs.areaSelectWide} />
+                  </label>
+                )}
                 {colConfig.custom.map((c) => (
                   <label key={c.key} className={styles.contactField}>
                     <span className={styles.contactLabel}>{c.label}</span>
@@ -956,6 +1025,9 @@ export function WeddingVenues({ subnav } = {}) {
             </div>
           </form>
         </div>
+      )}
+      {areasOpen && (
+        <VenueAreasEditor areas={areas} venues={venues} onSave={saveAreas} onClose={closeAreas} />
       )}
       {replyTo && (
         <VenueReplyDraft

@@ -17,8 +17,10 @@ import {
 
 // Every built-in column, in the order a fresh table shows them. `emails` is
 // the Gmail threads a scan found, so it's counted, not typed.
+// `area` is which of the couple's locations the venue is in (lib/venueAreas.js),
+// matched from the address, so it's picked rather than typed or pasted.
 export const BUILTIN_COLUMNS = [
-  ...VENUE_FIELDS.map((f) => ({ ...f })),
+  ...VENUE_FIELDS.flatMap((f) => (f.key === 'location' ? [{ ...f }, { key: 'area', label: 'Area', readOnly: true }] : [{ ...f }])),
   { key: 'emails', label: 'Emails', readOnly: true },
 ];
 const BUILTIN_KEYS = BUILTIN_COLUMNS.map((c) => c.key);
@@ -27,7 +29,7 @@ const BUILTIN_KEYS = BUILTIN_COLUMNS.map((c) => c.key);
 // kept per column, clamped so it can't vanish or swallow the screen.
 export const MIN_COL_WIDTH = 60;
 export const MAX_COL_WIDTH = 800;
-const DEFAULT_WIDTHS = { name: 200, status: 140, email: 210, website: 180, lastContactDate: 140, emails: 100, venueFeeLow: 150, venueFeeHigh: 155, perPersonLow: 155, perPersonHigh: 160, allInclusive: 120 };
+const DEFAULT_WIDTHS = { name: 200, status: 140, email: 210, website: 180, lastContactDate: 140, emails: 100, area: 180, venueFeeLow: 150, venueFeeHigh: 155, perPersonLow: 155, perPersonHigh: 160, allInclusive: 120 };
 export function defaultColumnWidth(col) {
   return DEFAULT_WIDTHS[col?.key] || (col?.wide ? 230 : 160);
 }
@@ -206,6 +208,7 @@ export function cellValue(v, key) {
 // A venue with one cell changed, cleaned the way it'll be saved.
 export function withCellValue(v, key, value) {
   if (key === 'emails') return v;
+  if (key === 'area') return normalizeVenue({ ...v, area: value });
   if (isCustomKey(key)) {
     const custom = { ...(v.custom || {}) };
     const s = str(value);
@@ -231,7 +234,7 @@ export function withCellValue(v, key, value) {
 
 /* By the clicked column (blanks last either way), or the usual
    newest-contact-first when nothing's been clicked. */
-export function sortVenueRows(list, sort) {
+export function sortVenueRows(list, sort, { valueFor = cellValue } = {}) {
   const base = sort?.key ? [...(list || [])] : sortVenues(list);
   const dir = sort?.dir === 'desc' ? -1 : 1;
   const statusRank = (s) => VENUE_STATUSES.indexOf(s);
@@ -244,8 +247,8 @@ export function sortVenueRows(list, sort) {
         if (x === null || y === null) return (x === null ? 1 : 0) - (y === null ? 1 : 0);
         return dir * (x - y);
       }
-      const x = cellValue(a, sort.key);
-      const y = cellValue(b, sort.key);
+      const x = valueFor(a, sort.key);
+      const y = valueFor(b, sort.key);
       if (!x || !y) return (x ? 0 : 1) - (y ? 0 : 1);
       return dir * x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' });
     });

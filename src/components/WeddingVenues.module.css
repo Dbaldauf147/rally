@@ -130,3 +130,19 @@
 
 /* Price cells: amounts line up on the right. */
 .moneyInput { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Locations: the Area column, its warning, and the editor. */
+.areaMapped { background: var(--color-surface-alt); color: var(--color-text); }
+.areaUnmapped { background: #fef3c7; color: #92400e; font-weight: 600; }
+.areaSelectWide { width: 100%; padding: 0.45rem 0.5rem; font-size: 0.9rem; }
+.areaBanner { margin: 0.4rem 0; padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-size: 0.82rem; font-weight: 500; }
+.areaList { display: flex; flex-direction: column; gap: 0.6rem; }
+.areaRow { display: flex; align-items: flex-start; gap: 0.5rem; }
+.areaMove { display: flex; flex-direction: column; padding-top: 1.1rem; }
+.areaName { flex: 0 0 30%; }
+.areaKeywords { flex: 1; }
+.areaRow > .iconBtn { margin-top: 1.4rem; }
+.areaHits { font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.areaWarn { margin-top: 0.9rem; padding: 0.7rem 0.85rem; border-radius: var(--radius-sm); background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-size: 0.85rem; }
+.areaWarn ul { margin: 0.35rem 0 0.4rem 1.1rem; padding: 0; }
+@media (max-width: 640px) { .areaRow { flex-wrap: wrap; } .areaName { flex: 1 1 60%; } .areaKeywords { flex: 1 1 100%; } }
