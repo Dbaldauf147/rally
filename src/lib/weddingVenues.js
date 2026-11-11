@@ -18,8 +18,10 @@ export const VENUE_FIELDS = [
   { key: 'website', label: 'Website' },
   { key: 'location', label: 'Location', wide: true },
   { key: 'price', label: 'Pricing', wide: true },
-  { key: 'venueFee', label: 'Venue price' },
-  { key: 'perPlate', label: 'Per plate' },
+  { key: 'venueFeeLow', label: 'Venue fee low', type: 'money' },
+  { key: 'venueFeeHigh', label: 'Venue fee high', type: 'money' },
+  { key: 'perPersonLow', label: 'Per person low', type: 'money' },
+  { key: 'perPersonHigh', label: 'Per person high', type: 'money' },
   { key: 'allInclusive', label: 'All-inclusive', type: 'yesno' },
   { key: 'capacity', label: 'Capacity' },
   { key: 'availability', label: 'Availability' },
@@ -28,9 +30,68 @@ export const VENUE_FIELDS = [
   { key: 'notes', label: 'Notes', wide: true, multiline: true },
 ];
 
-const TEXT_KEYS = ['name', 'contactName', 'email', 'phone', 'website', 'location', 'price', 'venueFee', 'perPlate', 'allInclusive', 'capacity', 'availability', 'nextStep', 'summary', 'notes'];
+const TEXT_KEYS = ['name', 'contactName', 'email', 'phone', 'website', 'location', 'price', 'allInclusive', 'capacity', 'availability', 'nextStep', 'summary', 'notes'];
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
+
+/* ── Prices ──
+   Two ranges, each a low and a high in whole dollars: the venue fee (site or
+   rental fee plus any admin fee — the flat total, whatever the head count)
+   and the price per person (per plate). Kept as "$18,000"-style text so the
+   cells read and filter as money; sorted by their numbers. */
+export const MONEY_KEYS = ['venueFeeLow', 'venueFeeHigh', 'perPersonLow', 'perPersonHigh'];
+
+// "$18k", "18,000", "$12.5K", "165" → 18000 / 12500 / 165; else null.
+export function parseMoney(v) {
+  if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? Math.round(v) : null;
+  const m = String(v ?? '').replace(/,/g, '').match(/\$?\s*(\d+(?:\.\d+)?)\s*(k|m)?\b/i);
+  if (!m) return null;
+  const unit = (m[2] || '').toLowerCase();
+  const n = Number(m[1]) * (unit === 'k' ? 1000 : unit === 'm' ? 1e6 : 1);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+export const formatMoney = (n) => (n === null || n === undefined || n === '' || !Number.isFinite(Number(n)) ? '' : `$${Math.round(Number(n)).toLocaleString('en-US')}`);
+export const cleanMoney = (v) => formatMoney(parseMoney(v));
+
+// "$145–$185", "145 - 185", "$10k to $15k" → [145, 185]; one amount → [n, n].
+export function parseMoneyRange(v) {
+  const s = String(v ?? '').replace(/,/g, '');
+  const amounts = [...s.matchAll(/\$?\s*\d+(?:\.\d+)?\s*(?:k|m)?\b/gi)].map((m) => parseMoney(m[0])).filter((n) => n !== null);
+  if (!amounts.length) return null;
+  return [Math.min(...amounts), Math.max(...amounts)];
+}
+
+const PER_PERSON = /^\s*\+{0,2}\s*(?:(?:\/\s*|per\s+)(?:pp|person|plate|guest|head|pax)\b|pp\b|a\s+(?:person|head|plate)\b)/i;
+const ADMIN = /^\s*(?:in\s+)?(?:admin(?:istrative)?|administration)\b/i;
+const MONEY_RANGE = /\$\s*\d[\d,]*(?:\.\d+)?\s*[km]?\b(?:\s*(?:-|–|—|to)\s*\$?\s*\d[\d,]*(?:\.\d+)?\s*[km]?\b)?/gi;
+
+/* The two ranges read out of a free-text quote: every dollar amount (or
+   "$a–$b" range) followed by "/pp", "per person", "per plate"… is per
+   person, an admin fee is added onto the venue fee, an hourly or other rate
+   is skipped, and the rest are the venue fee. Returns the four cells. */
+export function rangesFromText(text) {
+  const out = { venueFeeLow: '', venueFeeHigh: '', perPersonLow: '', perPersonHigh: '' };
+  const fee = [];
+  const pp = [];
+  const admin = [];
+  const s = String(text || '');
+  for (const m of s.matchAll(MONEY_RANGE)) {
+    const range = parseMoneyRange(m[0]);
+    if (!range) continue;
+    const after = s.slice(m.index + m[0].length, m.index + m[0].length + 24);
+    if (PER_PERSON.test(after)) pp.push(...range);
+    // The admin fee is part of the venue fee: it's added on, not a low end.
+    else if (ADMIN.test(after)) admin.push(range[0]);
+    // Some other rate ("$90/lane/hr", "$500 per hour") is neither range.
+    else if (/^\s*(?:\/|per\b|an?\s+hour|hourly)/i.test(after)) continue;
+    else fee.push(...range);
+  }
+  const extra = admin.reduce((sum, n) => sum + n, 0);
+  if (fee.length) Object.assign(out, { venueFeeLow: formatMoney(Math.min(...fee) + extra), venueFeeHigh: formatMoney(Math.max(...fee) + extra) });
+  else if (extra) Object.assign(out, { venueFeeLow: formatMoney(extra), venueFeeHigh: formatMoney(extra) });
+  if (pp.length) Object.assign(out, { perPersonLow: formatMoney(Math.min(...pp)), perPersonHigh: formatMoney(Math.max(...pp)) });
+  return out;
+}
 
 /* Whether the quote is all-inclusive (food, drink, staff and rentals in one
    price) or the venue is a rental you cater yourself. "Yes" / "No", or blank
@@ -49,6 +110,15 @@ export function normalizeVenue(v, { id } = {}) {
   for (const k of TEXT_KEYS) out[k] = str(v?.[k]);
   out.email = out.email.toLowerCase();
   out.allInclusive = normalizeAllInclusive(v?.allInclusive);
+  for (const k of MONEY_KEYS) out[k] = cleanMoney(v?.[k]);
+  // A venue saved before the ranges existed gets them from what it had: the
+  // separate venue-price and per-plate notes, else the pricing text. Only
+  // then — once the range cells are saved, a cleared cell stays cleared.
+  if (v && MONEY_KEYS.every((k) => v[k] === undefined)) {
+    const perPlate = str(v.perPlate);
+    const from = [str(v.venueFee), perPlate && (/per|\/|pp/i.test(perPlate) ? perPlate : `${perPlate} per person`)].filter(Boolean).join(' ; ') || str(v.price);
+    Object.assign(out, rangesFromText(from));
+  }
   out.status = VENUE_STATUSES.includes(v?.status) ? v.status : 'Researching';
   out.lastContactDate = /^\d{4}-\d{2}-\d{2}$/.test(str(v?.lastContactDate)) ? str(v.lastContactDate) : '';
   out.threadIds = [...new Set((Array.isArray(v?.threadIds) ? v.threadIds : []).map(str).filter(Boolean))];
@@ -130,7 +200,7 @@ export function mergeScannedVenues(existing, scanned, dismissed = []) {
     }
     const cur = list[at];
     const next = { ...cur };
-    for (const k of TEXT_KEYS) if (!next[k] && found[k]) next[k] = found[k];
+    for (const k of [...TEXT_KEYS, ...MONEY_KEYS]) if (!next[k] && found[k]) next[k] = found[k];
     next.status = laterStatus(cur.status, found.status);
     if (found.lastContactDate > (cur.lastContactDate || '')) {
       next.lastContactDate = found.lastContactDate;

@@ -10,7 +10,10 @@
    A custom column's values live on each venue under `custom[key]`. Pure, so it
    can be tested without React. */
 
-import { VENUE_FIELDS, VENUE_STATUSES, normalizeAllInclusive, normalizeVenue, sameVenue, sortVenues } from './weddingVenues.js';
+import {
+  MONEY_KEYS, VENUE_FIELDS, VENUE_STATUSES, cleanMoney, formatMoney, normalizeAllInclusive, normalizeVenue, parseMoney, parseMoneyRange,
+  sameVenue, sortVenues,
+} from './weddingVenues.js';
 
 // Every built-in column, in the order a fresh table shows them. `emails` is
 // the Gmail threads a scan found, so it's counted, not typed.
@@ -24,14 +27,20 @@ const BUILTIN_KEYS = BUILTIN_COLUMNS.map((c) => c.key);
 // kept per column, clamped so it can't vanish or swallow the screen.
 export const MIN_COL_WIDTH = 60;
 export const MAX_COL_WIDTH = 800;
-const DEFAULT_WIDTHS = { name: 200, status: 140, email: 210, website: 180, lastContactDate: 140, emails: 100, venueFee: 150, perPlate: 130, allInclusive: 120 };
+const DEFAULT_WIDTHS = { name: 200, status: 140, email: 210, website: 180, lastContactDate: 140, emails: 100, venueFeeLow: 150, venueFeeHigh: 155, perPersonLow: 155, perPersonHigh: 160, allInclusive: 120 };
 export function defaultColumnWidth(col) {
   return DEFAULT_WIDTHS[col?.key] || (col?.wide ? 230 : 160);
 }
 const clampWidth = (w) => Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, Math.round(w)));
 
 // What a fresh table leaves out, so it opens about as wide as it used to.
-export const DEFAULT_HIDDEN = ['website', 'capacity', 'availability', 'notes'];
+// The free-text pricing is there to read in a venue's pop-up; the table shows
+// the four price columns instead.
+export const DEFAULT_HIDDEN = ['website', 'price', 'capacity', 'availability', 'notes'];
+
+// Bumped when a saved setup needs a one-off change: v2 hides the free-text
+// Pricing column, which the low/high price columns replaced.
+const CONFIG_VERSION = 2;
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 const isCustomKey = (k) => /^c_[a-z0-9]+$/.test(k);
@@ -70,13 +79,14 @@ export function normalizeColumnConfig(raw) {
   let hidden = Array.isArray(r.hidden)
     ? r.hidden.filter((k, i, a) => valid.has(k) && a.indexOf(k) === i)
     : [...DEFAULT_HIDDEN];
+  if (Array.isArray(r.hidden) && !(r.v >= 2) && !hidden.includes('price')) hidden.push('price');
   if (hidden.length >= order.length) hidden = hidden.filter((k) => k !== 'name');
   const widths = {};
   Object.entries(r.widths && typeof r.widths === 'object' ? r.widths : {}).forEach(([k, w]) => {
     const n = Number(w);
     if (valid.has(k) && Number.isFinite(n)) widths[k] = clampWidth(n);
   });
-  return { order, hidden, custom, widths, favorites: order.filter((k) => favSet.has(k)) };
+  return { v: CONFIG_VERSION, order, hidden, custom, widths, favorites: order.filter((k) => favSet.has(k)) };
 }
 
 export function setColumnWidth(config, key, width) {
@@ -204,6 +214,16 @@ export function withCellValue(v, key, value) {
     return normalizeVenue({ ...v, custom });
   }
   if (key === 'status') return normalizeVenue({ ...v, status: matchStatus(value) || v.status });
+  if (MONEY_KEYS.includes(key)) {
+    // A range typed or pasted into either end ("$10k–$15k") fills both,
+    // unless the other end already has something.
+    const range = parseMoneyRange(value);
+    const isLow = key.endsWith('Low');
+    const other = isLow ? key.replace(/Low$/, 'High') : key.replace(/High$/, 'Low');
+    const next = { ...v, [key]: range ? formatMoney(isLow ? range[0] : range[1]) : cleanMoney(value) };
+    if (range && range[0] !== range[1] && !v[other]) next[other] = formatMoney(isLow ? range[1] : range[0]);
+    return normalizeVenue(next);
+  }
   if (key === 'allInclusive') return normalizeVenue({ ...v, allInclusive: normalizeAllInclusive(value) });
   if (key === 'lastContactDate') return normalizeVenue({ ...v, lastContactDate: value ? parseVenueDate(value) : '' });
   return normalizeVenue({ ...v, [key]: value });
@@ -218,6 +238,12 @@ export function sortVenueRows(list, sort) {
   if (sort?.key) {
     base.sort((a, b) => {
       if (sort.key === 'status') return dir * (statusRank(a.status) - statusRank(b.status));
+      if (MONEY_KEYS.includes(sort.key)) {
+        const x = parseMoney(a[sort.key]);
+        const y = parseMoney(b[sort.key]);
+        if (x === null || y === null) return (x === null ? 1 : 0) - (y === null ? 1 : 0);
+        return dir * (x - y);
+      }
       const x = cellValue(a, sort.key);
       const y = cellValue(b, sort.key);
       if (!x || !y) return (x ? 0 : 1) - (y ? 0 : 1);
@@ -279,8 +305,10 @@ const HEADER_RULES = [
   ['availability', /availab|open dates|dates? open/],
   ['lastContactDate', /last.*(contact|touch|email|spoke)|contacted|date/],
   ['allInclusive', /inclusive|incl\b|catered|in-?house/],
-  ['perPlate', /per ?(plate|person|head|guest|pp)|\/ ?(pp|person|plate|head)|\bpp\b|plate/],
-  ['venueFee', /venue (price|fee|cost|rental)|site fee|rental|room fee|space fee/],
+  ['perPersonHigh', /(per ?(plate|person|head|guest)|\bpp\b|plate).*\b(high|max|top|upper)\b|\b(high|max|top|upper)\b.*(per ?(plate|person|head|guest)|\bpp\b|plate)/],
+  ['perPersonLow', /per ?(plate|person|head|guest|pp)|\/ ?(pp|person|plate|head)|\bpp\b|plate/],
+  ['venueFeeHigh', /(venue|site|rental|room|space|admin).*\b(high|max|top|upper)\b|\b(high|max|top|upper)\b.*(venue|site|rental|fee)/],
+  ['venueFeeLow', /venue (price|fee|cost|rental)|site fee|rental|room fee|space fee|admin/],
   ['nextStep', /next|to ?do|action|follow/],
   ['contactName', /contact|coordinator|planner|manager|rep\b|person|who/],
   ['status', /status|stage|state/],

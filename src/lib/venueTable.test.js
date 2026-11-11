@@ -5,7 +5,7 @@ import {
   autoMapVenueHeaders, looksLikeVenueHeader, guessVenueColumns, planVenuePaste, DEFAULT_HIDDEN, venueSearchUrl,
   toggleFavoriteColumn, dropColumn,
 } from './venueTable';
-import { normalizeVenue, mergeScannedVenues, normalizeAllInclusive } from './weddingVenues';
+import { normalizeVenue, mergeScannedVenues, normalizeAllInclusive, rangesFromText } from './weddingVenues';
 
 const keys = (cols) => cols.map((c) => c.key);
 
@@ -155,8 +155,8 @@ describe('favorite columns and drag-and-drop', () => {
     expect(c.favorites).toEqual(['notes']);
     expect(c.order[0]).toBe('notes');
     expect(c.hidden).not.toContain('notes');
-    const c2 = toggleFavoriteColumn(c, 'perPlate');
-    expect(c2.order.slice(0, 2)).toEqual(['notes', 'perPlate']);
+    const c2 = toggleFavoriteColumn(c, 'perPersonLow');
+    expect(c2.order.slice(0, 2)).toEqual(['notes', 'perPersonLow']);
   });
   it('unstarring drops it just after the starred ones', () => {
     let c = toggleFavoriteColumn(normalizeColumnConfig(null), 'email');
@@ -196,13 +196,36 @@ describe('favorite columns and drag-and-drop', () => {
 });
 
 describe('pricing columns', () => {
-  it('a saved layout gets them beside Pricing, not on the end', () => {
+  it('a saved layout gets the four price columns beside Pricing, and Pricing hidden', () => {
     const c = normalizeColumnConfig({ order: ['name', 'price', 'status', 'emails'], hidden: [] });
-    expect(c.order.slice(0, 5)).toEqual(['name', 'price', 'venueFee', 'perPlate', 'allInclusive']);
+    expect(c.order.slice(0, 6)).toEqual(['name', 'price', 'venueFeeLow', 'venueFeeHigh', 'perPersonLow', 'perPersonHigh']);
+    expect(c.hidden).toEqual(['price']);
+    expect(c.v).toBe(2);
+    // Showing it again afterwards sticks.
+    const shownAgain = toggleColumn(c, 'price');
+    expect(normalizeColumnConfig(shownAgain).hidden).not.toContain('price');
   });
-  it('a fresh table shows venue price, per plate and all-inclusive', () => {
+  it('a fresh table shows the low/high columns and all-inclusive, not the free text', () => {
     const shown = keys(visibleVenueColumns(null));
-    expect(shown).toEqual(expect.arrayContaining(['venueFee', 'perPlate', 'allInclusive']));
+    expect(shown).toEqual(expect.arrayContaining(['venueFeeLow', 'venueFeeHigh', 'perPersonLow', 'perPersonHigh', 'allInclusive']));
+    expect(shown).not.toContain('price');
+  });
+  it('a typed price reads as dollars, and a range fills both ends', () => {
+    const v = normalizeVenue({ id: '1', name: 'A', venueFeeLow: '', venueFeeHigh: '', perPersonLow: '', perPersonHigh: '' });
+    expect(withCellValue(v, 'venueFeeLow', '12.5k').venueFeeLow).toBe('$12,500');
+    const r = withCellValue(v, 'perPersonLow', '$145 – $185');
+    expect([r.perPersonLow, r.perPersonHigh]).toEqual(['$145', '$185']);
+    const h = withCellValue(v, 'venueFeeHigh', '10k to 15k');
+    expect([h.venueFeeLow, h.venueFeeHigh]).toEqual(['$10,000', '$15,000']);
+    // The other end, already filled, is left alone; nonsense clears the cell.
+    const kept = withCellValue({ ...r }, 'perPersonHigh', '200-250');
+    expect([kept.perPersonLow, kept.perPersonHigh]).toEqual(['$145', '$250']);
+    expect(withCellValue(r, 'perPersonLow', 'tbd').perPersonLow).toBe('');
+  });
+  it('sorts the price columns by amount, blanks last', () => {
+    const list = ['$9,000', '', '$12,000', '$850'].map((p, i) => normalizeVenue({ id: String(i), name: `V${i}`, venueFeeLow: p }));
+    expect(sortVenueRows(list, { key: 'venueFeeLow', dir: 'asc' }).map((v) => v.venueFeeLow)).toEqual(['$850', '$9,000', '$12,000', '']);
+    expect(sortVenueRows(list, { key: 'venueFeeLow', dir: 'desc' }).map((v) => v.venueFeeLow)).toEqual(['$12,000', '$9,000', '$850', '']);
   });
   it('all-inclusive reads yes/no however it is typed', () => {
     expect(normalizeAllInclusive('yes')).toBe('Yes');
@@ -212,15 +235,34 @@ describe('pricing columns', () => {
     expect(normalizeAllInclusive('venue only')).toBe('No');
     expect(normalizeAllInclusive('Partly')).toBe('Partly');
     expect(normalizeAllInclusive('')).toBe('');
-    expect(withCellValue(normalizeVenue({ id: '1', name: 'A' }), 'allInclusive', 'Y').allInclusive).toBe('Yes');
   });
-  it('pasted headers find the new columns', () => {
-    expect(autoMapVenueHeaders(['Venue', 'Venue fee', 'Per person', 'All inclusive?', 'Pricing']))
-      .toEqual(['name', 'venueFee', 'perPlate', 'allInclusive', 'price']);
+  it('pasted headers find the price columns', () => {
+    expect(autoMapVenueHeaders(['Venue', 'Venue fee', 'Venue fee high', 'Per person', 'Per person max', 'All inclusive?', 'Pricing']))
+      .toEqual(['name', 'venueFeeLow', 'venueFeeHigh', 'perPersonLow', 'perPersonHigh', 'allInclusive', 'price']);
   });
-  it('a scan fills them in when empty and leaves typed ones alone', () => {
-    const mine = normalizeVenue({ id: 'v1', name: 'Foundry', perPlate: '$150 negotiated' });
-    const { list } = mergeScannedVenues([mine], [{ name: 'The Foundry', venueFee: '$18,000', perPlate: '$185/pp', allInclusive: 'Yes', status: 'Quote received' }]);
-    expect(list[0]).toMatchObject({ venueFee: '$18,000', perPlate: '$150 negotiated', allInclusive: 'Yes' });
+  it('a scan fills empty price cells and leaves typed ones alone', () => {
+    const mine = normalizeVenue({ id: 'v1', name: 'Foundry', perPersonLow: '$150', venueFeeLow: '', venueFeeHigh: '', perPersonHigh: '' });
+    const { list } = mergeScannedVenues([mine], [{ name: 'The Foundry', venueFeeLow: 18000, venueFeeHigh: 22000, perPersonLow: 185, perPersonHigh: 210, allInclusive: 'Yes', status: 'Quote received' }]);
+    expect(list[0]).toMatchObject({ venueFeeLow: '$18,000', venueFeeHigh: '$22,000', perPersonLow: '$150', perPersonHigh: '$210', allInclusive: 'Yes' });
+  });
+});
+
+describe('prices read out of a quote', () => {
+  it('splits per-person amounts from the venue fee, adding any admin fee on', () => {
+    expect(rangesFromText('$18k site fee + $165/pp')).toEqual({ venueFeeLow: '$18,000', venueFeeHigh: '$18,000', perPersonLow: '$165', perPersonHigh: '$165' });
+    expect(rangesFromText('$145–$185 per person')).toMatchObject({ venueFeeLow: '', perPersonLow: '$145', perPersonHigh: '$185' });
+    expect(rangesFromText('$12,500 rental, $3,000 admin fee; $150-$210++ pp'))
+      .toEqual({ venueFeeLow: '$15,500', venueFeeHigh: '$15,500', perPersonLow: '$150', perPersonHigh: '$210' });
+    expect(rangesFromText('Fri $8k, Sat $12k site fee, $175 a person')).toMatchObject({ venueFeeLow: '$8,000', venueFeeHigh: '$12,000', perPersonLow: '$175' });
+  });
+  it('skips other rates and words with no dollar amount', () => {
+    expect(rangesFromText('$90/lane/hr (2-hr min)')).toEqual({ venueFeeLow: '', venueFeeHigh: '', perPersonLow: '', perPersonHigh: '' });
+    expect(rangesFromText('Per person, 200 guests')).toEqual({ venueFeeLow: '', venueFeeHigh: '', perPersonLow: '', perPersonHigh: '' });
+  });
+  it('fills a venue saved before the ranges, once', () => {
+    expect(normalizeVenue({ id: 'a', name: 'X', venueFee: '$18,000', perPlate: '$185' })).toMatchObject({ venueFeeLow: '$18,000', perPersonLow: '$185', perPersonHigh: '$185' });
+    expect(normalizeVenue({ id: 'b', name: 'Y', price: '$9k site fee + $150/pp' })).toMatchObject({ venueFeeLow: '$9,000', perPersonLow: '$150' });
+    // Once the cells are saved — even cleared — the old text isn't read again.
+    expect(normalizeVenue({ id: 'c', name: 'Z', price: '$9k', venueFeeLow: '', venueFeeHigh: '', perPersonLow: '', perPersonHigh: '' }).venueFeeLow).toBe('');
   });
 });
