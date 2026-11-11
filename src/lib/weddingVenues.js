@@ -18,6 +18,9 @@ export const VENUE_FIELDS = [
   { key: 'website', label: 'Website' },
   { key: 'location', label: 'Location', wide: true },
   { key: 'price', label: 'Pricing', wide: true },
+  { key: 'venueFee', label: 'Venue price' },
+  { key: 'perPlate', label: 'Per plate' },
+  { key: 'allInclusive', label: 'All-inclusive', type: 'yesno' },
   { key: 'capacity', label: 'Capacity' },
   { key: 'availability', label: 'Availability' },
   { key: 'nextStep', label: 'Next step', wide: true },
@@ -25,14 +28,27 @@ export const VENUE_FIELDS = [
   { key: 'notes', label: 'Notes', wide: true, multiline: true },
 ];
 
-const TEXT_KEYS = ['name', 'contactName', 'email', 'phone', 'website', 'location', 'price', 'capacity', 'availability', 'nextStep', 'summary', 'notes'];
+const TEXT_KEYS = ['name', 'contactName', 'email', 'phone', 'website', 'location', 'price', 'venueFee', 'perPlate', 'allInclusive', 'capacity', 'availability', 'nextStep', 'summary', 'notes'];
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
+
+/* Whether the quote is all-inclusive (food, drink, staff and rentals in one
+   price) or the venue is a rental you cater yourself. "Yes" / "No", or blank
+   when nobody has said; anything else typed is kept as written ("Partly"). */
+export function normalizeAllInclusive(v) {
+  const s = typeof v === 'boolean' ? (v ? 'yes' : 'no') : str(v);
+  const t = s.toLowerCase().replace(/[.!]+$/, '');
+  if (!t) return '';
+  if (/^(y|yes|true|x|✓|✔|all[- ]?inclusive|inclusive|included)$/.test(t)) return 'Yes';
+  if (/^(n|no|false|not all[- ]?inclusive|not inclusive|rental|venue only|a la carte|à la carte)$/.test(t)) return 'No';
+  return s;
+}
 
 export function normalizeVenue(v, { id } = {}) {
   const out = { id: str(v?.id) || id || newVenueId() };
   for (const k of TEXT_KEYS) out[k] = str(v?.[k]);
   out.email = out.email.toLowerCase();
+  out.allInclusive = normalizeAllInclusive(v?.allInclusive);
   out.status = VENUE_STATUSES.includes(v?.status) ? v.status : 'Researching';
   out.lastContactDate = /^\d{4}-\d{2}-\d{2}$/.test(str(v?.lastContactDate)) ? str(v.lastContactDate) : '';
   out.threadIds = [...new Set((Array.isArray(v?.threadIds) ? v.threadIds : []).map(str).filter(Boolean))];
