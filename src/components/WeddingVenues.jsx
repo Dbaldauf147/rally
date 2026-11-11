@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,6 +15,7 @@ import { applyColumnFilters } from '../lib/columnFilters';
 import { parsePastedCells } from '../lib/weddingGuestImport';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
+import { VenueReplyDraft } from './VenueReplyDraft';
 
 // The inbox the venue mail goes to. Only a hint for Google's account picker —
 // any inbox can be linked.
@@ -58,7 +59,7 @@ const isGrid = (text) => /\t/.test(text) || /\n\s*\S/.test(String(text).trim());
 
 const isTyping = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 
-const STAR_COL_WIDTH = 68;
+const STAR_COL_WIDTH = 90;
 
 /* One editable cell. Typing stays local and saves when you leave the cell or
    press Enter (Escape puts it back), so a save never lands mid-word. */
@@ -165,6 +166,7 @@ export function WeddingVenues({ subnav } = {}) {
   const [message, setMessage] = useState(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null); // a venue draft, or null
+  const [replyTo, setReplyTo] = useState(null); // the venue a reply is being drafted for
   // The table's columns: order, hidden, and the ones added by hand.
   const [colConfig, setColConfig] = useState(() => normalizeColumnConfig(null));
   const [colFilters, setColFilters] = useState({});
@@ -202,6 +204,9 @@ export function WeddingVenues({ subnav } = {}) {
     setVenues(next);
     await setDoc(doc(db, 'users', user.uid), { weddingVenues: next, ...extra }, { merge: true });
   };
+
+  const callApi = useCallback((body) => callVenuesApi(user, body), [user]);
+  const closeReply = useCallback(() => setReplyTo(null), []);
 
   /* ── Gmail ── */
   const connect = async () => {
@@ -534,6 +539,11 @@ export function WeddingVenues({ subnav } = {}) {
                 />
                 Scan automatically every day at 9 AM (Eastern)
               </label>
+              {gmail.canDraft !== true && (
+                <span className={styles.muted}>
+                  To save reply drafts to this inbox, <button type="button" className={styles.tierLegendEdit} onClick={connect} disabled={!!busy}>reconnect Gmail</button> and allow drafts.
+                </span>
+              )}
             </div>
             <div className={vs.gmailActions}>
               <button type="button" className={styles.modalPrimary} onClick={() => scan()} disabled={!!busy}>
@@ -711,6 +721,7 @@ export function WeddingVenues({ subnav } = {}) {
                         {v.starred ? '★' : '☆'}
                       </button>
                       <button type="button" className={vs.openBtn} onClick={() => setEditing({ ...v })} title="Open venue details" aria-label={`Open ${v.name}`}>⤢</button>
+                      <button type="button" className={vs.draftBtn} onClick={() => setReplyTo(v)} title="Draft a reply with your wedding details" aria-label={`Draft a reply to ${v.name}`}>✉</button>
                     </td>
                     {visible.map((col) => (
                       <td key={col.key} className={vs.cell}>
@@ -865,11 +876,23 @@ export function WeddingVenues({ subnav } = {}) {
               {venues.some((v) => v.id === editing.id) && (
                 <button className={styles.bulkDelete} type="button" onClick={() => deleteVenue(editing)}>Delete</button>
               )}
+              {venues.some((v) => v.id === editing.id) && (
+                <button className={styles.modalSecondary} type="button" onClick={() => { const v = editing; closeEditor(); setReplyTo(v); }}>✉ Draft reply</button>
+              )}
               <span className={styles.modalCount}>{editing.name ? 'Changes save automatically' : 'Give it a name to save it'}</span>
               <button className={styles.modalPrimary} type="submit">Done</button>
             </div>
           </form>
         </div>
+      )}
+      {replyTo && (
+        <VenueReplyDraft
+          venue={replyTo}
+          gmail={gmail}
+          callApi={callApi}
+          onReconnect={connect}
+          onClose={closeReply}
+        />
       )}
     </div>
   );

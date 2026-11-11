@@ -1,4 +1,4 @@
-/* global process */
+/* global process, Buffer */
 // The Venues tab's Gmail endpoint and the callback half, against an in-memory
 // Firestore, with Google and the inbox scan stubbed out.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -46,7 +46,10 @@ let refreshResult = async () => 'access-1';
 vi.mock('../lib/weddingVenueScan.js', () => ({
   scanInbox: (...a) => scanInbox(...a),
   refreshAccessToken: (...a) => refreshResult(...a),
+  threadText: (t) => `<thread id="${t.id}"></thread>`,
 }));
+const writeReply = vi.fn();
+vi.mock('../lib/weddingVenueDraft.js', async (orig) => ({ ...(await orig()), writeReply: (...a) => writeReply(...a) }));
 
 const { default: handler, isAutoScanDue } = await import('./wedding-venues.js');
 const { finishGmailConnect } = await import('../lib/weddingGmailAuth.js');
@@ -75,7 +78,7 @@ describe('api/wedding-venues', () => {
     const res = await call({ action: 'connect', loginHint: 'jodanbaldauf@gmail.com' });
     expect(res.code).toBe(200);
     const url = new URL(res.body.url);
-    expect(url.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/gmail.readonly');
+    expect(url.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose');
     expect(url.searchParams.get('redirect_uri')).toBe('https://rally.test/api/google-callback');
     expect(url.searchParams.get('access_type')).toBe('offline');
     expect(url.searchParams.get('login_hint')).toBe('jodanbaldauf@gmail.com');
@@ -265,5 +268,87 @@ describe('daily scheduled scan', () => {
     process.env.CRON_SECRET = 'shh';
     expect((await get(new Date('2026-11-11T14:05:00Z'))).code).toBe(401);
     expect((await get(new Date('2026-11-11T14:05:00Z'), { authorization: 'Bearer shh' })).code).toBe(200);
+  });
+});
+
+describe('drafting venue replies', () => {
+  const h = (name, value) => ({ name, value });
+  const thread = {
+    id: 'th1',
+    messages: [
+      { internalDate: '1000', payload: { headers: [h('From', 'Dan <dan@inbox.test>'), h('Subject', 'Wedding inquiry'), h('Message-ID', '<m1@x>')] } },
+      { internalDate: '2000', payload: { headers: [h('From', 'Trudy Wilson <twilson@pridwin.test>'), h('Subject', 'RE: Wedding inquiry'), h('Message-ID', '<m2@x>'), h('References', '<m1@x>')] } },
+      { internalDate: '3000', payload: { headers: [h('From', 'dan@inbox.test'), h('Subject', 'Re: Wedding inquiry'), h('Message-ID', '<m3@x>')] } },
+    ],
+  };
+  let gmailCalls;
+  beforeEach(() => {
+    writeReply.mockReset();
+    gmailCalls = [];
+    vi.stubGlobal('fetch', async (url, opts = {}) => {
+      gmailCalls.push({ url: String(url), opts });
+      if (String(url).includes('/threads/th1')) return { ok: true, json: async () => thread };
+      if (String(url).endsWith('/drafts')) return { ok: true, json: async () => ({ id: 'd1', message: { id: 'm9', threadId: 'th1' } }) };
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    docs.set('weddingGmailTokens/u1', { refreshToken: 'r1', email: 'dan@inbox.test' });
+    docs.set('users/u1', {
+      weddingGmail: { email: 'dan@inbox.test' },
+      weddingVenues: [
+        { id: 'v1', name: 'The Pridwin', contactName: 'Trudy Wilson', email: 'twilson@pridwin.test', threadIds: ['th1'] },
+        { id: 'v2', name: 'Regatta Place', threadIds: [] },
+      ],
+      weddingVenueReply: { details: { couple: 'Dan & Jo', guests: 'About 180' }, template: 'Hi {first name},\n\nWe love {venue}.' },
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('answers the venue\'s latest message, in its thread, tailored by Claude', async () => {
+    writeReply.mockResolvedValue('Hi Trudy,\n\nThanks for the menus!');
+    const res = await call({ action: 'draftReply', venueId: 'v1' });
+    expect(res.code).toBe(200);
+    expect(res.body).toMatchObject({
+      to: 'Trudy Wilson <twilson@pridwin.test>', subject: 'RE: Wedding inquiry', threadId: 'th1',
+      inReplyTo: '<m2@x>', references: '<m1@x> <m2@x>', body: 'Hi Trudy,\n\nThanks for the menus!', tailored: true,
+    });
+    expect(writeReply.mock.calls[0][0].template).toBe('Hi Trudy,\n\nWe love The Pridwin.');
+  });
+
+  it('falls back to the filled-in template when Claude can\'t, or there is no thread', async () => {
+    writeReply.mockRejectedValue(new Error('down'));
+    const res = await call({ action: 'draftReply', venueId: 'v1' });
+    expect(res.body).toMatchObject({ body: 'Hi Trudy,\n\nWe love The Pridwin.', tailored: false, threadId: 'th1' });
+    const none = await call({ action: 'draftReply', venueId: 'v2' });
+    expect(none.body).toMatchObject({ body: 'Hi there,\n\nWe love Regatta Place.', subject: 'Wedding inquiry — Regatta Place', threadId: '' });
+  });
+
+  it('saves a Gmail draft in the thread, never sends', async () => {
+    const res = await call({ action: 'saveDraft', to: 'twilson@pridwin.test', subject: 'Re: Pricing — Champlin’s', body: 'Hi!\nThanks', threadId: 'th1', inReplyTo: '<m2@x>', references: '<m1@x> <m2@x>' });
+    expect(res.code).toBe(200);
+    expect(res.body.draftId).toBe('d1');
+    const post = gmailCalls.find((c) => c.url.endsWith('/drafts'));
+    expect(gmailCalls.some((c) => /\/send/.test(c.url))).toBe(false);
+    const sent = JSON.parse(post.opts.body);
+    expect(sent.message.threadId).toBe('th1');
+    const raw = Buffer.from(sent.message.raw, 'base64url').toString('utf8');
+    expect(raw).toContain('To: twilson@pridwin.test');
+    expect(raw).toContain('In-Reply-To: <m2@x>');
+    expect(raw).toMatch(/Subject: =\?UTF-8\?B\?/);
+    const body = raw.split('\r\n\r\n')[1];
+    expect(Buffer.from(body.replace(/\r\n/g, ''), 'base64').toString('utf8')).toBe('Hi!\r\nThanks');
+    expect(docs.get('users/u1').weddingGmail.canDraft).toBe(true);
+  });
+
+  it('asks for a reconnect when the connection can only read', async () => {
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 403, json: async () => ({ error: { message: 'Request had insufficient authentication scopes.' } }) }));
+    const res = await call({ action: 'saveDraft', to: 'a@b.test', subject: 's', body: 'b' });
+    expect(res.code).toBe(409);
+    expect(res.body.code).toBe('needs_compose');
+    expect(docs.get('users/u1').weddingGmail.canDraft).toBe(false);
+  });
+
+  it('won\'t save a draft with no address or no body', async () => {
+    expect((await call({ action: 'saveDraft', to: '', body: 'x' })).code).toBe(400);
+    expect((await call({ action: 'saveDraft', to: 'a@b.test', body: '  ' })).code).toBe(400);
   });
 });
