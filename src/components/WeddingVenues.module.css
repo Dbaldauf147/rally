@@ -34,6 +34,11 @@
    readable minimum width; on a phone the table scrolls inside its box
    (tableScroll) instead of squeezing them. */
 .venueTable { table-layout: fixed; border-collapse: collapse; }
+/* The table scrolls inside its own box, sized to the window, so the sideways
+   scrollbar sits on screen instead of below the last row; the header and
+   filter rows stay pinned while the rows scroll under them. */
+.venueScroll { overflow: auto; max-height: max(320px, calc(100vh - 220px)); overscroll-behavior-x: contain; }
+.venueTable thead { position: sticky; top: -1px; z-index: 3; }
 /* Grid lines on every cell, like a sheet. */
 .venueTable th, .venueTable td { border: 1px solid var(--color-border) !important; }
 .venueTable thead th { position: relative; }
