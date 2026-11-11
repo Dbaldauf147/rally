@@ -662,7 +662,7 @@ export function WeddingVenues({ subnav } = {}) {
         </div>
       ) : (
         <div className={styles.tableWrap}>
-          <div className={styles.tableScroll}>
+          <div className={`${styles.tableScroll} ${vs.venueScroll}`}>
             <table className={`${styles.table} ${vs.venueTable}`} style={{ width: tableWidth }}>
               <colgroup>
                 <col style={{ width: STAR_COL_WIDTH }} />
