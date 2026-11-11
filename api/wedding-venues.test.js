@@ -16,6 +16,12 @@ const mergeInto = (cur = {}, patch) => {
   return out;
 };
 const db = {
+  collection: (name) => ({
+    get: async () => ({
+      docs: [...docs.entries()].filter(([k]) => k.startsWith(`${name}/`) && k.split('/').length === 2)
+        .map(([k, v]) => ({ id: k.split('/')[1], data: () => v })),
+    }),
+  }),
   doc: (path) => ({
     get: async () => ({ exists: docs.has(path), data: () => docs.get(path) }),
     set: async (data, opts) => {
@@ -42,7 +48,7 @@ vi.mock('../lib/weddingVenueScan.js', () => ({
   refreshAccessToken: (...a) => refreshResult(...a),
 }));
 
-const { default: handler } = await import('./wedding-venues.js');
+const { default: handler, isAutoScanDue } = await import('./wedding-venues.js');
 const { finishGmailConnect } = await import('../lib/weddingGmailAuth.js');
 
 const call = async (body, token = 'good') => {
@@ -188,5 +194,76 @@ describe('api/google-callback with a gmail. state', () => {
     const res = await run({ error: '</script><img src=x>', state: 'gmail.zz' });
     expect(res.body).toContain('"type":"gmail-error"');
     expect(res.body).not.toContain('</script><img');
+  });
+});
+
+describe('daily scheduled scan', () => {
+  const get = async (now, headers = {}) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      const res = { status(c) { res.code = c; return res; }, json(b) { res.body = b; return res; } };
+      await handler({ method: 'GET', headers, body: {} }, res);
+      return res;
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+  afterEach(() => { delete process.env.CRON_SECRET; });
+
+  it('is due from 9 AM Eastern, once a day, unless switched off', () => {
+    const g = { email: 'a@b.com' };
+    expect(isAutoScanDue(g, new Date('2026-11-11T13:30:00Z'))).toBe(false); // 8:30 EST
+    expect(isAutoScanDue(g, new Date('2026-11-11T14:05:00Z'))).toBe(true); // 9:05 EST
+    expect(isAutoScanDue(g, new Date('2026-07-11T13:05:00Z'))).toBe(true); // 9:05 EDT
+    expect(isAutoScanDue({ ...g, lastAutoScanDate: '2026-11-11' }, new Date('2026-11-11T14:05:00Z'))).toBe(false);
+    expect(isAutoScanDue({ ...g, autoScan: false }, new Date('2026-11-11T14:05:00Z'))).toBe(false);
+    expect(isAutoScanDue(null, new Date('2026-11-11T14:05:00Z'))).toBe(false);
+  });
+
+  it('scans each linked inbox and folds the venues into the saved list', async () => {
+    docs.set('weddingGmailTokens/u1', { refreshToken: 'r1', email: 'a@b.com' });
+    docs.set('users/u1', {
+      weddingGmail: { email: 'a@b.com' },
+      weddingVenues: [{ id: 'v1', name: 'The Foundry', perPlate: '$150', status: 'Inquired' }],
+      weddingVenueDismissed: ['old barn'],
+    });
+    docs.set('users/u2', { name: 'not linked' });
+    scanInbox.mockResolvedValue({
+      threadCount: 3,
+      venues: [
+        { name: 'Foundry', venueFee: '$18,000', perPlate: '$185/pp', allInclusive: 'No', status: 'Quote received', threadIds: ['t1'] },
+        { name: 'Pridwin', perPlate: '$210/pp', allInclusive: 'Yes', status: 'Replied', threadIds: ['t2'] },
+        { name: 'Old Barn', status: 'Replied', threadIds: ['t3'] },
+      ],
+    });
+    const res = await get(new Date('2026-11-11T14:05:00Z'));
+    expect(res.code).toBe(200);
+    expect(res.body.scanned).toBe(1);
+    const u = docs.get('users/u1');
+    expect(u.weddingVenues.map((v) => v.name)).toEqual(['The Foundry', 'Pridwin']);
+    expect(u.weddingVenues[0]).toMatchObject({ venueFee: '$18,000', perPlate: '$150', allInclusive: 'No', status: 'Quote received' });
+    expect(u.weddingVenues[1]).toMatchObject({ allInclusive: 'Yes', source: 'gmail' });
+    expect(u.weddingGmail).toMatchObject({ lastAutoScanDate: '2026-11-11', lastAutoScan: { added: ['Pridwin'], updatedCount: 1 } });
+    expect(u.weddingGmail.lastScanAt).toBeTruthy();
+
+    // The second cron run the same day finds it done.
+    scanInbox.mockClear();
+    const again = await get(new Date('2026-11-11T15:00:00Z'));
+    expect(again.body.scanned).toBe(0);
+    expect(scanInbox).not.toHaveBeenCalled();
+  });
+
+  it('notes a failure on the user doc rather than throwing', async () => {
+    docs.set('users/u1', { weddingGmail: { email: 'a@b.com' } });
+    const res = await get(new Date('2026-11-11T14:05:00Z'));
+    expect(res.code).toBe(200);
+    expect(docs.get('users/u1').weddingGmail.lastAutoScan.error).toMatch(/Connect a Gmail inbox/);
+  });
+
+  it('wants the cron secret when one is set', async () => {
+    process.env.CRON_SECRET = 'shh';
+    expect((await get(new Date('2026-11-11T14:05:00Z'))).code).toBe(401);
+    expect((await get(new Date('2026-11-11T14:05:00Z'), { authorization: 'Bearer shh' })).code).toBe(200);
   });
 });

@@ -3,8 +3,9 @@ import {
   normalizeColumnConfig, visibleVenueColumns, toggleColumn, moveColumn, addCustomColumn, removeCustomColumn,
   renameCustomColumn, setColumnWidth, MIN_COL_WIDTH, MAX_COL_WIDTH, cellValue, withCellValue, sortVenueRows, matchStatus, parseVenueDate,
   autoMapVenueHeaders, looksLikeVenueHeader, guessVenueColumns, planVenuePaste, DEFAULT_HIDDEN, venueSearchUrl,
+  toggleFavoriteColumn, dropColumn,
 } from './venueTable';
-import { normalizeVenue, mergeScannedVenues } from './weddingVenues';
+import { normalizeVenue, mergeScannedVenues, normalizeAllInclusive } from './weddingVenues';
 
 const keys = (cols) => cols.map((c) => c.key);
 
@@ -145,5 +146,81 @@ describe('venueSearchUrl', () => {
   });
   it('has nothing to search without a name or location', () => {
     expect(venueSearchUrl({ name: '' })).toBeNull();
+  });
+});
+
+describe('favorite columns and drag-and-drop', () => {
+  it('starring pins a column to the left and shows it', () => {
+    const c = toggleFavoriteColumn(normalizeColumnConfig(null), 'notes');
+    expect(c.favorites).toEqual(['notes']);
+    expect(c.order[0]).toBe('notes');
+    expect(c.hidden).not.toContain('notes');
+    const c2 = toggleFavoriteColumn(c, 'perPlate');
+    expect(c2.order.slice(0, 2)).toEqual(['notes', 'perPlate']);
+  });
+  it('unstarring drops it just after the starred ones', () => {
+    let c = toggleFavoriteColumn(normalizeColumnConfig(null), 'email');
+    c = toggleFavoriteColumn(c, 'phone');
+    c = toggleFavoriteColumn(c, 'email');
+    expect(c.favorites).toEqual(['phone']);
+    expect(c.order.slice(0, 2)).toEqual(['phone', 'email']);
+  });
+  it('a saved order is kept with favorites first', () => {
+    const c = normalizeColumnConfig({ order: ['name', 'status', 'price'], favorites: ['price', 'bogus'] });
+    expect(c.order.slice(0, 3)).toEqual(['price', 'name', 'status']);
+    expect(c.favorites).toEqual(['price']);
+  });
+  it('dropping moves a column before or after another', () => {
+    const c = normalizeColumnConfig(null);
+    expect(dropColumn(c, 'email', 'name').order.slice(0, 2)).toEqual(['email', 'name']);
+    const after = dropColumn(c, 'name', 'phone', true).order;
+    expect(after.indexOf('name')).toBe(after.indexOf('phone') + 1);
+  });
+  it('dropping among the starred ones stars it, and out of them unstars it', () => {
+    const c = toggleFavoriteColumn(normalizeColumnConfig(null), 'price');
+    const inFav = dropColumn(c, 'email', 'price', true);
+    expect(inFav.favorites).toEqual(['price', 'email']);
+    const out = dropColumn(inFav, 'price', 'status');
+    expect(out.favorites).toEqual(['email']);
+  });
+  it('arrows don\'t cross the line between starred and the rest', () => {
+    const c = toggleFavoriteColumn(normalizeColumnConfig(null), 'price');
+    expect(moveColumn(c, 'price', 1).order).toEqual(c.order);
+    expect(moveColumn(c, 'name', -1).order).toEqual(c.order);
+  });
+  it('a deleted custom column leaves the favorites', () => {
+    const { config, key } = addCustomColumn(normalizeColumnConfig(null), 'Region');
+    const fav = toggleFavoriteColumn(config, key);
+    expect(removeCustomColumn(fav, key).favorites).toEqual([]);
+  });
+});
+
+describe('pricing columns', () => {
+  it('a saved layout gets them beside Pricing, not on the end', () => {
+    const c = normalizeColumnConfig({ order: ['name', 'price', 'status', 'emails'], hidden: [] });
+    expect(c.order.slice(0, 5)).toEqual(['name', 'price', 'venueFee', 'perPlate', 'allInclusive']);
+  });
+  it('a fresh table shows venue price, per plate and all-inclusive', () => {
+    const shown = keys(visibleVenueColumns(null));
+    expect(shown).toEqual(expect.arrayContaining(['venueFee', 'perPlate', 'allInclusive']));
+  });
+  it('all-inclusive reads yes/no however it is typed', () => {
+    expect(normalizeAllInclusive('yes')).toBe('Yes');
+    expect(normalizeAllInclusive('All-inclusive')).toBe('Yes');
+    expect(normalizeAllInclusive(true)).toBe('Yes');
+    expect(normalizeAllInclusive('n')).toBe('No');
+    expect(normalizeAllInclusive('venue only')).toBe('No');
+    expect(normalizeAllInclusive('Partly')).toBe('Partly');
+    expect(normalizeAllInclusive('')).toBe('');
+    expect(withCellValue(normalizeVenue({ id: '1', name: 'A' }), 'allInclusive', 'Y').allInclusive).toBe('Yes');
+  });
+  it('pasted headers find the new columns', () => {
+    expect(autoMapVenueHeaders(['Venue', 'Venue fee', 'Per person', 'All inclusive?', 'Pricing']))
+      .toEqual(['name', 'venueFee', 'perPlate', 'allInclusive', 'price']);
+  });
+  it('a scan fills them in when empty and leaves typed ones alone', () => {
+    const mine = normalizeVenue({ id: 'v1', name: 'Foundry', perPlate: '$150 negotiated' });
+    const { list } = mergeScannedVenues([mine], [{ name: 'The Foundry', venueFee: '$18,000', perPlate: '$185/pp', allInclusive: 'Yes', status: 'Quote received' }]);
+    expect(list[0]).toMatchObject({ venueFee: '$18,000', perPlate: '$150 negotiated', allInclusive: 'Yes' });
   });
 });

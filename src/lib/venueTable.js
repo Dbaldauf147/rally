@@ -3,11 +3,14 @@
    in from Sheets or Excel.
 
    The column setup is kept on the user doc as `weddingVenueColumns`:
-     { order: [key…], hidden: [key…], custom: [{ key, label }…], widths: { key: px } }
+     { order: [key…], hidden: [key…], custom: [{ key, label }…], widths: { key: px },
+       favorites: [key…] }
+   Favorite (starred) columns are pinned: they always lead the order, so they
+   sit at the left of the table and the top of the column picker.
    A custom column's values live on each venue under `custom[key]`. Pure, so it
    can be tested without React. */
 
-import { VENUE_FIELDS, VENUE_STATUSES, normalizeVenue, sameVenue, sortVenues } from './weddingVenues.js';
+import { VENUE_FIELDS, VENUE_STATUSES, normalizeAllInclusive, normalizeVenue, sameVenue, sortVenues } from './weddingVenues.js';
 
 // Every built-in column, in the order a fresh table shows them. `emails` is
 // the Gmail threads a scan found, so it's counted, not typed.
@@ -21,7 +24,7 @@ const BUILTIN_KEYS = BUILTIN_COLUMNS.map((c) => c.key);
 // kept per column, clamped so it can't vanish or swallow the screen.
 export const MIN_COL_WIDTH = 60;
 export const MAX_COL_WIDTH = 800;
-const DEFAULT_WIDTHS = { name: 200, status: 140, email: 210, website: 180, lastContactDate: 140, emails: 100 };
+const DEFAULT_WIDTHS = { name: 200, status: 140, email: 210, website: 180, lastContactDate: 140, emails: 100, venueFee: 150, perPlate: 130, allInclusive: 120 };
 export function defaultColumnWidth(col) {
   return DEFAULT_WIDTHS[col?.key] || (col?.wide ? 230 : 160);
 }
@@ -49,7 +52,21 @@ export function normalizeColumnConfig(raw) {
   const all = [...BUILTIN_KEYS, ...custom.map((c) => c.key)];
   const valid = new Set(all);
   const order = (Array.isArray(r.order) ? r.order : []).filter((k, i, a) => valid.has(k) && a.indexOf(k) === i);
-  for (const k of all) if (!order.includes(k)) order.push(k);
+  // A built-in column that's newer than the saved setup goes in beside the
+  // one it follows in a fresh table (Per plate after Venue price after
+  // Pricing); anything else goes on the end.
+  for (const k of all) {
+    if (order.includes(k)) continue;
+    const bi = BUILTIN_KEYS.indexOf(k);
+    const prev = bi > 0 ? BUILTIN_KEYS.slice(0, bi).reverse().find((x) => order.includes(x)) : null;
+    if (prev) order.splice(order.indexOf(prev) + 1, 0, k);
+    else order.push(k);
+  }
+  const favorites = (Array.isArray(r.favorites) ? r.favorites : []).filter((k, i, a) => valid.has(k) && a.indexOf(k) === i);
+  // Favorites lead, in the order they sit in `order`.
+  const favSet = new Set(favorites);
+  const ordered = [...order.filter((k) => favSet.has(k)), ...order.filter((k) => !favSet.has(k))];
+  order.splice(0, order.length, ...ordered);
   let hidden = Array.isArray(r.hidden)
     ? r.hidden.filter((k, i, a) => valid.has(k) && a.indexOf(k) === i)
     : [...DEFAULT_HIDDEN];
@@ -59,7 +76,7 @@ export function normalizeColumnConfig(raw) {
     const n = Number(w);
     if (valid.has(k) && Number.isFinite(n)) widths[k] = clampWidth(n);
   });
-  return { order, hidden, custom, widths };
+  return { order, hidden, custom, widths, favorites: order.filter((k) => favSet.has(k)) };
 }
 
 export function setColumnWidth(config, key, width) {
@@ -67,14 +84,15 @@ export function setColumnWidth(config, key, width) {
   return normalizeColumnConfig({ ...c, widths: { ...c.widths, [key]: width } });
 }
 
-// Every column (shown or not) in table order, each { key, label, custom?, hidden }.
+// Every column (shown or not) in table order, each { key, label, custom?, hidden, favorite }.
 export function allVenueColumns(config) {
   const c = normalizeColumnConfig(config);
   const byKey = new Map([...BUILTIN_COLUMNS, ...c.custom.map((x) => ({ ...x, custom: true }))].map((x) => [x.key, x]));
   const hidden = new Set(c.hidden);
+  const fav = new Set(c.favorites);
   return c.order.map((k) => {
     const col = byKey.get(k);
-    return { ...col, hidden: hidden.has(k), width: c.widths[k] ?? defaultColumnWidth(col) };
+    return { ...col, hidden: hidden.has(k), favorite: fav.has(k), width: c.widths[k] ?? defaultColumnWidth(col) };
   });
 }
 
@@ -84,6 +102,38 @@ export function toggleColumn(config, key) {
   const c = normalizeColumnConfig(config);
   const hidden = c.hidden.includes(key) ? c.hidden.filter((k) => k !== key) : [...c.hidden, key];
   return normalizeColumnConfig({ ...c, hidden });
+}
+
+/* Starring a column pins it: it joins the end of the favorites (so it's
+   shown, at the left of the table). Unstarring drops it just after them. */
+export function toggleFavoriteColumn(config, key) {
+  const c = normalizeColumnConfig(config);
+  if (!c.order.includes(key)) return c;
+  const isFav = c.favorites.includes(key);
+  const rest = c.order.filter((k) => k !== key);
+  const favs = c.favorites.filter((k) => k !== key);
+  // Either way it sits at the line between the starred and the rest.
+  const order = [...favs, key, ...rest.slice(favs.length)];
+  return normalizeColumnConfig({
+    ...c,
+    order,
+    favorites: isFav ? favs : [...favs, key],
+    hidden: isFav ? c.hidden : c.hidden.filter((k) => k !== key),
+  });
+}
+
+/* Dragging a column in the picker and dropping it on another: it lands just
+   before (or, with `after`, just after) that one. Dropped among the starred
+   columns it becomes one; dragged out of them it stops being one. */
+export function dropColumn(config, key, targetKey, after = false) {
+  const c = normalizeColumnConfig(config);
+  if (key === targetKey || !c.order.includes(key) || !c.order.includes(targetKey)) return c;
+  const order = c.order.filter((k) => k !== key);
+  order.splice(order.indexOf(targetKey) + (after ? 1 : 0), 0, key);
+  // It joins whichever group it was dropped on.
+  const favSet = new Set(c.favorites.filter((k) => k !== key));
+  if (favSet.has(targetKey)) favSet.add(key);
+  return normalizeColumnConfig({ ...c, order, favorites: order.filter((k) => favSet.has(k)) });
 }
 
 // Moves a column one place left (-1) or right (+1) among the shown ones, so a
@@ -96,6 +146,8 @@ export function moveColumn(config, key, dir) {
   const to = at + dir;
   if (at < 0 || to < 0 || to >= shown.length) return c;
   const other = shown[to];
+  // Pinned columns stay ahead of the rest, so an arrow can't cross that line.
+  if (c.favorites.includes(key) !== c.favorites.includes(other)) return c;
   const order = c.order.map((k) => (k === key ? other : k === other ? key : k));
   return normalizeColumnConfig({ ...c, order });
 }
@@ -121,6 +173,7 @@ export function removeCustomColumn(config, key) {
     order: c.order.filter((k) => k !== key),
     hidden: c.hidden.filter((k) => k !== key),
     custom: c.custom.filter((x) => x.key !== key),
+    favorites: c.favorites.filter((k) => k !== key),
     widths,
   });
 }
@@ -151,6 +204,7 @@ export function withCellValue(v, key, value) {
     return normalizeVenue({ ...v, custom });
   }
   if (key === 'status') return normalizeVenue({ ...v, status: matchStatus(value) || v.status });
+  if (key === 'allInclusive') return normalizeVenue({ ...v, allInclusive: normalizeAllInclusive(value) });
   if (key === 'lastContactDate') return normalizeVenue({ ...v, lastContactDate: value ? parseVenueDate(value) : '' });
   return normalizeVenue({ ...v, [key]: value });
 }
@@ -224,6 +278,9 @@ const HEADER_RULES = [
   ['website', /web|site|url|link/],
   ['availability', /availab|open dates|dates? open/],
   ['lastContactDate', /last.*(contact|touch|email|spoke)|contacted|date/],
+  ['allInclusive', /inclusive|incl\b|catered|in-?house/],
+  ['perPlate', /per ?(plate|person|head|guest|pp)|\/ ?(pp|person|plate|head)|\bpp\b|plate/],
+  ['venueFee', /venue (price|fee|cost|rental)|site fee|rental|room fee|space fee/],
   ['nextStep', /next|to ?do|action|follow/],
   ['contactName', /contact|coordinator|planner|manager|rep\b|person|who/],
   ['status', /status|stage|state/],

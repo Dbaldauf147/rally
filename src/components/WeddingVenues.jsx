@@ -8,7 +8,7 @@ import {
 } from '../lib/weddingVenues';
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
-  moveColumn, normalizeColumnConfig, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
+  dropColumn, moveColumn, normalizeColumnConfig, toggleFavoriteColumn, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
   toggleColumn, venueSearchUrl, withCellValue,
 } from '../lib/venueTable';
 import { applyColumnFilters } from '../lib/columnFilters';
@@ -89,6 +89,14 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
       </select>
     );
   }
+  if (col.key === 'allInclusive') {
+    const opts = ['', 'Yes', 'No', ...(saved && !['Yes', 'No'].includes(saved) ? [saved] : [])];
+    return (
+      <select className={`${vs.statusSelect} ${saved === 'Yes' ? vs.stBooked : ''}`} value={saved} onChange={(e) => onCommit(e.target.value)} aria-label={`All-inclusive for ${venue.name}`}>
+        {opts.map((o) => <option key={o} value={o}>{o || '—'}</option>)}
+      </select>
+    );
+  }
   const commit = () => {
     if (val === saved) return;
     // A venue's name can't be emptied from here — it's what it's filed under.
@@ -162,6 +170,9 @@ export function WeddingVenues({ subnav } = {}) {
   const [colFilters, setColFilters] = useState({});
   const [sort, setSort] = useState(null); // { key, dir } or null = newest contact first
   const [colMenuOpen, setColMenuOpen] = useState(false);
+  // Dragging a row of the column picker: which one, and where it'd land.
+  const [dragCol, setDragCol] = useState(null);
+  const [dropAt, setDropAt] = useState(null); // { key, after }
   const colMenuRef = useRef(null);
   // Pasting a range in: the text, whether its first row is headings, and
   // where each of its columns goes (null = the automatic guess).
@@ -512,7 +523,17 @@ export function WeddingVenues({ subnav } = {}) {
               <strong>📬 {gmail.email}</strong>
               <span className={styles.muted}>
                 {gmail.lastScanAt ? `Last scanned ${fmtWhen(gmail.lastScanAt)}` : 'Not scanned yet'}
+                {gmail.lastAutoScan?.error ? ` · Daily scan failed: ${gmail.lastAutoScan.error}`
+                  : gmail.lastAutoScan?.added?.length ? ` · Daily scan added ${gmail.lastAutoScan.added.join(', ')}` : ''}
               </span>
+              <label className={vs.autoScan} title="Rally scans this inbox for you every morning and adds what it finds">
+                <input
+                  type="checkbox"
+                  checked={gmail.autoScan !== false}
+                  onChange={(e) => setDoc(doc(db, 'users', user.uid), { weddingGmail: { autoScan: e.target.checked } }, { merge: true }).catch(saveError)}
+                />
+                Scan automatically every day at 9 AM (Eastern)
+              </label>
             </div>
             <div className={vs.gmailActions}>
               <button type="button" className={styles.modalPrimary} onClick={() => scan()} disabled={!!busy}>
@@ -555,11 +576,51 @@ export function WeddingVenues({ subnav } = {}) {
           <button type="button" className={styles.toolButton} onClick={() => setColMenuOpen((o) => !o)} aria-expanded={colMenuOpen}>Columns ▾</button>
           {colMenuOpen && (
             <div className={`${styles.colMenuPopover} ${vs.colMenu}`} role="menu" aria-label="Columns">
-              <p className={vs.colMenuHint}>Tick to show · arrows to reorder</p>
-              {columns.map((col) => {
-                const at = visible.findIndex((c) => c.key === col.key);
+              <p className={vs.colMenuHint}>Tick to show · ★ to pin to the left · drag to reorder</p>
+              {columns.map((col, i) => {
+                const moved = (dir) => moveColumn(colConfig, col.key, dir);
+                const same = (c) => c.order.join() === colConfig.order.join();
+                const dropClass = dropAt?.key === col.key && dragCol && dragCol !== col.key
+                  ? (dropAt.after ? vs.dropAfter : vs.dropBefore) : '';
+                const lastFav = col.favorite && !columns[i + 1]?.favorite;
                 return (
-                  <div key={col.key} className={vs.colMenuRow}>
+                  <div
+                    key={col.key}
+                    className={`${vs.colMenuRow} ${dragCol === col.key ? vs.colDragging : ''} ${dropClass} ${lastFav ? vs.colLastFav : ''}`}
+                    draggable
+                    data-col={col.key}
+                    onDragStart={(e) => {
+                      setDragCol(col.key);
+                      e.dataTransfer.effectAllowed = 'move';
+                      e.dataTransfer.setData('text/plain', col.key);
+                    }}
+                    onDragOver={(e) => {
+                      if (!dragCol) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      const r = e.currentTarget.getBoundingClientRect();
+                      const after = e.clientY > r.top + r.height / 2;
+                      if (dropAt?.key !== col.key || dropAt.after !== after) setDropAt({ key: col.key, after });
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragCol && dropAt) saveColumns(dropColumn(colConfig, dragCol, dropAt.key, dropAt.after));
+                      setDragCol(null);
+                      setDropAt(null);
+                    }}
+                    onDragEnd={() => { setDragCol(null); setDropAt(null); }}
+                  >
+                    <span className={vs.dragHandle} aria-hidden="true" title="Drag to reorder">⋮⋮</span>
+                    <button
+                      type="button"
+                      className={col.favorite ? vs.colStarOn : vs.colStar}
+                      onClick={() => saveColumns(toggleFavoriteColumn(colConfig, col.key))}
+                      aria-pressed={col.favorite}
+                      aria-label={col.favorite ? `Unstar ${col.label}` : `Star ${col.label}`}
+                      title={col.favorite ? 'Unstar' : 'Star — pins it to the left of the table'}
+                    >
+                      {col.favorite ? '★' : '☆'}
+                    </button>
                     <label className={vs.colMenuLabel}>
                       <input type="checkbox" checked={!col.hidden} onChange={() => saveColumns(toggleColumn(colConfig, col.key))} />
                       <span>{col.label}</span>
@@ -570,8 +631,8 @@ export function WeddingVenues({ subnav } = {}) {
                         <button type="button" className={vs.iconBtn} onClick={() => deleteColumn(col)} title="Delete column" aria-label={`Delete ${col.label}`}>🗑</button>
                       </>
                     )}
-                    <button type="button" className={vs.iconBtn} disabled={col.hidden || at <= 0} onClick={() => saveColumns(moveColumn(colConfig, col.key, -1))} title="Move left" aria-label={`Move ${col.label} left`}>↑</button>
-                    <button type="button" className={vs.iconBtn} disabled={col.hidden || at < 0 || at >= visible.length - 1} onClick={() => saveColumns(moveColumn(colConfig, col.key, 1))} title="Move right" aria-label={`Move ${col.label} right`}>↓</button>
+                    <button type="button" className={vs.iconBtn} disabled={col.hidden || same(moved(-1))} onClick={() => saveColumns(moved(-1))} title="Move left" aria-label={`Move ${col.label} left`}>↑</button>
+                    <button type="button" className={vs.iconBtn} disabled={col.hidden || same(moved(1))} onClick={() => saveColumns(moved(1))} title="Move right" aria-label={`Move ${col.label} right`}>↓</button>
                   </div>
                 );
               })}
@@ -760,6 +821,10 @@ export function WeddingVenues({ subnav } = {}) {
                     {f.key === 'status' ? (
                       <select className={styles.contactInput} value={editing.status} onChange={(e) => setField('status', e.target.value)}>
                         {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    ) : f.type === 'yesno' ? (
+                      <select className={styles.contactInput} value={editing[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)}>
+                        {['', 'Yes', 'No', ...(editing[f.key] && !['Yes', 'No'].includes(editing[f.key]) ? [editing[f.key]] : [])].map((o) => <option key={o} value={o}>{o || 'Not known'}</option>)}
                       </select>
                     ) : f.multiline ? (
                       <textarea className={styles.contactInput} rows={3} value={editing[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)} />
