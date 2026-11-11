@@ -1,5 +1,5 @@
 .page { max-width: 1000px; margin: 0 auto; padding: 2rem 1rem 4rem; }
-.header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; }
+.header { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; }
 .title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
 .progress { font-size: 0.85rem; color: var(--color-text-muted); }
 .subtitle { color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
@@ -18,7 +18,7 @@
 .rowPast { opacity: 0.6; }
 .checkbox { width: 18px; height: 18px; accent-color: var(--color-accent); cursor: pointer; }
 
-.nameInput { width: 100%; min-width: 8rem; font-size: 0.92rem; font-weight: 600; color: var(--color-text); border: 1px solid transparent; background: transparent; border-radius: var(--radius-sm); padding: 0.25rem 0.35rem; }
+.nameInput { width: 100%; min-width: 13rem; font-size: 0.92rem; font-weight: 600; color: var(--color-text); border: 1px solid transparent; background: transparent; border-radius: var(--radius-sm); padding: 0.25rem 0.35rem; }
 .nameInput:hover { border-color: var(--color-border-light); }
 .nameInput:focus { outline: none; border-color: var(--color-accent); background: var(--color-bg); }
 
@@ -29,7 +29,7 @@
 .countdown { font-size: 0.72rem; font-weight: 600; color: var(--color-accent); background: var(--color-accent-light, rgba(99,102,241,0.12)); padding: 0.15rem 0.5rem; border-radius: 999px; white-space: nowrap; }
 .countdownPast { color: var(--color-text-muted); background: var(--color-surface-alt); }
 
-.ruleCell { font-size: 0.8rem; color: var(--color-text-secondary); font-style: italic; white-space: nowrap; }
+.ruleCell { font-size: 0.8rem; color: var(--color-text-secondary); font-style: italic; min-width: 11rem; }
 
 .noteInput { width: 100%; min-width: 8rem; font-size: 0.82rem; color: var(--color-text-secondary); border: 1px solid var(--color-border-light); background: var(--color-bg); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; }
 .noteInput:focus { outline: none; border-color: var(--color-accent); }
@@ -52,8 +52,54 @@
 .btn:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .btnDanger:hover { color: var(--color-danger); background: var(--color-danger-light); border-color: var(--color-danger-light); }
 
+
+.yearNav { display: flex; align-items: center; gap: 0.4rem; }
+.yearBtn { width: 30px; height: 30px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-size: 1.1rem; line-height: 1; cursor: pointer; }
+.yearBtn:hover { background: var(--color-surface-alt); color: var(--color-text); }
+.yearLabel { min-width: 3.2rem; text-align: center; font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.groupRow td { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); background: var(--color-surface-alt); padding: 0.4rem 0.7rem !important; }
+.emptyRow { text-align: center; color: var(--color-text-muted); font-size: 0.88rem; padding: 1.25rem !important; }
+
+.moreBtn { border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-secondary); font-size: 0.72rem; font-weight: 600; padding: 0.12rem 0.5rem; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.moreBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.allDates { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.4rem; }
+.dateChip { font-size: 0.74rem; color: var(--color-text-secondary); background: var(--color-surface-alt); border-radius: 999px; padding: 0.12rem 0.5rem; white-space: nowrap; }
+.dateChipPast { opacity: 0.55; }
+
+.ruleWrap { display: flex; align-items: center; gap: 0.5rem; }
+.editBtn { flex-shrink: 0; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-accent); font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: var(--radius-sm); cursor: pointer; }
+.editBtn:hover { background: var(--color-accent-light, rgba(99,102,241,0.12)); border-color: var(--color-accent); }
+
+.formGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem 1rem; margin-bottom: 0.75rem; }
+.field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; margin-bottom: 0.75rem; }
+.formGrid .field { margin-bottom: 0; }
+.fieldLabel { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.inline { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; font-size: 0.88rem; color: var(--color-text-secondary); }
+.select, .numInput, .yearInput { padding: 0.42rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-size: 0.88rem; color: var(--color-text); max-width: 100%; }
+.select:focus, .numInput:focus, .yearInput:focus { outline: none; border-color: var(--color-accent); }
+.numInput { width: 4.5rem; }
+.yearInput { width: 5.5rem; }
+.monthHint { font-size: 0.82rem; color: var(--color-text-muted); }
+.monthRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.3rem; }
+.monthChip { min-width: 2.9rem; padding: 0.3rem 0.5rem; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-bg); color: var(--color-text-secondary); font-size: 0.8rem; cursor: pointer; }
+.monthChip:hover { border-color: var(--color-accent); }
+.monthChipOn { background: var(--color-accent); border-color: var(--color-accent); color: #fff; font-weight: 600; }
+.linkBtn { border: none; background: none; color: var(--color-accent); font-size: 0.8rem; cursor: pointer; padding: 0.3rem 0.4rem; }
+.linkBtn:disabled { color: var(--color-text-muted); cursor: default; }
+.fineTitle { font-size: 0.85rem; font-weight: 600; color: var(--color-text-secondary); margin: 0.25rem 0 0.6rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border-light); }
+
+.preview { background: var(--color-surface-alt); border-radius: var(--radius-sm); padding: 0.7rem 0.85rem; margin-bottom: 0.85rem; }
+.previewRule { font-size: 0.92rem; font-weight: 600; color: var(--color-text); }
+.previewLabel { font-size: 0.74rem; font-weight: 600; color: var(--color-text-muted); }
+.previewProblem { font-size: 0.82rem; color: var(--color-text-secondary); margin-top: 0.35rem; }
+.preview .dateChip { background: var(--color-surface); }
+.spacer { flex: 1; }
+.toolbarHint { font-size: 0.78rem; color: var(--color-text-muted); }
+
 @media (max-width: 600px) {
-  .row { flex-wrap: nowrap; }
-  .addRow { flex-direction: column; align-items: stretch; }
-  .addName, .addDate { width: 100%; }
+  .addName, .select { width: 100%; }
+  .inline .select { width: auto; }
+  .spacer { display: none; }
+  .addBtn { flex: 1; padding: 0.6rem 1rem; }
 }
