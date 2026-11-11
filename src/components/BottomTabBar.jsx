@@ -67,6 +67,7 @@ export function BottomTabBar() {
       { to: '/wedding', label: 'Wedding', icon: icons.wedding },
       { to: '/travel-list', label: 'Travel List', icon: icons.travel },
       { to: '/pto', label: 'PTO', icon: icons.pto },
+      { to: '/holidays', label: 'Holidays', icon: icons.holidays },
       { to: '/doctors', label: 'Doctors', icon: icons.doctors },
       { to: '/joanne', label: 'Joanne', icon: icons.joanne },
       { to: '/pros-cons', label: 'Pros & Cons', icon: icons.prosCons },
@@ -75,7 +76,6 @@ export function BottomTabBar() {
   // Owner-only tools live behind the gear/Settings section of the sheet.
   const settingsItems = isOwner ? [
     { to: '/recurring', label: 'Repeating', icon: icons.repeating },
-    { to: '/holidays', label: 'Holidays', icon: icons.holidays },
     { to: '/admin', label: 'Admin', icon: icons.admin },
   ] : [];
   // A page the owner has hidden shouldn't leave a tab behind that only leads to
