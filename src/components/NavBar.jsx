@@ -13,7 +13,6 @@ const OWNER_EMAIL = 'baldaufdan@gmail.com';
 // these up later is a matter of dropping its ownerOnly flag.
 const GEAR_ITEMS = [
   { to: '/recurring', label: 'Repeating', ownerOnly: true },
-  { to: '/holidays', label: 'Holidays', ownerOnly: true },
   { to: '/admin', label: 'Admin', ownerOnly: true },
 ];
 
@@ -31,6 +30,7 @@ const NAV_ITEMS = [
   { to: '/wedding', label: 'Wedding', ownerOnly: true },
   { to: '/travel-list', label: 'Travel List', ownerOnly: true },
   { to: '/pto', label: 'PTO', ownerOnly: true },
+  { to: '/holidays', label: 'Holidays', ownerOnly: true },
   { to: '/doctors', label: 'Doctors', ownerOnly: true },
   { to: '/joanne', label: 'Joanne', ownerOnly: true },
   { to: '/pros-cons', label: 'Pros & Cons', ownerOnly: true },
