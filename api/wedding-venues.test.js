@@ -228,15 +228,15 @@ describe('daily scheduled scan', () => {
     docs.set('weddingGmailTokens/u1', { refreshToken: 'r1', email: 'a@b.com' });
     docs.set('users/u1', {
       weddingGmail: { email: 'a@b.com' },
-      weddingVenues: [{ id: 'v1', name: 'The Foundry', perPlate: '$150', status: 'Inquired' }],
+      weddingVenues: [{ id: 'v1', name: 'The Foundry', perPersonLow: '$150', status: 'Inquired' }],
       weddingVenueDismissed: ['old barn'],
     });
     docs.set('users/u2', { name: 'not linked' });
     scanInbox.mockResolvedValue({
       threadCount: 3,
       venues: [
-        { name: 'Foundry', venueFee: '$18,000', perPlate: '$185/pp', allInclusive: 'No', status: 'Quote received', threadIds: ['t1'] },
-        { name: 'Pridwin', perPlate: '$210/pp', allInclusive: 'Yes', status: 'Replied', threadIds: ['t2'] },
+        { name: 'Foundry', venueFeeLow: 18000, venueFeeHigh: 21500, perPersonLow: 185, perPersonHigh: 205, allInclusive: 'No', status: 'Quote received', threadIds: ['t1'] },
+        { name: 'Pridwin', venueFeeLow: null, venueFeeHigh: null, perPersonLow: 210, perPersonHigh: 210, allInclusive: 'Yes', status: 'Replied', threadIds: ['t2'] },
         { name: 'Old Barn', status: 'Replied', threadIds: ['t3'] },
       ],
     });
@@ -245,7 +245,8 @@ describe('daily scheduled scan', () => {
     expect(res.body.scanned).toBe(1);
     const u = docs.get('users/u1');
     expect(u.weddingVenues.map((v) => v.name)).toEqual(['The Foundry', 'Pridwin']);
-    expect(u.weddingVenues[0]).toMatchObject({ venueFee: '$18,000', perPlate: '$150', allInclusive: 'No', status: 'Quote received' });
+    expect(u.weddingVenues[0]).toMatchObject({ venueFeeLow: '$18,000', venueFeeHigh: '$21,500', perPersonLow: '$150', perPersonHigh: '$205', allInclusive: 'No', status: 'Quote received' });
+    expect(u.weddingVenues[1]).toMatchObject({ venueFeeLow: '', perPersonLow: '$210', perPersonHigh: '$210' });
     expect(u.weddingVenues[1]).toMatchObject({ allInclusive: 'Yes', source: 'gmail' });
     expect(u.weddingGmail).toMatchObject({ lastAutoScanDate: '2026-11-11', lastAutoScan: { added: ['Pridwin'], updatedCount: 1 } });
     expect(u.weddingGmail.lastScanAt).toBeTruthy();

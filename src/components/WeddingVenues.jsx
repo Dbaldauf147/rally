@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
   VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeScannedVenues, newVenueId,
-  normalizeVenue, venueNameKey,
+  cleanMoney, normalizeVenue, venueNameKey,
 } from '../lib/weddingVenues';
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
@@ -106,8 +106,10 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid }) {
   };
   const input = (
     <input
-      className={vs.cellInput}
+      className={col.type === 'money' ? `${vs.cellInput} ${vs.moneyInput}` : vs.cellInput}
       type={col.key === 'lastContactDate' ? 'date' : 'text'}
+      inputMode={col.type === 'money' ? 'decimal' : undefined}
+      placeholder={col.type === 'money' ? '—' : undefined}
       value={val}
       aria-label={`${col.label} for ${venue.name || 'venue'}`}
       onChange={(e) => {
@@ -842,7 +844,9 @@ export function WeddingVenues({ subnav } = {}) {
                     ) : (
                       <input
                         className={styles.contactInput}
-                        type={f.type || 'text'}
+                        type={f.type === 'money' ? 'text' : f.type || 'text'}
+                        inputMode={f.type === 'money' ? 'decimal' : undefined}
+                        onBlur={f.type === 'money' ? (e) => setField(f.key, cleanMoney(e.target.value)) : undefined}
                         value={editing[f.key] || ''}
                         onChange={(e) => setField(f.key, e.target.value)}
                         autoFocus={f.key === 'name' && !editing.name}

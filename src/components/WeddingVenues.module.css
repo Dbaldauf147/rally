@@ -124,3 +124,6 @@
 .draftMeta { font-size: 0.8rem; margin: 0 0 0.6rem; }
 .draftBtn { border: none; background: none; cursor: pointer; font-size: 0.85rem; padding: 0 0.15rem; color: var(--color-text-muted); }
 .draftBtn:hover { color: var(--color-accent); }
+
+/* Price cells: amounts line up on the right. */
+.moneyInput { text-align: right; font-variant-numeric: tabular-nums; }
