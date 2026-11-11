@@ -7,6 +7,8 @@
    adds the threads it found. A venue that was deleted is remembered by key in
    `weddingVenueDismissed`, so the next scan doesn't bring it back. */
 
+import { normalizeReasonList } from './venueNoFit.js';
+
 export const VENUE_STATUSES = ['Researching', 'Inquired', 'Replied', 'Tour scheduled', 'Toured', 'Quote received', 'Booked', 'Not a fit'];
 
 export const VENUE_FIELDS = [
@@ -143,6 +145,9 @@ export function normalizeVenue(v, { id } = {}) {
   // Which of the couple's locations it's in, when picked by hand (an id from
   // weddingVenueAreas, or '__none'); blank means matched from the address.
   out.area = str(v?.area);
+  // Why it was marked Not a fit — checked off from a shared list
+  // (lib/venueNoFit.js). Kept if the status moves on, in case it comes back.
+  out.noFitReasons = normalizeReasonList(v?.noFitReasons);
   out.custom = {};
   if (v?.custom && typeof v.custom === 'object') {
     for (const [k, val] of Object.entries(v.custom)) if (/^c_[a-z0-9]+$/.test(k) && str(val)) out.custom[k] = str(val);

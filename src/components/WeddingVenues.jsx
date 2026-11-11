@@ -17,6 +17,8 @@ import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 import { VenueReplyDraft } from './VenueReplyDraft';
 import { VenueAreasEditor } from './VenueAreasEditor';
+import { VenueNoFitPrompt } from './VenueNoFitPrompt';
+import { noFitReasonOptions, normalizeReasonList } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
 
 // The inbox the venue mail goes to. Only a hint for Google's account picker —
@@ -106,7 +108,7 @@ function AreaSelect({ venue, areas, onCommit, className = '' }) {
 
 /* One editable cell. Typing stays local and saves when you leave the cell or
    press Enter (Escape puts it back), so a save never lands mid-word. */
-function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, areas = [] }) {
+function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, areas = [] }) {
   const saved = cellValue(venue, col.key);
   const [val, setVal] = useState(saved);
   const [focused, setFocused] = useState(false);
@@ -128,10 +130,20 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, areas = [] })
     ) : <span className={styles.muted}>—</span>;
   }
   if (col.key === 'status') {
-    return (
+    const select = (
       <select className={`${vs.statusSelect} ${STATUS_CLASS[venue.status] || ''}`} value={venue.status} onChange={(e) => onCommit(e.target.value)} aria-label={`Status of ${venue.name}`}>
         {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
+    );
+    if (venue.status !== 'Not a fit') return select;
+    const why = venue.noFitReasons || [];
+    return (
+      <>
+        {select}
+        <button type="button" className={`${vs.noFitWhy} ${why.length ? '' : vs.noFitWhyEmpty}`} onClick={onNoFitWhy} title="Why it isn't a fit — click to change">
+          {why.length ? why.join(' · ') : '+ Why not a fit?'}
+        </button>
+      </>
     );
   }
   if (col.key === 'allInclusive') {
@@ -216,6 +228,11 @@ export function WeddingVenues({ subnav } = {}) {
   // The couple's list of locations, and whether its editor is open.
   const [areas, setAreas] = useState([]);
   const [areasOpen, setAreasOpen] = useState(false);
+  // Reasons typed in for "Not a fit", offered as checkboxes from then on.
+  const [noFitSaved, setNoFitSaved] = useState([]);
+  // The "why not a fit?" pop-up: the venue, and whether it came from the
+  // table or the venue pop-up (which saves through its own draft).
+  const [noFitFor, setNoFitFor] = useState(null); // { venue, from: 'table' | 'editor' }
   // The table's columns: order, hidden, and the ones added by hand.
   const [colConfig, setColConfig] = useState(() => normalizeColumnConfig(null));
   const [colFilters, setColFilters] = useState({});
@@ -248,6 +265,7 @@ export function WeddingVenues({ subnav } = {}) {
       setGmail(data.weddingGmail?.email ? data.weddingGmail : null);
       setColConfig(folded.changed ? folded.config : normalizeColumnConfig(data.weddingVenueColumns));
       setAreas(normalizeAreas(data.weddingVenueAreas));
+      setNoFitSaved(normalizeReasonList(data.weddingVenueNoFitReasons));
       setLoading(false);
     }, () => setLoading(false));
   }, [user]);
@@ -397,6 +415,11 @@ export function WeddingVenues({ subnav } = {}) {
   };
   const setCell = (v, key, value) => {
     if (key === 'name' && !String(value).trim()) return;
+    // Marking a venue Not a fit asks why first; Cancel leaves it as it was.
+    if (key === 'status' && value === 'Not a fit' && v.status !== 'Not a fit') {
+      setNoFitFor({ venue: v, from: 'table' });
+      return;
+    }
     updateVenue(v.id, (x) => withCellValue(x, key, value));
   };
   // Hiding takes a row off the table (not off the list); Undo puts it back.
@@ -405,6 +428,30 @@ export function WeddingVenues({ subnav } = {}) {
     setMessage(hidden
       ? { type: 'ok', text: `Hid ${v.name}. Hidden venues are under “Hidden” in the first column's filter.`, undo: () => setHidden(v, false) }
       : { type: 'ok', text: `${v.name} is back on the table.` });
+  };
+
+  /* ── Not a fit: why ── */
+  const noFitOptions = useMemo(
+    () => noFitReasonOptions(noFitSaved, noFitFor ? venues.filter((v) => v.id !== noFitFor.venue.id) : venues),
+    [noFitSaved, venues, noFitFor],
+  );
+  const closeNoFit = useCallback(() => setNoFitFor(null), []);
+  const saveNoFit = (reasons, newReasons) => {
+    const { venue, from } = noFitFor;
+    setNoFitFor(null);
+    const extra = {};
+    if (newReasons.length) {
+      const nextSaved = normalizeReasonList([...noFitSaved, ...newReasons]);
+      setNoFitSaved(nextSaved);
+      extra.weddingVenueNoFitReasons = nextSaved;
+    }
+    if (from === 'editor') {
+      setEditing((d) => (d ? { ...d, status: 'Not a fit', noFitReasons: reasons } : d));
+      if (extra.weddingVenueNoFitReasons && user) setDoc(doc(db, 'users', user.uid), extra, { merge: true }).catch(saveError);
+      return;
+    }
+    const next = venuesRef.current.map((x) => (x.id === venue.id ? normalizeVenue({ ...x, status: 'Not a fit', noFitReasons: reasons }) : x));
+    persist(next, extra).catch(saveError);
   };
 
   const saveColumns = (next, extra = {}) => {
@@ -866,7 +913,7 @@ export function WeddingVenues({ subnav } = {}) {
                     </td>
                     {visible.map((col) => (
                       <td key={col.key} className={vs.cell}>
-                        <EditCell venue={v} col={col} areas={areas} gmailEmail={gmail?.email} onCommit={(val) => setCell(v, col.key, val)} onPasteGrid={openPaste} />
+                        <EditCell venue={v} col={col} areas={areas} gmailEmail={gmail?.email} onCommit={(val) => setCell(v, col.key, val)} onPasteGrid={openPaste} onNoFitWhy={() => setNoFitFor({ venue: v, from: 'table' })} />
                       </td>
                     ))}
                   </tr>
@@ -971,9 +1018,26 @@ export function WeddingVenues({ subnav } = {}) {
                   <label key={f.key} className={f.wide ? `${styles.contactField} ${styles.contactWide}` : styles.contactField}>
                     <span className={styles.contactLabel}>{f.label}</span>
                     {f.key === 'status' ? (
-                      <select className={styles.contactInput} value={editing.status} onChange={(e) => setField('status', e.target.value)}>
-                        {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      <>
+                        <select
+                          className={styles.contactInput}
+                          value={editing.status}
+                          onChange={(e) => {
+                            if (e.target.value === 'Not a fit' && editing.status !== 'Not a fit') setNoFitFor({ venue: editing, from: 'editor' });
+                            else setField('status', e.target.value);
+                          }}
+                        >
+                          {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        {editing.status === 'Not a fit' && (
+                          <span className={vs.noFitDetail}>
+                            {editing.noFitReasons?.length ? editing.noFitReasons.join(' · ') : 'No reason given yet.'}
+                            <button type="button" className={vs.noFitWhy} onClick={(e) => { e.preventDefault(); setNoFitFor({ venue: editing, from: 'editor' }); }}>
+                              {editing.noFitReasons?.length ? 'Change' : '+ Why?'}
+                            </button>
+                          </span>
+                        )}
+                      </>
                     ) : f.type === 'yesno' ? (
                       <select className={styles.contactInput} value={editing[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)}>
                         {['', 'Yes', 'No', ...(editing[f.key] && !['Yes', 'No'].includes(editing[f.key]) ? [editing[f.key]] : [])].map((o) => <option key={o} value={o}>{o || 'Not known'}</option>)}
@@ -1033,6 +1097,9 @@ export function WeddingVenues({ subnav } = {}) {
             </div>
           </form>
         </div>
+      )}
+      {noFitFor && (
+        <VenueNoFitPrompt venue={noFitFor.venue} options={noFitOptions} onSave={saveNoFit} onCancel={closeNoFit} />
       )}
       {areasOpen && (
         <VenueAreasEditor areas={areas} venues={venues} onSave={saveAreas} onClose={closeAreas} />

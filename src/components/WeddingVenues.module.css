@@ -146,3 +146,18 @@
 .areaWarn { margin-top: 0.9rem; padding: 0.7rem 0.85rem; border-radius: var(--radius-sm); background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-size: 0.85rem; }
 .areaWarn ul { margin: 0.35rem 0 0.4rem 1.1rem; padding: 0; }
 @media (max-width: 640px) { .areaRow { flex-wrap: wrap; } .areaName { flex: 1 1 60%; } .areaKeywords { flex: 1 1 100%; } }
+
+/* "Not a fit" — why, as checkboxes (VenueNoFitPrompt). */
+.noFitOverlay { z-index: 400; }
+.noFitModal { max-width: 460px; }
+.noFitList { display: flex; flex-direction: column; gap: 0.15rem; }
+.noFitOption { display: flex; align-items: center; gap: 0.55rem; padding: 0.4rem 0.3rem; border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--color-text); cursor: pointer; }
+.noFitOption:hover { background: var(--color-surface-alt); }
+.noFitOption input { accent-color: var(--color-accent); width: 1rem; height: 1rem; flex-shrink: 0; }
+.noFitCount { margin-left: auto; font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-surface-alt); border-radius: 999px; padding: 0.05rem 0.45rem; }
+.noFitAdd { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.noFitAdd input { flex: 1; min-width: 0; }
+.noFitWhy { display: block; margin-top: 0.2rem; background: none; border: none; padding: 0; font: inherit; font-size: 0.72rem; color: var(--color-text-muted); text-align: left; cursor: pointer; white-space: normal; }
+.noFitWhy:hover { color: var(--color-accent); text-decoration: underline; }
+.noFitWhyEmpty { color: #b91c1c; }
+.noFitDetail { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-top: 0.35rem; font-size: 0.82rem; color: var(--color-text-muted); }
