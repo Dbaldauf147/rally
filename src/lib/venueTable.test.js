@@ -234,6 +234,18 @@ describe('pricing columns', () => {
     expect(sortVenueRows(list, { key: 'venueFeeLow', dir: 'asc' }).map((v) => v.venueFeeLow)).toEqual(['$850', '$9,000', '$12,000', '']);
     expect(sortVenueRows(list, { key: 'venueFeeLow', dir: 'desc' }).map((v) => v.venueFeeLow)).toEqual(['$12,000', '$9,000', '$850', '']);
   });
+  it('sinks Not a fit venues to the bottom unless sorting by status', () => {
+    const list = [
+      { name: 'A', status: 'Not a fit', lastContactDate: '2026-11-10' },
+      { name: 'B', status: 'Replied', lastContactDate: '2026-10-01' },
+      { name: 'C', status: 'Booked', lastContactDate: '2026-09-01' },
+      { name: 'D', status: 'Not a fit', lastContactDate: '2026-08-01' },
+    ];
+    expect(sortVenueRows(list, null).map((v) => v.name)).toEqual(['B', 'C', 'A', 'D']);
+    expect(sortVenueRows(list, { key: 'name', dir: 'asc' }).map((v) => v.name)).toEqual(['B', 'C', 'A', 'D']);
+    expect(sortVenueRows(list, { key: 'name', dir: 'desc' }).map((v) => v.name)).toEqual(['C', 'B', 'D', 'A']);
+    expect(sortVenueRows(list, { key: 'status', dir: 'desc' }).map((v) => v.name)).toEqual(['A', 'D', 'C', 'B']);
+  });
   it('all-inclusive reads yes/no however it is typed', () => {
     expect(normalizeAllInclusive('yes')).toBe('Yes');
     expect(normalizeAllInclusive('All-inclusive')).toBe('Yes');

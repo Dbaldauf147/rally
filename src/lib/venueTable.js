@@ -250,7 +250,10 @@ export function sortVenueRows(list, sort) {
       return dir * x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' });
     });
   }
-  return base;
+  // Ruled-out venues sink below the live ones, whatever the sort — unless
+  // you sorted by status itself, where the order you picked is the point.
+  if (sort?.key === 'status') return base;
+  return [...base.filter((v) => v.status !== 'Not a fit'), ...base.filter((v) => v.status === 'Not a fit')];
 }
 
 /* ── Values typed or pasted ── */
