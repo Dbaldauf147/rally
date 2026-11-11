@@ -439,6 +439,19 @@ export function WeddingVenues({ subnav } = {}) {
     return applyColumnFilters(rows, text, textOf, ['phone']);
   }, [venues, search, sort, colFilters]);
   const filtersOn = Object.values(colFilters).some((x) => String(x || '').trim());
+  // Subtabs by status. The tab is the Status column's filter, not a second
+  // one beside it, so the tab and the column header can never disagree.
+  // Empty statuses get no tab unless you're on it.
+  const statusTabs = useMemo(() => {
+    const counts = new Map(VENUE_STATUSES.map((st) => [st, 0]));
+    for (const v of venues) if (counts.has(v.status)) counts.set(v.status, counts.get(v.status) + 1);
+    return [
+      { value: '', label: 'All', count: venues.length },
+      ...VENUE_STATUSES.filter((st) => counts.get(st) > 0 || colFilters.status === st)
+        .map((st) => ({ value: st, label: st, count: counts.get(st) })),
+    ];
+  }, [venues, colFilters.status]);
+  const activeStatusTab = colFilters.status || '';
 
   /* ── Pasting a spreadsheet range ── */
   const openPaste = (text = '') => {
@@ -577,6 +590,24 @@ export function WeddingVenues({ subnav } = {}) {
           {message.text}{' '}
           <button type="button" className={styles.tierLegendEdit} onClick={() => setMessage(null)}>Dismiss</button>
         </p>
+      )}
+
+      {venues.length > 0 && (
+        <div className={styles.categoryTabs} role="tablist" aria-label="Venues by status">
+          {statusTabs.map((t) => (
+            <button
+              key={t.value || '__all__'}
+              type="button"
+              role="tab"
+              aria-selected={activeStatusTab === t.value}
+              className={activeStatusTab === t.value ? styles.categoryTabActive : styles.categoryTab}
+              onClick={() => setColFilters((f) => ({ ...f, status: t.value }))}
+            >
+              {t.label}
+              <span className={styles.categoryTabCount}>{t.count}</span>
+            </button>
+          ))}
+        </div>
       )}
 
       <div className={styles.toolbar}>
