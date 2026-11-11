@@ -9,6 +9,13 @@
 //   scan        → { venues, threadCount, account }: reads the venue threads
 //                 since the last scan (or two years, with { full: true }).
 //   disconnect  → revokes the token and forgets the connection.
+//   draftReply  → { to, subject, body, threadId, inReplyTo, references, tailored }
+//                 for { venueId }: the saved template filled in for that
+//                 venue and, when it has threads, adapted by Claude to the
+//                 venue's latest email. Nothing is saved to Gmail yet.
+//   saveDraft   → { draftId } for { to, subject, body, threadId?, inReplyTo?,
+//                 references? }: a Gmail draft (never sent) in that thread.
+//                 Needs the compose scope; without it, 409 needs_compose.
 //
 // GET is the daily scheduled scan (Vercel Cron, see vercel.json): every
 // linked inbox whose `weddingGmail.autoScan` isn't switched off is scanned at
@@ -23,7 +30,9 @@ import { getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { refreshAccessToken, scanInbox } from '../lib/weddingVenueScan.js';
-import { GMAIL_SCOPE } from '../lib/weddingGmailAuth.js';
+import { GMAIL_SCOPES } from '../lib/weddingGmailAuth.js';
+import { buildRawEmail, createDraft, fetchThreads, replyTarget, writeReply } from '../lib/weddingVenueDraft.js';
+import { fillTemplate, replySettingsFor, replySubject, templateOf } from '../src/lib/weddingVenueReply.js';
 import { mergeScannedVenues, normalizeVenue } from '../src/lib/weddingVenues.js';
 
 export const config = { maxDuration: 300 };
@@ -51,39 +60,67 @@ export function isAutoScanDue(gmail, now = new Date()) {
   return hour >= AUTO_SCAN_HOUR && gmail.lastAutoScanDate !== day;
 }
 
-/* One inbox's scan: refresh the token, read mail since the last scan, and
-   stamp the scan time. Returns { venues, threadCount, account, since } or
-   throws an error with .status (and .code 'not_connected'). */
-async function scanFor(db, uid, { full = false } = {}) {
+// A fresh access token for a linked inbox, or an error with .status/.code.
+async function accessFor(db, uid) {
   const tokenRef = db.doc(`weddingGmailTokens/${uid}`);
-  const userRef = db.doc(`users/${uid}`);
-  const fail = (status, message, code) => Object.assign(new Error(message), { status, code });
   const stored = (await tokenRef.get()).data();
-  if (!stored?.refreshToken) throw fail(409, 'Connect a Gmail inbox first', 'not_connected');
-  let access;
+  if (!stored?.refreshToken) throw Object.assign(new Error('Connect a Gmail inbox first'), { status: 409, code: 'not_connected' });
   try {
-    access = await refreshAccessToken(stored.refreshToken);
+    return { access: await refreshAccessToken(stored.refreshToken), email: stored.email || '' };
   } catch (err) {
     if (err.code === 'invalid_grant') {
       // Revoked, or expired (Google expires them after 7 days while the
       // OAuth app is in Testing). Forget it so the page offers Connect again.
       await tokenRef.delete().catch(() => {});
-      await userRef.set({ weddingGmail: FieldValue.delete() }, { merge: true });
-      throw fail(409, 'The Gmail connection expired — connect it again', 'not_connected');
+      await db.doc(`users/${uid}`).set({ weddingGmail: FieldValue.delete() }, { merge: true });
+      throw Object.assign(new Error('The Gmail connection expired — connect it again'), { status: 409, code: 'not_connected' });
     }
-    throw fail(502, `Google sign-in failed: ${err.message}`);
+    throw Object.assign(new Error(`Google sign-in failed: ${err.message}`), { status: 502 });
   }
+}
+
+/* One inbox's scan: refresh the token, read mail since the last scan, and
+   stamp the scan time. Returns { venues, threadCount, account, since } or
+   throws an error with .status (and .code 'not_connected'). */
+async function scanFor(db, uid, { full = false } = {}) {
+  const userRef = db.doc(`users/${uid}`);
+  const fail = (status, message, code) => Object.assign(new Error(message), { status, code });
+  const { access, email } = await accessFor(db, uid);
   const userSnap = await userRef.get();
   const last = userSnap.data()?.weddingGmail?.lastScanAt;
   const since = !full && last?.toDate ? last.toDate() : null;
   try {
     const { venues, threadCount } = await scanInbox(access, { since });
     await userRef.set({ weddingGmail: { lastScanAt: FieldValue.serverTimestamp() } }, { merge: true });
-    return { venues, threadCount, account: stored.email || '', since: since ? since.toISOString() : null };
+    return { venues, threadCount, account: email, since: since ? since.toISOString() : null };
   } catch (err) {
     if (err.status === 403) throw fail(502, 'Gmail refused the request — is the Gmail API enabled for this Google Cloud project?');
     throw fail(500, err.message || 'Scan failed');
   }
+}
+
+async function draftReply(db, uid, venueId) {
+  const user = (await db.doc(`users/${uid}`).get()).data() || {};
+  const venue = (Array.isArray(user.weddingVenues) ? user.weddingVenues : []).find((v) => v?.id === venueId);
+  if (!venue) throw Object.assign(new Error('That venue isn’t on the list any more'), { status: 404 });
+  const settings = replySettingsFor(user);
+  const template = fillTemplate(templateOf(settings), venue);
+  const out = { to: venue.email || '', subject: replySubject('', venue.name), body: template, threadId: '', inReplyTo: '', references: '', tailored: false };
+  const ids = (Array.isArray(venue.threadIds) ? venue.threadIds : []).slice(-4);
+  if (!ids.length) return out;
+  const { access, email } = await accessFor(db, uid);
+  const target = replyTarget(await fetchThreads(access, ids), email);
+  if (!target) return out;
+  Object.assign(out, {
+    to: target.to || out.to,
+    subject: replySubject(target.subject, venue.name),
+    threadId: target.thread.id,
+    inReplyTo: target.messageId,
+    references: target.references,
+  });
+  const body = await writeReply({ template, details: settings.details, venue, thread: target.thread }).catch(() => null);
+  if (body) Object.assign(out, { body, tailored: true });
+  return out;
 }
 
 async function scheduledScan(req, res, db, now = new Date()) {
@@ -150,7 +187,7 @@ export default async function handler(req, res) {
       client_id: process.env.GOOGLE_CLIENT_ID,
       redirect_uri: `${origin(req)}/api/google-callback`,
       response_type: 'code',
-      scope: GMAIL_SCOPE,
+      scope: GMAIL_SCOPES,
       access_type: 'offline',
       prompt: 'consent select_account',
       include_granted_scopes: 'false',
@@ -169,6 +206,33 @@ export default async function handler(req, res) {
     await tokenRef.delete().catch(() => {});
     await userRef.set({ weddingGmail: FieldValue.delete() }, { merge: true });
     return res.status(200).json({ ok: true });
+  }
+
+  if (action === 'draftReply') {
+    try {
+      return res.status(200).json(await draftReply(db, uid, String(req.body?.venueId || '')));
+    } catch (err) {
+      return res.status(err.status || 500).json({ error: err.message || 'Could not draft a reply', ...(err.code ? { code: err.code } : {}) });
+    }
+  }
+
+  if (action === 'saveDraft') {
+    const { to, subject, body, threadId, inReplyTo, references } = req.body || {};
+    if (!String(to || '').includes('@')) return res.status(400).json({ error: 'Add the venue’s email address first' });
+    if (!String(body || '').trim()) return res.status(400).json({ error: 'The email is empty' });
+    try {
+      const { access } = await accessFor(db, uid);
+      const raw = buildRawEmail({ to, subject: subject || 'Wedding inquiry', body, inReplyTo, references });
+      const saved = await createDraft(access, { raw, threadId: threadId || undefined });
+      await userRef.set({ weddingGmail: { canDraft: true } }, { merge: true });
+      return res.status(200).json(saved);
+    } catch (err) {
+      if (err.code === 'needs_compose') {
+        await userRef.set({ weddingGmail: { canDraft: false } }, { merge: true }).catch(() => {});
+        return res.status(409).json({ error: 'Reconnect Gmail and allow Rally to create drafts', code: 'needs_compose' });
+      }
+      return res.status(err.status && err.status < 600 ? err.status : 500).json({ error: err.message || 'Could not save the draft', ...(err.code ? { code: err.code } : {}) });
+    }
   }
 
   if (action === 'scan') {

@@ -103,3 +103,19 @@
 .colStar:hover { color: #f59e0b; }
 .autoScan { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; color: var(--color-text-muted); cursor: pointer; }
 .autoScan input { accent-color: var(--color-accent); }
+
+/* Reply email tab, and the per-venue draft. */
+.replyLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .replyLayout { grid-template-columns: 1fr; } }
+.replyCard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem 1.1rem; min-width: 0; }
+.replyHeading { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.6rem; color: var(--color-text); }
+.replyHeadRow { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.4rem; }
+.replyHeadRow .replyHeading { margin-bottom: 0.5rem; }
+.replyHeadRow > span { font-size: 0.78rem; }
+.replyHint { font-size: 0.78rem; margin: 0.45rem 0 0.6rem; }
+.replyTemplate { min-height: 340px; resize: vertical; line-height: 1.5; font-size: 0.9rem; }
+.replyPreview { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 0.88rem; line-height: 1.5; margin: 0; padding: 0.8rem 0.9rem; background: var(--color-surface-alt); border-radius: var(--radius-sm); color: var(--color-text); }
+.draftBody { min-height: 320px; resize: vertical; line-height: 1.5; font-size: 0.9rem; }
+.draftMeta { font-size: 0.8rem; margin: 0 0 0.6rem; }
+.draftBtn { border: none; background: none; cursor: pointer; font-size: 0.85rem; padding: 0 0.15rem; color: var(--color-text-muted); }
+.draftBtn:hover { color: var(--color-accent); }
