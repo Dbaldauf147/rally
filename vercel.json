@@ -7,6 +7,7 @@
     { "path": "/api/sports-digest", "schedule": "0 12 * * *" },
     { "path": "/api/poll-series", "schedule": "0 11 * * *" },
     { "path": "/api/reachout-badge", "schedule": "0 8 * * *" },
+    { "path": "/api/holiday-reachout", "schedule": "0 14 * * *" },
     { "path": "/api/wedding-digest", "schedule": "0 12 * * *" },
     { "path": "/api/wedding-digest", "schedule": "0 13 * * *" },
     { "path": "/api/wedding-venues", "schedule": "0 13 * * *" },

@@ -8,7 +8,7 @@
    The list lives in localStorage on this device. That is the same place the
    Holidays page has always kept it — it does not sync between devices. */
 
-import { normalizeRule, occurrencesForYear } from './holidayRules';
+import { normalizeRule, occurrencesForYear } from './holidayRules.js';
 
 export const STORAGE_KEY = 'rally.holidays.v2';
 // The pre-cadence list: one fixed 2026 date per holiday. Read once, to migrate.
