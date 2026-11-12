@@ -9,7 +9,7 @@ import {
 } from '../lib/weddingVenues';
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
-  dropColumn, moveColumn, normalizeColumnConfig, toggleFavoriteColumn, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
+  canDeleteColumn, deleteBuiltinColumn, deletedColumns, restoreColumn, dropColumn, moveColumn, normalizeColumnConfig, toggleFavoriteColumn, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
   toggleColumn, venueSearchUrl, withCellValue, foldGuestYesNoColumn,
 } from '../lib/venueTable';
 import { applyColumnFilters } from '../lib/columnFilters';
@@ -556,6 +556,18 @@ export function WeddingVenues({ subnav } = {}) {
     if (!label || !label.trim()) return;
     saveColumns(renameCustomColumn(colConfig, col.key, label));
   };
+  // Any column can be deleted but the venue's name. One you added goes with
+  // its values; a built-in one leaves the table and can be restored.
+  const forgetColumn = (key) => {
+    setColFilters((f) => { const n = { ...f }; delete n[key]; return n; });
+    if (sort?.key === key) setSort(null);
+  };
+  const deleteAnyColumn = (col) => {
+    if (col.custom) { deleteColumn(col); return; }
+    if (!confirm(`Delete the “${col.label}” column from the table?\n\nWhat's in it stays on each venue — it's still in the venue's pop-up — and you can bring the column back from Columns → Deleted columns.`)) return;
+    forgetColumn(col.key);
+    saveColumns(deleteBuiltinColumn(colConfig, col.key));
+  };
   const deleteColumn = async (col) => {
     const used = venues.filter((v) => cellValue(v, col.key)).length;
     if (!confirm(`Delete the “${col.label}” column?${used ? ` Its values on ${used} venue${used === 1 ? '' : 's'} go too.` : ''}`)) return;
@@ -780,7 +792,7 @@ export function WeddingVenues({ subnav } = {}) {
   // can also set — the place-to-visit flag and (by name) the location.
   const fieldOptions = [
     ...columns.filter((c) => !c.readOnly),
-    { key: 'noFit', label: 'Why not a fit' },
+    ...(columns.some((c) => c.key === 'noFit') ? [{ key: 'noFit', label: 'Why not a fit' }] : []),
     TO_VISIT,
     ...(areas.length ? [{ key: 'area', label: 'Area' }] : []),
   ];
@@ -1028,7 +1040,7 @@ export function WeddingVenues({ subnav } = {}) {
           <button type="button" className={styles.toolButton} onClick={() => setColMenuOpen((o) => !o)} aria-expanded={colMenuOpen}>Columns ▾</button>
           {colMenuOpen && (
             <div className={`${styles.colMenuPopover} ${vs.colMenu}`} role="menu" aria-label="Columns">
-              <p className={vs.colMenuHint}>Tick to show · ★ to pin to the left · drag to reorder</p>
+              <p className={vs.colMenuHint}>Tick to show · ★ to pin to the left · drag to reorder · 🗑 to delete</p>
               {columns.map((col, i) => {
                 const moved = (dir) => moveColumn(colConfig, col.key, dir);
                 const same = (c) => c.order.join() === colConfig.order.join();
@@ -1078,10 +1090,10 @@ export function WeddingVenues({ subnav } = {}) {
                       <span>{col.label}</span>
                     </label>
                     {col.custom && (
-                      <>
-                        <button type="button" className={vs.iconBtn} onClick={() => renameColumn(col)} title="Rename" aria-label={`Rename ${col.label}`}>✎</button>
-                        <button type="button" className={vs.iconBtn} onClick={() => deleteColumn(col)} title="Delete column" aria-label={`Delete ${col.label}`}>🗑</button>
-                      </>
+                      <button type="button" className={vs.iconBtn} onClick={() => renameColumn(col)} title="Rename" aria-label={`Rename ${col.label}`}>✎</button>
+                    )}
+                    {canDeleteColumn(col.key) && (
+                      <button type="button" className={vs.iconBtn} onClick={() => deleteAnyColumn(col)} title={col.custom ? 'Delete column and its values' : 'Delete column from the table'} aria-label={`Delete ${col.label}`}>🗑</button>
                     )}
                     <button type="button" className={vs.iconBtn} disabled={col.hidden || same(moved(-1))} onClick={() => saveColumns(moved(-1))} title="Move left" aria-label={`Move ${col.label} left`}>↑</button>
                     <button type="button" className={vs.iconBtn} disabled={col.hidden || same(moved(1))} onClick={() => saveColumns(moved(1))} title="Move right" aria-label={`Move ${col.label} right`}>↓</button>
@@ -1089,6 +1101,17 @@ export function WeddingVenues({ subnav } = {}) {
                 );
               })}
               <button type="button" className={vs.colMenuAdd} onClick={addColumn}>+ Add column</button>
+              {deletedColumns(colConfig).length > 0 && (
+                <div className={vs.colDeleted} role="group" aria-label="Deleted columns">
+                  <p className={vs.colMenuHint}>Deleted columns</p>
+                  {deletedColumns(colConfig).map((col) => (
+                    <div key={col.key} className={vs.colMenuRow}>
+                      <span className={vs.colDeletedLabel}>{col.label}</span>
+                      <button type="button" className={vs.colRestore} onClick={() => saveColumns(restoreColumn(colConfig, col.key))} aria-label={`Restore ${col.label}`}>Restore</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
