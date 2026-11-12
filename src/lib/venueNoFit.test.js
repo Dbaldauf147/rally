@@ -171,3 +171,13 @@ describe('bulk reasons with categories', () => {
     expect(bulkNoFitReasons(vs, ['b'], 'add', fee, [])[1]).toBe(vs[1]);
   });
 });
+
+describe('sub-reasons through the Why not a fit column', () => {
+  it('export text reads back to the same reasons', async () => {
+    const { cellValue, withCellValue } = await import('./venueTable.js');
+    const v = normalizeVenue({ id: 'v', name: 'V', status: 'Not a fit', noFitReasons: [`Too expensive${SUB_SEP}Venue fee`, 'Date not available'] });
+    const text = cellValue(v, 'noFit');
+    const back = withCellValue(normalizeVenue({ id: 'v', name: 'V', status: 'Not a fit' }), 'noFit', text);
+    expect(back.noFitReasons).toEqual(v.noFitReasons);
+  });
+});
