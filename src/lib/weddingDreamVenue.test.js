@@ -5,13 +5,29 @@ import {
   addCategoryBeside, canAddBeside, canSitBeside, categoryRows, setBeside,
 } from './weddingDreamVenue';
 
+const FIXTURE = { categories: [
+  { id: 'service', title: 'Service model', items: [{ id: 'all-inclusive', title: 'All-inclusive' }, { id: 'raw-space', title: 'Raw space' }] },
+  { id: 'capacity', title: 'Capacity', items: [{ id: 'guest-count', title: 'Guest count' }, { id: 'flow', title: 'Flow' }, { id: 'exclusivity', title: 'Exclusivity' }] },
+  { id: 'cost', title: 'Cost', items: [{ id: 'pricing', title: 'Pricing' }] },
+] };
+
 describe('dream venue list', () => {
   it('starts with the seed list when nothing is stored, as a copy', () => {
     const cats = normalizeDreamVenue(undefined);
     expect(cats.map((c) => c.title)).toEqual(SEED_CATEGORIES.map((c) => c.title));
-    expect(dreamProgress(cats)).toEqual({ done: 0, total: 20 });
+    expect(dreamProgress(cats)).toEqual({ done: 0, total: 5 });
     cats[0].items[0].done = true;
     expect(SEED_CATEGORIES[0].items[0].done).toBe(false);
+  });
+
+  it('seeds Must have, Preference and Unsure side by side', () => {
+    const cats = normalizeDreamVenue(undefined);
+    expect(categoryRows(cats).map((r) => r.map((c) => c.title))).toEqual([['Must have', 'Preference', 'Unsure']]);
+    expect(cats.map((c) => c.items.map((i) => i.title))).toEqual([
+      ['By the water'],
+      ['Not winter', 'With boats'],
+      ['Day of the week?', 'Local or destination'],
+    ]);
   });
 
   it('keeps a stored list, empty included, and repairs ids', () => {
@@ -24,7 +40,7 @@ describe('dream venue list', () => {
   });
 
   it('ticks, edits, moves and removes items', () => {
-    let cats = normalizeDreamVenue(undefined);
+    let cats = normalizeDreamVenue(FIXTURE);
     cats = toggleItem(cats, 'capacity', 'flow');
     cats = editItem(cats, 'capacity', 'flow', { title: 'Room flow' });
     expect(cats[1].items[1]).toMatchObject({ title: 'Room flow', done: true });
@@ -39,7 +55,7 @@ describe('dream venue list', () => {
   });
 
   it('adds, renames, moves, ticks and removes categories', () => {
-    let { cats } = addCategory(normalizeDreamVenue(undefined), 'Food', 'food');
+    let { cats } = addCategory(normalizeDreamVenue(FIXTURE), 'Food', 'food');
     expect(cats.at(-1)).toEqual({ id: 'food', title: 'Food', beside: false, items: [] });
     cats = renameCategory(cats, 'food', 'Food & drink');
     cats = moveCategory(cats, 'food', -1);

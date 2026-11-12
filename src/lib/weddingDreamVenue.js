@@ -14,43 +14,22 @@
 
 export const MAX_PER_ROW = 3;
 
-const C = (id, title, items) => ({ id, title, beside: false, items: items.map(([iid, t, detail]) => ({ id: iid, title: t, detail, done: false })) });
+const C = (id, title, items, beside = false) => ({ id, title, beside, items: items.map(([iid, t, detail = '']) => ({ id: iid, title: t, detail, done: false })) });
 
+// Three lists side by side: what the venue has to have, what we'd like, and
+// what we haven't decided yet.
 export const SEED_CATEGORIES = [
-  C('service', 'Service model', [
-    ['all-inclusive', 'All-inclusive', 'Catering halls, country clubs, hotels, and restaurants provide food, bar, staff, tables, and linens under one per-person price. This is the dominant model on Long Island, and it is the easiest to budget and plan.'],
-    ['raw-space', 'Raw or semi-raw space', 'Lofts, museums, estates, barns, and parks charge a site fee, and you bring in the caterer, rentals, and sometimes power and restrooms. It offers more creative control, but costs are less predictable and a planner is close to essential.'],
+  C('must-have', 'Must have', [
+    ['water', 'By the water'],
   ]),
-  C('capacity', 'Capacity and layout', [
-    ['guest-count', 'Guest count', 'Check the seated-dinner capacity with a dance floor, not the standing capacity. A room that is too large for your count feels empty.'],
-    ['flow', 'Flow', 'Look for distinct spaces for the ceremony, cocktail hour, and reception, or ask how the room is “flipped” between them.'],
-    ['exclusivity', 'Exclusivity', 'Some halls run several weddings at once, so ask whether you would share entrances, restrooms, or photo spots.'],
-  ]),
-  C('ceremony', 'Ceremony and weather', [
-    ['on-site', 'Ceremony on site', 'Decide whether you want the ceremony at the venue or at a house of worship, which adds travel and timing.'],
-    ['rain', 'Rain plan', 'For anything outdoors, see the indoor backup in person and decide whether you’d be happy with it.'],
-    ['season', 'Season', 'Check heating, air conditioning, and how the space looks in your month.'],
-  ]),
-  C('logistics', 'Location and logistics', [
-    ['travel', 'Travel', 'Consider the distance for most guests, parking or valet, and transit access. In the city, think about a venue’s load-in rules and elevator access.'],
-    ['lodging', 'Lodging', 'Out-of-town guests need hotels nearby, and a venue far from them may require shuttles.'],
-    ['accessibility', 'Accessibility', 'Check for step-free access and accessible restrooms for older or disabled guests.'],
-  ]),
-  C('rules', 'Rules and restrictions', [
-    ['timing', 'Timing', 'Ask about the end time, noise curfews, how many hours are included, and overtime rates.'],
-    ['vendors', 'Vendors', 'Some venues require you to use their caterer or an approved vendor list.'],
-    ['limits', 'Other limits', 'Ask about restrictions on candles, decor, amplified music, and outside alcohol.'],
-  ]),
-  C('cost', 'Cost structure', [
-    ['pricing', 'Pricing terms', 'Compare the all-in per-person price, any site fee, and the food-and-beverage minimum.'],
-    ['date-flex', 'Date flexibility', 'Fridays, Sundays, and off-season months (roughly November through April) are often priced well below peak Saturdays.'],
-    ['contract', 'Contract terms', 'Look at the deposit schedule, the cancellation and postponement policy, and when the final headcount is due.'],
-  ]),
-  C('feel', 'Feel and extras', [
-    ['style', 'Style', 'Decide whether you want a ballroom, waterfront, garden, industrial, or historic setting, and whether the space needs much decoration to look good.'],
-    ['photos', 'Photos', 'Look for good portrait spots on site, especially if the weather turns.'],
-    ['amenities', 'Amenities', 'A bridal suite, a getting-ready room, and an on-site coordinator all make the day easier.'],
-  ]),
+  C('preference', 'Preference', [
+    ['not-winter', 'Not winter'],
+    ['boats', 'With boats'],
+  ], true),
+  C('unsure', 'Unsure', [
+    ['day-of-week', 'Day of the week?'],
+    ['local-or-destination', 'Local or destination'],
+  ], true),
 ];
 
 const str = (v) => (typeof v === 'string' ? v : '');
