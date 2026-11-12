@@ -7,6 +7,7 @@ import { API_BASE } from '../native';
 import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingVenues } from './WeddingVenues';
+import { WeddingCalendar } from './WeddingCalendar';
 import { WeddingDreamVenue } from './WeddingDreamVenue';
 import { WeddingVenueReply } from './WeddingVenueReply';
 import { WeddingLocations } from './WeddingLocations';
@@ -2903,7 +2904,7 @@ export function WeddingPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawView = searchParams.get('view');
-  const view = ['checklist', 'timeline', 'venues', 'locations', 'budget', 'friends'].includes(rawView) ? rawView : 'guests';
+  const view = ['checklist', 'timeline', 'calendar', 'venues', 'locations', 'budget', 'friends'].includes(rawView) ? rawView : 'guests';
   const setView = (v) => setSearchParams(v === 'guests' ? {} : { view: v });
   // Venues has three of its own: the venue table, the dream-venue list, and the reply email.
   const venuesSub = ['dream', 'reply'].includes(searchParams.get('venues')) ? searchParams.get('venues') : 'list';
@@ -2941,6 +2942,11 @@ export function WeddingPage() {
           >Timeline</button>
           <button
             type="button"
+            className={view === 'calendar' ? styles.subtabActive : styles.subtab}
+            onClick={() => setView('calendar')}
+          >Calendar</button>
+          <button
+            type="button"
             className={view === 'venues' ? styles.subtabActive : styles.subtab}
             onClick={() => setView('venues')}
           >Venues</button>
@@ -2968,6 +2974,14 @@ export function WeddingPage() {
           </div>
           <p className={styles.subtitle}>The plan on real dates, from booking the venue to the last thank-you note.</p>
           <WeddingTimeline />
+        </div>
+      ) : view === 'calendar' ? (
+        <div className={styles.page}>
+          <div className={styles.header}>
+            <h1 className={styles.title}>Wedding</h1>
+          </div>
+          <p className={styles.subtitle}>The wedding’s own calendar: tours, tastings and payments you add, beside the timeline and the dates venues have open.</p>
+          <WeddingCalendar onOpenTab={setView} />
         </div>
       ) : view === 'budget' ? (
         <div className={styles.page}>
