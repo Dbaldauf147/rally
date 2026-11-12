@@ -215,3 +215,10 @@
 .mapsTagUpdate { background: rgba(59, 130, 246, 0.16); color: #1d4ed8; }
 .mapsWarn { font-size: 0.78rem; color: #b45309; }
 .mapsNote { font-size: 0.78rem; color: var(--color-text-muted); }
+
+/* The "Why not a fit" column: the reasons, then one clipped line of notes. Click to change. */
+.noFitCell { display: block; width: 100%; padding: 0.3rem 0.45rem; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; font: inherit; font-size: 0.82rem; color: var(--color-text); text-align: left; cursor: pointer; }
+.noFitCell:hover { border-color: var(--color-border-light); }
+.noFitCell.noFitWhyEmpty { color: #b91c1c; }
+.noFitCellReasons { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.noFitCell .noFitNote { font-size: 0.74rem; color: var(--color-text-muted); }
