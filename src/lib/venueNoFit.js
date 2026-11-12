@@ -92,3 +92,32 @@ export function applyListEdits(rows) {
   }
   return { list, renames };
 }
+
+/* Bulk edit: one reason added to or taken off every venue whose id is in
+   `ids`, or all their reasons cleared. Adding a reason also marks the venue
+   Not a fit — that's the only status a reason shows on. Removing or clearing
+   leaves the status alone. `known` is the reason list, so a typed reason
+   takes the spelling already on it. Venues that don't change are returned
+   as the same objects, so the caller can count what changed. */
+export const NO_FIT_BULK_MODES = ['add', 'remove', 'clear'];
+export function bulkNoFitReasons(venues, ids, mode, reason, known = []) {
+  const pick = ids instanceof Set ? ids : new Set(ids || []);
+  const r = standardReason(reason, known);
+  if (mode !== 'clear' && !r) return venues;
+  const k = reasonKey(r);
+  return (venues || []).map((v) => {
+    if (!pick.has(v.id)) return v;
+    const have = v.noFitReasons || [];
+    let next = v;
+    if (mode === 'add') {
+      const reasons = have.some((x) => reasonKey(x) === k) ? have : normalizeReasonList([...have, r]);
+      if (reasons !== have || v.status !== 'Not a fit') next = { ...v, status: 'Not a fit', noFitReasons: reasons };
+    } else if (mode === 'remove') {
+      const reasons = have.filter((x) => reasonKey(x) !== k);
+      if (reasons.length !== have.length) next = { ...v, noFitReasons: reasons };
+    } else if (mode === 'clear' && have.length) {
+      next = { ...v, noFitReasons: [] };
+    }
+    return next;
+  });
+}
