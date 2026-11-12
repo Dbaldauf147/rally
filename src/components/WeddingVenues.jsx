@@ -18,6 +18,8 @@ import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 import { VenueReplyDraft } from './VenueReplyDraft';
 import { VenueNoFitPrompt } from './VenueNoFitPrompt';
+import { VenueMapsImport } from './VenueMapsImport';
+import { extractMapsLinks, mapsSearchUrl } from '../lib/venueMaps';
 import { bulkNoFitReasons, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
 import { HIDDEN, TO_VISIT, bulkSetField, rowsToTsv, venueExportRows } from '../lib/venueBulk';
@@ -247,13 +249,14 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, a
   const link = !saved ? null
     : col.key === 'email' ? `mailto:${saved}`
       : col.key === 'phone' ? `tel:${saved.replace(/[^+\d]/g, '')}`
-        : col.key === 'website' ? siteHref(saved) : null;
+        : col.key === 'website' || col.key === 'mapsUrl' ? siteHref(saved) : null;
   if (!link) return input;
+  const opens = col.key === 'website' || col.key === 'mapsUrl';
   return (
     <div className={vs.cellWithLink}>
       {input}
-      <a className={vs.cellLink} href={link} target={col.key === 'website' ? '_blank' : undefined} rel="noreferrer" title={col.key === 'website' ? 'Open website' : col.key === 'email' ? 'Send email' : 'Call'}>
-        {col.key === 'website' ? '↗' : col.key === 'email' ? '✉' : '☎'}
+      <a className={vs.cellLink} href={link} target={opens ? '_blank' : undefined} rel="noreferrer" title={col.key === 'mapsUrl' ? 'Open in Google Maps' : col.key === 'website' ? 'Open website' : col.key === 'email' ? 'Send email' : 'Call'}>
+        {opens ? '↗' : col.key === 'email' ? '✉' : '☎'}
       </a>
     </div>
   );
@@ -663,18 +666,55 @@ export function WeddingVenues({ subnav } = {}) {
     setPasteMap(null);
   };
   const closePaste = () => setPasteText(null);
+
+  /* ── From Google Maps ── */
+  const [mapsText, setMapsText] = useState(null); // the links to start with, or null when closed
+  const closeMaps = useCallback(() => setMapsText(null), []);
+  // What the pop-up settled on: new venues added, ones already here filled in.
+  const addFromMaps = async (picks) => {
+    setMapsText(null);
+    const list = [...venuesRef.current];
+    const added = [];
+    const updated = [];
+    for (const { fields, existingId } of picks) {
+      const at = existingId ? list.findIndex((v) => v.id === existingId) : -1;
+      if (at < 0) {
+        list.push(normalizeVenue({ id: newVenueId(), status: 'Researching', source: 'manual', ...fields }));
+        added.push(fields.name);
+        continue;
+      }
+      // Already on the list: the link is saved, and only blanks are filled.
+      const cur = list[at];
+      const next = normalizeVenue({
+        ...cur,
+        location: cur.location || fields.location, phone: cur.phone || fields.phone, website: cur.website || fields.website,
+        mapsUrl: fields.mapsUrl || cur.mapsUrl,
+      });
+      if (JSON.stringify(next) !== JSON.stringify(cur)) { list[at] = next; updated.push(cur.name); }
+    }
+    if (!added.length && !updated.length) { setMessage({ type: 'ok', text: 'Those venues were already up to date.' }); return; }
+    try {
+      await persist(list);
+      const parts = [];
+      if (added.length) parts.push(`Added ${added.join(', ')}`);
+      if (updated.length) parts.push(`updated ${updated.join(', ')}`);
+      setMessage({ type: 'ok', text: `${parts.join(' · ')} from Google Maps.` });
+    } catch (err) { saveError(err); }
+  };
   // Pasting anywhere on the tab (not into a box) opens the dialog with it.
   useEffect(() => {
     const onPaste = (e) => {
-      if (pasteText !== null || editing || isTyping(document.activeElement)) return;
+      if (pasteText !== null || mapsText !== null || editing || isTyping(document.activeElement)) return;
       const text = e.clipboardData?.getData('text/plain') || '';
       if (!text.trim()) return;
       e.preventDefault();
-      openPaste(text);
+      // A Google Maps link is a place to add, not rows of a sheet.
+      if (extractMapsLinks(text).length && !isGrid(text.replace(/\n/g, ' '))) setMapsText(text);
+      else openPaste(text);
     };
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
-  }, [pasteText, editing]);
+  }, [pasteText, mapsText, editing]);
 
   const pasteRows = useMemo(() => parsePastedCells(pasteText || '').filter((r) => r.some((c) => String(c).trim())), [pasteText]);
   const pasteWidth = Math.max(0, ...pasteRows.map((r) => r.length));
@@ -1048,6 +1088,7 @@ export function WeddingVenues({ subnav } = {}) {
           </button>
         )}
         <button type="button" className={styles.toolButton} onClick={() => openPaste('')} title="Add or update venues from an Excel or CSV file, or a range pasted from a spreadsheet">⬆ Import</button>
+        <button type="button" className={styles.toolButton} onClick={() => setMapsText('')} title="Add venues by pasting links from Google Maps (Share → Copy link)">🗺 From Google Maps</button>
         <button type="button" className={styles.toolButton} onClick={() => setEditing(normalizeVenue({ id: newVenueId(), status: 'Researching' }))}>+ Add venue</button>
       </div>
 
@@ -1402,6 +1443,13 @@ export function WeddingVenues({ subnav } = {}) {
                   </label>
                 ))}
               </div>
+              {(editing.mapsUrl || mapsSearchUrl(editing)) && (
+                <div className={vs.threads}>
+                  <a className={styles.link} href={editing.mapsUrl ? siteHref(editing.mapsUrl) : mapsSearchUrl(editing)} target="_blank" rel="noreferrer">
+                    {editing.mapsUrl ? '🗺 Open in Google Maps ↗' : '🗺 Find on Google Maps ↗'}
+                  </a>
+                </div>
+              )}
               {editing.threadIds?.length > 0 && (
                 <div className={vs.threads}>
                   <span className={styles.contactLabel}>Emails</span>
@@ -1423,6 +1471,9 @@ export function WeddingVenues({ subnav } = {}) {
             </div>
           </form>
         </div>
+      )}
+      {mapsText !== null && (
+        <VenueMapsImport venues={venues} callApi={callApi} initialText={mapsText} onAdd={addFromMaps} onClose={closeMaps} />
       )}
       {noFitFor && (
         <VenueNoFitPrompt venue={noFitFor.venue} options={noFitOptions} onSave={saveNoFit} onCancel={closeNoFit} onEditList={editNoFitList} />

@@ -8,6 +8,7 @@
    `weddingVenueDismissed`, so the next scan doesn't bring it back. */
 
 import { normalizeReasonList } from './venueNoFit.js';
+import { cleanMapsUrl } from './venueMaps.js';
 
 export const VENUE_STATUSES = ['Researching', 'Inquired', 'Replied', 'Tour scheduled', 'Toured', 'Quote received', 'Booked', 'Not a fit'];
 
@@ -18,6 +19,7 @@ export const VENUE_FIELDS = [
   { key: 'email', label: 'Email', type: 'email' },
   { key: 'phone', label: 'Phone', type: 'tel' },
   { key: 'website', label: 'Website' },
+  { key: 'mapsUrl', label: 'Google Maps' },
   { key: 'location', label: 'Location', wide: true },
   { key: 'price', label: 'Pricing', wide: true },
   { key: 'venueFeeLow', label: 'Venue fee low', type: 'money' },
@@ -139,6 +141,8 @@ export function normalizeVenue(v, { id } = {}) {
   const out = { id: str(v?.id) || id || newVenueId() };
   for (const k of TEXT_KEYS) out[k] = str(v?.[k]);
   out.email = out.email.toLowerCase();
+  // The venue's Google Maps link, pasted in or saved by an import from Maps.
+  out.mapsUrl = cleanMapsUrl(v?.mapsUrl);
   out.allInclusive = normalizeAllInclusive(v?.allInclusive);
   for (const k of MONEY_KEYS) out[k] = cleanMoney(v?.[k]);
   // A venue saved before the ranges existed gets them from what it had: the

@@ -135,6 +135,86 @@ describe('api/wedding-venues', () => {
   });
 });
 
+describe('importing from Google Maps links', () => {
+  const realKey = process.env.GOOGLE_MAPS_SERVER_KEY;
+  const FULL = 'https://www.google.com/maps/place/Oheka+Castle+Hotel+%26+Estate,+135+W+Gate+Dr,+Huntington,+NY+11743/data=!4m2!3m1!1s0x1:0x2';
+  const redirect = (to) => ({ status: 302, ok: false, headers: { get: (h) => (h === 'location' ? to : null) } });
+  const json = (body, ok = true) => ({ status: ok ? 200 : 403, ok, headers: { get: () => null }, json: async () => body });
+  afterEach(() => {
+    if (realKey === undefined) delete process.env.GOOGLE_MAPS_SERVER_KEY; else process.env.GOOGLE_MAPS_SERVER_KEY = realKey;
+    delete process.env.VITE_GOOGLE_MAPS_EMBED_KEY;
+  });
+
+  it('follows a short link and reads the place from it when there is no key', async () => {
+    delete process.env.GOOGLE_MAPS_SERVER_KEY;
+    const fetchMock = vi.fn(async () => redirect(FULL));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await call({ action: 'mapsImport', urls: ['https://maps.app.goo.gl/AbC123'] });
+    expect(res.code).toBe(200);
+    expect(res.body.places).toEqual([{ url: 'https://maps.app.goo.gl/AbC123', name: 'Oheka Castle Hotel & Estate', address: '135 W Gate Dr, Huntington, NY 11743', phone: '', website: '', mapsUrl: FULL, source: 'link' }]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: 'manual' });
+  });
+
+  it('asks Google Places for the phone and website when the key allows it', async () => {
+    process.env.GOOGLE_MAPS_SERVER_KEY = 'k';
+    const fetchMock = vi.fn(async (url, init) => {
+      if (String(url).includes('places.googleapis.com')) {
+        expect(init.headers['X-Goog-Api-Key']).toBe('k');
+        expect(JSON.parse(init.body).textQuery).toContain('Oheka Castle');
+        return json({ places: [{ displayName: { text: 'Oheka Castle' }, formattedAddress: '135 W Gate Dr, Huntington, NY 11743, USA', nationalPhoneNumber: '(631) 659-1400', websiteUri: 'https://www.oheka.com/' }] });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const [place] = (await call({ action: 'mapsImport', urls: [FULL] })).body.places;
+    expect(place).toMatchObject({ name: 'Oheka Castle', address: '135 W Gate Dr, Huntington, NY 11743, USA', phone: '(631) 659-1400', website: 'https://www.oheka.com/', source: 'places', mapsUrl: FULL });
+  });
+
+  it('falls back to the older Places API, then to an address for the pin, then to the link alone', async () => {
+    process.env.GOOGLE_MAPS_SERVER_KEY = 'k';
+    const PIN = 'https://www.google.com/maps/place/The+Foundry/@40.75,-73.95,17z/data=!3d40.7501!4d-73.9498';
+    const denied = { status: 'REQUEST_DENIED' };
+    let mode = 'legacy';
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes('places.googleapis.com')) return json({ error: { status: 'PERMISSION_DENIED' } }, false);
+      if (u.includes('findplacefromtext')) return json(mode === 'legacy' ? { status: 'OK', candidates: [{ place_id: 'ChIJ1' }] } : denied);
+      if (u.includes('place/details')) return json({ status: 'OK', result: { name: 'The Foundry', formatted_address: '42-38 9th St, Queens, NY', formatted_phone_number: '(718) 786-7776', website: 'https://thefoundry.nyc', url: 'https://maps.google.com/?cid=1' } });
+      if (u.includes('geocode')) {
+        expect(new URL(u).searchParams.get('latlng')).toBe('40.7501,-73.9498');
+        return json(mode === 'geocode' ? { status: 'OK', results: [{ formatted_address: '42-38 9th St, Long Island City, NY 11101, USA' }] } : denied);
+      }
+      throw new Error(`unexpected ${u}`);
+    }));
+    expect((await call({ action: 'mapsImport', urls: [PIN] })).body.places[0]).toMatchObject({ name: 'The Foundry', phone: '(718) 786-7776', source: 'places', mapsUrl: PIN });
+    mode = 'geocode';
+    expect((await call({ action: 'mapsImport', urls: [PIN] })).body.places[0]).toMatchObject({ name: 'The Foundry', address: '42-38 9th St, Long Island City, NY 11101, USA', phone: '', source: 'geocode' });
+    mode = 'none';
+    expect((await call({ action: 'mapsImport', urls: [PIN] })).body.places[0]).toMatchObject({ name: 'The Foundry', address: '', source: 'link' });
+  });
+
+  it('never follows a link, or a redirect, off Google', async () => {
+    delete process.env.GOOGLE_MAPS_SERVER_KEY;
+    const fetchMock = vi.fn(async (url) => (String(url).includes('goo.gl') ? redirect('https://169.254.169.254/latest/meta-data') : json({})));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await call({ action: 'mapsImport', urls: ['https://evil.example/maps/place/X', 'https://maps.app.goo.gl/AbC', 'https://www.google.com/maps'] });
+    expect(res.body.places.map((p) => p.error)).toEqual([
+      'That isn’t a Google Maps link', 'That link leads somewhere other than Google Maps', 'That link doesn’t point at a place',
+    ]);
+    // Only the two Google addresses were ever fetched.
+    expect(fetchMock.mock.calls.map((c) => new URL(c[0]).hostname).sort()).toEqual(['maps.app.goo.gl', 'www.google.com']);
+  });
+
+  it('unwraps the cookie notice, needs a link, and needs a signed-in user', async () => {
+    delete process.env.GOOGLE_MAPS_SERVER_KEY;
+    vi.stubGlobal('fetch', vi.fn(async () => redirect(`https://consent.google.com/m?continue=${encodeURIComponent(FULL)}&gl=DE`)));
+    expect((await call({ action: 'mapsImport', urls: ['https://maps.app.goo.gl/AbC'] })).body.places[0]).toMatchObject({ name: 'Oheka Castle Hotel & Estate', mapsUrl: FULL });
+    expect((await call({ action: 'mapsImport', urls: [] })).code).toBe(400);
+    expect((await call({ action: 'mapsImport', urls: [FULL] }, 'nope')).code).toBe(401);
+  });
+});
+
 describe('finishGmailConnect', () => {
   const google = (overrides = {}) => vi.fn(async (url) => ({
     json: async () => (String(url).includes('/token')

@@ -39,7 +39,7 @@ const clampWidth = (w) => Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, Math.r
 // What a fresh table leaves out, so it opens about as wide as it used to.
 // The free-text pricing is there to read in a venue's pop-up; the table shows
 // the four price columns instead.
-export const DEFAULT_HIDDEN = ['website', 'price', 'capacity', 'availability', 'notes'];
+export const DEFAULT_HIDDEN = ['website', 'mapsUrl', 'price', 'capacity', 'availability', 'notes'];
 
 // Bumped when a saved setup needs a one-off change: v2 hides the free-text
 // Pricing column, which the low/high price columns replaced.
@@ -335,6 +335,7 @@ export function parseDateList(value) {
 const HEADER_RULES = [
   ['email', /e-?mail/],
   ['phone', /phone|cell|mobile|tel\b|number/],
+  ['mapsUrl', /google ?maps?|maps? ?(url|link)|^maps?$/],
   ['website', /web|site|url|link/],
   ['availability', /availab|open dates|dates? open/],
   ['lastContactDate', /last.*(contact|touch|email|spoke)|contacted|date/],

@@ -57,7 +57,7 @@ describe('matching venues to them', () => {
 
 describe('the Area column', () => {
   it('sits right after Location, in fresh and saved tables', () => {
-    expect(allVenueColumns(null).map((c) => c.key).slice(5, 8)).toEqual(['website', 'location', 'area']);
+    expect(allVenueColumns(null).map((c) => c.key).slice(6, 9)).toEqual(['mapsUrl', 'location', 'area']);
     const saved = normalizeColumnConfig({ order: ['name', 'location', 'status'], hidden: [] });
     expect(saved.order.slice(0, 3)).toEqual(['name', 'location', 'area']);
   });
