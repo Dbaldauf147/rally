@@ -185,3 +185,12 @@
 .noFitRemove { flex-shrink: 0; width: 2rem; height: 2rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-size: 1.1rem; line-height: 1; cursor: pointer; }
 .noFitRemove:hover { color: #b91c1c; border-color: #b91c1c; }
 .noFitAddRow { margin-top: 0.6rem; }
+
+/* Dates available, in the venue pop-up */
+.dateList { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.dateChip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.3rem 0.2rem 0.6rem; border-radius: 999px; font-size: 0.82rem; background: var(--color-surface-alt, #f1f5f9); border: 1px solid var(--color-border, #e2e8f0); }
+.dateChipX { border: none; background: none; cursor: pointer; color: var(--color-text-muted); font-size: 0.75rem; padding: 0 0.2rem; line-height: 1; }
+.dateAdd { display: inline-flex; align-items: center; gap: 0.35rem; }
+.dateAdd input { width: auto; }
+.dateAddBtn { border: 1px solid var(--color-border, #e2e8f0); background: var(--color-surface, #fff); border-radius: 6px; padding: 0.3rem 0.6rem; font-size: 0.8rem; cursor: pointer; color: inherit; }
+.dateAddBtn:disabled { opacity: 0.5; cursor: default; }
