@@ -7,7 +7,7 @@ import {
   normalizePlan, seedCategories, newId, categoryPct, totalPct, contributorTotals, effectiveTotal,
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
   formatRate, guestCounts, headcount, plateAmount, resolveCategories,
-  categoryTaxPct, totalTaxPct, grossPct,
+  categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
 } from '../lib/weddingBudgetPlan';
 import styles from './WeddingBudget.module.css';
 
@@ -718,16 +718,92 @@ function Split({ plan, update, counts }) {
   );
 }
 
+/* The calculator on the right: type what each budget line actually costs —
+   a quote, an invoice — and it adds them up to the total fee, with sales tax
+   on the lines ticked for it in the split. Each box's placeholder is what the
+   split budgets for that line, and the total is held against the budget. */
+function Calculator({ plan, update, counts }) {
+  const { amount: budget } = effectiveTotal(plan);
+  const cats = resolveCategories(plan.categories, budget, headcount(plan.guests, counts));
+  const amounts = plan.calculator.amounts;
+  const rate = plan.salesTax.rate;
+  const t = calculatorTotals(cats, amounts, rate);
+  const budgeted = (line) => {
+    if (budget > 0) return formatMoney(amountFor(line.pct, budget));
+    return '$0';
+  };
+  const byId = new Map(cats.flatMap((c) => (c.items.length ? c.items : [c])).map((l) => [l.id, l]));
+  const setAmount = (id, v) => update((p) => {
+    const next = { ...p.calculator.amounts };
+    if (v == null) delete next[id]; else next[id] = v;
+    return { ...p, calculator: { ...p.calculator, amounts: next } };
+  });
+  const clear = () => {
+    if (!t.filled || !window.confirm('Clear every amount in the calculator?')) return;
+    update((p) => ({ ...p, calculator: { ...p.calculator, amounts: {} } }));
+  };
+  const diff = budget > 0 ? budget - t.total : null;
+
+  return (
+    <aside className={`${styles.card} ${styles.calc}`} aria-label="Calculator">
+      <div className={styles.calcHead}>
+        <h2 className={styles.cardTitle}>Calculator</h2>
+        {t.filled > 0 && <button type="button" className={styles.link} onClick={clear}>Clear</button>}
+      </div>
+      <p className={styles.cardHint}>Type what each line costs to get the total fee. The grey figure is what the split budgets for it; sales tax is added to the lines ticked for it in the split.</p>
+      <div className={styles.calcList}>
+        {calculatorGroups(cats).map((g) => (
+          <div key={g.id} className={styles.calcGroup}>
+            {(g.lines.length > 1 || g.lines[0].id !== g.id) && <div className={styles.calcCat}>{g.name || 'Untitled'}</div>}
+            {g.lines.map((l) => (
+              <label key={l.id} className={styles.calcLine}>
+                <span className={g.lines[0].id === g.id ? styles.calcCatName : styles.calcName} title={l.name}>
+                  {l.name || 'Untitled'}
+                </span>
+                <NumberField
+                  {...moneyField}
+                  className={styles.calcNum}
+                  label={`${l.name || 'Line'} cost`}
+                  placeholder={budgeted(byId.get(l.id) || { pct: 0 })}
+                  value={amounts[l.id] ?? null}
+                  onCommit={(v) => setAmount(l.id, v)}
+                />
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+      <dl className={styles.calcTotals}>
+        <div><dt>Subtotal</dt><dd data-testid="calc-subtotal">{formatMoney(t.subtotal) || '$0'}</dd></div>
+        <div><dt>Sales tax{rate > 0 ? ` (${formatRate(rate)})` : ''}</dt><dd data-testid="calc-tax">{formatMoney(t.tax) || '$0'}</dd></div>
+        <div className={styles.calcGrand}><dt>Total fee</dt><dd data-testid="calc-total">{formatMoney(t.total) || '$0'}</dd></div>
+      </dl>
+      <p className={styles.calcNote} data-testid="calc-note">
+        {t.filled === 0
+          ? 'Nothing typed in yet.'
+          : <>{t.filled} of {t.lines} lines filled in.{diff != null && (
+            <> <span className={diff >= 0 ? styles.calcUnder : styles.calcOver}>
+              {diff >= 0 ? `${formatMoney(diff)} under` : `${formatMoney(-diff)} over`} the {formatMoney(budget)} budget.
+            </span></>
+          )}</>}
+      </p>
+    </aside>
+  );
+}
+
 export function WeddingBudget() {
   const { user } = useAuth();
   const { plan, update, saved, counts } = usePlan(user?.uid);
   if (!plan) return <p className={styles.loading}>Loading…</p>;
   return (
-    <div className={styles.wrap}>
-      <div className={styles.status} data-testid="budget-status">{saved ? 'Saved' : 'Saving…'}</div>
-      <Contributors plan={plan} update={update} />
-      <TotalCard plan={plan} update={update} counts={counts} />
-      <Split plan={plan} update={update} counts={counts} />
+    <div className={styles.layout}>
+      <div className={styles.wrap}>
+        <div className={styles.status} data-testid="budget-status">{saved ? 'Saved' : 'Saving…'}</div>
+        <Contributors plan={plan} update={update} />
+        <TotalCard plan={plan} update={update} counts={counts} />
+        <Split plan={plan} update={update} counts={counts} />
+      </div>
+      <Calculator plan={plan} update={update} counts={counts} />
     </div>
   );
 }

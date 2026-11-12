@@ -247,7 +247,52 @@ export function normalizePlan(raw) {
       note: str(c.note),
     })),
     categories,
+    calculator: normalizeCalculator(r.calculator),
   };
+}
+
+/* ── The calculator beside the split ──
+   What each line actually costs, typed in (a quote, an invoice), added up to
+   the total fee. Kept apart from the % split on purpose: the split is the
+   plan, this is the bill. `amounts` is { [line id]: dollars }; a line with
+   items is its items, one without is the category itself. */
+function normalizeCalculator(raw) {
+  const amounts = {};
+  const src = raw && typeof raw === 'object' && raw.amounts && typeof raw.amounts === 'object' ? raw.amounts : {};
+  for (const [id, v] of Object.entries(src)) {
+    const n = money(v);
+    if (id && n != null) amounts[id] = n;
+  }
+  return { amounts };
+}
+
+/* The calculator's lines, in the split's order, grouped by category. */
+export function calculatorGroups(categories) {
+  return (categories || []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    lines: (c.items.length ? c.items : [c]).map((l) => ({ id: l.id, name: l.name || c.name, taxed: !!l.taxed })),
+  }));
+}
+
+/* Subtotal of what's typed, sales tax on the taxed lines, and the total fee.
+   Amounts for lines that no longer exist don't count. */
+export function calculatorTotals(categories, amounts, rate) {
+  let subtotal = 0;
+  let tax = 0;
+  let filled = 0;
+  let lines = 0;
+  for (const g of calculatorGroups(categories)) {
+    for (const l of g.lines) {
+      lines += 1;
+      const v = amounts?.[l.id];
+      if (v == null) continue;
+      filled += 1;
+      subtotal += v;
+      if (l.taxed) tax += (v * (rate || 0)) / 100;
+    }
+  }
+  return { subtotal, tax, total: subtotal + tax, filled, lines };
 }
 
 /* Fill in every markup's % from the lines it's charged on. Markups can be

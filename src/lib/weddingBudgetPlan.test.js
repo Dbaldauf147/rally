@@ -3,7 +3,7 @@ import {
   seedCategories, normalizePlan, categoryPct, totalPct, contributorTotals, effectiveTotal,
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, formatRate,
   guestCounts, headcount, plateAmount, resolveCategories, resolveMarkups,
-  categoryTaxPct, totalTaxPct, grossPct,
+  categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
 } from './weddingBudgetPlan';
 
 const FOOD = 'i-food-cocktail-hour-dinner-vendor-meals';
@@ -206,5 +206,32 @@ describe('parsing and formatting', () => {
     expect(formatPct(1.5)).toBe('1.5%');
     expect(formatPct(33.3333)).toBe('33.33%');
     expect(formatRate(8.875)).toBe('8.875%');
+  });
+});
+
+describe('calculator', () => {
+  const cats = [
+    { id: 'c1', name: 'Venue', taxed: true, items: [
+      { id: 'a', name: 'Venue fee', pct: 10, taxed: true },
+      { id: 'b', name: 'Rentals', pct: 5, taxed: false },
+    ] },
+    { id: 'c2', name: 'Planner', taxed: false, items: [] },
+  ];
+
+  it('lists a category without items as one line of its own', () => {
+    expect(calculatorGroups(cats).map((g) => g.lines.map((l) => l.id))).toEqual([['a', 'b'], ['c2']]);
+    expect(calculatorGroups(cats)[1].lines[0].name).toBe('Planner');
+  });
+
+  it('adds the typed amounts, with tax on taxed lines only', () => {
+    const t = calculatorTotals(cats, { a: 1000, b: 500, c2: 2000, gone: 99 }, 10);
+    expect(t).toEqual({ subtotal: 3500, tax: 100, total: 3600, filled: 3, lines: 3 });
+    expect(calculatorTotals(cats, {}, 10)).toEqual({ subtotal: 0, tax: 0, total: 0, filled: 0, lines: 3 });
+  });
+
+  it('keeps the amounts through normalizePlan and drops junk', () => {
+    const p = normalizePlan({ calculator: { amounts: { a: 1200, b: '300', c: -5, d: 'x', e: null } } });
+    expect(p.calculator.amounts).toEqual({ a: 1200, b: 300, c: 0 });
+    expect(normalizePlan(null).calculator).toEqual({ amounts: {} });
   });
 });
