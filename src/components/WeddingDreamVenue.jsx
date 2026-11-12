@@ -3,11 +3,21 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  addCategory, addItem, dreamProgress, editItem, moveCategory, moveItem, normalizeDreamVenue,
-  removeCategory, removeItem, renameCategory, toggleCategory, toggleItem,
+  addCategory, addCategoryBeside, addItem, canAddBeside, canSitBeside, categoryRows, dreamProgress, editItem,
+  moveCategory, moveItem, normalizeDreamVenue, removeCategory, removeItem, renameCategory, setBeside,
+  toggleCategory, toggleItem,
 } from '../lib/weddingDreamVenue';
 import styles from './WeddingPage.module.css';
 import ds from './WeddingDreamVenue.module.css';
+
+const Icon = ({ children }) => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
+);
+// A list with a "+" to its right.
+const AddRight = () => <Icon><rect x="2" y="4" width="9" height="16" rx="2" /><line x1="18" y1="8" x2="18" y2="16" /><line x1="14" y1="12" x2="22" y2="12" /></Icon>;
+// Two lists side by side / one list over another.
+const SideBySide = () => <Icon><rect x="2" y="4" width="8.5" height="16" rx="2" /><rect x="13.5" y="4" width="8.5" height="16" rx="2" /></Icon>;
+const Stacked = () => <Icon><rect x="4" y="2" width="16" height="8.5" rx="2" /><rect x="4" y="13.5" width="16" height="8.5" rx="2" /></Icon>;
 
 /* Text you click into and edit in place. Typing stays local and is saved when
    you leave the box (or press Enter on a one-line one); Escape puts it back. */
@@ -99,6 +109,12 @@ export function WeddingDreamVenue({ subnav }) {
     save((c) => { const r = addCategory(c); newId = r.id; return r.cats; });
     setFocusId(newId);
   };
+  // A new list to the right of this one, ready to be named.
+  const addBeside = (catId) => {
+    let newId = null;
+    save((c) => { const r = addCategoryBeside(c, catId); newId = r.id; return r.cats; });
+    if (newId) setFocusId(newId);
+  };
   const deleteCategory = (cat) => {
     if (cat.items.length && !confirm(`Delete “${cat.title || 'this category'}” and its ${cat.items.length} item${cat.items.length === 1 ? '' : 's'}?`)) return;
     save((c) => removeCategory(c, cat.id));
@@ -125,6 +141,7 @@ export function WeddingDreamVenue({ subnav }) {
       {subnav}
       <p className={styles.subtitle}>
         What the venue has to be. Tick things off as you settle them, and click any text to change it.
+        Lists can sit side by side: use the buttons on a list&apos;s heading to add one to its right.
       </p>
       <div className={ds.progressBar} aria-hidden="true"><div style={{ width: total ? `${(done / total) * 100}%` : 0 }} /></div>
 
@@ -141,91 +158,105 @@ export function WeddingDreamVenue({ subnav }) {
       {cats.length === 0 && <p className={ds.empty}>No categories. Add one to start your list.</p>}
 
       <div className={ds.list}>
-        {cats.map((cat, ci) => {
-          const catDone = cat.items.filter((i) => i.done).length;
-          const allDone = cat.items.length > 0 && catDone === cat.items.length;
-          const open = !collapsed[cat.id];
-          const items = hideDone ? cat.items.filter((i) => !i.done) : cat.items;
-          return (
-            <section key={cat.id} className={ds.category} aria-label={cat.title || 'Untitled category'}>
-              <div className={ds.catHeader}>
-                <button type="button" className={ds.chevron} onClick={() => setCollapsed((x) => ({ ...x, [cat.id]: open }))} aria-expanded={open} aria-label={open ? `Collapse ${cat.title}` : `Expand ${cat.title}`}>
-                  {open ? '▾' : '▸'}
-                </button>
-                <input
-                  type="checkbox"
-                  className={ds.check}
-                  checked={allDone}
-                  ref={(el) => { if (el) el.indeterminate = catDone > 0 && !allDone; }}
-                  onChange={() => save((c) => toggleCategory(c, cat.id))}
-                  disabled={cat.items.length === 0}
-                  aria-label={`Check all of ${cat.title}`}
-                />
-                <InlineText
-                  className={ds.catTitle}
-                  value={cat.title}
-                  placeholder="Category name"
-                  label="Category name"
-                  autoFocus={focusId === cat.id}
-                  onSave={(t) => save((c) => renameCategory(c, cat.id, t))}
-                />
-                <span className={ds.catCount}>{catDone}/{cat.items.length}</span>
-                <div className={ds.actions}>
-                  <button type="button" className={ds.iconBtn} onClick={() => save((c) => moveCategory(c, cat.id, -1))} disabled={ci === 0} aria-label={`Move ${cat.title} up`} title="Move up">↑</button>
-                  <button type="button" className={ds.iconBtn} onClick={() => save((c) => moveCategory(c, cat.id, 1))} disabled={ci === cats.length - 1} aria-label={`Move ${cat.title} down`} title="Move down">↓</button>
-                  <button type="button" className={ds.iconBtn} onClick={() => deleteCategory(cat)} aria-label={`Delete ${cat.title}`} title="Delete category">✕</button>
-                </div>
-              </div>
-              {open && (
-                <ul className={ds.items}>
-                  {items.map((item) => {
-                    const ii = cat.items.indexOf(item);
-                    return (
-                      <li key={item.id} className={item.done ? `${ds.item} ${ds.itemDone}` : ds.item}>
-                        <input
-                          type="checkbox"
-                          className={ds.check}
-                          checked={item.done}
-                          onChange={() => save((c) => toggleItem(c, cat.id, item.id))}
-                          aria-label={`Check ${item.title || 'item'}`}
-                        />
-                        <div className={ds.itemText}>
-                          <InlineText
-                            className={ds.itemTitle}
-                            value={item.title}
-                            placeholder="What to look for"
-                            label="Item"
-                            autoFocus={focusId === item.id}
-                            onSave={(t) => save((c) => editItem(c, cat.id, item.id, { title: t }))}
-                            onLeaveEmpty={(e) => dropIfEmpty(cat, item, e)}
-                          />
-                          <InlineText
-                            className={ds.itemDetail}
-                            value={item.detail}
-                            placeholder="Add a note…"
-                            label={`Note for ${item.title || 'item'}`}
-                            multiline
-                            onSave={(t) => save((c) => editItem(c, cat.id, item.id, { detail: t }))}
-                            onLeaveEmpty={(e) => dropIfEmpty(cat, item, e)}
-                          />
-                        </div>
-                        <div className={ds.actions}>
-                          <button type="button" className={ds.iconBtn} onClick={() => save((c) => moveItem(c, cat.id, item.id, -1))} disabled={ii === 0} aria-label={`Move ${item.title} up`} title="Move up">↑</button>
-                          <button type="button" className={ds.iconBtn} onClick={() => save((c) => moveItem(c, cat.id, item.id, 1))} disabled={ii === cat.items.length - 1} aria-label={`Move ${item.title} down`} title="Move down">↓</button>
-                          <button type="button" className={ds.iconBtn} onClick={() => save((c) => removeItem(c, cat.id, item.id))} aria-label={`Delete ${item.title}`} title="Delete item">✕</button>
-                        </div>
+        {categoryRows(cats).map((row) => (
+          <div key={row[0].id} className={row.length > 1 ? `${ds.row} ${ds.rowShared}` : ds.row}>
+            {row.map((cat) => {
+              const ci = cats.indexOf(cat);
+              const shared = row.length > 1;
+              const catDone = cat.items.filter((i) => i.done).length;
+              const allDone = cat.items.length > 0 && catDone === cat.items.length;
+              const open = !collapsed[cat.id];
+              const items = hideDone ? cat.items.filter((i) => !i.done) : cat.items;
+              return (
+                <section key={cat.id} className={shared ? `${ds.category} ${ds.categoryShared}` : ds.category} aria-label={cat.title || 'Untitled category'}>
+                  <div className={ds.catHeader}>
+                    <button type="button" className={ds.chevron} onClick={() => setCollapsed((x) => ({ ...x, [cat.id]: open }))} aria-expanded={open} aria-label={open ? `Collapse ${cat.title}` : `Expand ${cat.title}`}>
+                      {open ? '▾' : '▸'}
+                    </button>
+                    <input
+                      type="checkbox"
+                      className={ds.check}
+                      checked={allDone}
+                      ref={(el) => { if (el) el.indeterminate = catDone > 0 && !allDone; }}
+                      onChange={() => save((c) => toggleCategory(c, cat.id))}
+                      disabled={cat.items.length === 0}
+                      aria-label={`Check all of ${cat.title}`}
+                    />
+                    <InlineText
+                      className={ds.catTitle}
+                      value={cat.title}
+                      placeholder="Category name"
+                      label="Category name"
+                      autoFocus={focusId === cat.id}
+                      onSave={(t) => save((c) => renameCategory(c, cat.id, t))}
+                    />
+                    <span className={ds.catCount}>{catDone}/{cat.items.length}</span>
+                    <div className={ds.actions}>
+                      {canAddBeside(cats, cat.id) && (
+                        <button type="button" className={ds.iconBtn} onClick={() => addBeside(cat.id)} aria-label={`Add a list to the right of ${cat.title}`} title="Add a list to the right of this one"><AddRight /></button>
+                      )}
+                      {cat.beside ? (
+                        <button type="button" className={ds.iconBtn} onClick={() => save((c) => setBeside(c, cat.id, false))} aria-label={`Move ${cat.title} to its own row`} title="Move to its own row"><Stacked /></button>
+                      ) : canSitBeside(cats, cat.id) && (
+                        <button type="button" className={ds.iconBtn} onClick={() => save((c) => setBeside(c, cat.id, true))} aria-label={`Put ${cat.title} beside the list above`} title="Put beside the list above"><SideBySide /></button>
+                      )}
+                      <button type="button" className={ds.iconBtn} onClick={() => save((c) => moveCategory(c, cat.id, -1))} disabled={ci === 0} aria-label={`Move ${cat.title} ${cat.beside ? 'left' : 'up'}`} title={cat.beside ? 'Move left' : 'Move up'}>{cat.beside ? '←' : '↑'}</button>
+                      <button type="button" className={ds.iconBtn} onClick={() => save((c) => moveCategory(c, cat.id, 1))} disabled={ci === cats.length - 1} aria-label={`Move ${cat.title} ${cats[ci + 1]?.beside ? 'right' : 'down'}`} title={cats[ci + 1]?.beside ? 'Move right' : 'Move down'}>{cats[ci + 1]?.beside ? '→' : '↓'}</button>
+                      <button type="button" className={ds.iconBtn} onClick={() => deleteCategory(cat)} aria-label={`Delete ${cat.title}`} title="Delete category">✕</button>
+                    </div>
+                  </div>
+                  {open && (
+                    <ul className={ds.items}>
+                      {items.map((item) => {
+                        const ii = cat.items.indexOf(item);
+                        return (
+                          <li key={item.id} className={item.done ? `${ds.item} ${ds.itemDone}` : ds.item}>
+                            <input
+                              type="checkbox"
+                              className={ds.check}
+                              checked={item.done}
+                              onChange={() => save((c) => toggleItem(c, cat.id, item.id))}
+                              aria-label={`Check ${item.title || 'item'}`}
+                            />
+                            <div className={ds.itemText}>
+                              <InlineText
+                                className={ds.itemTitle}
+                                value={item.title}
+                                placeholder="What to look for"
+                                label="Item"
+                                autoFocus={focusId === item.id}
+                                onSave={(t) => save((c) => editItem(c, cat.id, item.id, { title: t }))}
+                                onLeaveEmpty={(e) => dropIfEmpty(cat, item, e)}
+                              />
+                              <InlineText
+                                className={ds.itemDetail}
+                                value={item.detail}
+                                placeholder="Add a note…"
+                                label={`Note for ${item.title || 'item'}`}
+                                multiline
+                                onSave={(t) => save((c) => editItem(c, cat.id, item.id, { detail: t }))}
+                                onLeaveEmpty={(e) => dropIfEmpty(cat, item, e)}
+                              />
+                            </div>
+                            <div className={ds.actions}>
+                              <button type="button" className={ds.iconBtn} onClick={() => save((c) => moveItem(c, cat.id, item.id, -1))} disabled={ii === 0} aria-label={`Move ${item.title} up`} title="Move up">↑</button>
+                              <button type="button" className={ds.iconBtn} onClick={() => save((c) => moveItem(c, cat.id, item.id, 1))} disabled={ii === cat.items.length - 1} aria-label={`Move ${item.title} down`} title="Move down">↓</button>
+                              <button type="button" className={ds.iconBtn} onClick={() => save((c) => removeItem(c, cat.id, item.id))} aria-label={`Delete ${item.title}`} title="Delete item">✕</button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                      {hideDone && catDone > 0 && <li className={ds.hiddenNote}>{catDone} checked hidden</li>}
+                      <li>
+                        <button type="button" className={ds.addItem} onClick={() => addNewItem(cat.id)}>+ Add item</button>
                       </li>
-                    );
-                  })}
-                  {hideDone && catDone > 0 && <li className={ds.hiddenNote}>{catDone} checked hidden</li>}
-                  <li>
-                    <button type="button" className={ds.addItem} onClick={() => addNewItem(cat.id)}>+ Add item</button>
-                  </li>
-                </ul>
-              )}
-            </section>
-          );
-        })}
+                    </ul>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

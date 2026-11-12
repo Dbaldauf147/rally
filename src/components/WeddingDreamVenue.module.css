@@ -3,7 +3,16 @@
 .progressBar { height: 6px; border-radius: 999px; background: var(--color-surface-alt); overflow: hidden; margin: -0.75rem 0 1rem; max-width: 900px; }
 .progressBar > div { height: 100%; background: var(--color-accent); transition: width 0.2s; }
 
-.list { display: flex; flex-direction: column; gap: 0.75rem; max-width: 900px; }
+.list { display: flex; flex-direction: column; gap: 0.75rem; }
+/* One row of the list. A category on its own keeps a readable width; ones
+   that share a row sit side by side, each as wide as a lone one if there's
+   room, and stack again on a narrow screen. */
+.row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 900px); gap: 0.75rem; align-items: start; }
+.categoryShared .item { padding-left: 0.9rem; }
+.categoryShared .addItem { margin-left: 2.1rem; }
+.categoryShared .hiddenNote { padding-left: 2.5rem; }
+.iconBtn svg { display: block; }
+@media (max-width: 800px) { .rowShared { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: minmax(0, 1fr); } }
 .empty { color: var(--color-text-muted); font-size: 0.9rem; }
 
 .category { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
