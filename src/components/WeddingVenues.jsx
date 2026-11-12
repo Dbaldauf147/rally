@@ -276,7 +276,9 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, w
 /* Wedding venues: the places being considered, filled in from a linked Gmail
    inbox (api/wedding-venues.js reads it; lib/weddingVenues.js folds the
    results in) and editable by hand. Edits in the pop-up save themselves. */
-export function WeddingVenues({ subnav } = {}) {
+/* `hiddenOnly`: the Venues → Hidden subtab, the same table showing only the
+   venues hidden from All venues (the eye button brings one back). */
+export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   const { user } = useAuth();
   const [, setSearchParams] = useSearchParams();
   const [venues, setVenues] = useState([]);
@@ -298,6 +300,9 @@ export function WeddingVenues({ subnav } = {}) {
   // The table's columns: order, hidden, and the ones added by hand.
   const [colConfig, setColConfig] = useState(() => normalizeColumnConfig(null));
   const [colFilters, setColFilters] = useState({});
+  // Which venues the table shows: the hidden ones on the Hidden subtab; on
+  // All venues the ones not hidden, or every one with the first column's All.
+  const showing = hiddenOnly ? 'hidden' : colFilters.shown === 'all' ? 'all' : '';
   const [sort, setSort] = useState(null); // { key, dir } or null = newest contact first
   const [colMenuOpen, setColMenuOpen] = useState(false);
   // Dragging a row of the column picker: which one, and where it'd land.
@@ -496,7 +501,7 @@ export function WeddingVenues({ subnav } = {}) {
   const setHidden = (v, hidden) => {
     updateVenue(v.id, (x) => ({ ...x, hidden }));
     setMessage(hidden
-      ? { type: 'ok', text: `Hid ${v.name}. Hidden venues are under “Hidden” in the first column's filter.`, undo: () => setHidden(v, false) }
+      ? { type: 'ok', text: `Hid ${v.name}. Hidden venues are on the Hidden tab.`, undo: () => setHidden(v, false) }
       : { type: 'ok', text: `${v.name} is back on the table.` });
   };
 
@@ -644,8 +649,9 @@ export function WeddingVenues({ subnav } = {}) {
       rows = rows.filter((v) => [v.name, v.contactName, v.email, v.location, areaName(v, areas), v.notes, v.summary, ...Object.values(v.custom || {})]
         .some((x) => (x || '').toLowerCase().includes(term)));
     }
-    const { shown: showing, status, area, visit, ...text } = colFilters;
-    // Hidden venues are left out unless the first column's filter asks for them.
+    const { shown: _shown, status, area, visit, ...text } = colFilters;
+    // Hidden venues have their own subtab; All venues leaves them out unless
+    // the first column's filter says All.
     if (showing === 'hidden') rows = rows.filter((v) => v.hidden);
     else if (showing !== 'all') rows = rows.filter((v) => !v.hidden);
     if (status) rows = rows.filter((v) => v.status === status);
@@ -658,7 +664,7 @@ export function WeddingVenues({ subnav } = {}) {
     }
     const textOf = (v, key) => (key === 'lastContactDate' ? `${v.lastContactDate} ${fmtDate(v.lastContactDate)}` : cellValue(v, key));
     return applyColumnFilters(rows, text, textOf, ['phone']);
-  }, [venues, search, sort, colFilters, areas]);
+  }, [venues, search, sort, colFilters, areas, showing]);
   // The venues on the table that match none of the locations.
   const unmapped = useMemo(() => unmappedVenues(venues.filter((v) => !v.hidden), areas), [venues, areas]);
   // The locations are edited on their own tab, Wedding → Locations.
@@ -672,7 +678,7 @@ export function WeddingVenues({ subnav } = {}) {
   // Empty statuses get no tab unless you're on it.
   // Counted over the venues the hide filter lets through, so they match the rows.
   const statusTabs = useMemo(() => {
-    const pool = colFilters.shown === 'all' ? venues : venues.filter((v) => (colFilters.shown === 'hidden' ? v.hidden : !v.hidden));
+    const pool = showing === 'all' ? venues : venues.filter((v) => (showing === 'hidden' ? v.hidden : !v.hidden));
     const counts = new Map(VENUE_STATUSES.map((st) => [st, 0]));
     for (const v of pool) if (counts.has(v.status)) counts.set(v.status, counts.get(v.status) + 1);
     return [
@@ -680,7 +686,7 @@ export function WeddingVenues({ subnav } = {}) {
       ...VENUE_STATUSES.filter((st) => counts.get(st) > 0 || colFilters.status === st)
         .map((st) => ({ value: st, label: st, count: counts.get(st) })),
     ];
-  }, [venues, colFilters.status, colFilters.shown]);
+  }, [venues, colFilters.status, showing]);
   const activeStatusTab = colFilters.status || '';
 
   /* ── Pasting a spreadsheet range ── */
@@ -1227,11 +1233,12 @@ export function WeddingVenues({ subnav } = {}) {
                 </tr>
                 <tr className={styles.filterRow}>
                   <th className={vs.starCol}>
-                    <select className={styles.filterSelect} value={colFilters.shown || ''} onChange={(e) => setColFilters((f) => ({ ...f, shown: e.target.value }))} aria-label="Show hidden venues">
-                      <option value="">Shown</option>
-                      <option value="hidden">Hidden{hiddenCount ? ` (${hiddenCount})` : ''}</option>
-                      <option value="all">All</option>
-                    </select>
+                    {!hiddenOnly && (
+                      <select className={styles.filterSelect} value={showing} onChange={(e) => setColFilters((f) => ({ ...f, shown: e.target.value }))} aria-label="Show hidden venues" title="Hidden venues are on the Hidden tab; All shows them here too">
+                        <option value="">Shown</option>
+                        <option value="all">All{hiddenCount ? ` (+${hiddenCount} hidden)` : ''}</option>
+                      </select>
+                    )}
                   </th>
                   {visible.map((col) => (
                     <th key={col.key}>
@@ -1257,7 +1264,7 @@ export function WeddingVenues({ subnav } = {}) {
               <tbody>
                 {shown.length === 0 && (
                   <tr><td colSpan={visible.length + 1} className={vs.empty}>
-                    {colFilters.shown === 'hidden' ? 'No hidden venues.'
+                    {hiddenOnly ? (hiddenCount ? 'No hidden venues match.' : 'No hidden venues. The eye button on a row in All venues hides one here.')
                       : colFilters.visit && !toVisitCount ? 'No places to visit yet — flag a venue in the first column to add it here.' : 'No venues match.'}
                   </td></tr>
                 )}
