@@ -15,6 +15,7 @@ import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
 import { FriendsPage } from './FriendsPage';
 import { WeddingPartyCell } from './WeddingPartyCell';
 import { makeGuestComparator, sameSortValue, statusOrder } from '../lib/weddingSort';
+import { expectedAttendance, normalizeDeclineRate } from '../lib/weddingAttendance';
 import { partyKey, partnerMap, partyUnits, moveUnit, orderFromUnits, partyPositions, guestName, keepCouplesTogether, rowOutlines, groupPartiesTogether, partnersFollowGroup } from '../lib/weddingParty';
 import { guestFromFriend } from '../lib/weddingFriendMatch';
 import { addFriend } from '../lib/friends';
@@ -346,6 +347,10 @@ function GuestList() {
   // saved as weddingOutlinesHidden. Hiding one only drops its boxes — group
   // view still keeps the rows together.
   const [hiddenOutlines, setHiddenOutlines] = useState({});
+  // The share of the guest list you expect won't accept or attend (0–100, or
+  // null until set), saved as weddingDeclineRate. See lib/weddingAttendance.
+  const [declineRate, setDeclineRate] = useState(null);
+  const [declineDraft, setDeclineDraft] = useState(null); // text while typing
   const [sortDir, setSortDir] = useState('asc');
   const [selected, setSelected] = useState(() => new Set());
   const [bulkField, setBulkField] = useState('group');
@@ -423,6 +428,7 @@ function GuestList() {
         }
         setGroupView(data.weddingGroupView !== false);
         setHiddenOutlines(data.weddingOutlinesHidden && typeof data.weddingOutlinesHidden === 'object' ? data.weddingOutlinesHidden : {});
+        setDeclineRate(normalizeDeclineRate(data.weddingDeclineRate));
         // Defaults chosen so switching it on is a one-click decision: their own
         // address, Sunday morning, whatever timezone the browser is in.
         const wd = data.weddingDigest && typeof data.weddingDigest === 'object' ? data.weddingDigest : {};
@@ -724,6 +730,16 @@ function GuestList() {
     }
   };
 
+  const saveDeclineRate = (text) => {
+    setDeclineDraft(null);
+    const next = normalizeDeclineRate(text);
+    if (next === declineRate) return;
+    setDeclineRate(next);
+    if (!user) return;
+    setDoc(doc(db, 'users', user.uid), { weddingDeclineRate: next }, { merge: true })
+      .catch((err) => console.error('Failed to save decline rate:', err));
+  };
+
   const persistColumnConfig = async (next) => {
     if (!user) return;
     await setDoc(doc(db, 'users', user.uid), { weddingColumnConfig: next }, { merge: true });
@@ -809,6 +825,7 @@ function GuestList() {
   // Guest count summaries broken down by Category (A/B/C tiers) and by Group.
   // Tiers sort A→B→C first, everything else alphabetical, unassigned last.
   const shownContacts = useMemo(() => contacts.filter((c) => !isHidden(c)), [contacts]);
+  const attendance = useMemo(() => expectedAttendance(shownContacts, declineRate), [shownContacts, declineRate]);
 
   const summaries = useMemo(() => {
     const build = (field) => {
@@ -2060,6 +2077,36 @@ function GuestList() {
             </button>
           ))}
           <span className={styles.summaryTotal}>{shownContacts.length} total</span>
+        </div>
+        <div className={styles.summaryRow} data-testid="attendance-row">
+          <span className={styles.summaryLabel}>Expected</span>
+          <label className={styles.declineRate} title="Applied to guests who haven't answered yet. Confirmed guests count in full; Not coming guests don't count.">
+            <input
+              type="text"
+              inputMode="decimal"
+              className={styles.declineRateInput}
+              value={declineDraft ?? (declineRate === null ? '' : String(declineRate))}
+              placeholder="e.g. 20"
+              onChange={(e) => setDeclineDraft(e.target.value)}
+              onBlur={(e) => saveDeclineRate(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                else if (e.key === 'Escape') { setDeclineDraft(null); setTimeout(() => e.target.blur(), 0); }
+              }}
+              aria-label="Percent of guests who won't accept or attend"
+            />
+            <span>% won&apos;t accept or attend</span>
+          </label>
+          <span className={styles.summaryTotal} data-testid="attendance-expected">
+            {attendance.rate === null
+              ? `${attendance.expected} expected — set a % to estimate declines`
+              : `≈ ${attendance.expected} of ${attendance.total} attending · ${attendance.notAttending} not`}
+          </span>
+          {(attendance.confirmed > 0 || attendance.declined > 0) && (
+            <span className={styles.declineRateNote}>
+              {attendance.confirmed} confirmed, {attendance.declined} not coming, {attendance.open} yet to answer
+            </span>
+          )}
         </div>
       </div>
 
