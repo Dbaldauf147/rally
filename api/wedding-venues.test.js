@@ -403,6 +403,23 @@ describe('drafting venue replies', () => {
     expect((await call({ action: 'draftOutreach', venueId: 'gone' })).code).toBe(404);
   });
 
+  it('fills in whichever saved draft is asked for, and lists them to choose between', async () => {
+    docs.set('users/u1', { ...docs.get('users/u1'), weddingVenueReply: {
+      details: { couple: 'Dan & Jo' },
+      drafts: [
+        { id: 'outreach', name: 'Outreach', template: 'Hi {first name},\n\nWe love {venue}.' },
+        { id: 'draft-2', name: 'Follow-up', template: 'Hi {first name},\n\nJust checking in on {venue}.', subject: 'Following up' },
+      ],
+    } });
+    const first = await call({ action: 'draftOutreach', venueId: 'v1' });
+    expect(first.body).toMatchObject({ templateId: 'outreach', subject: 'Wedding inquiry', body: 'Hi Trudy,\n\nWe love The Pridwin.' });
+    expect(first.body.templates).toEqual([{ id: 'outreach', name: 'Outreach' }, { id: 'draft-2', name: 'Follow-up' }]);
+    const second = await call({ action: 'draftOutreach', venueId: 'v1', templateId: 'draft-2' });
+    expect(second.body).toMatchObject({ templateId: 'draft-2', subject: 'Following up', body: 'Hi Trudy,\n\nJust checking in on The Pridwin.' });
+    // A draft deleted since the page loaded falls back to the first.
+    expect((await call({ action: 'draftOutreach', venueId: 'v1', templateId: 'gone' })).body.templateId).toBe('outreach');
+  });
+
   it('saves a Gmail draft in the thread, never sends', async () => {
     const res = await call({ action: 'saveDraft', to: 'twilson@pridwin.test', subject: 'Re: Pricing — Champlin’s', body: 'Hi!\nThanks', threadId: 'th1', inReplyTo: '<m2@x>', references: '<m1@x> <m2@x>' });
     expect(res.code).toBe(200);
