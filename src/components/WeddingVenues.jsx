@@ -20,6 +20,7 @@ import { VenueAreasEditor } from './VenueAreasEditor';
 import { VenueNoFitPrompt } from './VenueNoFitPrompt';
 import { noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
+import { HIDDEN, TO_VISIT, bulkSetField, rowsToTsv, venueExportRows } from '../lib/venueBulk';
 
 // The inbox the venue mail goes to. Only a hint for Google's account picker —
 // any inbox can be linked.
@@ -86,7 +87,7 @@ const Flag = ({ on }) => (
   </svg>
 );
 
-const STAR_COL_WIDTH = 118;
+const STAR_COL_WIDTH = 146;
 
 /* Which of the couple's locations a venue is in: matched from its address
    ("Auto"), or picked. A venue that matches none is flagged ⚠ until a
@@ -255,6 +256,11 @@ export function WeddingVenues({ subnav } = {}) {
   const [pasteText, setPasteText] = useState(null);
   const [pasteHeader, setPasteHeader] = useState(null);
   const [pasteMap, setPasteMap] = useState(null);
+  const fileRef = useRef(null);
+  // The rows ticked for a bulk change, and the change being set up.
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkKey, setBulkKey] = useState('status');
+  const [bulkValue, setBulkValue] = useState('');
 
   useEffect(() => {
     if (!user) return undefined;
@@ -658,13 +664,13 @@ export function WeddingVenues({ subnav } = {}) {
   const pastePlan = useMemo(() => {
     if (pasteText === null || !pasteBody.length) return null;
     const { keys } = resolveMapping(colConfig, (i) => `c_preview${i}`);
-    return planVenuePaste(venues, pasteBody, keys);
+    return planVenuePaste(venues, pasteBody, keys, { areas });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pasteText, pasteBody, mapping, venues, colConfig]);
+  }, [pasteText, pasteBody, mapping, venues, colConfig, areas]);
 
   const applyPaste = async () => {
     const { config, keys } = resolveMapping(colConfig);
-    const { list, added, updated, skipped } = planVenuePaste(venuesRef.current, pasteBody, keys, { makeId: newVenueId });
+    const { list, added, updated, skipped } = planVenuePaste(venuesRef.current, pasteBody, keys, { makeId: newVenueId, areas });
     closePaste();
     try {
       setColConfig(config);
@@ -679,7 +685,109 @@ export function WeddingVenues({ subnav } = {}) {
     }
   };
 
-  const fieldOptions = columns.filter((c) => !c.readOnly);
+  // Where a pasted column can go: the typed columns, plus the two a sheet
+  // can also set — the place-to-visit flag and (by name) the location.
+  const fieldOptions = [
+    ...columns.filter((c) => !c.readOnly),
+    TO_VISIT,
+    ...(areas.length ? [{ key: 'area', label: 'Area' }] : []),
+  ];
+
+  /* ── A file instead of a paste ── */
+  const importFile = async (file) => {
+    if (!file) return;
+    try {
+      const XLSX = await import('xlsx');
+      // A CSV is read as written, so "3/4" or a phone number isn't reinterpreted.
+      const isText = /\.(csv|tsv|txt)$/i.test(file.name);
+      const wb = isText ? XLSX.read(await file.text(), { type: 'string', raw: true }) : XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '', blankrows: false });
+      if (!rows.length) throw new Error('the file has no rows');
+      openPaste(rowsToTsv(rows));
+    } catch (err) {
+      setMessage({ type: 'error', text: `Could not read ${file.name}: ${err.message}` });
+    }
+  };
+
+  /* ── Bulk: tick rows, then change, export or delete them together ── */
+  // Only venues still on the list count (one may have been deleted since).
+  const picked = venues.filter((v) => selected.has(v.id));
+  const shownIds = shown.map((v) => v.id);
+  const allShownPicked = shownIds.length > 0 && shownIds.every((id) => selected.has(id));
+  const somePicked = shownIds.some((id) => selected.has(id));
+  const togglePick = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAllShown = () => setSelected((s) => {
+    const n = new Set(s);
+    for (const id of shownIds) { if (allShownPicked) n.delete(id); else n.add(id); }
+    return n;
+  });
+  const clearPicked = () => setSelected(new Set());
+
+  const bulkFields = [
+    { key: 'status', label: 'Status' },
+    TO_VISIT,
+    HIDDEN,
+    ...(areas.length ? [{ key: 'area', label: 'Area' }] : []),
+    ...columns.filter((c) => !c.readOnly && c.key !== 'name' && c.key !== 'status').map((c) => ({ key: c.key, label: c.label, type: c.type })),
+  ];
+  const bulkField = bulkFields.find((f) => f.key === bulkKey) || bulkFields[0];
+  const BULK_CHOICES = {
+    status: VENUE_STATUSES.map((st) => [st, st]),
+    toVisit: [['Yes', 'Yes — flag them'], ['No', 'No — remove the flag']],
+    hidden: [['Yes', 'Yes — hide them'], ['No', 'No — show them']],
+    allInclusive: [['Yes', 'Yes'], ['No', 'No'], ['', 'Not known (clear)']],
+    area: [...areas.map((a) => [a.id, a.name]), [NO_AREA, 'None of these'], ['', 'Match from the address']],
+  };
+  const bulkChoices = BULK_CHOICES[bulkField.key] || null;
+  const bulkVal = bulkChoices ? (bulkChoices.some(([val]) => val === bulkValue) ? bulkValue : bulkChoices[0][0]) : bulkValue;
+  const n = picked.length;
+  const these = `${n} venue${n === 1 ? '' : 's'}`;
+
+  const applyBulk = async () => {
+    const before = venuesRef.current;
+    const next = bulkSetField(before, new Set(picked.map((v) => v.id)), bulkField.key, bulkVal);
+    const changed = next.filter((v, i) => v !== before[i]).length;
+    if (!changed) { setMessage({ type: 'ok', text: `Nothing to change — ${these} already had that.` }); return; }
+    const was = new Map(before.filter((v, i) => v !== next[i]).map((v) => [v.id, v]));
+    try {
+      await persist(next);
+      const shownValue = bulkChoices ? bulkChoices.find(([val]) => val === bulkVal)[1].split(' — ')[0] : bulkVal.trim();
+      setMessage({
+        type: 'ok',
+        text: shownValue ? `Set ${bulkField.label} to “${shownValue}” on ${changed} venue${changed === 1 ? '' : 's'}.` : `Cleared ${bulkField.label} on ${changed} venue${changed === 1 ? '' : 's'}.`,
+        undo: () => { persist(venuesRef.current.map((v) => was.get(v.id) || v)).catch(saveError); setMessage(null); },
+      });
+    } catch (err) { saveError(err); }
+  };
+  const deletePicked = async () => {
+    if (!n || !confirm(`Delete ${these}? Ones that came from the inbox won’t be added back by a later scan.`)) return;
+    const ids = new Set(picked.map((v) => v.id));
+    const keys = picked.filter((v) => v.source === 'gmail').map((v) => venueNameKey(v.name)).filter((k) => k && !dismissed.includes(k));
+    try {
+      await persist(venuesRef.current.filter((v) => !ids.has(v.id)), keys.length ? { weddingVenueDismissed: [...dismissed, ...new Set(keys)] } : {});
+      clearPicked();
+      setMessage({ type: 'ok', text: `Deleted ${these}.` });
+    } catch (err) { saveError(err); }
+  };
+
+  // The ticked rows, else the rows on screen, as an Excel file with every
+  // column — which an import reads straight back.
+  const exportRows = n ? picked : shown;
+  const exportVenues = async () => {
+    try {
+      const XLSX = await import('xlsx');
+      const rows = venueExportRows(exportRows, colConfig, areas);
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = rows[0].map((h, i) => ({ wch: Math.min(40, Math.max(h.length + 2, ...rows.slice(1).map((r) => String(r[i] || '').length + 1))) }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Venues');
+      const d = new Date();
+      XLSX.writeFile(wb, `wedding-venues-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.xlsx`);
+      setMessage({ type: 'ok', text: `Exported ${exportRows.length} venue${exportRows.length === 1 ? '' : 's'}. Edit the file, then Import it to update them.` });
+    } catch (err) {
+      setMessage({ type: 'error', text: `Could not export: ${err.message}` });
+    }
+  };
 
   if (loading) return <div className={styles.page}><p className={styles.muted}>Loading…</p></div>;
 
@@ -862,9 +970,43 @@ export function WeddingVenues({ subnav } = {}) {
           )}
         </div>
         <button type="button" className={styles.toolButton} onClick={() => setAreasOpen(true)} title="The locations each venue is matched to">📍 Locations{areas.length ? ` (${areas.length})` : ''}</button>
-        <button type="button" className={styles.toolButton} onClick={() => openPaste('')} title="Paste a range copied from Google Sheets or Excel">📋 Paste from sheet</button>
+        {venues.length > 0 && (
+          <button type="button" className={styles.toolButton} onClick={exportVenues} disabled={!exportRows.length} title={n ? `Download the ${these} you ticked as an Excel file` : 'Download the venues shown as an Excel file — tick rows to export only those'}>
+            ⬇ Export{n ? ` (${n})` : ''}
+          </button>
+        )}
+        <button type="button" className={styles.toolButton} onClick={() => openPaste('')} title="Add or update venues from an Excel or CSV file, or a range pasted from a spreadsheet">⬆ Import</button>
         <button type="button" className={styles.toolButton} onClick={() => setEditing(normalizeVenue({ id: newVenueId(), status: 'Researching' }))}>+ Add venue</button>
       </div>
+
+      {n > 0 && (
+        <div className={styles.bulkBar} role="region" aria-label="Bulk edit">
+          <span className={styles.bulkCount}>{n} selected</span>
+          <span className={styles.bulkLabel}>Set</span>
+          <select className={styles.bulkInput} style={{ minWidth: 0 }} value={bulkField.key} onChange={(e) => { setBulkKey(e.target.value); setBulkValue(''); }} aria-label="Field to change">
+            {bulkFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+          </select>
+          <span className={styles.bulkLabel}>to</span>
+          {bulkChoices ? (
+            <select className={styles.bulkInput} value={bulkVal} onChange={(e) => setBulkValue(e.target.value)} aria-label="New value">
+              {bulkChoices.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+            </select>
+          ) : (
+            <input
+              className={styles.bulkInput}
+              type={bulkField.key === 'lastContactDate' ? 'date' : 'text'}
+              value={bulkValue}
+              onChange={(e) => setBulkValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyBulk(); }}
+              placeholder="Leave blank to clear"
+              aria-label="New value"
+            />
+          )}
+          <button type="button" className={styles.bulkApply} onClick={applyBulk}>Apply to {n}</button>
+          <button type="button" className={styles.bulkDelete} onClick={deletePicked}>Delete</button>
+          <button type="button" className={styles.bulkClear} onClick={clearPicked}>Clear selection</button>
+        </div>
+      )}
 
       {venues.length === 0 ? (
         <div className={styles.tableWrap}>
@@ -882,7 +1024,18 @@ export function WeddingVenues({ subnav } = {}) {
               </colgroup>
               <thead>
                 <tr>
-                  <th className={vs.starCol} title="Flag a venue as a place to visit, or hide it to take it off the table without deleting it">Visit · Hide</th>
+                  <th className={vs.starCol} title="Tick venues to change, export or delete them together. Flag one as a place to visit, or hide it to take it off the table without deleting it">
+                    <input
+                      type="checkbox"
+                      className={vs.pick}
+                      checked={allShownPicked}
+                      ref={(el) => { if (el) el.indeterminate = somePicked && !allShownPicked; }}
+                      onChange={toggleAllShown}
+                      disabled={!shownIds.length}
+                      aria-label={allShownPicked ? 'Untick every venue shown' : `Tick all ${shownIds.length} venues shown`}
+                    />
+                    Visit · Hide
+                  </th>
                   {visible.map((col) => (
                     <th key={col.key} className={vs.resizableTh} onClick={() => clickSort(col.key)} aria-sort={sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} title={col.label}>
                       {col.label}
@@ -937,8 +1090,9 @@ export function WeddingVenues({ subnav } = {}) {
                   </td></tr>
                 )}
                 {shown.map((v) => (
-                  <tr key={v.id} className={v.hidden ? vs.hiddenRow : undefined}>
+                  <tr key={v.id} className={`${v.hidden ? vs.hiddenRow : ''} ${selected.has(v.id) ? vs.pickedRow : ''}`}>
                     <td className={vs.starCol}>
+                      <input type="checkbox" className={vs.pick} checked={selected.has(v.id)} onChange={() => togglePick(v.id)} aria-label={`Select ${v.name}`} />
                       <button
                         type="button"
                         className={v.toVisit ? vs.visitBtnOn : vs.visitBtn}
@@ -973,20 +1127,33 @@ export function WeddingVenues({ subnav } = {}) {
           </div>
         </div>
       )}
-      <p className={styles.muted + ' ' + vs.tableHint}>Flag a venue in the first column to tag it as a place to visit. Click a cell to edit it, or a venue name to search Google for it (✎ renames). Copy a range from Google Sheets or Excel and paste it onto the page to add or update venues.</p>
+      <p className={styles.muted + ' ' + vs.tableHint}>Tick venues to change, export or delete several at once. Flag a venue in the first column to tag it as a place to visit. Click a cell to edit it, or a venue name to search Google for it (✎ renames). Copy a range from Google Sheets or Excel and paste it onto the page to add or update venues.</p>
 
       {pasteText !== null && (
         <div className={styles.modalOverlay} onClick={closePaste}>
-          <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Paste venues from a spreadsheet" onClick={(e) => e.stopPropagation()}>
+          <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Import venues from a spreadsheet" onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2 className={styles.modalTitle}>Paste venues from a spreadsheet</h2>
+              <h2 className={styles.modalTitle}>Import venues from a spreadsheet</h2>
               <button className={styles.modalClose} type="button" onClick={closePaste} aria-label="Close">×</button>
             </div>
             <div className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Copy a range of cells from Google Sheets or Excel and paste it here, then say where each column goes.
-                Venues already on the list (same name or email) are updated with the pasted values; blank cells leave
+                Choose an Excel or CSV file — an export from this page works as it is — or copy a range of cells from
+                Google Sheets or Excel and paste it below, then say where each column goes.
+                Venues already on the list (same name or email) are updated with the new values; blank cells leave
                 what's there alone. Everything else is added.
+              </p>
+              <p className={vs.importFile}>
+                <button type="button" className={styles.modalSecondary} onClick={() => fileRef.current?.click()}>Choose a file…</button>
+                <span className={styles.muted}>.xlsx, .xls or .csv</span>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.tsv,.txt"
+                  hidden
+                  aria-label="Spreadsheet file to import"
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; importFile(f); }}
+                />
               </p>
               <textarea
                 className={styles.modalTextarea}
