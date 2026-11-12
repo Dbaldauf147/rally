@@ -925,7 +925,6 @@ export function WeddingVenues({ subnav } = {}) {
         </span>
       </div>
       {subnav}
-      <p className={styles.subtitle}>Venues you're talking to, pulled from the wedding inbox and kept up to date each time you scan.</p>
 
       <section className={vs.gmailCard} aria-label="Gmail inbox">
         {gmail ? (
@@ -937,17 +936,17 @@ export function WeddingVenues({ subnav } = {}) {
                 {gmail.lastAutoScan?.error ? ` · Daily scan failed: ${gmail.lastAutoScan.error}`
                   : gmail.lastAutoScan?.added?.length ? ` · Daily scan added ${gmail.lastAutoScan.added.join(', ')}` : ''}
               </span>
-              <label className={vs.autoScan} title="Rally scans this inbox for you every morning and adds what it finds">
+              <label className={vs.autoScan} title="Rally scans this inbox for you every morning at 9 AM (Eastern) and adds what it finds">
                 <input
                   type="checkbox"
                   checked={gmail.autoScan !== false}
                   onChange={(e) => setDoc(doc(db, 'users', user.uid), { weddingGmail: { autoScan: e.target.checked } }, { merge: true }).catch(saveError)}
                 />
-                Scan automatically every day at 9 AM (Eastern)
+                Daily scan, 9 AM ET
               </label>
               {gmail.canDraft !== true && (
-                <span className={styles.muted}>
-                  To save reply drafts to this inbox, <button type="button" className={styles.tierLegendEdit} onClick={connect} disabled={!!busy}>reconnect Gmail</button> and allow drafts.
+                <span className={styles.muted} title="To save reply drafts to this inbox, reconnect Gmail and allow drafts.">
+                  <button type="button" className={styles.tierLegendEdit} onClick={connect} disabled={!!busy}>Reconnect Gmail</button> to save drafts
                 </span>
               )}
             </div>
@@ -977,18 +976,17 @@ export function WeddingVenues({ subnav } = {}) {
           </>
         )}
       </section>
-      {busy === 'scan' && <p className={styles.muted} role="status">Reading venue emails — this can take a minute.</p>}
+      {busy === 'scan' && <p className={`${vs.scanMsg} ${styles.muted}`} role="status">Reading venue emails — this can take a minute.</p>}
       {message && (
-        <p className={message.type === 'error' ? styles.digestErrMsg : styles.digestOkMsg} role="status">
+        <p className={`${vs.scanMsg} ${message.type === 'error' ? styles.digestErrMsg : styles.digestOkMsg}`} role="status">
           {message.text}{' '}
           {message.undo && <button type="button" className={styles.tierLegendEdit} onClick={message.undo}>Undo</button>}{' '}
           <button type="button" className={styles.tierLegendEdit} onClick={() => setMessage(null)}>Dismiss</button>
         </p>
       )}
       {unmapped.length > 0 && (
-        <p className={vs.areaBanner} role="status">
-          ⚠ {unmapped.length} venue{unmapped.length === 1 ? '' : 's'} can&apos;t be mapped to any of your locations:{' '}
-          {unmapped.slice(0, 6).map((v) => v.name).join(', ')}{unmapped.length > 6 ? `, and ${unmapped.length - 6} more` : ''}.{' '}
+        <p className={vs.areaBanner} role="status" title={unmapped.map((v) => v.name).join(', ')}>
+          ⚠ {unmapped.length} venue{unmapped.length === 1 ? '' : 's'} can&apos;t be mapped to any of your locations.{' '}
           <button type="button" className={styles.tierLegendEdit} onClick={() => setColFilters((f) => ({ ...f, area: 'unmapped', shown: '' }))}>Show them</button>{' · '}
           <button type="button" className={styles.tierLegendEdit} onClick={openLocations}>Edit locations</button>
         </p>
