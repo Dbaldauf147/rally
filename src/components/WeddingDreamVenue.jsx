@@ -119,6 +119,13 @@ export function WeddingDreamVenue({ subnav }) {
     if (cat.items.length && !confirm(`Delete “${cat.title || 'this category'}” and its ${cat.items.length} item${cat.items.length === 1 ? '' : 's'}?`)) return;
     save((c) => removeCategory(c, cat.id));
   };
+  // Replace whatever is saved with the starting list (Must have / Preference /
+  // Unsure). Your own lists and ticks go, so it asks first.
+  const resetToStart = () => {
+    if (!confirm('Replace your dream venue list with the starting list (Must have, Preference, Unsure)? Your current lists and ticks will be removed.')) return;
+    save(() => normalizeDreamVenue(null));
+    setCollapsed({});
+  };
   // An item left with nothing in it is tidied away rather than kept blank —
   // unless you've only moved on to its own note box.
   const dropIfEmpty = (cat, item, e) => {
@@ -152,6 +159,7 @@ export function WeddingDreamVenue({ subnav }) {
         <button type="button" className={styles.toolButton} onClick={() => setCollapsed(Object.fromEntries(cats.map((c) => [c.id, true])))}>Collapse all</button>
         <button type="button" className={styles.toolButton} onClick={() => setCollapsed({})}>Expand all</button>
         <button type="button" className={styles.toolButton} onClick={addNewCategory}>+ Add category</button>
+        <button type="button" className={styles.toolButton} onClick={resetToStart}>Reset to starting list</button>
       </div>
       {error && <p className={styles.digestErrMsg} role="status">{error}</p>}
 
