@@ -9,6 +9,7 @@ import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingVenues } from './WeddingVenues';
 import { WeddingDreamVenue } from './WeddingDreamVenue';
 import { WeddingVenueReply } from './WeddingVenueReply';
+import { WeddingLocations } from './WeddingLocations';
 import dreamStyles from './WeddingDreamVenue.module.css';
 import { WeddingBudget } from './WeddingBudget';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
@@ -2902,7 +2903,7 @@ export function WeddingPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawView = searchParams.get('view');
-  const view = ['checklist', 'timeline', 'venues', 'budget', 'friends'].includes(rawView) ? rawView : 'guests';
+  const view = ['checklist', 'timeline', 'venues', 'locations', 'budget', 'friends'].includes(rawView) ? rawView : 'guests';
   const setView = (v) => setSearchParams(v === 'guests' ? {} : { view: v });
   // Venues has three of its own: the venue table, the dream-venue list, and the reply email.
   const venuesSub = ['dream', 'reply'].includes(searchParams.get('venues')) ? searchParams.get('venues') : 'list';
@@ -2945,6 +2946,11 @@ export function WeddingPage() {
           >Venues</button>
           <button
             type="button"
+            className={view === 'locations' ? styles.subtabActive : styles.subtab}
+            onClick={() => setView('locations')}
+          >Locations</button>
+          <button
+            type="button"
             className={view === 'budget' ? styles.subtabActive : styles.subtab}
             onClick={() => setView('budget')}
           >Budget</button>
@@ -2955,7 +2961,7 @@ export function WeddingPage() {
           >Friends not on list</button>
         </div>
       </div>
-      {view === 'friends' ? <WeddingFriendsNotInvited /> : view === 'venues' ? (venuesSub === 'dream' ? <WeddingDreamVenue subnav={venuesSubnav} /> : venuesSub === 'reply' ? <WeddingVenueReply subnav={venuesSubnav} /> : <WeddingVenues subnav={venuesSubnav} />) : view === 'timeline' ? (
+      {view === 'friends' ? <WeddingFriendsNotInvited /> : view === 'locations' ? <WeddingLocations /> : view === 'venues' ? (venuesSub === 'dream' ? <WeddingDreamVenue subnav={venuesSubnav} /> : venuesSub === 'reply' ? <WeddingVenueReply subnav={venuesSubnav} /> : <WeddingVenues subnav={venuesSubnav} />) : view === 'timeline' ? (
         <div className={styles.page}>
           <div className={styles.header}>
             <h1 className={styles.title}>Wedding</h1>

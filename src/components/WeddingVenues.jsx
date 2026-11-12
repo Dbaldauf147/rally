@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,7 +17,6 @@ import { parsePastedCells } from '../lib/weddingGuestImport';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 import { VenueReplyDraft } from './VenueReplyDraft';
-import { VenueAreasEditor } from './VenueAreasEditor';
 import { VenueNoFitPrompt } from './VenueNoFitPrompt';
 import { noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
@@ -93,12 +93,12 @@ const STAR_COL_WIDTH = 146;
    ("Auto"), or picked. A venue that matches none is flagged ⚠ until a
    keyword is added for its town or a location is picked for it. */
 function AreaSelect({ venue, areas, onCommit, className = '' }) {
-  if (!areas.length) return <span className={styles.muted} title="Set up your locations with 📍 Locations">—</span>;
+  if (!areas.length) return <span className={styles.muted} title="Set up your locations on the Locations tab">—</span>;
   const r = venueArea(venue, areas);
   const warn = r.how === 'unmapped';
   const auto = venueArea({ ...venue, area: '' }, areas);
   const title = warn
-    ? `“${venue.location || venue.name}” doesn't match any of your locations — add a keyword for it in 📍 Locations, or pick one here`
+    ? `“${venue.location || venue.name}” doesn't match any of your locations — add a keyword for it on the Locations tab, or pick one here`
     : r.how === 'auto' ? `Matched on “${r.term}”` : r.how === 'manual' ? 'Picked by hand' : 'Marked as in none of your locations';
   return (
     <select
@@ -261,6 +261,7 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, a
    results in) and editable by hand. Edits in the pop-up save themselves. */
 export function WeddingVenues({ subnav } = {}) {
   const { user } = useAuth();
+  const [, setSearchParams] = useSearchParams();
   const [venues, setVenues] = useState([]);
   const [dismissed, setDismissed] = useState([]);
   const [gmail, setGmail] = useState(null);
@@ -272,7 +273,6 @@ export function WeddingVenues({ subnav } = {}) {
   const [replyTo, setReplyTo] = useState(null); // the venue a reply is being drafted for
   // The couple's list of locations, and whether its editor is open.
   const [areas, setAreas] = useState([]);
-  const [areasOpen, setAreasOpen] = useState(false);
   // The reasons offered for "Not a fit", as the user has edited them.
   const [noFitList, setNoFitList] = useState([]);
   // The "why not a fit?" pop-up: the venue, and whether it came from the
@@ -333,7 +333,6 @@ export function WeddingVenues({ subnav } = {}) {
 
   const callApi = useCallback((body) => callVenuesApi(user, body), [user]);
   const closeReply = useCallback(() => setReplyTo(null), []);
-  const closeAreas = useCallback(() => setAreasOpen(false), []);
 
   /* ── Gmail ── */
   const connect = async () => {
@@ -628,11 +627,8 @@ export function WeddingVenues({ subnav } = {}) {
   }, [venues, search, sort, colFilters, areas]);
   // The venues on the table that match none of the locations.
   const unmapped = useMemo(() => unmappedVenues(venues.filter((v) => !v.hidden), areas), [venues, areas]);
-  const saveAreas = (next) => {
-    setAreas(next);
-    if (!user) return Promise.resolve();
-    return setDoc(doc(db, 'users', user.uid), { weddingVenueAreas: next }, { merge: true }).catch(saveError);
-  };
+  // The locations are edited on their own tab, Wedding → Locations.
+  const openLocations = () => setSearchParams({ view: 'locations' });
   const filtersOn = Object.values(colFilters).some((x) => String(x || '').trim());
   const hiddenCount = venues.filter((v) => v.hidden).length;
   // Hidden ones aren't counted: the button's number is the rows it leads to.
@@ -901,7 +897,7 @@ export function WeddingVenues({ subnav } = {}) {
           ⚠ {unmapped.length} venue{unmapped.length === 1 ? '' : 's'} can&apos;t be mapped to any of your locations:{' '}
           {unmapped.slice(0, 6).map((v) => v.name).join(', ')}{unmapped.length > 6 ? `, and ${unmapped.length - 6} more` : ''}.{' '}
           <button type="button" className={styles.tierLegendEdit} onClick={() => setColFilters((f) => ({ ...f, area: 'unmapped', shown: '' }))}>Show them</button>{' · '}
-          <button type="button" className={styles.tierLegendEdit} onClick={() => setAreasOpen(true)}>Edit locations</button>
+          <button type="button" className={styles.tierLegendEdit} onClick={openLocations}>Edit locations</button>
         </p>
       )}
 
@@ -1005,7 +1001,7 @@ export function WeddingVenues({ subnav } = {}) {
             </div>
           )}
         </div>
-        <button type="button" className={styles.toolButton} onClick={() => setAreasOpen(true)} title="The locations each venue is matched to">📍 Locations{areas.length ? ` (${areas.length})` : ''}</button>
+        <button type="button" className={styles.toolButton} onClick={openLocations} title="The locations each venue is matched to — opens Wedding → Locations">📍 Locations{areas.length ? ` (${areas.length})` : ''}</button>
         {venues.length > 0 && (
           <button type="button" className={styles.toolButton} onClick={exportVenues} disabled={!exportRows.length} title={n ? `Download the ${these} you ticked as an Excel file` : 'Download the venues shown as an Excel file — tick rows to export only those'}>
             ⬇ Export{n ? ` (${n})` : ''}
@@ -1365,9 +1361,6 @@ export function WeddingVenues({ subnav } = {}) {
       )}
       {noFitFor && (
         <VenueNoFitPrompt venue={noFitFor.venue} options={noFitOptions} onSave={saveNoFit} onCancel={closeNoFit} onEditList={editNoFitList} />
-      )}
-      {areasOpen && (
-        <VenueAreasEditor areas={areas} venues={venues} onSave={saveAreas} onClose={closeAreas} />
       )}
       {replyTo && (
         <VenueReplyDraft
