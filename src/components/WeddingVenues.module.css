@@ -77,6 +77,14 @@
 
 .venueTable th.starCol, .venueTable td.starCol { padding-left: 0.4rem; padding-right: 0.2rem; white-space: nowrap; vertical-align: middle; }
 .hideBtn, .unhideBtn, .openBtn { background: none; border: none; cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0.25rem; font-family: inherit; vertical-align: middle; }
+/* The "place to visit" flag: muted until set, then filled. */
+.visitBtn, .visitBtnOn { background: none; border: none; cursor: pointer; line-height: 1; padding: 0.25rem; font-family: inherit; vertical-align: middle; }
+.visitBtn { color: var(--color-text-muted); }
+.visitBtn:hover, .visitBtnOn { color: #e11d48; }
+.visitBtn svg, .visitBtnOn svg { display: block; }
+.visitChip { display: inline-flex; align-items: center; gap: 0.35rem; }
+.visitCheck { margin: 0 0 0.85rem; }
+.visitCheck svg { color: #e11d48; flex-shrink: 0; }
 .hideBtn { color: var(--color-text-muted); }
 .hideBtn:hover { color: var(--color-danger); }
 .unhideBtn { color: var(--color-accent); }

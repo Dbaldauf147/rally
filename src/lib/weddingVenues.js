@@ -142,6 +142,10 @@ export function normalizeVenue(v, { id } = {}) {
   // Hidden from the table (the first column's button), not deleted: a scan
   // still keeps it up to date, and the column's filter shows it again.
   out.hidden = v?.hidden === true;
+  // Tagged as a place to go and see in person (the flag in the first column).
+  // The couple's own shortlist, apart from the status: a scan never sets or
+  // clears it.
+  out.toVisit = v?.toVisit === true;
   // Which of the couple's locations it's in, when picked by hand (an id from
   // weddingVenueAreas, or '__none'); blank means matched from the address.
   out.area = str(v?.area);

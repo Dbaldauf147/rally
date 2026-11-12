@@ -78,7 +78,15 @@ const Eye = () => (
   </svg>
 );
 
-const STAR_COL_WIDTH = 92;
+// A flag: outlined, or filled once the venue is tagged as a place to visit.
+const Flag = ({ on }) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill={on ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+    <line x1="4" y1="22" x2="4" y2="15" />
+  </svg>
+);
+
+const STAR_COL_WIDTH = 118;
 
 /* Which of the couple's locations a venue is in: matched from its address
    ("Auto"), or picked. A venue that matches none is flagged ⚠ until a
@@ -430,6 +438,10 @@ export function WeddingVenues({ subnav } = {}) {
       : { type: 'ok', text: `${v.name} is back on the table.` });
   };
 
+  // The flag: this is a place to go and see. Separate from the status, so a
+  // venue can be tagged before anyone has written to it, or after a tour.
+  const setToVisit = (v, toVisit) => updateVenue(v.id, (x) => ({ ...x, toVisit }));
+
   /* ── Not a fit: why ── */
   const noFitOptions = useMemo(
     () => noFitReasonOptions(noFitList, noFitFor ? venues.filter((v) => v.id !== noFitFor.venue.id) : venues),
@@ -557,11 +569,12 @@ export function WeddingVenues({ subnav } = {}) {
       rows = rows.filter((v) => [v.name, v.contactName, v.email, v.location, areaName(v, areas), v.notes, v.summary, ...Object.values(v.custom || {})]
         .some((x) => (x || '').toLowerCase().includes(term)));
     }
-    const { shown: showing, status, area, ...text } = colFilters;
+    const { shown: showing, status, area, visit, ...text } = colFilters;
     // Hidden venues are left out unless the first column's filter asks for them.
     if (showing === 'hidden') rows = rows.filter((v) => v.hidden);
     else if (showing !== 'all') rows = rows.filter((v) => !v.hidden);
     if (status) rows = rows.filter((v) => v.status === status);
+    if (visit) rows = rows.filter((v) => v.toVisit);
     if (area) {
       rows = rows.filter((v) => {
         const r = venueArea(v, areas);
@@ -580,6 +593,8 @@ export function WeddingVenues({ subnav } = {}) {
   };
   const filtersOn = Object.values(colFilters).some((x) => String(x || '').trim());
   const hiddenCount = venues.filter((v) => v.hidden).length;
+  // Hidden ones aren't counted: the button's number is the rows it leads to.
+  const toVisitCount = venues.filter((v) => v.toVisit && !v.hidden).length;
   // Subtabs by status. The tab is the Status column's filter, not a second
   // one beside it, so the tab and the column header can never disagree.
   // Empty statuses get no tab unless you're on it.
@@ -673,7 +688,7 @@ export function WeddingVenues({ subnav } = {}) {
       <div className={styles.header}>
         <h1 className={styles.title}>Wedding</h1>
         <span className={styles.count}>
-          {venues.length} venue{venues.length === 1 ? '' : 's'}{hiddenCount ? ` · ${hiddenCount} hidden` : ''}
+          {venues.length} venue{venues.length === 1 ? '' : 's'}{toVisitCount ? ` · ${toVisitCount} to visit` : ''}{hiddenCount ? ` · ${hiddenCount} hidden` : ''}
         </span>
       </div>
       {subnav}
@@ -766,6 +781,17 @@ export function WeddingVenues({ subnav } = {}) {
 
       <div className={styles.toolbar}>
         <input className={styles.search} placeholder="Search venues…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search venues" />
+        {venues.length > 0 && (
+          <button
+            type="button"
+            className={`${styles.toolButton} ${colFilters.visit ? styles.toolButtonOn : ''}`}
+            onClick={() => setColFilters((f) => ({ ...f, visit: f.visit ? '' : 'yes' }))}
+            aria-pressed={!!colFilters.visit}
+            title={colFilters.visit ? 'Showing only the places to visit — click to show every venue' : 'Show only the venues flagged as places to visit'}
+          >
+            <span className={vs.visitChip}><Flag on={!!colFilters.visit} /> To visit{toVisitCount ? ` (${toVisitCount})` : ''}</span>
+          </button>
+        )}
         {filtersOn && <button type="button" className={styles.toolButton} onClick={() => setColFilters({})}>Clear filters</button>}
         <div className={styles.colMenu} ref={colMenuRef}>
           <button type="button" className={styles.toolButton} onClick={() => setColMenuOpen((o) => !o)} aria-expanded={colMenuOpen}>Columns ▾</button>
@@ -856,7 +882,7 @@ export function WeddingVenues({ subnav } = {}) {
               </colgroup>
               <thead>
                 <tr>
-                  <th className={vs.starCol} title="Hide a venue to take it off the table without deleting it">Hide</th>
+                  <th className={vs.starCol} title="Flag a venue as a place to visit, or hide it to take it off the table without deleting it">Visit · Hide</th>
                   {visible.map((col) => (
                     <th key={col.key} className={vs.resizableTh} onClick={() => clickSort(col.key)} aria-sort={sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} title={col.label}>
                       {col.label}
@@ -906,12 +932,23 @@ export function WeddingVenues({ subnav } = {}) {
               <tbody>
                 {shown.length === 0 && (
                   <tr><td colSpan={visible.length + 1} className={vs.empty}>
-                    {colFilters.shown === 'hidden' ? 'No hidden venues.' : 'No venues match.'}
+                    {colFilters.shown === 'hidden' ? 'No hidden venues.'
+                      : colFilters.visit && !toVisitCount ? 'No places to visit yet — flag a venue in the first column to add it here.' : 'No venues match.'}
                   </td></tr>
                 )}
                 {shown.map((v) => (
                   <tr key={v.id} className={v.hidden ? vs.hiddenRow : undefined}>
                     <td className={vs.starCol}>
+                      <button
+                        type="button"
+                        className={v.toVisit ? vs.visitBtnOn : vs.visitBtn}
+                        onClick={() => setToVisit(v, !v.toVisit)}
+                        aria-pressed={v.toVisit}
+                        aria-label={v.toVisit ? `${v.name} is a place to visit — remove the flag` : `Flag ${v.name} as a place to visit`}
+                        title={v.toVisit ? 'A place to visit — click to remove the flag' : 'Flag as a place to visit'}
+                      >
+                        <Flag on={v.toVisit} />
+                      </button>
                       <button
                         type="button"
                         className={v.hidden ? vs.unhideBtn : vs.hideBtn}
@@ -936,7 +973,7 @@ export function WeddingVenues({ subnav } = {}) {
           </div>
         </div>
       )}
-      <p className={styles.muted + ' ' + vs.tableHint}>Click a cell to edit it, or a venue name to search Google for it (✎ renames). Copy a range from Google Sheets or Excel and paste it onto the page to add or update venues.</p>
+      <p className={styles.muted + ' ' + vs.tableHint}>Flag a venue in the first column to tag it as a place to visit. Click a cell to edit it, or a venue name to search Google for it (✎ renames). Copy a range from Google Sheets or Excel and paste it onto the page to add or update venues.</p>
 
       {pasteText !== null && (
         <div className={styles.modalOverlay} onClick={closePaste}>
@@ -1026,6 +1063,10 @@ export function WeddingVenues({ subnav } = {}) {
             </div>
             <div className={styles.modalBody}>
               {editing.summary && <p className={vs.summary}>{editing.summary}</p>}
+              <label className={`${styles.modalCheckRow} ${vs.visitCheck}`}>
+                <input type="checkbox" checked={!!editing.toVisit} onChange={(e) => setField('toVisit', e.target.checked)} />
+                <Flag on={!!editing.toVisit} /> A place to visit
+              </label>
               <div className={styles.contactGrid}>
                 {VENUE_FIELDS.map((f) => (
                   <label key={f.key} className={f.wide ? `${styles.contactField} ${styles.contactWide}` : styles.contactField}>

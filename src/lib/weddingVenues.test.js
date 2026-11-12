@@ -54,6 +54,15 @@ describe('mergeScannedVenues', () => {
     expect(twice.updated).toEqual([]);
   });
 
+  it('the place-to-visit flag is the couple\'s own: off by default, and a scan leaves it alone', () => {
+    expect(normalizeVenue({ name: 'A' }).toVisit).toBe(false);
+    expect(normalizeVenue({ name: 'A', toVisit: 'yes' }).toVisit).toBe(false);
+    const flagged = mergeScannedVenues([], [scanned]).list.map((v) => ({ ...v, toVisit: true }));
+    const again = mergeScannedVenues(flagged, [{ ...scanned, status: 'Toured', lastContactDate: '2030-01-01', summary: 'Newer' }]);
+    expect(again.list[0]).toMatchObject({ toVisit: true, status: 'Toured' });
+    expect(mergeScannedVenues(flagged, [scanned]).updated).toEqual([]);
+  });
+
   it('a newer email updates the date and summary', () => {
     const once = mergeScannedVenues([], [{ ...scanned, summary: 'old' }]).list;
     const r = mergeScannedVenues(once, [{ ...scanned, lastContactDate: '2026-10-20', summary: 'Tour booked', status: 'Tour scheduled', threadIds: ['t2'] }]);
