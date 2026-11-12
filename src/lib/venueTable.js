@@ -12,7 +12,7 @@
 
 import {
   MONEY_KEYS, VENUE_FIELDS, VENUE_STATUSES, cleanMoney, formatDateList, formatMoney, normalizeAllInclusive, normalizeVenue, parseMoney, parseMoneyRange,
-  sameVenue, sortVenues,
+  sameVenue, sortVenues, withReachedOut,
 } from './weddingVenues.js';
 import { NO_AREA, venueArea } from './venueAreas.js';
 
@@ -252,6 +252,13 @@ export function withCellValue(v, key, value) {
     const reasons = str(value).split(/\s*[·;|\n]\s*/).filter(Boolean);
     return reasons.length ? normalizeVenue({ ...v, noFitReasons: reasons }) : v;
   }
+  // Reached out, from a sheet: yes or no; anything else leaves it.
+  if (key === 'reachedOut') {
+    const t = str(value).toLowerCase();
+    const yes = /^(y|yes|true|x|1|✓|✔|reached out|contacted|done)$/.test(t);
+    if (!yes && !/^(n|no|false|0)$/.test(t)) return v;
+    return yes === (v.reachedOut === true) ? v : normalizeVenue(withReachedOut(v, yes));
+  }
   // The place-to-visit flag, from a sheet: yes or no; anything else leaves it.
   if (key === 'toVisit') {
     const t = str(value).toLowerCase();
@@ -407,6 +414,7 @@ export function autoMapVenueHeaders(headerRow, customColumns = []) {
     let key = own?.key || BUILTIN_COLUMNS.find((c) => !c.readOnly && c.label.toLowerCase() === t)?.key;
     // The two an export writes that aren't typed cells (lib/venueBulk.js).
     if (!key && /^(to visit|visit|place to visit)$/.test(t)) key = 'toVisit';
+    if (!key && /^(reached out|contacted|outreach( sent)?)\??$/.test(t)) key = 'reachedOut';
     if (!key && t === 'area') key = 'area';
     if (!key && /^(why )?not a fit( reasons?)?$|^reasons? not a fit$|^why not$/.test(t)) key = 'noFit';
     if (!key) key = HEADER_RULES.find(([k, re]) => !used.has(k) && re.test(t))?.[0];
@@ -468,6 +476,10 @@ export function planVenuePaste(existing, rows, mapping, { makeId, areas = [] } =
     const now = venueArea(v, areas);
     return (id === NO_AREA ? now.how === 'none' : now.area?.id === id) ? v : withCellValue(v, 'area', id);
   };
+  // Each pasted column with where it goes. "Reached out" is applied first:
+  // marking it nudges the status on, and a Status column in the same sheet
+  // is the more explicit of the two, so it gets the last word.
+  const cells = (mapping || []).map((key, i) => [key, i]).sort((x, y) => (y[0] === 'reachedOut') - (x[0] === 'reachedOut'));
   const list = (Array.isArray(existing) ? existing : []).map((v) => normalizeVenue(v));
   const added = [];
   const updated = [];
@@ -475,7 +487,7 @@ export function planVenuePaste(existing, rows, mapping, { makeId, areas = [] } =
   for (const row of rows || []) {
     let draft = normalizeVenue({}, { id: 'paste' });
     let any = false;
-    (mapping || []).forEach((key, i) => {
+    cells.forEach(([key, i]) => {
       const val = str(row?.[i]);
       if (!key || key === 'new' || !val) return;
       draft = withCell(draft, key, val);
@@ -490,7 +502,7 @@ export function planVenuePaste(existing, rows, mapping, { makeId, areas = [] } =
       continue;
     }
     let next = list[at];
-    (mapping || []).forEach((key, i) => {
+    cells.forEach(([key, i]) => {
       const val = str(row?.[i]);
       if (!key || key === 'new' || !val || key === 'name') return;
       next = withCell(next, key, val);

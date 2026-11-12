@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeScannedVenues, newVenueId,
   cleanMoney, formatAvailableDate, normalizeDateList, normalizeVenue, venueNameKey,
+  withReachedOut,
 } from '../lib/weddingVenues';
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
@@ -22,7 +23,7 @@ import { VenueMapsImport } from './VenueMapsImport';
 import { extractMapsLinks, mapsSearchUrl } from '../lib/venueMaps';
 import { bulkNoFitReasons, formatReasons, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
-import { HIDDEN, TO_VISIT, bulkSetField, rowsToTsv, venueExportRows } from '../lib/venueBulk';
+import { HIDDEN, REACHED_OUT, TO_VISIT, bulkSetField, rowsToTsv, venueExportRows } from '../lib/venueBulk';
 
 // The bulk bar's Reasons-not-a-fit choice (add / remove / clear one reason).
 const NO_FIT_REASONS = { key: 'noFitReasons', label: 'Reasons not a fit' };
@@ -92,7 +93,15 @@ const Flag = ({ on }) => (
   </svg>
 );
 
-const STAR_COL_WIDTH = 146;
+// A tick in a circle: outlined, or filled once we've reached out to the venue.
+const Reached = ({ on }) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" fill={on ? 'currentColor' : 'none'} stroke="currentColor" />
+    <path d="M7.5 12.5l3 3 6-6.5" stroke={on ? '#fff' : 'currentColor'} />
+  </svg>
+);
+
+const STAR_COL_WIDTH = 172;
 
 /* Which of the couple's locations a venue is in: matched from its address
    ("Auto"), or picked. A venue that matches none is flagged ⚠ until a
@@ -508,6 +517,9 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   // The flag: this is a place to go and see. Separate from the status, so a
   // venue can be tagged before anyone has written to it, or after a tour.
   const setToVisit = (v, toVisit) => updateVenue(v.id, (x) => ({ ...x, toVisit }));
+  // The tick: we've reached out to this venue. A venue still being
+  // researched moves to Inquired with it (lib/weddingVenues.js).
+  const setReachedOut = (v, on) => updateVenue(v.id, (x) => normalizeVenue(withReachedOut(x, on)));
 
   /* ── Not a fit: why ── */
   const noFitOptions = useMemo(
@@ -649,13 +661,14 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
       rows = rows.filter((v) => [v.name, v.contactName, v.email, v.location, areaName(v, areas), v.notes, v.summary, ...Object.values(v.custom || {})]
         .some((x) => (x || '').toLowerCase().includes(term)));
     }
-    const { shown: _shown, status, area, visit, ...text } = colFilters;
+    const { shown: _shown, status, area, visit, reached, ...text } = colFilters;
     // Hidden venues have their own subtab; All venues leaves them out unless
     // the first column's filter says All.
     if (showing === 'hidden') rows = rows.filter((v) => v.hidden);
     else if (showing !== 'all') rows = rows.filter((v) => !v.hidden);
     if (status) rows = rows.filter((v) => v.status === status);
     if (visit) rows = rows.filter((v) => v.toVisit);
+    if (reached) rows = rows.filter((v) => v.reachedOut === (reached === 'yes'));
     if (area) {
       rows = rows.filter((v) => {
         const r = venueArea(v, areas);
@@ -673,6 +686,8 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   const hiddenCount = venues.filter((v) => v.hidden).length;
   // Hidden ones aren't counted: the button's number is the rows it leads to.
   const toVisitCount = venues.filter((v) => v.toVisit && !v.hidden).length;
+  const reachedCount = venues.filter((v) => v.reachedOut && !v.hidden).length;
+  const notReachedCount = venues.filter((v) => !v.reachedOut && !v.hidden).length;
   // Subtabs by status. The tab is the Status column's filter, not a second
   // one beside it, so the tab and the column header can never disagree.
   // Empty statuses get no tab unless you're on it.
@@ -800,6 +815,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
     ...columns.filter((c) => !c.readOnly),
     ...(columns.some((c) => c.key === 'noFit') ? [{ key: 'noFit', label: 'Why not a fit' }] : []),
     TO_VISIT,
+    REACHED_OUT,
     ...(areas.length ? [{ key: 'area', label: 'Area' }] : []),
   ];
 
@@ -837,6 +853,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
     { key: 'status', label: 'Status' },
     NO_FIT_REASONS,
     TO_VISIT,
+    REACHED_OUT,
     HIDDEN,
     ...(areas.length ? [{ key: 'area', label: 'Area' }] : []),
     ...columns.filter((c) => !c.readOnly && c.key !== 'name' && c.key !== 'status').map((c) => ({ key: c.key, label: c.label, type: c.type })),
@@ -845,6 +862,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   const BULK_CHOICES = {
     status: VENUE_STATUSES.map((st) => [st, st]),
     toVisit: [['Yes', 'Yes — flag them'], ['No', 'No — remove the flag']],
+    reachedOut: [['Yes', 'Yes — we’ve reached out'], ['No', 'No — not yet']],
     hidden: [['Yes', 'Yes — hide them'], ['No', 'No — show them']],
     allInclusive: [['Yes', 'Yes'], ['No', 'No'], ['', 'Not known (clear)']],
     area: [...areas.map((a) => [a.id, a.name]), [NO_AREA, 'None of these'], ['', 'Match from the address']],
@@ -939,7 +957,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
       <div className={styles.header}>
         <h1 className={styles.title}>Wedding</h1>
         <span className={styles.count}>
-          {venues.length} venue{venues.length === 1 ? '' : 's'}{toVisitCount ? ` · ${toVisitCount} to visit` : ''}{hiddenCount ? ` · ${hiddenCount} hidden` : ''}
+          {venues.length} venue{venues.length === 1 ? '' : 's'}{toVisitCount ? ` · ${toVisitCount} to visit` : ''}{reachedCount ? ` · ${reachedCount} reached out` : ''}{hiddenCount ? ` · ${hiddenCount} hidden` : ''}
         </span>
       </div>
       {subnav}
@@ -1039,6 +1057,21 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
             title={colFilters.visit ? 'Showing only the places to visit — click to show every venue' : 'Show only the venues flagged as places to visit'}
           >
             <span className={vs.visitChip}><Flag on={!!colFilters.visit} /> To visit{toVisitCount ? ` (${toVisitCount})` : ''}</span>
+          </button>
+        )}
+        {venues.length > 0 && (
+          <button
+            type="button"
+            className={`${styles.toolButton} ${colFilters.reached ? styles.toolButtonOn : ''}`}
+            onClick={() => setColFilters((f) => ({ ...f, reached: !f.reached ? 'yes' : f.reached === 'yes' ? 'no' : '' }))}
+            aria-pressed={!!colFilters.reached}
+            title={!colFilters.reached ? 'Show only the venues you’ve reached out to — click again for the ones you haven’t'
+              : colFilters.reached === 'yes' ? 'Showing the venues you’ve reached out to — click for the ones you haven’t' : 'Showing the venues you haven’t reached out to — click to show every venue'}
+          >
+            <span className={vs.visitChip}>
+              <Reached on={colFilters.reached === 'yes'} />
+              {colFilters.reached === 'no' ? `Not reached out (${notReachedCount})` : `Reached out${reachedCount ? ` (${reachedCount})` : ''}`}
+            </span>
           </button>
         )}
         {filtersOn && <button type="button" className={styles.toolButton} onClick={() => setColFilters({})}>Clear filters</button>}
@@ -1202,7 +1235,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
               </colgroup>
               <thead>
                 <tr>
-                  <th className={vs.starCol} title="Tick venues to change, export or delete them together. Flag one as a place to visit, or hide it to take it off the table without deleting it">
+                  <th className={vs.starCol} title="Tick venues to change, export or delete them together. Flag one as a place to visit, hide it to take it off the table without deleting it, or tick the circle once you’ve reached out">
                     <input
                       type="checkbox"
                       className={vs.pick}
@@ -1290,6 +1323,16 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
                         title={v.hidden ? 'Show it on the table again' : 'Hide — takes it off the table, keeps it on the list'}
                       >
                         {v.hidden ? <Eye /> : <EyeOff />}
+                      </button>
+                      <button
+                        type="button"
+                        className={v.reachedOut ? vs.reachedBtnOn : vs.reachedBtn}
+                        onClick={() => setReachedOut(v, !v.reachedOut)}
+                        aria-pressed={v.reachedOut}
+                        aria-label={v.reachedOut ? `Reached out to ${v.name} — unmark` : `Mark ${v.name} as reached out`}
+                        title={v.reachedOut ? `Reached out${v.reachedOutDate ? ` on ${fmtDate(v.reachedOutDate)}` : ''} — click to unmark` : 'Mark that we’ve reached out'}
+                      >
+                        <Reached on={v.reachedOut} />
                       </button>
                       <button type="button" className={vs.openBtn} onClick={() => setEditing({ ...v })} title="Open venue details" aria-label={`Open ${v.name}`}>⤢</button>
                       <button type="button" className={vs.draftBtn} onClick={() => setReplyTo(v)} title="Draft an outreach email with your wedding details" aria-label={`Draft an outreach email to ${v.name}`}>✉</button>
@@ -1412,6 +1455,10 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
               <label className={`${styles.modalCheckRow} ${vs.visitCheck}`}>
                 <input type="checkbox" checked={!!editing.toVisit} onChange={(e) => setField('toVisit', e.target.checked)} />
                 <Flag on={!!editing.toVisit} /> A place to visit
+              </label>
+              <label className={`${styles.modalCheckRow} ${vs.visitCheck} ${vs.reachedCheck}`}>
+                <input type="checkbox" checked={!!editing.reachedOut} onChange={(e) => setEditing((d) => (d ? withReachedOut(d, e.target.checked) : d))} />
+                <Reached on={!!editing.reachedOut} /> We’ve reached out{editing.reachedOut && editing.reachedOutDate ? ` · ${fmtDate(editing.reachedOutDate)}` : ''}
               </label>
               <div className={styles.contactGrid}>
                 {VENUE_FIELDS.map((f) => {

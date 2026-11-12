@@ -126,3 +126,30 @@ describe('the Why not a fit column', () => {
     expect(plan.list[0]).toMatchObject({ noFitReasons: ['Not our style', 'Too expensive'], noFitNotes: 'Minimum was double.', status: 'Not a fit' });
   });
 });
+
+describe('reached out, in bulk and through a sheet', () => {
+  it('bulk-marks the ticked venues, moving the ones still being researched to Inquired', () => {
+    const next = bulkSetField(venues, new Set(['a', 'c']), 'reachedOut', 'Yes');
+    expect(next.map((v) => [v.reachedOut, v.status])).toEqual([[true, 'Replied'], [false, 'Researching'], [true, 'Inquired']]);
+    expect(next[2].reachedOutDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(bulkSetField(next, new Set(['a', 'c']), 'reachedOut', 'Yes')).toEqual(next);
+    expect(bulkSetField(next, new Set(['c']), 'reachedOut', 'No')[2]).toMatchObject({ reachedOut: false, reachedOutDate: '', status: 'Researching' });
+  });
+
+  it('is a Yes/No column of an export that an import reads back', () => {
+    const rows = venueExportRows(venues, config, areas);
+    expect(rows[0].slice(0, 3)).toEqual(['Venue', 'To visit', 'Reached out']);
+    const col = rows[0].indexOf('Reached out');
+    expect(rows.slice(1).map((r) => r[col])).toEqual(['No', 'No', 'No']);
+    const mapping = autoMapVenueHeaders(rows[0], config.custom);
+    expect(mapping[col]).toBe('reachedOut');
+    rows[2][col] = 'yes';
+    const plan = planVenuePaste(venues, rows.slice(1), mapping, { areas });
+    expect(plan.updated).toEqual(['Oheka Castle']);
+    // The sheet's own Status column has the last word…
+    expect(plan.list[1]).toMatchObject({ reachedOut: true, status: 'Researching' });
+    // …and without one, marking moves a venue still being researched on.
+    const only = planVenuePaste(venues, [['Oheka Castle', 'Yes']], ['name', 'reachedOut'], { areas });
+    expect(only.list[1]).toMatchObject({ reachedOut: true, status: 'Inquired' });
+  });
+});

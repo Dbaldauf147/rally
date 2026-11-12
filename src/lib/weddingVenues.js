@@ -168,6 +168,10 @@ export function normalizeVenue(v, { id } = {}) {
   // The couple's own shortlist, apart from the status: a scan never sets or
   // clears it.
   out.toVisit = v?.toVisit === true;
+  // Marked as reached out to (the tick in the first column), and the day it
+  // was marked. Yours to set: a scan never sets or clears it.
+  out.reachedOut = v?.reachedOut === true;
+  out.reachedOutDate = out.reachedOut && /^\d{4}-\d{2}-\d{2}$/.test(str(v?.reachedOutDate)) ? str(v.reachedOutDate) : '';
   // Which of the couple's locations it's in, when picked by hand (an id from
   // weddingVenueAreas, or '__none'); blank means matched from the address.
   out.area = str(v?.area);
@@ -187,6 +191,23 @@ export function normalizeVenue(v, { id } = {}) {
     for (const [k, val] of Object.entries(v.scanned)) if ([...TEXT_KEYS, ...MONEY_KEYS].includes(k) && typeof val === 'string') out.scanned[k] = val;
   }
   return out;
+}
+
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/* A venue marked (or unmarked) as reached out to. Marking stamps the day —
+   unless it already has one — and moves a venue that was only being
+   researched on to Inquired, since that is what reaching out is. Unmarking
+   clears the day and puts an Inquired venue back to Researching; any later
+   status (Replied, Toured, Not a fit…) is left alone either way. */
+export function withReachedOut(v, on, today = ymd(new Date())) {
+  if (on) {
+    return {
+      ...v, reachedOut: true, reachedOutDate: (v.reachedOut && v.reachedOutDate) || today,
+      status: v.status === 'Researching' || !v.status ? 'Inquired' : v.status,
+    };
+  }
+  return { ...v, reachedOut: false, reachedOutDate: '', status: v.status === 'Inquired' ? 'Researching' : v.status };
 }
 
 export function newVenueId() {
