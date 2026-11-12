@@ -34,6 +34,7 @@ import { GMAIL_SCOPES } from '../lib/weddingGmailAuth.js';
 import { buildRawEmail, createDraft, fetchThreads, replyTarget, writeReply } from '../lib/weddingVenueDraft.js';
 import { fillTemplate, replySettingsFor, replySubject, templateOf } from '../src/lib/weddingVenueReply.js';
 import { mergeScannedVenues, normalizeVenue } from '../src/lib/weddingVenues.js';
+import { lookupMapsLink } from '../lib/venueMapsLookup.js';
 
 export const config = { maxDuration: 300 };
 
@@ -206,6 +207,21 @@ export default async function handler(req, res) {
     await tokenRef.delete().catch(() => {});
     await userRef.set({ weddingGmail: FieldValue.delete() }, { merge: true });
     return res.status(200).json({ ok: true });
+  }
+
+  // Google Maps links → the places they name. Nothing is saved here: the
+  // page shows what was found and the user decides what to add.
+  if (action === 'mapsImport') {
+    const urls = (Array.isArray(req.body?.urls) ? req.body.urls : []).map((u) => String(u || '').trim()).filter(Boolean).slice(0, 10);
+    if (!urls.length) return res.status(400).json({ error: 'Paste a Google Maps link first' });
+    const places = await Promise.all(urls.map(async (url) => {
+      try {
+        return { url, ...(await lookupMapsLink(url)) };
+      } catch (err) {
+        return { url, error: err.status ? err.message : 'Could not read that link' };
+      }
+    }));
+    return res.status(200).json({ places });
   }
 
   if (action === 'draftReply') {
