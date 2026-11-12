@@ -27,6 +27,7 @@ export const VENUE_FIELDS = [
   { key: 'allInclusive', label: 'All-inclusive', type: 'yesno' },
   { key: 'capacity', label: 'Max guests' },
   { key: 'availability', label: 'Availability' },
+  { key: 'availableDates', label: 'Dates available', type: 'dates', wide: true },
   { key: 'nextStep', label: 'Next step', wide: true },
   { key: 'lastContactDate', label: 'Last contact', type: 'date' },
   { key: 'notes', label: 'Notes', wide: true, multiline: true },
@@ -118,6 +119,22 @@ export function normalizeAllInclusive(v) {
   return s;
 }
 
+/* ── Dates available ──
+   The specific dates a venue says it has open, kept as a sorted list of
+   "YYYY-MM-DD" (`availableDates`), apart from the free-text Availability. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+export function normalizeDateList(v) {
+  const list = Array.isArray(v) ? v : [];
+  return [...new Set(list.map(str).filter((d) => ISO_DATE.test(d) && !isNaN(new Date(`${d}T00:00:00`))))].sort();
+}
+// "2027-06-12" → "Sat, Jun 12, 2027": the weekday matters for a wedding date.
+export function formatAvailableDate(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  const t = new Date(y, m - 1, d);
+  return isNaN(t) ? '' : t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+export const formatDateList = (list) => normalizeDateList(list).map(formatAvailableDate).join('; ');
+
 export function normalizeVenue(v, { id } = {}) {
   const out = { id: str(v?.id) || id || newVenueId() };
   for (const k of TEXT_KEYS) out[k] = str(v?.[k]);
@@ -134,6 +151,7 @@ export function normalizeVenue(v, { id } = {}) {
   }
   out.status = VENUE_STATUSES.includes(v?.status) ? v.status : 'Researching';
   out.lastContactDate = /^\d{4}-\d{2}-\d{2}$/.test(str(v?.lastContactDate)) ? str(v.lastContactDate) : '';
+  out.availableDates = normalizeDateList(v?.availableDates);
   out.threadIds = [...new Set((Array.isArray(v?.threadIds) ? v.threadIds : []).map(str).filter(Boolean))];
   out.source = v?.source === 'gmail' ? 'gmail' : 'manual';
   // Starred to keep at the top of the table, and the values of the columns

@@ -11,7 +11,7 @@
    can be tested without React. */
 
 import {
-  MONEY_KEYS, VENUE_FIELDS, VENUE_STATUSES, cleanMoney, formatMoney, normalizeAllInclusive, normalizeVenue, parseMoney, parseMoneyRange,
+  MONEY_KEYS, VENUE_FIELDS, VENUE_STATUSES, cleanMoney, formatDateList, formatMoney, normalizeAllInclusive, normalizeVenue, parseMoney, parseMoneyRange,
   sameVenue, sortVenues,
 } from './weddingVenues.js';
 import { NO_AREA, venueArea } from './venueAreas.js';
@@ -203,6 +203,7 @@ export function venueSearchUrl(v) {
 export function cellValue(v, key) {
   if (isCustomKey(key)) return str(v?.custom?.[key]);
   if (key === 'emails') return v?.threadIds?.length ? String(v.threadIds.length) : '';
+  if (key === 'availableDates') return formatDateList(v?.availableDates);
   return typeof v?.[key] === 'string' ? v[key] : '';
 }
 
@@ -236,6 +237,7 @@ export function withCellValue(v, key, value) {
   }
   if (key === 'allInclusive') return normalizeVenue({ ...v, allInclusive: normalizeAllInclusive(value) });
   if (key === 'lastContactDate') return normalizeVenue({ ...v, lastContactDate: value ? parseVenueDate(value) : '' });
+  if (key === 'availableDates') return normalizeVenue({ ...v, availableDates: parseDateList(value) });
   return normalizeVenue({ ...v, [key]: value });
 }
 
@@ -248,6 +250,13 @@ export function sortVenueRows(list, sort, { valueFor = cellValue } = {}) {
   if (sort?.key) {
     base.sort((a, b) => {
       if (sort.key === 'status') return dir * (statusRank(a.status) - statusRank(b.status));
+      // By the first open date; venues with none go last.
+      if (sort.key === 'availableDates') {
+        const x = a.availableDates?.[0] || '';
+        const y = b.availableDates?.[0] || '';
+        if (!x || !y) return (x ? 0 : 1) - (y ? 0 : 1);
+        return dir * x.localeCompare(y);
+      }
       if (MONEY_KEYS.includes(sort.key)) {
         const x = parseMoney(a[sort.key]);
         const y = parseMoney(b[sort.key]);
@@ -305,6 +314,18 @@ export function parseVenueDate(value) {
   if (!/[a-z]/i.test(s) || !/\d{4}/.test(s)) return '';
   const t = new Date(s);
   return isNaN(t) ? '' : `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+}
+
+/* Dates typed or pasted into Dates available: separated by semicolons, new
+   lines or commas ("6/12/2027, 6/19/2027"), in any form parseVenueDate reads,
+   with or without a weekday ("Sat, Jun 12, 2027"). Ones it can't read are
+   dropped. */
+const WEEKDAY = /\b(?:mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)(?:day|sday|nesday|urday|rsday)?\.?,?\s*/gi;
+export function parseDateList(value) {
+  if (Array.isArray(value)) return value.map(parseVenueDate).filter(Boolean);
+  const s = str(value).replace(WEEKDAY, ' ');
+  // A comma splits two dates unless a year follows it ("Jun 12, 2027").
+  return s.split(/[;\n]+|,(?!\s*\d{4}\b)/).map((p) => parseVenueDate(p.trim())).filter(Boolean);
 }
 
 /* ── Pasting from a spreadsheet ── */

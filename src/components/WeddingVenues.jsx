@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
   VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeScannedVenues, newVenueId,
-  cleanMoney, normalizeVenue, venueNameKey,
+  cleanMoney, formatAvailableDate, normalizeDateList, normalizeVenue, venueNameKey,
 } from '../lib/weddingVenues';
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
@@ -115,6 +115,40 @@ function AreaSelect({ venue, areas, onCommit, className = '' }) {
   );
 }
 
+/* The venue pop-up's Dates available: each open date as a chip with ✕, and a
+   date picker to add another. Saved as a sorted list of YYYY-MM-DD. */
+function DateListEditor({ dates, onChange }) {
+  const [draft, setDraft] = useState('');
+  const list = normalizeDateList(dates);
+  const add = () => {
+    if (!draft) return;
+    onChange(normalizeDateList([...list, draft]));
+    setDraft('');
+  };
+  return (
+    <span className={vs.dateList}>
+      {list.length === 0 && <span className={styles.muted}>None yet</span>}
+      {list.map((d) => (
+        <span key={d} className={vs.dateChip}>
+          {formatAvailableDate(d)}
+          <button type="button" className={vs.dateChipX} onClick={(e) => { e.preventDefault(); onChange(list.filter((x) => x !== d)); }} aria-label={`Remove ${formatAvailableDate(d)}`}>✕</button>
+        </span>
+      ))}
+      <span className={vs.dateAdd}>
+        <input
+          type="date"
+          className={styles.contactInput}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          aria-label="Add a date available"
+        />
+        <button type="button" className={vs.dateAddBtn} onClick={(e) => { e.preventDefault(); add(); }} disabled={!draft}>Add date</button>
+      </span>
+    </span>
+  );
+}
+
 /* One editable cell. Typing stays local and saves when you leave the cell or
    press Enter (Escape puts it back), so a save never lands mid-word. */
 function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, areas = [] }) {
@@ -175,7 +209,8 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, a
       className={col.type === 'money' ? `${vs.cellInput} ${vs.moneyInput}` : vs.cellInput}
       type={col.key === 'lastContactDate' ? 'date' : 'text'}
       inputMode={col.type === 'money' ? 'decimal' : undefined}
-      placeholder={col.type === 'money' ? '—' : undefined}
+      placeholder={col.type === 'money' ? '—' : col.type === 'dates' ? 'e.g. 6/12/2027; 6/19/2027' : undefined}
+      title={col.type === 'dates' ? 'Dates the venue has open — separate them with ; or ,' : undefined}
       value={val}
       aria-label={`${col.label} for ${venue.name || 'venue'}`}
       onChange={(e) => {
@@ -1236,8 +1271,12 @@ export function WeddingVenues({ subnav } = {}) {
                 <Flag on={!!editing.toVisit} /> A place to visit
               </label>
               <div className={styles.contactGrid}>
-                {VENUE_FIELDS.map((f) => (
-                  <label key={f.key} className={f.wide ? `${styles.contactField} ${styles.contactWide}` : styles.contactField}>
+                {VENUE_FIELDS.map((f) => {
+                  // Not a <label> for the date list: a click on its label text
+                  // would press the first chip's ✕.
+                  const Field = f.type === 'dates' ? 'div' : 'label';
+                  return (
+                  <Field key={f.key} className={f.wide ? `${styles.contactField} ${styles.contactWide}` : styles.contactField}>
                     <span className={styles.contactLabel}>{f.label}</span>
                     {f.key === 'status' ? (
                       <>
@@ -1261,6 +1300,8 @@ export function WeddingVenues({ subnav } = {}) {
                           </span>
                         )}
                       </>
+                    ) : f.type === 'dates' ? (
+                      <DateListEditor dates={editing.availableDates || []} onChange={(list) => setField('availableDates', list)} />
                     ) : f.type === 'yesno' ? (
                       <select className={styles.contactInput} value={editing[f.key] || ''} onChange={(e) => setField(f.key, e.target.value)}>
                         {['', 'Yes', 'No', ...(editing[f.key] && !['Yes', 'No'].includes(editing[f.key]) ? [editing[f.key]] : [])].map((o) => <option key={o} value={o}>{o || 'Not known'}</option>)}
@@ -1279,8 +1320,9 @@ export function WeddingVenues({ subnav } = {}) {
                         autoComplete="off"
                       />
                     )}
-                  </label>
-                ))}
+                  </Field>
+                  );
+                })}
                 {areas.length > 0 && (
                   <label className={styles.contactField}>
                     <span className={styles.contactLabel}>Area</span>
