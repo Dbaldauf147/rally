@@ -1285,7 +1285,7 @@ export function WeddingVenues({ subnav } = {}) {
                         {v.hidden ? <Eye /> : <EyeOff />}
                       </button>
                       <button type="button" className={vs.openBtn} onClick={() => setEditing({ ...v })} title="Open venue details" aria-label={`Open ${v.name}`}>⤢</button>
-                      <button type="button" className={vs.draftBtn} onClick={() => setReplyTo(v)} title="Draft a reply with your wedding details" aria-label={`Draft a reply to ${v.name}`}>✉</button>
+                      <button type="button" className={vs.draftBtn} onClick={() => setReplyTo(v)} title="Draft an outreach email with your wedding details" aria-label={`Draft an outreach email to ${v.name}`}>✉</button>
                     </td>
                     {visible.map((col) => (
                       <td key={col.key} className={vs.cell}>

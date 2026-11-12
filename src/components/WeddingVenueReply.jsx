@@ -3,14 +3,14 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  REPLY_FIELDS, buildTemplate, fillTemplate, normalizeReplySettings, replySettingsFor,
+  REPLY_FIELDS, buildTemplate, fillTemplate, normalizeReplySettings, outreachSubject, readsAsReply, replySettingsFor,
 } from '../lib/weddingVenueReply';
 import { normalizeVenue } from '../lib/weddingVenues';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 
-/* Wedding → Venues → Reply email: the facts a venue needs to quote, and the
-   email they add up to, edited here once and used for every venue's reply
+/* Wedding → Venues → Outreach email: the facts a venue needs to quote, and
+   the first email they add up to, edited here once and used for every venue
    (the ✉ on each row of the venue table drafts one). Saves as you type. */
 export function WeddingVenueReply({ subnav } = {}) {
   const { user } = useAuth();
@@ -84,7 +84,7 @@ export function WeddingVenueReply({ subnav } = {}) {
       </div>
       {subnav}
       <p className={styles.subtitle}>
-        What every venue needs to quote you, written once. The ✉ on a venue&apos;s row in All venues turns this into a reply to that venue&apos;s latest email and saves it to your Gmail drafts to look over and send.
+        The first email to a venue — what it needs to quote you, written once. The ✉ on a venue&apos;s row in All venues fills it in for that venue as a new email to its address and saves it to your Gmail drafts to look over and send.
       </p>
 
       <div className={vs.replyLayout}>
@@ -111,6 +111,13 @@ export function WeddingVenueReply({ subnav } = {}) {
             <span className={styles.muted}>{template ? 'Edited by you' : 'Built from the details'}</span>
             {template && <button type="button" className={vs.textBtn} onClick={resetTemplate}>Rebuild from the details</button>}
           </div>
+          {template && readsAsReply(template) && (
+            <p className={styles.digestErrMsg} role="status">
+              Your saved email still reads as a reply (“thank you for getting back to us”).{' '}
+              <button type="button" className={vs.textBtn} onClick={resetTemplate}>Rebuild it as an outreach email</button>{' '}
+              or reword it below.
+            </p>
+          )}
           <textarea
             className={`${styles.contactInput} ${vs.replyTemplate}`}
             value={shownTemplate}
@@ -119,7 +126,7 @@ export function WeddingVenueReply({ subnav } = {}) {
             spellCheck
           />
           <p className={`${styles.muted} ${vs.replyHint}`}>
-            {'{first name}'} and {'{venue}'} are filled in for each venue. When a venue has emailed you, its reply is adapted to what they wrote — questions they already answered are dropped and anything they asked is answered.
+            {'{first name}'} and {'{venue}'} are filled in for each venue. Subject: “{outreachSubject(details)}”.
           </p>
 
           <div className={vs.replyHeadRow}>

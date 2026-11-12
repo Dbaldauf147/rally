@@ -9,10 +9,11 @@
 //   scan        → { venues, threadCount, account }: reads the venue threads
 //                 since the last scan (or two years, with { full: true }).
 //   disconnect  → revokes the token and forgets the connection.
-//   draftReply  → { to, subject, body, threadId, inReplyTo, references, tailored }
-//                 for { venueId }: the saved template filled in for that
-//                 venue and, when it has threads, adapted by Claude to the
-//                 venue's latest email. Nothing is saved to Gmail yet.
+//   draftOutreach → { to, subject, body, threadId: '', … } for { venueId }:
+//                 a new outreach email to the venue — the saved template
+//                 filled in for it, to the venue's address. Nothing is saved
+//                 to Gmail yet. (`draftReply` is the old name, kept so a page
+//                 still open from before this change keeps working.)
 //   saveDraft   → { draftId } for { to, subject, body, threadId?, inReplyTo?,
 //                 references? }: a Gmail draft (never sent) in that thread.
 //                 Needs the compose scope; without it, 409 needs_compose.
@@ -31,8 +32,8 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { refreshAccessToken, scanInbox } from '../lib/weddingVenueScan.js';
 import { GMAIL_SCOPES } from '../lib/weddingGmailAuth.js';
-import { buildRawEmail, createDraft, fetchThreads, replyTarget, writeReply } from '../lib/weddingVenueDraft.js';
-import { fillTemplate, replySettingsFor, replySubject, templateOf } from '../src/lib/weddingVenueReply.js';
+import { buildRawEmail, createDraft } from '../lib/weddingVenueDraft.js';
+import { fillTemplate, outreachSubject, replySettingsFor, templateOf } from '../src/lib/weddingVenueReply.js';
 import { mergeScannedVenues, normalizeVenue } from '../src/lib/weddingVenues.js';
 import { lookupMapsLink } from '../lib/venueMapsLookup.js';
 
@@ -100,28 +101,18 @@ async function scanFor(db, uid, { full = false } = {}) {
   }
 }
 
-async function draftReply(db, uid, venueId) {
+// A new email to the venue — never a reply in one of its threads.
+async function draftOutreach(db, uid, venueId) {
   const user = (await db.doc(`users/${uid}`).get()).data() || {};
   const venue = (Array.isArray(user.weddingVenues) ? user.weddingVenues : []).find((v) => v?.id === venueId);
   if (!venue) throw Object.assign(new Error('That venue isn’t on the list any more'), { status: 404 });
   const settings = replySettingsFor(user);
-  const template = fillTemplate(templateOf(settings), venue);
-  const out = { to: venue.email || '', subject: replySubject('', venue.name), body: template, threadId: '', inReplyTo: '', references: '', tailored: false };
-  const ids = (Array.isArray(venue.threadIds) ? venue.threadIds : []).slice(-4);
-  if (!ids.length) return out;
-  const { access, email } = await accessFor(db, uid);
-  const target = replyTarget(await fetchThreads(access, ids), email);
-  if (!target) return out;
-  Object.assign(out, {
-    to: target.to || out.to,
-    subject: replySubject(target.subject, venue.name),
-    threadId: target.thread.id,
-    inReplyTo: target.messageId,
-    references: target.references,
-  });
-  const body = await writeReply({ template, details: settings.details, venue, thread: target.thread }).catch(() => null);
-  if (body) Object.assign(out, { body, tailored: true });
-  return out;
+  return {
+    to: venue.email || '',
+    subject: outreachSubject(settings.details),
+    body: fillTemplate(templateOf(settings), venue),
+    threadId: '', inReplyTo: '', references: '', tailored: false,
+  };
 }
 
 async function scheduledScan(req, res, db, now = new Date()) {
@@ -224,11 +215,11 @@ export default async function handler(req, res) {
     return res.status(200).json({ places });
   }
 
-  if (action === 'draftReply') {
+  if (action === 'draftOutreach' || action === 'draftReply') {
     try {
-      return res.status(200).json(await draftReply(db, uid, String(req.body?.venueId || '')));
+      return res.status(200).json(await draftOutreach(db, uid, String(req.body?.venueId || '')));
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message || 'Could not draft a reply', ...(err.code ? { code: err.code } : {}) });
+      return res.status(err.status || 500).json({ error: err.message || 'Could not draft the email', ...(err.code ? { code: err.code } : {}) });
     }
   }
 

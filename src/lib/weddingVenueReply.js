@@ -1,4 +1,5 @@
-/* The reply sent to wedding venues: the details a venue needs to quote (date,
+/* The outreach email sent to wedding venues — the first email, asking whether
+   the venue could work and what it costs: the details a venue needs to quote (date,
    head count, ceremony, budget…), and an email template built from them that
    can be reworded freely. Kept on the user doc as
 
@@ -91,7 +92,7 @@ export function buildTemplate(details = {}) {
   const qs = bullets(d.questions);
   const parts = [
     'Hi {first name},',
-    `Thank you for getting back to us! We${d.couple ? ` (${d.couple})` : ''} are very interested in {venue} for our wedding, and wanted to share the details so you can put a quote together.`,
+    `We${d.couple ? ` (${d.couple})` : ''} are planning our wedding and {venue} is high on our list. We'd love to find out whether it could work for us — here are the details so you can put a quote together.`,
   ];
   if (facts.length) parts.push(facts.map((f) => `• ${f}`).join('\n'));
   if (qs.length) parts.push(`Could you let us know:\n${qs.map((q) => `• ${q}`).join('\n')}`);
@@ -115,6 +116,16 @@ export function fillTemplate(template, venue = {}) {
     .replace(/\{first name\}/gi, first || 'there')
     .replace(/\{venue\}/gi, str(venue.name) || 'your venue');
 }
+
+// The subject of a new outreach email: "Wedding inquiry for Saturday, …".
+export function outreachSubject(details = {}) {
+  const date = str(details?.date);
+  return `Wedding inquiry${date ? ` for ${date}` : ''}`;
+}
+
+// A saved template that still reads as a reply to the venue (written before
+// the email became an outreach), so the page can offer to rebuild it.
+export const readsAsReply = (template) => /getting back to us|thanks? (?:you )?for (?:your|the) (?:reply|email|response|note)|^re:/im.test(str(template));
 
 export function replySubject(threadSubject, venueName) {
   const s = str(threadSubject);

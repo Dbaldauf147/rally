@@ -2906,16 +2906,18 @@ export function WeddingPage() {
   const rawView = searchParams.get('view');
   const view = ['checklist', 'timeline', 'calendar', 'venues', 'locations', 'budget', 'friends'].includes(rawView) ? rawView : 'guests';
   const setView = (v) => setSearchParams(v === 'guests' ? {} : { view: v });
-  // Venues has three of its own: the venue table, the dream-venue list, and the reply email.
-  const venuesSub = ['dream', 'reply'].includes(searchParams.get('venues')) ? searchParams.get('venues') : 'list';
+  // Venues has three of its own: the venue table, the dream-venue list, and the outreach email
+  // (`venues=reply` is its old address, still honoured).
+  const venuesParam = searchParams.get('venues') === 'reply' ? 'outreach' : searchParams.get('venues');
+  const venuesSub = ['dream', 'outreach'].includes(venuesParam) ? venuesParam : 'list';
   const venuesSubnav = (
     <div className={dreamStyles.subnav} role="tablist" aria-label="Venues">
       <button type="button" role="tab" aria-selected={venuesSub === 'list'} className={venuesSub === 'list' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
         onClick={() => setSearchParams({ view: 'venues' })}>All venues</button>
       <button type="button" role="tab" aria-selected={venuesSub === 'dream'} className={venuesSub === 'dream' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
         onClick={() => setSearchParams({ view: 'venues', venues: 'dream' })}>Dream venue</button>
-      <button type="button" role="tab" aria-selected={venuesSub === 'reply'} className={venuesSub === 'reply' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
-        onClick={() => setSearchParams({ view: 'venues', venues: 'reply' })}>Reply email</button>
+      <button type="button" role="tab" aria-selected={venuesSub === 'outreach'} className={venuesSub === 'outreach' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
+        onClick={() => setSearchParams({ view: 'venues', venues: 'outreach' })}>Outreach email</button>
     </div>
   );
 
@@ -2967,7 +2969,7 @@ export function WeddingPage() {
           >Friends not on list</button>
         </div>
       </div>
-      {view === 'friends' ? <WeddingFriendsNotInvited /> : view === 'locations' ? <WeddingLocations /> : view === 'venues' ? (venuesSub === 'dream' ? <WeddingDreamVenue subnav={venuesSubnav} /> : venuesSub === 'reply' ? <WeddingVenueReply subnav={venuesSubnav} /> : <WeddingVenues subnav={venuesSubnav} />) : view === 'timeline' ? (
+      {view === 'friends' ? <WeddingFriendsNotInvited /> : view === 'locations' ? <WeddingLocations /> : view === 'venues' ? (venuesSub === 'dream' ? <WeddingDreamVenue subnav={venuesSubnav} /> : venuesSub === 'outreach' ? <WeddingVenueReply subnav={venuesSubnav} /> : <WeddingVenues subnav={venuesSubnav} />) : view === 'timeline' ? (
         <div className={styles.page}>
           <div className={styles.header}>
             <h1 className={styles.title}>Wedding</h1>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DEFAULT_QUESTIONS, buildTemplate, fillTemplate, firstName, normalizeReplySettings, prefillDetails, replySubject, templateOf,
+  DEFAULT_QUESTIONS, buildTemplate, fillTemplate, firstName, normalizeReplySettings, outreachSubject, prefillDetails, readsAsReply, replySubject, templateOf,
 } from './weddingVenueReply';
 
 describe('venue reply settings', () => {
@@ -54,5 +54,22 @@ describe('the email', () => {
     expect(replySubject('Wedding inquiry', 'X')).toBe('Re: Wedding inquiry');
     expect(replySubject('RE: Quote', 'X')).toBe('RE: Quote');
     expect(replySubject('', 'RGNY')).toBe('Wedding inquiry — RGNY');
+  });
+});
+
+describe('outreach email', () => {
+  it('opens as a first email, not a reply', () => {
+    const t = buildTemplate({ couple: 'Dan & Jo' });
+    expect(t).toMatch(/^Hi \{first name\},\n\nWe \(Dan & Jo\) are planning our wedding and \{venue\} is high on our list/);
+    expect(readsAsReply(t)).toBe(false);
+  });
+  it('spots a saved template still worded as a reply', () => {
+    expect(readsAsReply('Hi {first name},\n\nThank you for getting back to us! We are…')).toBe(true);
+    expect(readsAsReply('Thanks for your email about dates.')).toBe(true);
+    expect(readsAsReply('')).toBe(false);
+  });
+  it('gives the subject the date when there is one', () => {
+    expect(outreachSubject({ date: 'Saturday, September 18, 2027' })).toBe('Wedding inquiry for Saturday, September 18, 2027');
+    expect(outreachSubject({})).toBe('Wedding inquiry');
   });
 });
