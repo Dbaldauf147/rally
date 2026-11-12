@@ -18,9 +18,12 @@ import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 import { VenueReplyDraft } from './VenueReplyDraft';
 import { VenueNoFitPrompt } from './VenueNoFitPrompt';
-import { noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons } from '../lib/venueNoFit';
+import { bulkNoFitReasons, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
 import { HIDDEN, TO_VISIT, bulkSetField, rowsToTsv, venueExportRows } from '../lib/venueBulk';
+
+// The bulk bar's Reasons-not-a-fit choice (add / remove / clear one reason).
+const NO_FIT_REASONS = { key: 'noFitReasons', label: 'Reasons not a fit' };
 
 // The inbox the venue mail goes to. Only a hint for Google's account picker —
 // any inbox can be linked.
@@ -297,6 +300,10 @@ export function WeddingVenues({ subnav } = {}) {
   const [selected, setSelected] = useState(() => new Set());
   const [bulkKey, setBulkKey] = useState('status');
   const [bulkValue, setBulkValue] = useState('');
+  // Reasons not a fit, in bulk: add / remove / clear, and which reason.
+  const [bulkNoFitMode, setBulkNoFitMode] = useState('add');
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkReasonNew, setBulkReasonNew] = useState('');
 
   useEffect(() => {
     if (!user) return undefined;
@@ -757,6 +764,7 @@ export function WeddingVenues({ subnav } = {}) {
 
   const bulkFields = [
     { key: 'status', label: 'Status' },
+    NO_FIT_REASONS,
     TO_VISIT,
     HIDDEN,
     ...(areas.length ? [{ key: 'area', label: 'Area' }] : []),
@@ -775,7 +783,39 @@ export function WeddingVenues({ subnav } = {}) {
   const n = picked.length;
   const these = `${n} venue${n === 1 ? '' : 's'}`;
 
+  const NEW_REASON = '__new';
+  const pickedReason = bulkNoFitMode === 'clear' ? ''
+    : (bulkReason === NEW_REASON || !noFitList.length ? bulkReasonNew : (bulkReason || noFitList[0] || ''));
+  const applyBulkNoFit = async () => {
+    const before = venuesRef.current;
+    const reason = standardReason(pickedReason, noFitList);
+    if (bulkNoFitMode !== 'clear' && !reason) { setMessage({ type: 'error', text: 'Pick or type a reason first.' }); return; }
+    const next = bulkNoFitReasons(before, new Set(picked.map((v) => v.id)), bulkNoFitMode, reason, noFitList).map((v, i) => (v === before[i] ? v : normalizeVenue(v)));
+    const changed = next.filter((v, i) => v !== before[i]).length;
+    if (!changed) { setMessage({ type: 'ok', text: `Nothing to change — ${these} already had that.` }); return; }
+    const was = new Map(before.filter((v, i) => v !== next[i]).map((v) => [v.id, v]));
+    // A reason typed in here joins the list, like one typed in the pop-up.
+    const extra = {};
+    if (bulkNoFitMode === 'add' && !noFitList.some((r) => r === reason)) {
+      const nextList = normalizeReasonList([...noFitList, reason]);
+      setNoFitList(nextList);
+      extra.weddingVenueNoFitReasonList = nextList;
+    }
+    try {
+      await persist(next, extra);
+      const on = `${changed} venue${changed === 1 ? '' : 's'}`;
+      setMessage({
+        type: 'ok',
+        text: bulkNoFitMode === 'add' ? `Added “${reason}” on ${on} (and marked them Not a fit).`
+          : bulkNoFitMode === 'remove' ? `Removed “${reason}” from ${on}.` : `Cleared the reasons on ${on}.`,
+        undo: () => { persist(venuesRef.current.map((v) => was.get(v.id) || v)).catch(saveError); setMessage(null); },
+      });
+      setBulkReasonNew('');
+    } catch (err) { saveError(err); }
+  };
+
   const applyBulk = async () => {
+    if (bulkField.key === NO_FIT_REASONS.key) return applyBulkNoFit();
     const before = venuesRef.current;
     const next = bulkSetField(before, new Set(picked.map((v) => v.id)), bulkField.key, bulkVal);
     const changed = next.filter((v, i) => v !== before[i]).length;
@@ -1018,8 +1058,33 @@ export function WeddingVenues({ subnav } = {}) {
           <select className={styles.bulkInput} style={{ minWidth: 0 }} value={bulkField.key} onChange={(e) => { setBulkKey(e.target.value); setBulkValue(''); }} aria-label="Field to change">
             {bulkFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
-          <span className={styles.bulkLabel}>to</span>
-          {bulkChoices ? (
+          {bulkField.key === NO_FIT_REASONS.key ? (
+            <>
+              <select className={styles.bulkInput} style={{ minWidth: 0 }} value={bulkNoFitMode} onChange={(e) => setBulkNoFitMode(e.target.value)} aria-label="Add, remove or clear">
+                <option value="add">Add reason (marks them Not a fit)</option>
+                <option value="remove">Remove reason</option>
+                <option value="clear">Clear all reasons</option>
+              </select>
+              {bulkNoFitMode !== 'clear' && noFitList.length > 0 && (
+                <select className={styles.bulkInput} value={bulkReason || noFitList[0]} onChange={(e) => setBulkReason(e.target.value)} aria-label="Reason">
+                  {noFitList.map((r) => <option key={r} value={r}>{r}</option>)}
+                  {bulkNoFitMode === 'add' && <option value={NEW_REASON}>New reason…</option>}
+                </select>
+              )}
+              {bulkNoFitMode === 'add' && (bulkReason === NEW_REASON || !noFitList.length) && (
+                <input
+                  className={styles.bulkInput}
+                  value={bulkReasonNew}
+                  onChange={(e) => setBulkReasonNew(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyBulk(); }}
+                  placeholder="Type the reason"
+                  aria-label="New reason"
+                  maxLength={60}
+                />
+              )}
+            </>
+          ) : <span className={styles.bulkLabel}>to</span>}
+          {bulkField.key === NO_FIT_REASONS.key ? null : bulkChoices ? (
             <select className={styles.bulkInput} value={bulkVal} onChange={(e) => setBulkValue(e.target.value)} aria-label="New value">
               {bulkChoices.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
             </select>

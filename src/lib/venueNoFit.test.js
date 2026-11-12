@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_NO_FIT_REASONS, applyListEdits, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason,
+  DEFAULT_NO_FIT_REASONS, applyListEdits, bulkNoFitReasons, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason,
 } from './venueNoFit.js';
 import { normalizeVenue } from './weddingVenues.js';
 
@@ -53,5 +53,41 @@ describe('venue not-a-fit reasons', () => {
     expect(list).toEqual(['Over budget', 'Date not available', 'No parking']);
     expect(renames).toEqual({ 'Too expensive': 'Over budget', 'Didn’t respond': 'Over budget' });
     expect(renameReasons(['Too expensive', 'Didn’t respond', 'Not our style'], renames)).toEqual(['Over budget', 'Not our style']);
+  });
+});
+
+describe('bulk reasons not a fit', () => {
+  const list = ['Too expensive', 'Date not available'];
+  const venues = [
+    { id: 'a', status: 'Toured', noFitReasons: [] },
+    { id: 'b', status: 'Not a fit', noFitReasons: ['Date not available'] },
+    { id: 'c', status: 'Not a fit', noFitReasons: ['Too expensive', 'Date not available'] },
+    { id: 'z', status: 'Inquired', noFitReasons: [] },
+  ];
+
+  it('adds a reason and marks the venues Not a fit, in the list spelling', () => {
+    const next = bulkNoFitReasons(venues, ['a', 'b', 'c'], 'add', 'too  EXPENSIVE', list);
+    expect(next[0]).toEqual({ id: 'a', status: 'Not a fit', noFitReasons: ['Too expensive'] });
+    expect(next[1].noFitReasons).toEqual(['Date not available', 'Too expensive']);
+    expect(next[2]).toBe(venues[2]); // already had it: unchanged
+    expect(next[3]).toBe(venues[3]); // not picked
+  });
+
+  it('adds a reason that is not on the list yet as typed', () => {
+    expect(bulkNoFitReasons(venues, ['a'], 'add', 'No parking', list)[0].noFitReasons).toEqual(['No parking']);
+  });
+
+  it('removes one reason, leaving the status', () => {
+    const next = bulkNoFitReasons(venues, ['a', 'b', 'c'], 'remove', 'Date not available', list);
+    expect(next[0]).toBe(venues[0]);
+    expect(next[1]).toEqual({ id: 'b', status: 'Not a fit', noFitReasons: [] });
+    expect(next[2].noFitReasons).toEqual(['Too expensive']);
+  });
+
+  it('clears every reason; a blank reason to add or remove changes nothing', () => {
+    const next = bulkNoFitReasons(venues, ['b', 'c', 'z'], 'clear');
+    expect(next.map((v) => v.noFitReasons)).toEqual([[], [], [], []]);
+    expect(next[3]).toBe(venues[3]);
+    expect(bulkNoFitReasons(venues, ['a'], 'add', '  ', list)).toBe(venues);
   });
 });
