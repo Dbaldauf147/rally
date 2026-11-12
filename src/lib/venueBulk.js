@@ -8,13 +8,15 @@
 
 import { allVenueColumns, cellValue, withCellValue } from './venueTable.js';
 import { areaName } from './venueAreas.js';
+import { normalizeVenue, withReachedOut } from './weddingVenues.js';
 
 export const TO_VISIT = { key: 'toVisit', label: 'To visit' };
 export const HIDDEN = { key: 'hidden', label: 'Hidden' };
+export const REACHED_OUT = { key: 'reachedOut', label: 'Reached out' };
 const yesNo = (b) => (b ? 'Yes' : 'No');
 
 /* The columns of an export: every column of the table, shown or not, in
-   table order, with "To visit" after the venue's name. The count of emails
+   table order, with "To visit" and "Reached out" after the venue's name. The count of emails
    isn't a thing you can edit, so it's left out; Area only when there are
    locations to name. */
 export function exportColumns(config, areas = []) {
@@ -22,7 +24,7 @@ export function exportColumns(config, areas = []) {
     .filter((c) => c.key !== 'emails' && (c.key !== 'area' || areas.length > 0))
     .map((c) => ({ key: c.key, label: c.label }));
   const at = cols.findIndex((c) => c.key === 'name');
-  cols.splice(at + 1, 0, TO_VISIT);
+  cols.splice(at + 1, 0, TO_VISIT, REACHED_OUT);
   return cols;
 }
 
@@ -30,7 +32,7 @@ export function exportColumns(config, areas = []) {
 export function venueExportRows(venues, config, areas = []) {
   const cols = exportColumns(config, areas);
   // Why not a fit is written as the reasons alone, so an import can read them back.
-  const value = (v, key) => (key === 'toVisit' ? yesNo(v.toVisit) : key === 'area' ? areaName(v, areas)
+  const value = (v, key) => (key === 'toVisit' ? yesNo(v.toVisit) : key === 'reachedOut' ? yesNo(v.reachedOut) : key === 'area' ? areaName(v, areas)
     : key === 'noFit' ? (v.status === 'Not a fit' ? (v.noFitReasons || []).join(' · ') : '') : cellValue(v, key));
   return [cols.map((c) => c.label), ...(venues || []).map((v) => cols.map((c) => value(v, c.key)))];
 }
@@ -55,7 +57,9 @@ export function bulkSetField(venues, ids, key, value) {
   if (key === 'name') return venues;
   return (venues || []).map((v) => {
     if (!pick.has(v.id)) return v;
-    const next = key === 'toVisit' || key === 'hidden' ? { ...v, [key]: value === true || value === 'Yes' } : withCellValue(v, key, value);
+    const yes = value === true || value === 'Yes';
+    const next = key === 'toVisit' || key === 'hidden' ? { ...v, [key]: yes }
+      : key === 'reachedOut' ? (yes === v.reachedOut ? v : normalizeVenue(withReachedOut(v, yes))) : withCellValue(v, key, value);
     return JSON.stringify(next) === JSON.stringify(v) ? v : next;
   });
 }

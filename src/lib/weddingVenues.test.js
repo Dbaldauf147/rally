@@ -1,6 +1,6 @@
 /* global Buffer */
 import { describe, it, expect } from 'vitest';
-import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl } from './weddingVenues';
+import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, withReachedOut } from './weddingVenues';
 import { buildGmailQuery, dropQuoted, messageBody, threadText } from '../../lib/weddingVenueScan.js';
 
 describe('venueNameKey / sameVenue', () => {
@@ -68,6 +68,23 @@ describe('mergeScannedVenues', () => {
     const v = normalizeVenue({ name: scanned.name, status: 'Not a fit', noFitReasons: ['Too expensive'], noFitNotes: '  Lovely room.\r\nMinimum was double our budget.  ' });
     expect(v.noFitNotes).toBe('Lovely room.\nMinimum was double our budget.');
     expect(mergeScannedVenues([v], [scanned]).list[0]).toMatchObject({ status: 'Not a fit', noFitNotes: v.noFitNotes });
+  });
+
+  it('marking a venue reached out stamps the day and moves Researching on to Inquired', () => {
+    const fresh = normalizeVenue({ name: 'A' });
+    expect(fresh).toMatchObject({ reachedOut: false, reachedOutDate: '' });
+    const marked = normalizeVenue(withReachedOut(fresh, true, '2026-11-12'));
+    expect(marked).toMatchObject({ reachedOut: true, reachedOutDate: '2026-11-12', status: 'Inquired' });
+    // Marking again keeps the first day; a later status is never pulled back.
+    expect(withReachedOut(marked, true, '2026-12-01').reachedOutDate).toBe('2026-11-12');
+    expect(withReachedOut(normalizeVenue({ name: 'B', status: 'Toured' }), true, '2026-11-12').status).toBe('Toured');
+    // Unmarking clears the day; only an Inquired venue goes back to Researching.
+    expect(normalizeVenue(withReachedOut(marked, false))).toMatchObject({ reachedOut: false, reachedOutDate: '', status: 'Researching' });
+    expect(withReachedOut(normalizeVenue({ name: 'C', status: 'Replied', reachedOut: true }), false).status).toBe('Replied');
+    // A date with no mark is dropped, and a scan leaves the mark alone.
+    expect(normalizeVenue({ name: 'D', reachedOutDate: '2026-11-12' }).reachedOutDate).toBe('');
+    const kept = mergeScannedVenues([normalizeVenue({ ...marked, name: scanned.name })], [scanned]).list[0];
+    expect(kept).toMatchObject({ reachedOut: true, reachedOutDate: '2026-11-12' });
   });
 
   it('a newer email updates the date and summary', () => {

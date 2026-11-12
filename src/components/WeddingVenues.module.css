@@ -91,6 +91,13 @@
 .visitBtn { color: var(--color-text-muted); }
 .visitBtn:hover, .visitBtnOn { color: #e11d48; }
 .visitBtn svg, .visitBtnOn svg { display: block; }
+/* "We've reached out": a tick in a circle, muted until set, then filled green. */
+.reachedBtn, .reachedBtnOn { background: none; border: none; cursor: pointer; line-height: 1; padding: 0.25rem; font-family: inherit; vertical-align: middle; }
+.reachedBtn { color: var(--color-text-muted); }
+.reachedBtn:hover, .reachedBtnOn { color: #16a34a; }
+.reachedBtn svg, .reachedBtnOn svg { display: block; }
+.reachedCheck { margin-top: -0.45rem; }
+.reachedCheck svg { color: #16a34a; }
 .visitChip { display: inline-flex; align-items: center; gap: 0.35rem; }
 .visitCheck { margin: 0 0 0.85rem; }
 .visitCheck svg { color: #e11d48; flex-shrink: 0; }
