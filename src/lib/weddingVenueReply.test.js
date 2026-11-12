@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_QUESTIONS, buildTemplate, fillTemplate, firstName, normalizeReplySettings, outreachSubject, prefillDetails, readsAsReply, replySubject, templateOf,
+  draftOf, newDraftId, replySettingsToSave, subjectOf,
 } from './weddingVenueReply';
 
 describe('venue reply settings', () => {
@@ -71,5 +72,44 @@ describe('outreach email', () => {
   it('gives the subject the date when there is one', () => {
     expect(outreachSubject({ date: 'Saturday, September 18, 2027' })).toBe('Wedding inquiry for Saturday, September 18, 2027');
     expect(outreachSubject({})).toBe('Wedding inquiry');
+  });
+});
+
+describe('several drafts', () => {
+  it('reads the one saved email as the first draft', () => {
+    const s = normalizeReplySettings({ details: {}, template: 'Mine' });
+    expect(s.drafts).toEqual([{ id: 'outreach', name: 'Outreach', template: 'Mine', subject: '' }]);
+    expect(s.template).toBe('Mine');
+    expect(normalizeReplySettings(null).drafts).toEqual([{ id: 'outreach', name: 'Outreach', template: '', subject: '' }]);
+  });
+
+  it('keeps saved drafts, giving each a name and an id of its own', () => {
+    const s = normalizeReplySettings({ template: 'old', drafts: [
+      { id: 'a', name: ' First ', template: 'One\r\nline' },
+      { id: 'a', template: 'Two', subject: ' Hello ' },
+      null,
+    ] });
+    expect(s.drafts).toEqual([
+      { id: 'a', name: 'First', template: 'One\nline', subject: '' },
+      { id: 'draft-2', name: 'Draft 2', template: 'Two', subject: 'Hello' },
+    ]);
+    expect(s.template).toBe('One\nline');
+    expect(newDraftId(s.drafts)).toBe('draft-3');
+  });
+
+  it('picks a draft by id, falling back to the first, with its own template and subject', () => {
+    const details = { date: 'June 5' };
+    const s = { details, drafts: [{ id: 'a', name: 'A', template: '', subject: '' }, { id: 'b', name: 'B', template: 'Checking in', subject: 'Following up' }] };
+    expect(draftOf(s, 'b').name).toBe('B');
+    expect(draftOf(s, 'nope').name).toBe('A');
+    expect(templateOf(s)).toBe(buildTemplate(details));
+    expect(templateOf(s, 'b')).toBe('Checking in');
+    expect(subjectOf(s, 'a')).toBe('Wedding inquiry for June 5');
+    expect(subjectOf(s, 'b')).toBe('Following up');
+  });
+
+  it('saves the first draft under the old name too', () => {
+    const drafts = [{ id: 'a', name: 'A', template: 'T', subject: '' }];
+    expect(replySettingsToSave({ couple: 'x' }, drafts)).toEqual({ details: { couple: 'x' }, drafts, template: 'T' });
   });
 });

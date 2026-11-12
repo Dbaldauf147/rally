@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 
-/* An outreach email to one venue: the Outreach email tab's template filled
-   in for it by the server (api/wedding-venues.js, draftOutreach), edited
+/* An email to one venue: one of the Reply email tab's drafts (the first,
+   until another is picked here) filled in for it by the server (api/wedding-venues.js, draftOutreach), edited
    here, then saved to Gmail's Drafts as a new email. Never sent from Rally. */
 export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, onSaved }) {
   const [draft, setDraft] = useState(null); // { to, subject, body, threadId, inReplyTo, references, tailored }
@@ -11,12 +11,12 @@ export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, o
   const [error, setError] = useState(null); // { text, code }
   const [saved, setSaved] = useState(false);
 
-  const write = useCallback(async () => {
+  const write = useCallback(async (templateId) => {
     setBusy('write');
     setError(null);
     setSaved(false);
     try {
-      setDraft(await callApi({ action: 'draftOutreach', venueId: venue.id }));
+      setDraft(await callApi({ action: 'draftOutreach', venueId: venue.id, ...(typeof templateId === 'string' && templateId ? { templateId } : {}) }));
     } catch (err) {
       setError({ text: err.message, code: err.code });
     } finally {
@@ -37,7 +37,8 @@ export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, o
     setBusy('save');
     setError(null);
     try {
-      await callApi({ action: 'saveDraft', ...draft });
+      const { to, subject, body, threadId, inReplyTo, references } = draft;
+      await callApi({ action: 'saveDraft', to, subject, body, threadId, inReplyTo, references });
       setSaved(true);
       onSaved?.();
     } catch (err) {
@@ -67,15 +68,23 @@ export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, o
         <div className={styles.modalBody}>
           {busy === 'write' ? (
             <p className={styles.muted} role="status">
-              Filling in your outreach email…
+              Filling in your email…
             </p>
           ) : draft && (
             <>
               <p className={`${styles.muted} ${vs.draftMeta}`}>
-                Your outreach email, filled in for {venue.name}. It goes as a new email — read it over and edit anything here before saving.
+                Your email, filled in for {venue.name}. It goes as a new email — read it over and edit anything here before saving.
                 {!draft.to && ' There’s no email address for this venue yet: add it under To.'}
               </p>
               <div className={styles.contactGrid}>
+                {draft.templates?.length > 1 && (
+                  <label className={`${styles.contactField} ${styles.contactWide}`}>
+                    <span className={styles.contactLabel}>Which email</span>
+                    <select className={styles.contactInput} value={draft.templateId} onChange={(e) => write(e.target.value)} disabled={!!busy} title="Picking another one replaces the text below">
+                      {draft.templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  </label>
+                )}
                 <label className={styles.contactField}>
                   <span className={styles.contactLabel}>To</span>
                   <input className={styles.contactInput} value={draft.to} onChange={(e) => set('to', e.target.value)} autoComplete="off" />
@@ -109,7 +118,7 @@ export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, o
           )}
         </div>
         <div className={styles.modalFooter}>
-          <button className={styles.modalSecondary} type="button" onClick={write} disabled={!!busy} title="Fill it in again from the template">Start over</button>
+          <button className={styles.modalSecondary} type="button" onClick={() => write(draft?.templateId)} disabled={!!busy} title="Fill it in again from the template">Start over</button>
           <button className={styles.modalSecondary} type="button" onClick={copy} disabled={!draft || !!busy}>Copy</button>
           <span className={styles.modalCount}>{gmail ? '' : 'Connect Gmail on All venues to save drafts'}</span>
           <button className={styles.modalPrimary} type="button" onClick={save} disabled={!draft || !!busy || !gmail || saved}>

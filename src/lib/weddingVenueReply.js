@@ -3,10 +3,15 @@
    head count, ceremony, budget…), and an email template built from them that
    can be reworded freely. Kept on the user doc as
 
-     weddingVenueReply: { details: { key: text… }, template: string }
+     weddingVenueReply: { details: { key: text… }, drafts: [{ id, name, template, subject }] }
 
-   A blank template means "the one built from the details", so editing a
-   detail flows into the email until the template itself is edited.
+   The details are shared; each draft is one email written from them (the
+   first outreach, a follow-up, a "we've booked elsewhere"…). A blank template
+   means "the one built from the details", so editing a detail flows into the
+   email until the template itself is edited; a blank subject means the
+   standard one. Before there were several drafts the one email was kept as
+   `template` beside the details — that still reads as the first draft, and
+   is still written, as the first draft's text.
 
    In the template, {first name} and {venue} are filled in for each venue.
    Pure, so it's shared by the page and the server (api/wedding-venues.js). */
@@ -40,13 +45,48 @@ export const DEFAULT_QUESTIONS = [
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 const KEYS = REPLY_FIELDS.map((f) => f.key);
 
+export const FIRST_DRAFT = { id: 'outreach', name: 'Outreach' };
+export const MAX_DRAFTS = 20;
+const text = (v) => (typeof v === 'string' ? v.replace(/\r\n/g, '\n') : '');
+
+// The saved drafts, each with an id of its own; with none saved, the one
+// email kept as `template` (or the one built from the details).
+function normalizeDrafts(r) {
+  const out = [];
+  const seen = new Set();
+  for (const x of Array.isArray(r.drafts) ? r.drafts : []) {
+    if (!x || typeof x !== 'object' || out.length >= MAX_DRAFTS) continue;
+    let id = str(x.id);
+    for (let n = out.length + 1; !id || seen.has(id); n += 1) id = `draft-${n}`;
+    seen.add(id);
+    out.push({ id, name: str(x.name) || `Draft ${out.length + 1}`, template: text(x.template), subject: str(x.subject) });
+  }
+  return out.length ? out : [{ ...FIRST_DRAFT, template: text(r.template), subject: '' }];
+}
+
 export function normalizeReplySettings(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const d = r.details && typeof r.details === 'object' ? r.details : {};
   const details = {};
   for (const k of KEYS) details[k] = typeof d[k] === 'string' ? d[k].replace(/\r\n/g, '\n').trim() : '';
   if (!('questions' in d)) details.questions = DEFAULT_QUESTIONS;
-  return { details, template: typeof r.template === 'string' ? r.template.replace(/\r\n/g, '\n') : '' };
+  const drafts = normalizeDrafts(r);
+  return { details, template: drafts[0].template, drafts };
+}
+
+// What the page saves: the drafts, and the first one's text under its old name.
+export const replySettingsToSave = (details, drafts) => ({ details, drafts, template: drafts[0]?.template || '' });
+
+// An id no other draft has.
+export function newDraftId(drafts = []) {
+  const ids = new Set(drafts.map((d) => d.id));
+  for (let n = drafts.length + 1; ; n += 1) if (!ids.has(`draft-${n}`)) return `draft-${n}`;
+}
+
+// The draft with this id, else the first.
+export function draftOf(settings, id) {
+  const list = Array.isArray(settings?.drafts) && settings.drafts.length ? settings.drafts : [{ ...FIRST_DRAFT, template: text(settings?.template), subject: '' }];
+  return list.find((d) => d.id === id) || list[0];
 }
 
 /* Fill in what's blank from elsewhere on the Wedding page: the date the
@@ -101,7 +141,13 @@ export function buildTemplate(details = {}) {
   return parts.join('\n\n');
 }
 
-export const templateOf = (settings) => (str(settings?.template) ? settings.template : buildTemplate(settings?.details));
+export function templateOf(settings, draftId) {
+  const d = draftOf(settings, draftId);
+  return str(d.template) ? d.template : buildTemplate(settings?.details);
+}
+
+// A draft's subject: its own, else the standard outreach one.
+export const subjectOf = (settings, draftId) => str(draftOf(settings, draftId).subject) || outreachSubject(settings?.details);
 
 export function firstName(name) {
   const s = str(name).replace(/^(mr|mrs|ms|miss|dr)\.?\s+/i, '');

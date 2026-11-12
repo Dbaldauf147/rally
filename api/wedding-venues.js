@@ -9,8 +9,9 @@
 //   scan        → { venues, threadCount, account }: reads the venue threads
 //                 since the last scan (or two years, with { full: true }).
 //   disconnect  → revokes the token and forgets the connection.
-//   draftOutreach → { to, subject, body, threadId: '', … } for { venueId }:
-//                 a new outreach email to the venue — the saved template
+//   draftOutreach → { to, subject, body, threadId: '', templateId, templates, … }
+//                 for { venueId, templateId? }: a new email to the venue —
+//                 one of the saved drafts (the first, with no templateId)
 //                 filled in for it, to the venue's address. Nothing is saved
 //                 to Gmail yet. (`draftReply` is the old name, kept so a page
 //                 still open from before this change keeps working.)
@@ -33,7 +34,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { refreshAccessToken, scanInbox } from '../lib/weddingVenueScan.js';
 import { GMAIL_SCOPES } from '../lib/weddingGmailAuth.js';
 import { buildRawEmail, createDraft } from '../lib/weddingVenueDraft.js';
-import { fillTemplate, outreachSubject, replySettingsFor, templateOf } from '../src/lib/weddingVenueReply.js';
+import { draftOf, fillTemplate, replySettingsFor, subjectOf, templateOf } from '../src/lib/weddingVenueReply.js';
 import { mergeScannedVenues, normalizeVenue } from '../src/lib/weddingVenues.js';
 import { lookupMapsLink } from '../lib/venueMapsLookup.js';
 
@@ -102,15 +103,18 @@ async function scanFor(db, uid, { full = false } = {}) {
 }
 
 // A new email to the venue — never a reply in one of its threads.
-async function draftOutreach(db, uid, venueId) {
+async function draftOutreach(db, uid, venueId, templateId) {
   const user = (await db.doc(`users/${uid}`).get()).data() || {};
   const venue = (Array.isArray(user.weddingVenues) ? user.weddingVenues : []).find((v) => v?.id === venueId);
   if (!venue) throw Object.assign(new Error('That venue isn’t on the list any more'), { status: 404 });
   const settings = replySettingsFor(user);
   return {
     to: venue.email || '',
-    subject: outreachSubject(settings.details),
-    body: fillTemplate(templateOf(settings), venue),
+    subject: subjectOf(settings, templateId),
+    body: fillTemplate(templateOf(settings, templateId), venue),
+    // Which of the saved drafts this is, and the ones to choose between.
+    templateId: draftOf(settings, templateId).id,
+    templates: settings.drafts.map((d) => ({ id: d.id, name: d.name })),
     threadId: '', inReplyTo: '', references: '', tailored: false,
   };
 }
@@ -217,7 +221,7 @@ export default async function handler(req, res) {
 
   if (action === 'draftOutreach' || action === 'draftReply') {
     try {
-      return res.status(200).json(await draftOutreach(db, uid, String(req.body?.venueId || '')));
+      return res.status(200).json(await draftOutreach(db, uid, String(req.body?.venueId || ''), String(req.body?.templateId || '')));
     } catch (err) {
       return res.status(err.status || 500).json({ error: err.message || 'Could not draft the email', ...(err.code ? { code: err.code } : {}) });
     }
