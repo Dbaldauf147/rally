@@ -12,7 +12,7 @@
 
 import {
   MONEY_KEYS, VENUE_FIELDS, VENUE_STATUSES, cleanMoney, formatDateList, formatMoney, normalizeAllInclusive, normalizeVenue, parseMoney, parseMoneyRange,
-  sameVenue, sortVenues, withReachedOut,
+  parseReachedOut, sameVenue, sortVenues, withReachedOut,
 } from './weddingVenues.js';
 import { NO_AREA, venueArea } from './venueAreas.js';
 
@@ -252,12 +252,13 @@ export function withCellValue(v, key, value) {
     const reasons = str(value).split(/\s*[·;|\n]\s*/).filter(Boolean);
     return reasons.length ? normalizeVenue({ ...v, noFitReasons: reasons }) : v;
   }
-  // Reached out, from a sheet: yes or no; anything else leaves it.
+  // Reached out, from a sheet or the bulk bar: no, yes, or how ("Emailed",
+  // "Website"); anything else leaves it. A plain yes keeps the how it had.
   if (key === 'reachedOut') {
-    const t = str(value).toLowerCase();
-    const yes = /^(y|yes|true|x|1|✓|✔|reached out|contacted|done)$/.test(t);
-    if (!yes && !/^(n|no|false|0)$/.test(t)) return v;
-    return yes === (v.reachedOut === true) ? v : normalizeVenue(withReachedOut(v, yes));
+    const r = parseReachedOut(value);
+    if (!r) return v;
+    if (r.on === (v.reachedOut === true) && (!r.on || r.via === undefined || r.via === v.reachedOutVia)) return v;
+    return normalizeVenue(withReachedOut(v, r.on, undefined, r.via));
   }
   // The place-to-visit flag, from a sheet: yes or no; anything else leaves it.
   if (key === 'toVisit') {

@@ -1,6 +1,6 @@
 /* global Buffer */
 import { describe, it, expect } from 'vitest';
-import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, withReachedOut } from './weddingVenues';
+import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut } from './weddingVenues';
 import { buildGmailQuery, dropQuoted, messageBody, threadText } from '../../lib/weddingVenueScan.js';
 
 describe('venueNameKey / sameVenue', () => {
@@ -85,6 +85,31 @@ describe('mergeScannedVenues', () => {
     expect(normalizeVenue({ name: 'D', reachedOutDate: '2026-11-12' }).reachedOutDate).toBe('');
     const kept = mergeScannedVenues([normalizeVenue({ ...marked, name: scanned.name })], [scanned]).list[0];
     expect(kept).toMatchObject({ reachedOut: true, reachedOutDate: '2026-11-12' });
+  });
+
+  it('records how we reached out — by email or via their website', () => {
+    const fresh = normalizeVenue({ name: 'A' });
+    const emailed = normalizeVenue(withReachedOut(fresh, true, '2026-11-12', 'email'));
+    expect(emailed).toMatchObject({ reachedOut: true, reachedOutVia: 'email', reachedOutDate: '2026-11-12', status: 'Inquired' });
+    expect([reachedLabel(emailed), reachedCell(emailed)]).toEqual(['Emailed', 'Emailed']);
+    // Changing how keeps the day; a plain re-mark keeps the how.
+    const site = normalizeVenue(withReachedOut(emailed, true, '2026-12-01', 'website'));
+    expect(site).toMatchObject({ reachedOutVia: 'website', reachedOutDate: '2026-11-12' });
+    expect([reachedLabel(site), reachedCell(site)]).toEqual(['Via their website', 'Website']);
+    expect(withReachedOut(site, true).reachedOutVia).toBe('website');
+    // Marked before the option existed, or without saying how.
+    const plain = normalizeVenue({ name: 'B', reachedOut: true, reachedOutVia: 'pigeon' });
+    expect([plain.reachedOutVia, reachedLabel(plain), reachedCell(plain)]).toEqual(['', 'Reached out', 'Yes']);
+    // Unmarking forgets how; an unmarked venue has none.
+    expect(normalizeVenue(withReachedOut(site, false))).toMatchObject({ reachedOut: false, reachedOutVia: '' });
+    expect(normalizeVenue({ name: 'C', reachedOutVia: 'email' }).reachedOutVia).toBe('');
+    expect([reachedLabel(fresh), reachedCell(fresh)]).toEqual(['', 'No']);
+  });
+
+  it('reads how from a typed or pasted value', () => {
+    for (const t of ['Emailed', 'email', 'by e-mail', 'via email']) expect(parseReachedOut(t), t).toEqual({ on: true, via: 'email' });
+    for (const t of ['Website', 'via their website', 'web', 'contact form', 'online']) expect(parseReachedOut(t), t).toEqual({ on: true, via: 'website' });
+    expect([parseReachedOut('Yes'), parseReachedOut(true), parseReachedOut('no'), parseReachedOut('maybe'), parseReachedOut('')]).toEqual([{ on: true }, { on: true }, { on: false }, null, null]);
   });
 
   it('a newer email updates the date and summary', () => {

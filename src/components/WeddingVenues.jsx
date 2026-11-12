@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeScannedVenues, newVenueId,
   cleanMoney, formatAvailableDate, normalizeDateList, normalizeVenue, venueNameKey,
-  withReachedOut,
+  REACH_VIAS, reachedLabel, withReachedOut,
 } from '../lib/weddingVenues';
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
@@ -94,12 +94,20 @@ const Flag = ({ on }) => (
 );
 
 // A tick in a circle: outlined, or filled once we've reached out to the venue.
-const Reached = ({ on }) => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" fill={on ? 'currentColor' : 'none'} stroke="currentColor" />
-    <path d="M7.5 12.5l3 3 6-6.5" stroke={on ? '#fff' : 'currentColor'} />
-  </svg>
-);
+// The filled circle says how: an envelope for email, a globe for their website.
+const Reached = ({ on, via = '' }) => {
+  const ink = on ? '#fff' : 'currentColor';
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill={on ? 'currentColor' : 'none'} stroke="currentColor" />
+      {on && via === 'email' ? (
+        <g stroke={ink} strokeWidth="1.6"><rect x="6.5" y="8" width="11" height="8" rx="1" /><path d="M7 9l5 3.6L17 9" /></g>
+      ) : on && via === 'website' ? (
+        <g stroke={ink} strokeWidth="1.5"><circle cx="12" cy="12" r="5.2" /><path d="M6.8 12h10.4" /><ellipse cx="12" cy="12" rx="2.2" ry="5.2" /></g>
+      ) : <path d="M7.5 12.5l3 3 6-6.5" stroke={ink} />}
+    </svg>
+  );
+};
 
 const STAR_COL_WIDTH = 172;
 
@@ -519,7 +527,32 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   const setToVisit = (v, toVisit) => updateVenue(v.id, (x) => ({ ...x, toVisit }));
   // The tick: we've reached out to this venue. A venue still being
   // researched moves to Inquired with it (lib/weddingVenues.js).
-  const setReachedOut = (v, on) => updateVenue(v.id, (x) => normalizeVenue(withReachedOut(x, on)));
+  const setReachedOut = (v, on, via) => updateVenue(v.id, (x) => normalizeVenue(withReachedOut(x, on, undefined, via)));
+  // The tick's little menu — emailed, or via their website — placed by the
+  // button it came from (fixed, so the table's scroll box can't clip it).
+  const [reachMenu, setReachMenu] = useState(null); // { id, top, left }
+  const reachMenuRef = useRef(null);
+  const openReachMenu = (e, v) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setReachMenu((m) => (m?.id === v.id ? null : { id: v.id, top: r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - 228)) }));
+  };
+  useEffect(() => {
+    if (!reachMenu) return undefined;
+    const close = () => setReachMenu(null);
+    const onDown = (e) => { if (!reachMenuRef.current?.contains(e.target) && !e.target.closest?.('[data-reach-btn]')) close(); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [reachMenu]);
+  const reachMenuVenue = reachMenu ? venues.find((v) => v.id === reachMenu.id) : null;
 
   /* ── Not a fit: why ── */
   const noFitOptions = useMemo(
@@ -862,7 +895,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   const BULK_CHOICES = {
     status: VENUE_STATUSES.map((st) => [st, st]),
     toVisit: [['Yes', 'Yes — flag them'], ['No', 'No — remove the flag']],
-    reachedOut: [['Yes', 'Yes — we’ve reached out'], ['No', 'No — not yet']],
+    reachedOut: [['Emailed', 'Yes — emailed'], ['Website', 'Yes — via their website'], ['Yes', 'Yes — however it was'], ['No', 'No — not yet']],
     hidden: [['Yes', 'Yes — hide them'], ['No', 'No — show them']],
     allInclusive: [['Yes', 'Yes'], ['No', 'No'], ['', 'Not known (clear)']],
     area: [...areas.map((a) => [a.id, a.name]), [NO_AREA, 'None of these'], ['', 'Match from the address']],
@@ -1327,12 +1360,15 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
                       <button
                         type="button"
                         className={v.reachedOut ? vs.reachedBtnOn : vs.reachedBtn}
-                        onClick={() => setReachedOut(v, !v.reachedOut)}
+                        data-reach-btn
+                        onClick={(e) => openReachMenu(e, v)}
                         aria-pressed={v.reachedOut}
-                        aria-label={v.reachedOut ? `Reached out to ${v.name} — unmark` : `Mark ${v.name} as reached out`}
-                        title={v.reachedOut ? `Reached out${v.reachedOutDate ? ` on ${fmtDate(v.reachedOutDate)}` : ''} — click to unmark` : 'Mark that we’ve reached out'}
+                        aria-haspopup="menu"
+                        aria-expanded={reachMenu?.id === v.id}
+                        aria-label={v.reachedOut ? `${reachedLabel(v)}: ${v.name} — change` : `Mark ${v.name} as reached out`}
+                        title={v.reachedOut ? `${reachedLabel(v)}${v.reachedOutDate ? ` on ${fmtDate(v.reachedOutDate)}` : ''} — click to change` : 'Mark that we’ve reached out — by email, or via their website'}
                       >
-                        <Reached on={v.reachedOut} />
+                        <Reached on={v.reachedOut} via={v.reachedOutVia} />
                       </button>
                       <button type="button" className={vs.openBtn} onClick={() => setEditing({ ...v })} title="Open venue details" aria-label={`Open ${v.name}`}>⤢</button>
                       <button type="button" className={vs.draftBtn} onClick={() => setReplyTo(v)} title="Draft an outreach email with your wedding details" aria-label={`Draft an outreach email to ${v.name}`}>✉</button>
@@ -1458,7 +1494,19 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
               </label>
               <label className={`${styles.modalCheckRow} ${vs.visitCheck} ${vs.reachedCheck}`}>
                 <input type="checkbox" checked={!!editing.reachedOut} onChange={(e) => setEditing((d) => (d ? withReachedOut(d, e.target.checked) : d))} />
-                <Reached on={!!editing.reachedOut} /> We’ve reached out{editing.reachedOut && editing.reachedOutDate ? ` · ${fmtDate(editing.reachedOutDate)}` : ''}
+                <Reached on={!!editing.reachedOut} via={editing.reachedOutVia} /> We’ve reached out{editing.reachedOut && editing.reachedOutDate ? ` · ${fmtDate(editing.reachedOutDate)}` : ''}
+                {editing.reachedOut && (
+                  <select
+                    className={vs.reachedVia}
+                    value={editing.reachedOutVia || ''}
+                    onChange={(e) => setField('reachedOutVia', e.target.value)}
+                    aria-label="How we reached out"
+                  >
+                    <option value="">How?</option>
+                    <option value="email">By email</option>
+                    <option value="website">Via their website</option>
+                  </select>
+                )}
               </label>
               <div className={styles.contactGrid}>
                 {VENUE_FIELDS.map((f) => {
@@ -1562,6 +1610,23 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
       )}
       {mapsText !== null && (
         <VenueMapsImport venues={venues} callApi={callApi} initialText={mapsText} onAdd={addFromMaps} onClose={closeMaps} />
+      )}
+      {reachMenu && reachMenuVenue && (
+        <div ref={reachMenuRef} className={vs.reachMenu} role="menu" aria-label={`How we reached out to ${reachMenuVenue.name}`} style={{ top: reachMenu.top, left: reachMenu.left }}>
+          <p className={vs.reachMenuHead}>{reachMenuVenue.reachedOut ? `${reachedLabel(reachMenuVenue)}${reachMenuVenue.reachedOutDate ? ` · ${fmtDate(reachMenuVenue.reachedOutDate)}` : ''}` : 'We reached out…'}</p>
+          {REACH_VIAS.map((via) => {
+            const current = reachMenuVenue.reachedOut && reachMenuVenue.reachedOutVia === via.key;
+            return (
+              <button key={via.key} type="button" role="menuitemradio" aria-checked={current} className={current ? vs.reachMenuItemOn : vs.reachMenuItem} onClick={() => { setReachedOut(reachMenuVenue, true, via.key); setReachMenu(null); }}>
+                <span className={vs.reachMenuIcon}><Reached on via={via.key} /></span>
+                {via.key === 'email' ? 'By email' : 'Via their website'}
+              </button>
+            );
+          })}
+          {reachMenuVenue.reachedOut && (
+            <button type="button" role="menuitem" className={vs.reachMenuClear} onClick={() => { setReachedOut(reachMenuVenue, false); setReachMenu(null); }}>Not reached out — unmark</button>
+          )}
+        </div>
       )}
       {noFitFor && (
         <VenueNoFitPrompt venue={noFitFor.venue} options={noFitOptions} onSave={saveNoFit} onCancel={closeNoFit} onEditList={editNoFitList} />
