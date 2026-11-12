@@ -20,7 +20,7 @@ import { VenueReplyDraft } from './VenueReplyDraft';
 import { VenueNoFitPrompt } from './VenueNoFitPrompt';
 import { VenueMapsImport } from './VenueMapsImport';
 import { extractMapsLinks, mapsSearchUrl } from '../lib/venueMaps';
-import { bulkNoFitReasons, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason } from '../lib/venueNoFit';
+import { bulkNoFitReasons, formatReasons, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
 import { HIDDEN, TO_VISIT, bulkSetField, rowsToTsv, venueExportRows } from '../lib/venueBulk';
 
@@ -174,8 +174,8 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, w
     if (venue.status !== 'Not a fit') return <span className={styles.muted} title="Only for venues marked Not a fit">—</span>;
     const why = venue.noFitReasons || [];
     return (
-      <button type="button" className={`${vs.noFitCell} ${why.length ? '' : vs.noFitWhyEmpty}`} onClick={onNoFitWhy} title={[why.join(' · '), venue.noFitNotes].filter(Boolean).join('\n') || 'Say why it isn’t a fit'} aria-label={`Why ${venue.name} isn’t a fit`}>
-        <span className={vs.noFitCellReasons}>{why.length ? why.join(' · ') : '+ Why not a fit?'}</span>
+      <button type="button" className={`${vs.noFitCell} ${why.length ? '' : vs.noFitWhyEmpty}`} onClick={onNoFitWhy} title={[formatReasons(why, '\n'), venue.noFitNotes].filter(Boolean).join('\n') || 'Say why it isn’t a fit'} aria-label={`Why ${venue.name} isn’t a fit`}>
+        <span className={vs.noFitCellReasons}>{why.length ? formatReasons(why) : '+ Why not a fit?'}</span>
         {venue.noFitNotes && <span className={vs.noFitNote}>{venue.noFitNotes}</span>}
       </button>
     );
@@ -200,7 +200,7 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, w
       <>
         {select}
         <button type="button" className={`${vs.noFitWhy} ${why.length ? '' : vs.noFitWhyEmpty}`} onClick={onNoFitWhy} title="Why it isn't a fit — click to change">
-          {why.length ? why.join(' · ') : '+ Why not a fit?'}
+          {why.length ? formatReasons(why) : '+ Why not a fit?'}
           {venue.noFitNotes && <span className={vs.noFitNote} title={venue.noFitNotes}>{venue.noFitNotes}</span>}
         </button>
       </>
@@ -1407,7 +1407,7 @@ export function WeddingVenues({ subnav } = {}) {
                         </select>
                         {editing.status === 'Not a fit' && (
                           <span className={vs.noFitDetail}>
-                            {editing.noFitReasons?.length ? editing.noFitReasons.join(' · ') : 'No reason given yet.'}
+                            {editing.noFitReasons?.length ? formatReasons(editing.noFitReasons) : 'No reason given yet.'}
                             <button type="button" className={vs.noFitWhy} onClick={(e) => { e.preventDefault(); setNoFitFor({ venue: editing, from: 'editor' }); }}>
                               {editing.noFitReasons?.length ? 'Change' : '+ Why?'}
                             </button>
