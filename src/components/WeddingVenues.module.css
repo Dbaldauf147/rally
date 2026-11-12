@@ -222,3 +222,15 @@
 .noFitCell.noFitWhyEmpty { color: #b91c1c; }
 .noFitCellReasons { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .noFitCell .noFitNote { font-size: 0.74rem; color: var(--color-text-muted); }
+
+/* Not a fit: categories and their sub-reasons */
+.noFitGroup { display: flex; flex-direction: column; }
+.noFitCatRow { display: flex; align-items: center; gap: 0.4rem; }
+.noFitCatRow > .noFitOption { flex: 1; min-width: 0; }
+.noFitSubs { display: flex; flex-direction: column; gap: 0.05rem; margin-left: 1.6rem; padding-left: 0.6rem; border-left: 2px solid var(--color-border); }
+.noFitSubOption { font-size: 0.86rem; padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.noFitSubs .noFitAdd { margin: 0.3rem 0 0.4rem; }
+.noFitSubBtn { flex-shrink: 0; background: none; border: none; padding: 0.2rem 0.3rem; font: inherit; font-size: 0.72rem; color: var(--color-text-muted); cursor: pointer; white-space: nowrap; }
+.noFitSubBtn:hover { color: var(--color-accent); }
+.noFitSubRow { padding-left: 1.4rem; }
+.noFitSubMark { color: var(--color-text-muted); font-size: 0.85rem; }
