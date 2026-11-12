@@ -153,3 +153,25 @@ describe('reached out, in bulk and through a sheet', () => {
     expect(only.list[1]).toMatchObject({ reachedOut: true, status: 'Inquired' });
   });
 });
+
+describe('how we reached out, in bulk and through a sheet', () => {
+  it('bulk-sets the how, and a plain Yes keeps it', () => {
+    let next = bulkSetField(venues, new Set(['a', 'c']), 'reachedOut', 'Emailed');
+    expect(next.map((v) => v.reachedOutVia)).toEqual(['email', '', 'email']);
+    next = bulkSetField(next, new Set(['a']), 'reachedOut', 'Website');
+    expect(next[0]).toMatchObject({ reachedOut: true, reachedOutVia: 'website' });
+    expect(bulkSetField(next, new Set(['a', 'c']), 'reachedOut', 'Yes')).toEqual(next);
+    expect(bulkSetField(next, new Set(['a']), 'reachedOut', 'No')[0]).toMatchObject({ reachedOut: false, reachedOutVia: '' });
+  });
+
+  it('exports Emailed / Website / Yes / No and reads them back unchanged', () => {
+    const list = bulkSetField(bulkSetField(venues, ['a'], 'reachedOut', 'Emailed'), ['b'], 'reachedOut', 'Website');
+    const rows = venueExportRows(list, config, areas);
+    const col = rows[0].indexOf('Reached out');
+    expect(rows.slice(1).map((r) => r[col])).toEqual(['Emailed', 'Website', 'No']);
+    const mapping = autoMapVenueHeaders(rows[0], config.custom);
+    expect(planVenuePaste(list, rows.slice(1), mapping, { areas })).toMatchObject({ added: [], updated: [] });
+    rows[3][col] = 'via their website';
+    expect(planVenuePaste(list, rows.slice(1), mapping, { areas }).list[2]).toMatchObject({ reachedOut: true, reachedOutVia: 'website' });
+  });
+});

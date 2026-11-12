@@ -8,7 +8,7 @@
 
 import { allVenueColumns, cellValue, withCellValue } from './venueTable.js';
 import { areaName } from './venueAreas.js';
-import { normalizeVenue, withReachedOut } from './weddingVenues.js';
+import { reachedCell } from './weddingVenues.js';
 
 export const TO_VISIT = { key: 'toVisit', label: 'To visit' };
 export const HIDDEN = { key: 'hidden', label: 'Hidden' };
@@ -32,7 +32,7 @@ export function exportColumns(config, areas = []) {
 export function venueExportRows(venues, config, areas = []) {
   const cols = exportColumns(config, areas);
   // Why not a fit is written as the reasons alone, so an import can read them back.
-  const value = (v, key) => (key === 'toVisit' ? yesNo(v.toVisit) : key === 'reachedOut' ? yesNo(v.reachedOut) : key === 'area' ? areaName(v, areas)
+  const value = (v, key) => (key === 'toVisit' ? yesNo(v.toVisit) : key === 'reachedOut' ? reachedCell(v) : key === 'area' ? areaName(v, areas)
     : key === 'noFit' ? (v.status === 'Not a fit' ? (v.noFitReasons || []).join(' · ') : '') : cellValue(v, key));
   return [cols.map((c) => c.label), ...(venues || []).map((v) => cols.map((c) => value(v, c.key)))];
 }
@@ -59,7 +59,7 @@ export function bulkSetField(venues, ids, key, value) {
     if (!pick.has(v.id)) return v;
     const yes = value === true || value === 'Yes';
     const next = key === 'toVisit' || key === 'hidden' ? { ...v, [key]: yes }
-      : key === 'reachedOut' ? (yes === v.reachedOut ? v : normalizeVenue(withReachedOut(v, yes))) : withCellValue(v, key, value);
+      : withCellValue(v, key, value === true ? 'Yes' : value);
     return JSON.stringify(next) === JSON.stringify(v) ? v : next;
   });
 }

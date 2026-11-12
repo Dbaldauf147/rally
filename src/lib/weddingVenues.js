@@ -10,6 +10,9 @@
 import { normalizeReasonList } from './venueNoFit.js';
 import { cleanMapsUrl } from './venueMaps.js';
 
+// The ways of reaching out that can be recorded with the tick.
+export const REACH_VIAS = [{ key: 'email', label: 'Emailed' }, { key: 'website', label: 'Via their website' }];
+
 export const VENUE_STATUSES = ['Researching', 'Inquired', 'Replied', 'Tour scheduled', 'Toured', 'Quote received', 'Booked', 'Not a fit'];
 
 export const VENUE_FIELDS = [
@@ -172,6 +175,8 @@ export function normalizeVenue(v, { id } = {}) {
   // was marked. Yours to set: a scan never sets or clears it.
   out.reachedOut = v?.reachedOut === true;
   out.reachedOutDate = out.reachedOut && /^\d{4}-\d{2}-\d{2}$/.test(str(v?.reachedOutDate)) ? str(v.reachedOutDate) : '';
+  // How: 'email', 'website' (their contact form), or '' when it wasn't said.
+  out.reachedOutVia = out.reachedOut && REACH_VIAS.some((x) => x.key === v?.reachedOutVia) ? v.reachedOutVia : '';
   // Which of the couple's locations it's in, when picked by hand (an id from
   // weddingVenueAreas, or '__none'); blank means matched from the address.
   out.area = str(v?.area);
@@ -200,14 +205,32 @@ const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
    researched on to Inquired, since that is what reaching out is. Unmarking
    clears the day and puts an Inquired venue back to Researching; any later
    status (Replied, Toured, Not a fit…) is left alone either way. */
-export function withReachedOut(v, on, today = ymd(new Date())) {
+export function withReachedOut(v, on, today = ymd(new Date()), via) {
   if (on) {
     return {
       ...v, reachedOut: true, reachedOutDate: (v.reachedOut && v.reachedOutDate) || today,
+      // How it was done, when said; otherwise whatever was already recorded.
+      reachedOutVia: via !== undefined ? via : (v.reachedOut && v.reachedOutVia) || '',
       status: v.status === 'Researching' || !v.status ? 'Inquired' : v.status,
     };
   }
-  return { ...v, reachedOut: false, reachedOutDate: '', status: v.status === 'Inquired' ? 'Researching' : v.status };
+  return { ...v, reachedOut: false, reachedOutDate: '', reachedOutVia: '', status: v.status === 'Inquired' ? 'Researching' : v.status };
+}
+
+// "Emailed", "Via their website", or plain "Reached out" when how wasn't said.
+export const reachedLabel = (v) => (!v?.reachedOut ? '' : REACH_VIAS.find((x) => x.key === v.reachedOutVia)?.label || 'Reached out');
+// The same for a sheet: "Emailed" / "Website" / "Yes" / "No".
+export const reachedCell = (v) => (!v?.reachedOut ? 'No' : v.reachedOutVia === 'email' ? 'Emailed' : v.reachedOutVia === 'website' ? 'Website' : 'Yes');
+
+/* What a typed or pasted "reached out" value means: { on, via } — via
+   undefined when it only says yes — or null when it says nothing we know. */
+export function parseReachedOut(value) {
+  const t = (value === true ? 'yes' : value === false ? 'no' : str(value)).toLowerCase().replace(/[.!]+$/, '');
+  if (/^(n|no|false|0|not yet)$/.test(t)) return { on: false };
+  if (/^(?:(?:by|via|over|through) )?e-?mail(?:ed)?$/.test(t)) return { on: true, via: 'email' };
+  if (/^(?:(?:by|via|on|through) )?(?:(?:their|the) )?(?:web ?site|web|(?:contact |web ?|inquiry |online )?form|online)$/.test(t)) return { on: true, via: 'website' };
+  if (/^(y|yes|true|x|1|✓|✔|reached out|contacted|done)$/.test(t)) return { on: true };
+  return null;
 }
 
 export function newVenueId() {
