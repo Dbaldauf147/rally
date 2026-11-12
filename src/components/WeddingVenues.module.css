@@ -173,6 +173,11 @@
 .noFitWhy { display: block; margin-top: 0.2rem; background: none; border: none; padding: 0; font: inherit; font-size: 0.72rem; color: var(--color-text-muted); text-align: left; cursor: pointer; white-space: normal; }
 .noFitWhy:hover { color: var(--color-accent); text-decoration: underline; }
 .noFitWhyEmpty { color: #b91c1c; }
+.noFitNotes { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.9rem; }
+.noFitNotes textarea { resize: vertical; line-height: 1.45; }
+/* The notes under the reasons: one clipped line in the table, in full in the venue pop-up. */
+.noFitNote { display: block; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.noFitDetailNote { flex-basis: 100%; white-space: pre-wrap; font-style: italic; color: var(--color-text-secondary); }
 .noFitDetail { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-top: 0.35rem; font-size: 0.82rem; color: var(--color-text-muted); }
 .noFitEditLink { background: none; border: none; padding: 0; font: inherit; color: var(--color-accent); cursor: pointer; text-decoration: underline; }
 .noFitEditRow { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; }

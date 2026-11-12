@@ -151,6 +151,7 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, a
         {select}
         <button type="button" className={`${vs.noFitWhy} ${why.length ? '' : vs.noFitWhyEmpty}`} onClick={onNoFitWhy} title="Why it isn't a fit — click to change">
           {why.length ? why.join(' · ') : '+ Why not a fit?'}
+          {venue.noFitNotes && <span className={vs.noFitNote} title={venue.noFitNotes}>{venue.noFitNotes}</span>}
         </button>
       </>
     );
@@ -454,7 +455,7 @@ export function WeddingVenues({ subnav } = {}) {
     [noFitList, venues, noFitFor],
   );
   const closeNoFit = useCallback(() => setNoFitFor(null), []);
-  const saveNoFit = (reasons, newReasons) => {
+  const saveNoFit = (reasons, newReasons, noFitNotes = '') => {
     const { venue, from } = noFitFor;
     setNoFitFor(null);
     const extra = {};
@@ -464,11 +465,11 @@ export function WeddingVenues({ subnav } = {}) {
       extra.weddingVenueNoFitReasonList = nextList;
     }
     if (from === 'editor') {
-      setEditing((d) => (d ? { ...d, status: 'Not a fit', noFitReasons: reasons } : d));
+      setEditing((d) => (d ? { ...d, status: 'Not a fit', noFitReasons: reasons, noFitNotes } : d));
       if (extra.weddingVenueNoFitReasonList && user) setDoc(doc(db, 'users', user.uid), extra, { merge: true }).catch(saveError);
       return;
     }
-    const next = venuesRef.current.map((x) => (x.id === venue.id ? normalizeVenue({ ...x, status: 'Not a fit', noFitReasons: reasons }) : x));
+    const next = venuesRef.current.map((x) => (x.id === venue.id ? normalizeVenue({ ...x, status: 'Not a fit', noFitReasons: reasons, noFitNotes }) : x));
     persist(next, extra).catch(saveError);
   };
   // The list edited in the pop-up: saved whole, and renames carried onto
@@ -1256,6 +1257,7 @@ export function WeddingVenues({ subnav } = {}) {
                             <button type="button" className={vs.noFitWhy} onClick={(e) => { e.preventDefault(); setNoFitFor({ venue: editing, from: 'editor' }); }}>
                               {editing.noFitReasons?.length ? 'Change' : '+ Why?'}
                             </button>
+                            {editing.noFitNotes && <span className={vs.noFitDetailNote}>{editing.noFitNotes}</span>}
                           </span>
                         )}
                       </>
