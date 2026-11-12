@@ -15,6 +15,8 @@
    venue with neither is matched automatically, and one that matches
    nothing is flagged. Pure, so it can be tested without React. */
 
+import { cleanBulletText } from './bulletText.js';
+
 export const NO_AREA = '__none';
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
@@ -35,7 +37,8 @@ export function parseKeywords(text) {
   });
 }
 
-const note = (v) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim().slice(0, 4000) : '');
+// One point per line; bullets are only drawn on screen (lib/bulletText.js).
+const note = (v) => cleanBulletText(v).slice(0, 4000);
 
 export function normalizeAreas(raw) {
   const seen = new Set();
