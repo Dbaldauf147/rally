@@ -20,8 +20,12 @@ import { NO_AREA, venueArea } from './venueAreas.js';
 // the Gmail threads a scan found, so it's counted, not typed.
 // `area` is which of the couple's locations the venue is in (lib/venueAreas.js),
 // matched from the address, so it's picked rather than typed or pasted.
+// `noFit` is why a venue was marked Not a fit — the reasons checked off and
+// the notes under them (lib/venueNoFit.js) — so it's picked in its pop-up.
+export const NO_FIT_COLUMN = { key: 'noFit', label: 'Why not a fit', readOnly: true, wide: true };
 export const BUILTIN_COLUMNS = [
-  ...VENUE_FIELDS.flatMap((f) => (f.key === 'location' ? [{ ...f }, { key: 'area', label: 'Area', readOnly: true }] : [{ ...f }])),
+  ...VENUE_FIELDS.flatMap((f) => (f.key === 'location' ? [{ ...f }, { key: 'area', label: 'Area', readOnly: true }]
+    : f.key === 'status' ? [{ ...f }, { ...NO_FIT_COLUMN }] : [{ ...f }])),
   { key: 'emails', label: 'Emails', readOnly: true },
 ];
 const BUILTIN_KEYS = BUILTIN_COLUMNS.map((c) => c.key);
@@ -203,6 +207,8 @@ export function venueSearchUrl(v) {
 export function cellValue(v, key) {
   if (isCustomKey(key)) return str(v?.custom?.[key]);
   if (key === 'emails') return v?.threadIds?.length ? String(v.threadIds.length) : '';
+  // The reasons, then the notes — blank unless the venue is Not a fit now.
+  if (key === 'noFit') return v?.status === 'Not a fit' ? [(v.noFitReasons || []).join(' · '), str(v.noFitNotes)].filter(Boolean).join(' — ') : '';
   if (key === 'availableDates') return formatDateList(v?.availableDates);
   return typeof v?.[key] === 'string' ? v[key] : '';
 }
@@ -211,6 +217,11 @@ export function cellValue(v, key) {
 export function withCellValue(v, key, value) {
   if (key === 'emails') return v;
   if (key === 'area') return normalizeVenue({ ...v, area: value });
+  // Reasons from a sheet, as an export writes them: "Too expensive · Too far".
+  if (key === 'noFit') {
+    const reasons = str(value).split(/\s*[·;|\n]\s*/).filter(Boolean);
+    return reasons.length ? normalizeVenue({ ...v, noFitReasons: reasons }) : v;
+  }
   // The place-to-visit flag, from a sheet: yes or no; anything else leaves it.
   if (key === 'toVisit') {
     const t = str(value).toLowerCase();
@@ -270,8 +281,9 @@ export function sortVenueRows(list, sort, { valueFor = cellValue } = {}) {
     });
   }
   // Ruled-out venues sink below the live ones, whatever the sort — unless
-  // you sorted by status itself, where the order you picked is the point.
-  if (sort?.key === 'status') return base;
+  // you sorted by status itself, where the order you picked is the point, or
+  // by why they're not a fit, where they're the only rows with anything in it.
+  if (sort?.key === 'status' || sort?.key === 'noFit') return base;
   return [...base.filter((v) => v.status !== 'Not a fit'), ...base.filter((v) => v.status === 'Not a fit')];
 }
 
@@ -366,6 +378,7 @@ export function autoMapVenueHeaders(headerRow, customColumns = []) {
     // The two an export writes that aren't typed cells (lib/venueBulk.js).
     if (!key && /^(to visit|visit|place to visit)$/.test(t)) key = 'toVisit';
     if (!key && t === 'area') key = 'area';
+    if (!key && /^(why )?not a fit( reasons?)?$|^reasons? not a fit$|^why not$/.test(t)) key = 'noFit';
     if (!key) key = HEADER_RULES.find(([k, re]) => !used.has(k) && re.test(t))?.[0];
     if (!key || used.has(key)) return /[a-z]/.test(t) ? 'new' : '';
     used.add(key);

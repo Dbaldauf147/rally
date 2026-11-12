@@ -156,7 +156,7 @@ function DateListEditor({ dates, onChange }) {
 
 /* One editable cell. Typing stays local and saves when you leave the cell or
    press Enter (Escape puts it back), so a save never lands mid-word. */
-function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, areas = [] }) {
+function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, whyHasColumn = false, areas = [] }) {
   const saved = cellValue(venue, col.key);
   const [val, setVal] = useState(saved);
   const [focused, setFocused] = useState(false);
@@ -170,6 +170,16 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, a
   }
 
   if (col.key === 'area') return <AreaSelect venue={venue} areas={areas} onCommit={onCommit} />;
+  if (col.key === 'noFit') {
+    if (venue.status !== 'Not a fit') return <span className={styles.muted} title="Only for venues marked Not a fit">—</span>;
+    const why = venue.noFitReasons || [];
+    return (
+      <button type="button" className={`${vs.noFitCell} ${why.length ? '' : vs.noFitWhyEmpty}`} onClick={onNoFitWhy} title={[why.join(' · '), venue.noFitNotes].filter(Boolean).join('\n') || 'Say why it isn’t a fit'} aria-label={`Why ${venue.name} isn’t a fit`}>
+        <span className={vs.noFitCellReasons}>{why.length ? why.join(' · ') : '+ Why not a fit?'}</span>
+        {venue.noFitNotes && <span className={vs.noFitNote}>{venue.noFitNotes}</span>}
+      </button>
+    );
+  }
   if (col.key === 'emails') {
     return venue.threadIds.length > 0 ? (
       <a className={styles.link} href={gmailThreadUrl(venue.threadIds[venue.threadIds.length - 1], gmailEmail)} target="_blank" rel="noreferrer">
@@ -183,7 +193,8 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, a
         {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
     );
-    if (venue.status !== 'Not a fit') return select;
+    // With the "Why not a fit" column on the table, the reasons live there.
+    if (venue.status !== 'Not a fit' || whyHasColumn) return select;
     const why = venue.noFitReasons || [];
     return (
       <>
@@ -570,6 +581,7 @@ export function WeddingVenues({ subnav } = {}) {
 
   const columns = useMemo(() => allVenueColumns(colConfig), [colConfig]);
   const visible = useMemo(() => columns.filter((c) => !c.hidden), [columns]);
+  const whyHasColumn = visible.some((c) => c.key === 'noFit');
 
   /* Dragging a header's right edge. The width follows the pointer locally and
      is saved once, when you let go. A click right after a drag isn't a sort. */
@@ -768,6 +780,7 @@ export function WeddingVenues({ subnav } = {}) {
   // can also set — the place-to-visit flag and (by name) the location.
   const fieldOptions = [
     ...columns.filter((c) => !c.readOnly),
+    { key: 'noFit', label: 'Why not a fit' },
     TO_VISIT,
     ...(areas.length ? [{ key: 'area', label: 'Area' }] : []),
   ];
@@ -1255,7 +1268,7 @@ export function WeddingVenues({ subnav } = {}) {
                     </td>
                     {visible.map((col) => (
                       <td key={col.key} className={vs.cell}>
-                        <EditCell venue={v} col={col} areas={areas} gmailEmail={gmail?.email} onCommit={(val) => setCell(v, col.key, val)} onPasteGrid={openPaste} onNoFitWhy={() => setNoFitFor({ venue: v, from: 'table' })} />
+                        <EditCell venue={v} col={col} areas={areas} gmailEmail={gmail?.email} onCommit={(val) => setCell(v, col.key, val)} onPasteGrid={openPaste} onNoFitWhy={() => setNoFitFor({ venue: v, from: 'table' })} whyHasColumn={whyHasColumn} />
                       </td>
                     ))}
                   </tr>

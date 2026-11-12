@@ -29,7 +29,9 @@ export function exportColumns(config, areas = []) {
 // The sheet as rows of text: the headings, then one row per venue.
 export function venueExportRows(venues, config, areas = []) {
   const cols = exportColumns(config, areas);
-  const value = (v, key) => (key === 'toVisit' ? yesNo(v.toVisit) : key === 'area' ? areaName(v, areas) : cellValue(v, key));
+  // Why not a fit is written as the reasons alone, so an import can read them back.
+  const value = (v, key) => (key === 'toVisit' ? yesNo(v.toVisit) : key === 'area' ? areaName(v, areas)
+    : key === 'noFit' ? (v.status === 'Not a fit' ? (v.noFitReasons || []).join(' · ') : '') : cellValue(v, key));
   return [cols.map((c) => c.label), ...(venues || []).map((v) => cols.map((c) => value(v, c.key)))];
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bulkSetField, exportColumns, rowsToTsv, venueExportRows } from './venueBulk';
-import { addCustomColumn, autoMapVenueHeaders, looksLikeVenueHeader, normalizeColumnConfig, planVenuePaste } from './venueTable';
+import { addCustomColumn, autoMapVenueHeaders, cellValue, looksLikeVenueHeader, normalizeColumnConfig, planVenuePaste, sortVenueRows } from './venueTable';
 import { normalizeVenue } from './weddingVenues';
 import { parsePastedCells } from './weddingGuestImport';
 
@@ -95,5 +95,34 @@ describe('bulkSetField', () => {
     expect(bulkSetField(venues, ids, 'location', '').map((v) => v.location)).toEqual(['', 'Huntington, NY', '']);
     expect(bulkSetField(venues, ['a'], 'status', 'Replied')[0]).toBe(venues[0]);
     expect(bulkSetField(venues, ids, 'name', 'Same')).toBe(venues);
+  });
+});
+
+describe('the Why not a fit column', () => {
+  const no = normalizeVenue({ id: 'n', name: 'Pricey Hall', status: 'Not a fit', noFitReasons: ['Too expensive', 'Location / too far'], noFitNotes: 'Minimum was double.' });
+  const moved = normalizeVenue({ id: 'm', name: 'Second Look', status: 'Replied', noFitReasons: ['Too expensive'] });
+
+  it('sits right after Status, in fresh and saved tables', () => {
+    const keys = exportColumns(normalizeColumnConfig(null)).map((c) => c.key);
+    expect(keys[keys.indexOf('status') + 1]).toBe('noFit');
+    expect(normalizeColumnConfig({ order: ['name', 'status', 'email'], hidden: [] }).order.slice(0, 3)).toEqual(['name', 'status', 'noFit']);
+  });
+
+  it('reads as the reasons and notes, only while the venue is Not a fit', () => {
+    expect(cellValue(no, 'noFit')).toBe('Too expensive · Location / too far — Minimum was double.');
+    expect(cellValue(moved, 'noFit')).toBe('');
+    expect(sortVenueRows([moved, no], { key: 'noFit', dir: 'asc' }).map((v) => v.id)).toEqual(['n', 'm']);
+  });
+
+  it('exports the reasons and reads them back on import', () => {
+    const rows = venueExportRows([no, moved], config, []);
+    const col = rows[0].indexOf('Why not a fit');
+    expect([rows[1][col], rows[2][col]]).toEqual(['Too expensive · Location / too far', '']);
+    const mapping = autoMapVenueHeaders(rows[0], config.custom);
+    expect(mapping[col]).toBe('noFit');
+    expect(planVenuePaste([no, moved], rows.slice(1), mapping)).toMatchObject({ added: [], updated: [] });
+    rows[1][col] = 'Not our style; Too expensive';
+    const plan = planVenuePaste([no, moved], rows.slice(1), mapping);
+    expect(plan.list[0]).toMatchObject({ noFitReasons: ['Not our style', 'Too expensive'], noFitNotes: 'Minimum was double.', status: 'Not a fit' });
   });
 });
