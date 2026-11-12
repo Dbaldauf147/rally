@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 
-/* A reply to one venue: written by the server (api/wedding-venues.js,
-   draftReply) from the Reply email tab's template and the venue's latest
-   email, edited here, then saved to Gmail's Drafts. Never sent from Rally. */
+/* An outreach email to one venue: the Outreach email tab's template filled
+   in for it by the server (api/wedding-venues.js, draftOutreach), edited
+   here, then saved to Gmail's Drafts as a new email. Never sent from Rally. */
 export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, onSaved }) {
   const [draft, setDraft] = useState(null); // { to, subject, body, threadId, inReplyTo, references, tailored }
   const [busy, setBusy] = useState('write');
@@ -16,7 +16,7 @@ export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, o
     setError(null);
     setSaved(false);
     try {
-      setDraft(await callApi({ action: 'draftReply', venueId: venue.id }));
+      setDraft(await callApi({ action: 'draftOutreach', venueId: venue.id }));
     } catch (err) {
       setError({ text: err.message, code: err.code });
     } finally {
@@ -59,24 +59,21 @@ export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, o
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} role="dialog" aria-modal="true" aria-label={`Reply to ${venue.name}`} onClick={(e) => e.stopPropagation()}>
+      <div className={styles.modal} role="dialog" aria-modal="true" aria-label={`Outreach email to ${venue.name}`} onClick={(e) => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>Reply to {venue.name}</h2>
+          <h2 className={styles.modalTitle}>Email {venue.name}</h2>
           <button className={styles.modalClose} type="button" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className={styles.modalBody}>
           {busy === 'write' ? (
             <p className={styles.muted} role="status">
-              {venue.threadIds?.length ? 'Reading their latest email and writing your reply — this takes a few seconds…' : 'Filling in your template…'}
+              Filling in your outreach email…
             </p>
           ) : draft && (
             <>
               <p className={`${styles.muted} ${vs.draftMeta}`}>
-                {draft.tailored
-                  ? 'Your template, adapted to their latest email. Read it over — edit anything here before saving.'
-                  : draft.threadId
-                    ? 'Your template filled in — it couldn’t be adapted to their email this time, so check it answers what they asked.'
-                    : 'Your template filled in. No email from this venue was found, so this starts a new conversation.'}
+                Your outreach email, filled in for {venue.name}. It goes as a new email — read it over and edit anything here before saving.
+                {!draft.to && ' There’s no email address for this venue yet: add it under To.'}
               </p>
               <div className={styles.contactGrid}>
                 <label className={styles.contactField}>
@@ -106,13 +103,13 @@ export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, o
           )}
           {saved && (
             <p className={styles.digestOkMsg} role="status">
-              Saved to Drafts in {gmail?.email || 'Gmail'}{draft?.threadId ? ', in the same thread' : ''}. Nothing has been sent.{' '}
+              Saved to Drafts in {gmail?.email || 'Gmail'}. Nothing has been sent.{' '}
               <a className={styles.link} href={draftsUrl} target="_blank" rel="noreferrer">Open Gmail drafts ↗</a>
             </p>
           )}
         </div>
         <div className={styles.modalFooter}>
-          <button className={styles.modalSecondary} type="button" onClick={write} disabled={!!busy} title="Write it again from the template">Rewrite</button>
+          <button className={styles.modalSecondary} type="button" onClick={write} disabled={!!busy} title="Fill it in again from the template">Start over</button>
           <button className={styles.modalSecondary} type="button" onClick={copy} disabled={!draft || !!busy}>Copy</button>
           <span className={styles.modalCount}>{gmail ? '' : 'Connect Gmail on All venues to save drafts'}</span>
           <button className={styles.modalPrimary} type="button" onClick={save} disabled={!draft || !!busy || !gmail || saved}>

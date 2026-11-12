@@ -384,23 +384,23 @@ describe('drafting venue replies', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('answers the venue\'s latest message, in its thread, tailored by Claude', async () => {
-    writeReply.mockResolvedValue('Hi Trudy,\n\nThanks for the menus!');
-    const res = await call({ action: 'draftReply', venueId: 'v1' });
+  it('drafts a new outreach email to the venue, never a reply in its thread', async () => {
+    const res = await call({ action: 'draftOutreach', venueId: 'v1' });
     expect(res.code).toBe(200);
     expect(res.body).toMatchObject({
-      to: 'Trudy Wilson <twilson@pridwin.test>', subject: 'RE: Wedding inquiry', threadId: 'th1',
-      inReplyTo: '<m2@x>', references: '<m1@x> <m2@x>', body: 'Hi Trudy,\n\nThanks for the menus!', tailored: true,
+      to: 'twilson@pridwin.test', subject: 'Wedding inquiry', threadId: '', inReplyTo: '', references: '',
+      body: 'Hi Trudy,\n\nWe love The Pridwin.', tailored: false,
     });
-    expect(writeReply.mock.calls[0][0].template).toBe('Hi Trudy,\n\nWe love The Pridwin.');
+    // It doesn't read the venue's threads or ask Claude to rewrite anything.
+    expect(gmailCalls).toEqual([]);
+    expect(writeReply).not.toHaveBeenCalled();
   });
 
-  it('falls back to the filled-in template when Claude can\'t, or there is no thread', async () => {
-    writeReply.mockRejectedValue(new Error('down'));
-    const res = await call({ action: 'draftReply', venueId: 'v1' });
-    expect(res.body).toMatchObject({ body: 'Hi Trudy,\n\nWe love The Pridwin.', tailored: false, threadId: 'th1' });
-    const none = await call({ action: 'draftReply', venueId: 'v2' });
-    expect(none.body).toMatchObject({ body: 'Hi there,\n\nWe love Regatta Place.', subject: 'Wedding inquiry — Regatta Place', threadId: '' });
+  it('puts the date in the subject, opens "Hi there" with no contact, and answers to the old action name', async () => {
+    docs.set('users/u1', { ...docs.get('users/u1'), weddingVenueReply: { details: { date: 'Saturday, September 18, 2027' }, template: 'Hi {first name},\n\nWe love {venue}.' } });
+    const res = await call({ action: 'draftReply', venueId: 'v2' });
+    expect(res.body).toMatchObject({ to: '', subject: 'Wedding inquiry for Saturday, September 18, 2027', body: 'Hi there,\n\nWe love Regatta Place.', threadId: '' });
+    expect((await call({ action: 'draftOutreach', venueId: 'gone' })).code).toBe(404);
   });
 
   it('saves a Gmail draft in the thread, never sends', async () => {
