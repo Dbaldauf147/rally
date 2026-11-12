@@ -72,7 +72,7 @@
 .guestsLabel { font-size: 0.85rem; font-weight: 650; }
 .guestsSelect { padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-family: inherit; font-size: 0.85rem; color: var(--color-text); max-width: 100%; }
 .guestsSelect:focus, .guestsNum:focus { outline: none; border-color: var(--color-accent); }
-.guestsNum { width: 5.5rem; padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); font-family: inherit; font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.guestsNum { width: 5.5rem; padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-family: inherit; font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text); }
 .guestsHint { font-size: 0.78rem; color: var(--color-text-muted); }
 
 .derived { text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); padding-right: 0.75rem !important; white-space: nowrap; }
@@ -157,3 +157,37 @@
 .markupPopOff { border: none; background: none; cursor: pointer; font: inherit; font-size: 0.8rem; color: var(--color-text-muted); padding: 0.2rem 0; }
 .markupPopOff:hover { color: var(--color-danger); }
 .markupPopDone { border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font: inherit; font-weight: 600; font-size: 0.82rem; padding: 0.35rem 0.85rem; cursor: pointer; }
+
+/* ── Calculator: a column on the right of the budget, below it when narrow ── */
+.layout { display: grid; grid-template-columns: minmax(0, 860px) minmax(260px, 320px); gap: 1.25rem; align-items: start; }
+.layout .wrap { max-width: none; }
+.calc { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); display: flex; flex-direction: column; margin-bottom: 0; }
+.calcHead { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.calcList { overflow-y: auto; margin: 0 -0.3rem; padding: 0 0.3rem; flex: 1 1 auto; min-height: 0; }
+.calcGroup { padding: 0.35rem 0; border-top: 1px solid var(--color-border-light); }
+.calcGroup:first-child { border-top: none; }
+.calcCat { font-size: 0.78rem; font-weight: 700; color: var(--color-text); margin: 0.1rem 0 0.15rem; }
+.calcLine { display: flex; align-items: center; gap: 0.5rem; padding: 0.05rem 0; cursor: text; }
+.calcName, .calcCatName { flex: 1 1 auto; min-width: 0; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calcName { color: var(--color-text-secondary); padding-left: 0.6rem; }
+.calcCatName { font-weight: 650; color: var(--color-text); }
+.calcNum { width: 6.5rem; flex: 0 0 auto; box-sizing: border-box; padding: 0.3rem 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-family: inherit; font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.calcNum::placeholder { color: var(--color-text-muted); opacity: 0.7; }
+.calcNum:focus { outline: none; border-color: var(--color-accent); }
+.calcTotals { margin: 0.6rem 0 0; padding-top: 0.5rem; border-top: 1px solid var(--color-border); }
+.calcTotals div { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.85rem; padding: 0.1rem 0; }
+.calcTotals dt { color: var(--color-text-secondary); }
+.calcTotals dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+.calcTotals .calcGrand { font-size: 1rem; padding-top: 0.3rem; }
+.calcGrand dt { color: var(--color-text); font-weight: 700; }
+.calcGrand dd { font-weight: 750; }
+.calcNote { font-size: 0.78rem; color: var(--color-text-muted); margin: 0.35rem 0 0; }
+.calcUnder { color: var(--color-success, #15803d); font-weight: 600; }
+.calcOver { color: var(--color-danger, #b91c1c); font-weight: 600; }
+
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .layout .wrap { max-width: 860px; }
+  .calc { position: static; max-height: none; max-width: 860px; }
+  .calcList { overflow: visible; }
+}
