@@ -67,3 +67,12 @@ describe('the Area column', () => {
     expect(sortVenueRows(list, { key: 'area', dir: 'asc' }, { valueFor: (x) => areaName(x, areas) }).map((x) => x.name)).toEqual(['M', 'G', 'Z']);
   });
 });
+
+describe('location pros and cons', () => {
+  it('keeps each location\'s pros and cons, trimmed, and they never affect matching', () => {
+    const [a] = normalizeAreas([{ id: 'n', name: 'North Fork', keywords: ['Greenport'], pros: '  Wineries\r\nWater views ', cons: 7 }]);
+    expect(a).toEqual({ id: 'n', name: 'North Fork', keywords: ['Greenport'], pros: 'Wineries\nWater views', cons: '' });
+    expect(normalizeAreas([{ id: 'x', name: 'X' }])[0]).toMatchObject({ pros: '', cons: '' });
+    expect(venueArea({ location: 'Wineries Rd' }, [a]).area).toBe(null);
+  });
+});

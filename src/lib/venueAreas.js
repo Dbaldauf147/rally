@@ -1,7 +1,9 @@
 /* The locations the wedding could be in ("North Fork", "Newport, RI",
    "Brooklyn"…), and which of them each venue falls in.
 
-   Kept on the user doc as `weddingVenueAreas: [{ id, name, keywords: [..] }]`.
+   Kept on the user doc as `weddingVenueAreas: [{ id, name, keywords: [..], pros, cons }]`.
+   `pros` and `cons` are the couple's own notes on the place (free text,
+   line breaks kept); they play no part in matching.
    A venue matches a location when its address (else its name) contains one
    of the location's keywords as whole words — or the location's own name,
    up to its first comma ("Mystic" for "Mystic, CT"). The longest keyword
@@ -33,12 +35,16 @@ export function parseKeywords(text) {
   });
 }
 
+const note = (v) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim().slice(0, 4000) : '');
+
 export function normalizeAreas(raw) {
   const seen = new Set();
   return (Array.isArray(raw) ? raw : []).map((a) => ({
     id: str(a?.id) || newAreaId(),
     name: str(a?.name),
     keywords: Array.isArray(a?.keywords) ? parseKeywords(a.keywords.join('\n')) : parseKeywords(a?.keywords),
+    pros: note(a?.pros),
+    cons: note(a?.cons),
   })).filter((a) => a.name && !seen.has(a.id) && seen.add(a.id));
 }
 

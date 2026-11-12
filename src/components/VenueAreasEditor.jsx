@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { newAreaId, normalizeAreas, parseKeywords, venueArea } from '../lib/venueAreas';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
@@ -6,17 +6,17 @@ import vs from './WeddingVenues.module.css';
 /* The list of locations the venues are matched into (lib/venueAreas.js).
    Edited as a draft and saved together, with a live count of which venues
    each location picks up and which match none, so a missing town can be
-   added as a keyword before saving. */
-export function VenueAreasEditor({ areas, venues, onSave, onClose }) {
-  const [rows, setRows] = useState(() => (areas.length ? areas : [{ id: newAreaId(), name: '', keywords: [] }])
-    .map((a) => ({ id: a.id, name: a.name, keywords: a.keywords.join(', ') })));
-  const [saving, setSaving] = useState(false);
+   added as a keyword before saving.
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+   It's the body of Wedding → Locations: Save keeps the draft, Discard puts
+   it back to what's saved. */
+const toRows = (areas) => (areas.length ? areas : [{ id: newAreaId(), name: '', keywords: [] }])
+  .map((a) => ({ id: a.id, name: a.name, keywords: a.keywords.join(', '), pros: a.pros || '', cons: a.cons || '' }));
+
+export function VenueAreasEditor({ areas, venues, onSave }) {
+  const [rows, setRows] = useState(() => toRows(areas));
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState('');
 
   const draft = useMemo(() => normalizeAreas(rows.map((r) => ({ ...r, keywords: parseKeywords(r.keywords) }))), [rows]);
   const live = useMemo(() => venues.filter((v) => !v.hidden), [venues]);
@@ -40,26 +40,35 @@ export function VenueAreasEditor({ areas, venues, onSave, onClose }) {
     return next;
   });
   const remove = (i) => setRows((rs) => rs.filter((_, j) => j !== i));
-  const add = () => setRows((rs) => [...rs, { id: newAreaId(), name: '', keywords: '' }]);
+  const add = () => setRows((rs) => [...rs, { id: newAreaId(), name: '', keywords: '', pros: '', cons: '' }]);
+
+  // Unsaved when the cleaned draft differs from what's saved. A blank
+  // starter row on an empty list isn't a change.
+  const dirty = JSON.stringify(draft.filter((a) => a.name)) !== JSON.stringify(normalizeAreas(areas).filter((a) => a.name));
+  // A save from elsewhere (another tab or device) shows up, unless you're
+  // part way through an edit here.
+  // Compared by content: a fresh copy of the same list changes nothing.
+  const savedKey = JSON.stringify(normalizeAreas(areas));
+  const [seen, setSeen] = useState(savedKey);
+  if (seen !== savedKey) {
+    setSeen(savedKey);
+    if (!dirty) setRows(toRows(areas));
+  }
 
   const save = async () => {
     setSaving(true);
     try {
-      await onSave(draft);
-      onClose();
+      await onSave(draft.filter((a) => a.name));
+      setSavedMsg('Saved.');
     } finally {
       setSaving(false);
     }
   };
+  const discard = () => { setRows(toRows(areas)); setSavedMsg(''); };
 
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Locations" onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>Locations</h2>
-          <button className={styles.modalClose} type="button" onClick={onClose} aria-label="Close">×</button>
-        </div>
-        <div className={styles.modalBody}>
+    <section className={vs.locationsPanel} aria-label="Locations">
+        <div>
           <p className={`${styles.muted} ${vs.draftMeta}`}>
             The places you&apos;re considering. Each venue&apos;s address is matched to one of these and shown in the Area column.
             A location matches its own name (up to the comma) and any keyword: add the towns, neighborhoods or zip codes that appear in venue addresses.
@@ -84,6 +93,14 @@ export function VenueAreasEditor({ areas, venues, onSave, onClose }) {
                       {r.name.trim() ? (hits.length ? `${hits.length} venue${hits.length === 1 ? '' : 's'}: ${hits.join(', ')}` : 'No venues yet') : ''}
                     </span>
                   </label>
+                  <label className={`${styles.contactField} ${vs.areaNote}`}>
+                    <span className={styles.contactLabel}>Pros</span>
+                    <textarea className={`${styles.contactInput} ${vs.areaNoteInput}`} rows={2} value={r.pros} placeholder="What's good about it" onChange={(e) => set(i, 'pros', e.target.value)} aria-label={`Pros of ${r.name || 'this location'}`} />
+                  </label>
+                  <label className={`${styles.contactField} ${vs.areaNote}`}>
+                    <span className={styles.contactLabel}>Cons</span>
+                    <textarea className={`${styles.contactInput} ${vs.areaNoteInput}`} rows={2} value={r.cons} placeholder="What's not" onChange={(e) => set(i, 'cons', e.target.value)} aria-label={`Cons of ${r.name || 'this location'}`} />
+                  </label>
                   <button type="button" className={vs.iconBtn} onClick={() => remove(i)} aria-label={`Remove ${r.name || 'location'}`} title="Remove">🗑</button>
                 </div>
               );
@@ -107,12 +124,14 @@ export function VenueAreasEditor({ areas, venues, onSave, onClose }) {
             )
           )}
         </div>
-        <div className={styles.modalFooter}>
-          <span className={styles.modalCount}>{draft.length} location{draft.length === 1 ? '' : 's'}</span>
-          <button className={styles.modalSecondary} type="button" onClick={onClose}>Cancel</button>
-          <button className={styles.modalPrimary} type="button" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <div className={vs.locationsFooter}>
+          <span className={styles.modalCount}>
+            {draft.filter((a) => a.name).length} location{draft.filter((a) => a.name).length === 1 ? '' : 's'}
+            {dirty ? ' · unsaved changes' : savedMsg ? ` · ${savedMsg}` : ''}
+          </span>
+          <button className={styles.modalSecondary} type="button" onClick={discard} disabled={!dirty || saving}>Discard changes</button>
+          <button className={styles.modalPrimary} type="button" onClick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
-      </div>
-    </div>
+    </section>
   );
 }
