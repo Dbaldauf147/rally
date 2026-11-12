@@ -3,8 +3,9 @@ import { applyListEdits, reasonKey, renameReasons, standardReason } from '../lib
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 
-/* Asked when a venue is marked "Not a fit": why, as checkboxes. At least one
-   must be checked. A reason that isn't on the list can be added, and is
+/* Asked when a venue is marked "Not a fit": why, as checkboxes, with room
+   underneath for notes in your own words. At least one box must be checked;
+   the notes are optional. A reason that isn't on the list can be added, and is
    offered as a checkbox next time. "Edit list" renames and removes reasons
    (a rename carries onto every venue that has it). Cancel leaves the status
    as it was. */
@@ -14,6 +15,7 @@ export function VenueNoFitPrompt({ venue, options, onSave, onCancel, onEditList 
   // Reasons added in this pop-up, shown with the others until it's saved.
   const [added, setAdded] = useState([]);
   const [typed, setTyped] = useState('');
+  const [notes, setNotes] = useState(venue.noFitNotes || '');
   // Editing the list: rows of { id, from, text }, or null when checking.
   const [rows, setRows] = useState(null);
   const inputRef = useRef(null);
@@ -58,7 +60,7 @@ export function VenueNoFitPrompt({ venue, options, onSave, onCancel, onEditList 
   };
 
   const chosen = list.filter((o) => checked.has(reasonKey(o.reason))).map((o) => o.reason);
-  const save = () => { if (chosen.length) onSave(chosen, added.filter((r) => chosen.includes(r))); };
+  const save = () => { if (chosen.length) onSave(chosen, added.filter((r) => chosen.includes(r)), notes.trim()); };
 
   /* ── Editing the list ── */
   const startEditing = () => setRows(list.filter((o) => !o.offList).map((o) => ({ id: nextId.current++, from: o.isNew ? '' : o.reason, text: o.reason })));
@@ -150,6 +152,18 @@ export function VenueNoFitPrompt({ venue, options, onSave, onCancel, onEditList 
               />
               <button type="button" className={styles.modalSecondary} onClick={addTyped} disabled={!typed.trim()}>Add</button>
             </div>
+            <label className={vs.noFitNotes}>
+              <span className={styles.contactLabel}>Notes</span>
+              <textarea
+                className={styles.contactInput}
+                rows={4}
+                maxLength={2000}
+                value={notes}
+                placeholder="Anything else worth remembering about why — in your own words."
+                onChange={(e) => setNotes(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && chosen.length) { e.preventDefault(); save(); } }}
+              />
+            </label>
           </div>
         )}
         <div className={styles.modalFooter}>

@@ -152,6 +152,8 @@ export function normalizeVenue(v, { id } = {}) {
   // Why it was marked Not a fit — checked off from a shared list
   // (lib/venueNoFit.js). Kept if the status moves on, in case it comes back.
   out.noFitReasons = normalizeReasonList(v?.noFitReasons);
+  // Free-form notes on why, typed under the checkboxes. Line breaks kept.
+  out.noFitNotes = typeof v?.noFitNotes === 'string' ? v.noFitNotes.replace(/\r\n?/g, '\n').trim().slice(0, 2000) : '';
   out.custom = {};
   if (v?.custom && typeof v.custom === 'object') {
     for (const [k, val] of Object.entries(v.custom)) if (/^c_[a-z0-9]+$/.test(k) && str(val)) out.custom[k] = str(val);

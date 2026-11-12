@@ -63,6 +63,13 @@ describe('mergeScannedVenues', () => {
     expect(mergeScannedVenues(flagged, [scanned]).updated).toEqual([]);
   });
 
+  it('keeps the Not-a-fit notes as typed, line breaks included, and through a scan', () => {
+    expect(normalizeVenue({ name: 'A' }).noFitNotes).toBe('');
+    const v = normalizeVenue({ name: scanned.name, status: 'Not a fit', noFitReasons: ['Too expensive'], noFitNotes: '  Lovely room.\r\nMinimum was double our budget.  ' });
+    expect(v.noFitNotes).toBe('Lovely room.\nMinimum was double our budget.');
+    expect(mergeScannedVenues([v], [scanned]).list[0]).toMatchObject({ status: 'Not a fit', noFitNotes: v.noFitNotes });
+  });
+
   it('a newer email updates the date and summary', () => {
     const once = mergeScannedVenues([], [{ ...scanned, summary: 'old' }]).list;
     const r = mergeScannedVenues(once, [{ ...scanned, lastContactDate: '2026-10-20', summary: 'Tour booked', status: 'Tour scheduled', threadIds: ['t2'] }]);
