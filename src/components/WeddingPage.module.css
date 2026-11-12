@@ -14,6 +14,9 @@
 .summaryChipActive .summaryChipKey { color: var(--color-accent); }
 .summaryChipKey { color: var(--color-text-secondary); font-weight: 600; }
 .summaryChipCount { display: inline-flex; align-items: center; justify-content: center; min-width: 1.35rem; height: 1.35rem; padding: 0 0.35rem; border-radius: 999px; background: var(--color-accent-light); color: var(--color-accent); font-weight: 700; font-size: 0.78rem; }
+.declineRate { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--color-text-muted); }
+.declineRateInput { width: 3.6rem; padding: 0.2rem 0.4rem; font-size: 0.82rem; border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; text-align: right; font-family: inherit; background: var(--color-surface, #fff); color: var(--color-text, inherit); }
+.declineRateNote { font-size: 0.75rem; color: var(--color-text-muted); }
 .summaryTotal { font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600; margin-left: 0.15rem; }
 
 /* Category tier legend (A / B / C guest priorities). */
