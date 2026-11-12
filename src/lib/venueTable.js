@@ -14,6 +14,7 @@ import {
   MONEY_KEYS, VENUE_FIELDS, VENUE_STATUSES, cleanMoney, formatMoney, normalizeAllInclusive, normalizeVenue, parseMoney, parseMoneyRange,
   sameVenue, sortVenues,
 } from './weddingVenues.js';
+import { NO_AREA, venueArea } from './venueAreas.js';
 
 // Every built-in column, in the order a fresh table shows them. `emails` is
 // the Gmail threads a scan found, so it's counted, not typed.
@@ -209,6 +210,12 @@ export function cellValue(v, key) {
 export function withCellValue(v, key, value) {
   if (key === 'emails') return v;
   if (key === 'area') return normalizeVenue({ ...v, area: value });
+  // The place-to-visit flag, from a sheet: yes or no; anything else leaves it.
+  if (key === 'toVisit') {
+    const t = str(value).toLowerCase();
+    const yes = /^(y|yes|true|x|1|✓|✔|to visit|visit)$/.test(t);
+    return yes || /^(n|no|false|0)$/.test(t) ? normalizeVenue({ ...v, toVisit: yes }) : v;
+  }
   if (isCustomKey(key)) {
     const custom = { ...(v.custom || {}) };
     const s = str(value);
@@ -334,6 +341,9 @@ export function autoMapVenueHeaders(headerRow, customColumns = []) {
     if (!t) return '';
     const own = customColumns.find((c) => c.label.toLowerCase() === t);
     let key = own?.key || BUILTIN_COLUMNS.find((c) => !c.readOnly && c.label.toLowerCase() === t)?.key;
+    // The two an export writes that aren't typed cells (lib/venueBulk.js).
+    if (!key && /^(to visit|visit|place to visit)$/.test(t)) key = 'toVisit';
+    if (!key && t === 'area') key = 'area';
     if (!key) key = HEADER_RULES.find(([k, re]) => !used.has(k) && re.test(t))?.[0];
     if (!key || used.has(key)) return /[a-z]/.test(t) ? 'new' : '';
     used.add(key);
@@ -379,8 +389,20 @@ export function guessVenueColumns(rows) {
    whose venue is already on the list updates it: each pasted cell that has
    something in it replaces that cell, and blank cells leave it alone. Rows
    with no venue name are skipped, and rows naming the same venue twice are
-   folded into one. Returns { list, added, updated, skipped }. */
-export function planVenuePaste(existing, rows, mapping, { makeId } = {}) {
+   folded into one. Returns { list, added, updated, skipped }.
+
+   An Area column names one of the couple's locations (`areas`). It picks
+   that location for the venue only when the venue isn't already there, so
+   importing an export doesn't turn every matched area into a picked one. */
+export function planVenuePaste(existing, rows, mapping, { makeId, areas = [] } = {}) {
+  const withCell = (v, key, val) => {
+    if (key !== 'area') return withCellValue(v, key, val);
+    const t = val.toLowerCase();
+    const id = /^none( of these)?$/.test(t) ? NO_AREA : areas.find((a) => a.name.toLowerCase() === t)?.id;
+    if (!id) return v;
+    const now = venueArea(v, areas);
+    return (id === NO_AREA ? now.how === 'none' : now.area?.id === id) ? v : withCellValue(v, 'area', id);
+  };
   const list = (Array.isArray(existing) ? existing : []).map((v) => normalizeVenue(v));
   const added = [];
   const updated = [];
@@ -391,7 +413,7 @@ export function planVenuePaste(existing, rows, mapping, { makeId } = {}) {
     (mapping || []).forEach((key, i) => {
       const val = str(row?.[i]);
       if (!key || key === 'new' || !val) return;
-      draft = withCellValue(draft, key, val);
+      draft = withCell(draft, key, val);
       any = true;
     });
     if (!any) continue;
@@ -406,7 +428,7 @@ export function planVenuePaste(existing, rows, mapping, { makeId } = {}) {
     (mapping || []).forEach((key, i) => {
       const val = str(row?.[i]);
       if (!key || key === 'new' || !val || key === 'name') return;
-      next = withCellValue(next, key, val);
+      next = withCell(next, key, val);
     });
     if (JSON.stringify(next) !== JSON.stringify(list[at])) {
       list[at] = next;
