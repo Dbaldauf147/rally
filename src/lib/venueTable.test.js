@@ -3,7 +3,7 @@ import {
   normalizeColumnConfig, visibleVenueColumns, toggleColumn, moveColumn, addCustomColumn, removeCustomColumn,
   renameCustomColumn, setColumnWidth, MIN_COL_WIDTH, MAX_COL_WIDTH, cellValue, withCellValue, sortVenueRows, matchStatus, parseVenueDate,
   autoMapVenueHeaders, looksLikeVenueHeader, guessVenueColumns, planVenuePaste, DEFAULT_HIDDEN, venueSearchUrl,
-  toggleFavoriteColumn, dropColumn, foldGuestYesNoColumn,
+  toggleFavoriteColumn, dropColumn, foldGuestYesNoColumn, allVenueColumns, canDeleteColumn, deleteBuiltinColumn, deletedColumns, restoreColumn,
 } from './venueTable';
 import { normalizeVenue, mergeScannedVenues, normalizeAllInclusive, rangesFromText } from './weddingVenues';
 
@@ -318,5 +318,49 @@ describe('"Holds my guests" yes/no column folds into Max guests', () => {
   it('ignores other column names', () => {
     const { config } = addCustomColumn(normalizeColumnConfig({}), 'Parking', 'c_park');
     expect(foldGuestYesNoColumn(config, [normalizeVenue({ id: '1', name: 'A', custom: { c_park: 'yes' } })]).changed).toBe(false);
+  });
+});
+
+describe('deleting built-in columns', () => {
+  const keys = (c) => allVenueColumns(c).map((x) => x.key);
+  it('takes a column off the table and out of the picker, and restores it where it was', () => {
+    const start = normalizeColumnConfig({ order: ['name', 'status', 'phone', 'email'], hidden: ['email'], favorites: ['phone'] });
+    const at = keys(start).indexOf('email');
+    let c = deleteBuiltinColumn(start, 'email');
+    c = deleteBuiltinColumn(c, 'phone');
+    expect(keys(c)).not.toContain('email');
+    expect(keys(c)).not.toContain('phone');
+    expect(c.favorites).toEqual([]);
+    expect(deletedColumns(c).map((x) => x.label)).toEqual(['Email', 'Phone']);
+    // It survives a save and reload, and other edits to the setup.
+    c = toggleColumn(normalizeColumnConfig(JSON.parse(JSON.stringify(c))), 'notes');
+    c = moveColumn(c, 'status', 1);
+    expect(c.removed).toEqual(['email', 'phone']);
+    c = restoreColumn(c, 'email');
+    expect(keys(c).indexOf('email')).toBeGreaterThan(-1);
+    expect(allVenueColumns(c).find((x) => x.key === 'email').hidden).toBe(false); // restored columns are shown
+    expect(keys(restoreColumn(restoreColumn(start, 'x'), 'email')).indexOf('email')).toBe(at);
+    expect(deletedColumns(c).map((x) => x.key)).toEqual(['phone']);
+  });
+
+  it('never deletes the venue name, and never leaves the table with nothing showing', () => {
+    expect(canDeleteColumn('name')).toBe(false);
+    expect(deleteBuiltinColumn(null, 'name').removed).toEqual([]);
+    expect(normalizeColumnConfig({ removed: ['name', 'nonsense', 'c_x', 'status', 'status'] }).removed).toEqual(['status']);
+    let c = normalizeColumnConfig(null);
+    for (const k of keys(c)) c = deleteBuiltinColumn(c, k);
+    c = toggleColumn(c, 'name'); // try to hide the last one
+    expect(allVenueColumns(c).filter((x) => !x.hidden).map((x) => x.key)).toEqual(['name']);
+  });
+
+  it('arrows step over a deleted column, and deleting a custom column keeps the others deleted', () => {
+    let c = normalizeColumnConfig({ order: ['name', 'status', 'phone', 'email'], hidden: [] });
+    // Only these four showing, so the neighbours are known.
+    c = normalizeColumnConfig({ ...c, hidden: keys(c).filter((k) => !['name', 'status', 'phone', 'email'].includes(k)) });
+    c = deleteBuiltinColumn(c, 'phone');
+    c = moveColumn(c, 'status', 1);
+    expect(allVenueColumns(c).filter((x) => !x.hidden).map((x) => x.key)).toEqual(['name', 'email', 'status']);
+    const added = addCustomColumn(c, 'Vibe', 'c_vibe');
+    expect(removeCustomColumn(added.config, 'c_vibe').removed).toEqual(['phone']);
   });
 });

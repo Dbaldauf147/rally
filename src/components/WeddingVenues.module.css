@@ -238,3 +238,9 @@
 .noFitSubBtn:hover { color: var(--color-accent); }
 .noFitSubRow { padding-left: 1.4rem; }
 .noFitSubMark { color: var(--color-text-muted); font-size: 0.85rem; }
+
+/* Columns menu: the built-in columns that were deleted, each with a way back. */
+.colDeleted { margin-top: 0.25rem; padding-top: 0.35rem; border-top: 1px solid var(--color-border-light); }
+.colDeletedLabel { flex: 1; min-width: 0; padding: 0.3rem 0; font-size: 0.85rem; color: var(--color-text-muted); text-decoration: line-through; }
+.colRestore { border: none; background: none; cursor: pointer; padding: 0.25rem 0.45rem; font: inherit; font-size: 0.8rem; color: var(--color-accent); border-radius: var(--radius-sm); }
+.colRestore:hover { background: var(--color-border-light); }

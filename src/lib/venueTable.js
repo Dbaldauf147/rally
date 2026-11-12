@@ -87,13 +87,19 @@ export function normalizeColumnConfig(raw) {
     ? r.hidden.filter((k, i, a) => valid.has(k) && a.indexOf(k) === i)
     : [...DEFAULT_HIDDEN];
   if (Array.isArray(r.hidden) && !(r.v >= 2) && !hidden.includes('price')) hidden.push('price');
-  if (hidden.length >= order.length) hidden = hidden.filter((k) => k !== 'name');
+  // Built-in columns deleted from the table. They keep their place in
+  // `order` (so restoring one puts it back where it was) but aren't columns
+  // any more: allVenueColumns leaves them out. The venue's name can't go —
+  // it's what every row is filed under.
+  const removed = (Array.isArray(r.removed) ? r.removed : []).filter((k, i, a) => BUILTIN_KEYS.includes(k) && k !== 'name' && a.indexOf(k) === i);
+  const gone = new Set(removed);
+  if (!order.some((k) => !gone.has(k) && !hidden.includes(k))) hidden = hidden.filter((k) => k !== 'name');
   const widths = {};
   Object.entries(r.widths && typeof r.widths === 'object' ? r.widths : {}).forEach(([k, w]) => {
     const n = Number(w);
     if (valid.has(k) && Number.isFinite(n)) widths[k] = clampWidth(n);
   });
-  return { v: CONFIG_VERSION, order, hidden, custom, widths, favorites: order.filter((k) => favSet.has(k)) };
+  return { v: CONFIG_VERSION, order, hidden, custom, widths, favorites: order.filter((k) => favSet.has(k) && !gone.has(k)), removed };
 }
 
 export function setColumnWidth(config, key, width) {
@@ -107,7 +113,8 @@ export function allVenueColumns(config) {
   const byKey = new Map([...BUILTIN_COLUMNS, ...c.custom.map((x) => ({ ...x, custom: true }))].map((x) => [x.key, x]));
   const hidden = new Set(c.hidden);
   const fav = new Set(c.favorites);
-  return c.order.map((k) => {
+  const gone = new Set(c.removed);
+  return c.order.filter((k) => !gone.has(k)).map((k) => {
     const col = byKey.get(k);
     return { ...col, hidden: hidden.has(k), favorite: fav.has(k), width: c.widths[k] ?? defaultColumnWidth(col) };
   });
@@ -157,7 +164,7 @@ export function dropColumn(config, key, targetKey, after = false) {
 // click always visibly moves it rather than hopping past hidden columns.
 export function moveColumn(config, key, dir) {
   const c = normalizeColumnConfig(config);
-  const hidden = new Set(c.hidden);
+  const hidden = new Set([...c.hidden, ...c.removed]);
   const shown = c.order.filter((k) => !hidden.has(k));
   const at = shown.indexOf(key);
   const to = at + dir;
@@ -191,8 +198,31 @@ export function removeCustomColumn(config, key) {
     hidden: c.hidden.filter((k) => k !== key),
     custom: c.custom.filter((x) => x.key !== key),
     favorites: c.favorites.filter((k) => k !== key),
+    removed: c.removed,
     widths,
   });
+}
+
+/* Deleting a built-in column takes it off the table and out of the column
+   picker. What's in it stays on each venue (it's still in the venue's
+   pop-up, and a scan still fills it), so restoring the column brings it all
+   back. Every column can go except the venue's name. */
+export const canDeleteColumn = (key) => key !== 'name';
+export function deleteBuiltinColumn(config, key) {
+  const c = normalizeColumnConfig(config);
+  if (!BUILTIN_KEYS.includes(key) || !canDeleteColumn(key) || c.removed.includes(key)) return c;
+  return normalizeColumnConfig({ ...c, removed: [...c.removed, key], favorites: c.favorites.filter((k) => k !== key) });
+}
+// Back on the table, shown, where it was.
+export function restoreColumn(config, key) {
+  const c = normalizeColumnConfig(config);
+  if (!c.removed.includes(key)) return c;
+  return normalizeColumnConfig({ ...c, removed: c.removed.filter((k) => k !== key), hidden: c.hidden.filter((k) => k !== key) });
+}
+// The deleted built-in columns, in the order a fresh table has them.
+export function deletedColumns(config) {
+  const gone = new Set(normalizeColumnConfig(config).removed);
+  return BUILTIN_COLUMNS.filter((c) => gone.has(c.key)).map((c) => ({ key: c.key, label: c.label }));
 }
 
 /* ── Cells ── */
