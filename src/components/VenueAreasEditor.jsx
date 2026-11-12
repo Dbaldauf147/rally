@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { bulletBackspace, bulletDisplay, bulletParse } from '../lib/bulletText';
 import { newAreaId, normalizeAreas, parseKeywords, venueArea } from '../lib/venueAreas';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
@@ -10,6 +11,38 @@ import vs from './WeddingVenues.module.css';
 
    It's the body of Wedding → Locations: Save keeps the draft, Discard puts
    it back to what's saved. */
+/* Pros / cons: a textarea that's a bullet list — each line shows "• " and
+   Enter starts the next. `value` is the plain lines, without bullets. */
+function BulletArea({ value, onChange, ...props }) {
+  const ref = useRef(null);
+  const caret = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // As tall as its points, so none are hidden behind a scroll.
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + 2}px`;
+    if (caret.current === null) return;
+    el.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  });
+  const emit = (r) => { caret.current = r.caret; onChange(r.plain); };
+  return (
+    <textarea
+      {...props}
+      ref={ref}
+      value={bulletDisplay(value)}
+      onChange={(e) => emit(bulletParse(e.target.value, e.target.selectionStart))}
+      onKeyDown={(e) => {
+        const el = e.currentTarget;
+        if (e.key !== 'Backspace' || el.selectionStart !== el.selectionEnd) return;
+        const r = bulletBackspace(value, el.selectionStart);
+        if (r) { e.preventDefault(); emit(r); }
+      }}
+    />
+  );
+}
+
 const toRows = (areas) => (areas.length ? areas : [{ id: newAreaId(), name: '', keywords: [] }])
   .map((a) => ({ id: a.id, name: a.name, keywords: a.keywords.join(', '), pros: a.pros || '', cons: a.cons || '' }));
 
@@ -95,11 +128,11 @@ export function VenueAreasEditor({ areas, venues, onSave }) {
                   </label>
                   <label className={`${styles.contactField} ${vs.areaNote}`}>
                     <span className={styles.contactLabel}>Pros</span>
-                    <textarea className={`${styles.contactInput} ${vs.areaNoteInput}`} rows={2} value={r.pros} placeholder="What's good about it" onChange={(e) => set(i, 'pros', e.target.value)} aria-label={`Pros of ${r.name || 'this location'}`} />
+                    <BulletArea className={`${styles.contactInput} ${vs.areaNoteInput}`} rows={2} value={r.pros} placeholder="• What's good about it" onChange={(v) => set(i, 'pros', v)} aria-label={`Pros of ${r.name || 'this location'}`} />
                   </label>
                   <label className={`${styles.contactField} ${vs.areaNote}`}>
                     <span className={styles.contactLabel}>Cons</span>
-                    <textarea className={`${styles.contactInput} ${vs.areaNoteInput}`} rows={2} value={r.cons} placeholder="What's not" onChange={(e) => set(i, 'cons', e.target.value)} aria-label={`Cons of ${r.name || 'this location'}`} />
+                    <BulletArea className={`${styles.contactInput} ${vs.areaNoteInput}`} rows={2} value={r.cons} placeholder="• What's not" onChange={(v) => set(i, 'cons', v)} aria-label={`Cons of ${r.name || 'this location'}`} />
                   </label>
                   <button type="button" className={vs.iconBtn} onClick={() => remove(i)} aria-label={`Remove ${r.name || 'location'}`} title="Remove">🗑</button>
                 </div>
