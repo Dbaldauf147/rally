@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeRecurrence, occurrenceForYear, nextOccurrence, describeRecurrence } from './recurrence';
+import { normalizeRecurrence, occurrenceForYear, nextOccurrence, describeRecurrence, repeatBadgeLabel } from './recurrence';
 
 const date = new Date(2026, 10, 28); // Nov 28 2026, local
 const now = new Date(2026, 10, 14, 12);
@@ -38,4 +38,16 @@ describe('a yearly rule with no start year', () => {
     expect(occurrenceForYear(ended, 2025)).not.toBeNull();
     expect(occurrenceForYear(ended, 2026)).toBeNull();
   });
+});
+
+describe('repeatBadgeLabel', () => {
+  it('leaves the date out of a fixed-date rule', () => {
+    expect(repeatBadgeLabel({ freq: 'yearly', mode: 'date', month: 11, day: 1, startYear: 2026 })).toBe('Every year');
+    expect(repeatBadgeLabel({ freq: 'yearly', mode: 'date', month: 11, day: 1, startYear: 2026, endYear: 2030 })).toBe('Every year, through 2030');
+  });
+  it('keeps a weekday rule, which one date cannot show', () => {
+    expect(repeatBadgeLabel({ freq: 'yearly', mode: 'weekday', month: 9, week: 3, weekday: 6, startYear: 2024 }))
+      .toBe('Every year on the third Saturday of September');
+  });
+  it('is empty for no rule', () => { expect(repeatBadgeLabel(null)).toBe(''); });
 });
