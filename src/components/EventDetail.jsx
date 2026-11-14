@@ -33,6 +33,8 @@ import { SecretSantaHistoryTab } from './SecretSantaHistory';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
+import { EventOutreach } from './EventOutreach';
+import { outreachMessage, gmailComposeUrl } from '../lib/eventOutreach';
 import { showsTripPlanning } from '../lib/eventPlanning';
 import { DEFAULT_REMINDER_INTERVALS, reminderSendDates, hasMissingAnswers } from '../lib/autoReminders';
 import { DEFAULT_EVENT_REMINDER_DAYS, eventReminderRecipients, eventReminderSchedule, eventRemindersSentFor } from '../lib/eventReminders';
@@ -122,6 +124,7 @@ export function EventDetail() {
   const [inviteCopied, setInviteCopied] = useState(false);
   const [result, setResult] = useState(null);
   const [showInvite, setShowInvite] = useState(false);
+  const [showReachOut, setShowReachOut] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteResult, setInviteResult] = useState('');
@@ -2373,98 +2376,13 @@ export function EventDetail() {
                 <button className={styles.shareBtn} onClick={() => setShowInvite(true)}>
                   ✉ Share invite
                 </button>
+                {/* One door to texting or emailing the guests — the poll or the
+                    calendar invite, to everyone or a slice of them. */}
                 {members.length > 1 && (
-                  <button className={styles.shareBtn} onClick={() => {
-                    const emails = members
-                      .filter(([uid, m]) => uid !== user?.uid && (m.email || (uid.includes('@') ? uid : '')))
-                      .map(([uid, m]) => m.email || uid)
-                      .filter(Boolean);
-                    if (emails.length === 0) { alert('No contacts with emails to invite'); return; }
-                    const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
-                    const subject = encodeURIComponent(`You're invited: ${event.title}`);
-                    const addToCalLink = `${WEB_ORIGIN}${icsUrl}`;
-                    const pollLink = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
-                    const body = encodeURIComponent(
-                      `You're invited to ${event.title}!\n\n` +
-                      `When: ${dateStr}\n` +
-                      (event.location ? `Where: ${event.location}\n` : '') +
-                      (event.description ? `\n${event.description}\n` : '') +
-                      `\nRSVP and vote on dates: ${pollLink}\n` +
-                      `\nAdd to Google Calendar: ${googleCalUrl}\n` +
-                      `\nAdd to Outlook/Apple Calendar: ${addToCalLink}\n`
-                    );
-                    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emails.join(','))}&su=${subject}&body=${body}`, '_blank');
-                    const updates = {};
-                    members.filter(([uid, m]) => uid !== user?.uid && (m.email || uid.includes('@'))).forEach(([uid]) => {
-                      updates[`members.${uid}.emailed`] = new Date().toISOString();
-                    });
-                    if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
-                  }}>
-                    ✉ Email All Invited ({members.filter(([uid]) => uid !== user?.uid).length})
+                  <button className={styles.shareBtn} data-testid="reach-out" onClick={() => setShowReachOut(true)}>
+                    📣 Reach Out
                   </button>
                 )}
-                {members.length > 1 && (() => {
-                  const phones = members
-                    .filter(([uid, m]) => uid !== user?.uid && m.phone)
-                    .map(([, m]) => m.phone);
-                  if (phones.length === 0) return null;
-                  const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
-                  const pollLink = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
-                  const calendarLink = `${WEB_ORIGIN}${icsUrl}`;
-                  const hasAnyVotes = Object.values(voteStats || {}).some(s => s && s.total > 0);
-                  const pollMsg = event.stage === 'finalized'
-                    ? `Hey! Just a reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails & RSVP: ${pollLink}`
-                    : hasAnyVotes
-                      ? `People have suggested additional dates for ${event.title}. Would any of these new dates work for you?\n\nVote here: ${pollLink}`
-                      : `You're invited to ${event.title}!\n\nVote here on what dates you can make: ${pollLink}`;
-                  const calMsg = `You're invited to ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}.\n\nAdd to your calendar: ${calendarLink}`;
-                  // Members with a phone who haven't voted on the poll yet (and aren't skipping).
-                  const missingPhoneCount = members.filter(
-                    ([uid, m]) => uid !== user?.uid && m.phone && !voteStats[uid]?.total && !m.skipVote,
-                  ).length;
-                  const nudgeMsg = `Hey! We're still waiting on your vote for ${event.title}. Could you take a sec to pick the dates that work for you?\n\nVote here: ${pollLink}`;
-                  // Members with a phone who are down for it — the Text Yeses audience.
-                  const goingPhoneCount = members.filter(
-                    ([uid, m]) => uid !== user?.uid && m.phone && isGoingYes(uid, m),
-                  ).length;
-                  const goingMsg = event.stage === 'finalized'
-                    ? `Hey! Reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. See you there!\n\nDetails: ${pollLink}`
-                    : `Hey! Since you're in for ${event.title}, here's where things stand.\n\nDetails: ${pollLink}`;
-                  // Members with a phone who said yes or maybe — the Text Yeses & Maybes audience.
-                  const yesMaybePhoneCount = members.filter(
-                    ([uid, m]) => uid !== user?.uid && m.phone && isGoingYesMaybe(uid, m),
-                  ).length;
-                  const yesMaybeMsg = event.stage === 'finalized'
-                    ? `Hey! Reminder about ${event.title} on ${dateStr}${event.location ? ` at ${event.location}` : ''}. Hope you can make it!\n\nDetails: ${pollLink}`
-                    : `Hey! Since you might be in for ${event.title}, here's where things stand.\n\nDetails: ${pollLink}`;
-                  return (
-                    <>
-                      {activeTab !== 'itinerary' && (
-                        <button className={styles.shareBtn} onClick={() => openTextDraft(pollMsg, 'all')}>
-                          💬 Text All Poll ({phones.length})
-                        </button>
-                      )}
-                      {activeTab !== 'itinerary' && event.stage !== 'finalized' && missingPhoneCount > 0 && (
-                        <button className={styles.shareBtn} onClick={() => openTextDraft(nudgeMsg, 'missing')}>
-                          💬 Text Non-Responders ({missingPhoneCount})
-                        </button>
-                      )}
-                      {goingPhoneCount > 0 && (
-                        <button className={styles.shareBtn} onClick={() => openTextDraft(goingMsg, 'going')}>
-                          💬 Text Yeses ({goingPhoneCount})
-                        </button>
-                      )}
-                      {yesMaybePhoneCount > 0 && (
-                        <button className={styles.shareBtn} onClick={() => openTextDraft(yesMaybeMsg, 'yesmaybe')}>
-                          💬 Text Yeses &amp; Maybes ({yesMaybePhoneCount})
-                        </button>
-                      )}
-                      <button className={styles.shareBtn} onClick={() => openTextDraft(calMsg, 'all')}>
-                        📅 Text All Calendar Invite ({phones.length})
-                      </button>
-                    </>
-                  );
-                })()}
               </>
             )}
             {/* Top right of the header: everything about the event itself —
@@ -5202,6 +5120,53 @@ export function EventDetail() {
           </div>
         </div>
       )}
+
+      {showReachOut && (() => {
+        // Who a send reaches: guests in the audience, by the same readings the
+        // text draft panel uses, who can be reached that way.
+        const inAudience = (audience, uid, m) => {
+          if (uid === user?.uid) return false;
+          if (audience === 'missing') return !voteStats[uid]?.total && !m.skipVote;
+          if (audience === 'going') return isGoingYes(uid, m);
+          if (audience === 'yesmaybe') return isGoingYesMaybe(uid, m);
+          return true;
+        };
+        const emailOf = (uid, m) => m.email || (uid.includes('@') ? uid : '');
+        const reach = (channel, audience) => members.filter(([uid, m]) =>
+          inAudience(audience, uid, m) && (channel === 'text' ? !!m.phone : !!emailOf(uid, m)));
+        const send = (choice) => {
+          const message = outreachMessage(choice, {
+            title: event.title,
+            location: event.location,
+            finalized: event.stage === 'finalized',
+            dateStr: formatWhen(event, date, 'EEEE, MMMM d, yyyy'),
+            pollLink: `${WEB_ORIGIN}/poll/${eventId}?name=Friend`,
+            calendarLink: `${WEB_ORIGIN}${icsUrl}`,
+            googleCalUrl,
+            hasAnyVotes: Object.values(voteStats || {}).some(v => v && v.total > 0),
+          });
+          setShowReachOut(false);
+          if (choice.channel === 'text') {
+            // The draft panel lives on People & Poll.
+            setActiveTab('details');
+            openTextDraft(message.body, choice.audience);
+            return;
+          }
+          const to = reach('email', choice.audience);
+          window.open(gmailComposeUrl(to.map(([uid, m]) => emailOf(uid, m)), message), '_blank');
+          const updates = {};
+          to.forEach(([uid]) => { updates[`members.${uid}.emailed`] = new Date().toISOString(); });
+          if (Object.keys(updates).length > 0) updateEvent(eventId, updates);
+        };
+        return (
+          <EventOutreach
+            dateTBD={!!event.dateTBD}
+            count={(channel, audience) => reach(channel, audience).length}
+            onSend={send}
+            onClose={() => setShowReachOut(false)}
+          />
+        );
+      })()}
 
       {showInvite && (() => {
         const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
