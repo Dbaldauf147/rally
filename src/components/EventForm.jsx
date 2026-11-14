@@ -117,6 +117,11 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
   // per person, so it's read and written under this user's id only.
   const [showFrom, setShowFrom] = useState(() => dashboardShowYmd(event, uid));
   const [showFromLate, setShowFromLate] = useState(false);
+  // …and whether it comes round every year, until which day.
+  const savedShow = normalizeDashboardFrom(uid ? event?.dashboardFrom?.[uid] : null);
+  const [showYearly, setShowYearly] = useState(!!savedShow?.yearly);
+  const [showUntil, setShowUntil] = useState(savedShow?.until || '');
+  const [showUntilMissing, setShowUntilMissing] = useState(false);
 
   // --- Yearly repeat. The rule is seeded from whatever start date is in the
   // form and keeps tracking it until the user edits the rule themselves, so
@@ -204,6 +209,14 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
 
   // How far ahead of the event the dashboard day is, for the yearly hint.
   const showLead = buildDashboardFrom(showFrom, dateTBD ? null : startAsDate())?.daysBefore ?? null;
+  // An event on a yearly rule already comes back each year, counted from its
+  // own date. Everything else gets the calendar window: from a day until a day.
+  const showFollowsRule = repeats && !dateTBD && !pollRepeat;
+  const showWindow = !!showFrom && !showFollowsRule && showYearly;
+  const monthDay = (ymd) => {
+    const [, m, d] = ymd.split('-').map(Number);
+    return `${MONTH_NAMES[m - 1]} ${d}`;
+  };
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -214,8 +227,12 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
     if (pollRepeat && !pollAlreadySent && !pollSendDate) { setSendDateMissing(true); return; }
     setSendDateMissing(false);
     // Held back past the event itself, it would never be seen in time.
-    if (showFrom && !dateTBD && showFrom > startDay) { setShowFromLate(true); return; }
+    // (A yearly window isn't tied to this one date, so it's exempt.)
+    if (showFrom && !showWindow && !dateTBD && showFrom > startDay) { setShowFromLate(true); return; }
     setShowFromLate(false);
+    // A window with no end would show once and never tuck away again.
+    if (showWindow && !showUntil) { setShowUntilMissing(true); return; }
+    setShowUntilMissing(false);
     const data = {
       title: title.trim(),
       description: description.trim(),
@@ -240,7 +257,7 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
     // Written only when it changed, and only under this person's key: everyone
     // else's dashboard setting on the event is theirs.
     if (uid) {
-      const nextShow = buildDashboardFrom(showFrom, start);
+      const nextShow = buildDashboardFrom(showFrom, start, { yearly: showWindow, until: showUntil });
       const prevShow = normalizeDashboardFrom(event?.dashboardFrom?.[uid]);
       if (JSON.stringify(nextShow) !== JSON.stringify(prevShow)) {
         if (!event) data.dashboardFrom = { [uid]: nextShow };
@@ -350,14 +367,37 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
           <DateField
             className={styles.input}
             value={showFrom}
-            max={(!dateTBD && startDay) || undefined}
+            max={(!showWindow && !dateTBD && startDay) || undefined}
             onChange={e => { setShowFrom(e.target.value); setShowFromLate(false); }}
             aria-label="Show on my dashboard from (optional)"
           />
           {showFromLate && <span className={styles.fieldError}>Pick a day on or before the event’s start date.</span>}
+          {showFrom && !showFollowsRule && (
+            <label className={styles.repeatToggle} style={{ color: showYearly ? '#4f46e5' : '#6b7280', textTransform: 'none', letterSpacing: 0 }} data-testid="show-yearly">
+              <input type="checkbox" checked={showYearly} onChange={e => { setShowYearly(e.target.checked); setShowUntilMissing(false); }} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
+              <span aria-hidden="true">🔁</span>
+              Every year
+            </label>
+          )}
+          {showWindow && (
+            <>
+              <span>Until</span>
+              <DateField
+                className={styles.input}
+                value={showUntil}
+                onChange={e => { setShowUntil(e.target.value); if (e.target.value) setShowUntilMissing(false); }}
+                aria-label="Show on my dashboard until"
+              />
+              {showUntilMissing && <span className={styles.fieldError}>Pick the day it should tuck away again each year.</span>}
+            </>
+          )}
           <p className={styles.timeHint} style={{ margin: 0 }}>
             {!showFrom
               ? 'Leave empty to see it on your dashboard right away.'
+              : showWindow
+                ? (showUntil
+                    ? `Every year it’s on your dashboard from ${monthDay(showFrom)} until ${monthDay(showUntil)}, and waits under “Showing later” the rest of the year. Only your dashboard changes — the calendar and other guests still see it.`
+                    : 'Pick the day it should tuck away again each year.')
               : showLead !== null && repeats && !dateTBD && !pollRepeat
                 ? `Until then it waits under “Showing later” on your dashboard. Each year it comes back ${showLead === 0 ? 'on the day' : `${showLead} day${showLead === 1 ? '' : 's'} before the date`}. Only your dashboard changes — the calendar and other guests still see it.`
                 : 'Until then it waits under “Showing later” on your dashboard. Only your dashboard changes — the calendar and other guests still see it.'}

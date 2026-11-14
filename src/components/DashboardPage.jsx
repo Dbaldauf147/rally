@@ -151,7 +151,7 @@ export function DashboardPage() {
   );
   events.forEach(e => { if (e.cancelled) allEvents.push(e); });
   const showsFromLabel = (e) => {
-    const d = dashboardShowDay(e, user?.uid);
+    const d = dashboardShowDay(e, user?.uid, now);
     if (!d) return '';
     return `Shows from ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })}`;
   };
