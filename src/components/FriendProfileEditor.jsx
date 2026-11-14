@@ -5,7 +5,7 @@ import {
 } from '../lib/friendProfile';
 import styles from './FriendProfileEditor.module.css';
 
-/* The Likes / Things I appreciate outlines on the friend pop-up.
+/* The Likes / Things I appreciate / Foods / Drinks / … outlines on the friend pop-up.
 
    Works like a notes app: Enter starts the next line, Tab and Shift+Tab nest
    and un-nest, Backspace on an empty line removes it. Every one of those also

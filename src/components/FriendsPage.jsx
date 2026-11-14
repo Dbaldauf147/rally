@@ -1216,8 +1216,8 @@ export function FriendsPage({ embed = null } = {}) {
       // removed — the save below replaces the whole doc, so anything left out
       // here would be dropped.
       custom: (friend.custom && typeof friend.custom === 'object') ? { ...friend.custom } : {},
-      // Likes / Things I appreciate — the two default sections when there's
-      // nothing yet, trimmed back out on save if left empty.
+      // Likes, Foods, Places… — the default sections the friend doesn't have
+      // yet are offered, and trimmed back out on save if left empty.
       profile: profileForEditing(friend.profile),
     };
     setEditFields(initial);
