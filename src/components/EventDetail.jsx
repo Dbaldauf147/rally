@@ -3031,6 +3031,7 @@ export function EventDetail() {
               event={event}
               eventId={eventId}
               user={user}
+              friends={friends}
               year={event.occurrenceYear ?? date.getFullYear()}
               date={event.dateTBD ? null : date}
             />
