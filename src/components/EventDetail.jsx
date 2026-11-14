@@ -4181,6 +4181,7 @@ export function EventDetail() {
             onRemoveAltRange={removeAltRange}
             onUpdateAltRange={updateAltRange}
             finalizedDates={finalizedDays}
+            suggestFrom={normalizePollSeries(event.pollSeries) ? { window: event.pollWindow || null } : null}
             onEditDate={(opt) => {
               setEditingOptionId(opt.id);
               setFinalizeDate(opt.startDate || '');
