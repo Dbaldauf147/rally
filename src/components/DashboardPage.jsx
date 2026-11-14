@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { EventForm } from './EventForm';
 import { isRecurring } from '../lib/recurrence';
 import { seriesStatus } from '../lib/pollSeries';
+import { splitShowingLater, dashboardShowDay } from '../lib/dashboardFrom';
 import { EventCard } from './EventCard';
 import styles from './DashboardPage.module.css';
 
@@ -34,6 +35,7 @@ export function DashboardPage() {
   const isMobile = useIsMobile();
   const [showPast, setShowPast] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
+  const [showLater, setShowLater] = useState(false);
 
   const [dateOptionCounts, setDateOptionCounts] = useState({});
   const [dateOptionMonths, setDateOptionMonths] = useState({}); // eventId -> Set of "YYYY-MM"
@@ -141,7 +143,35 @@ export function DashboardPage() {
     return 'voting';
   }
 
-  const allEvents = events;
+  // Events this person asked to be shown from a later day stay off the board
+  // and wait in their own collapsed group (lib/dashboardFrom.js). Cancelled
+  // ones are left where they are: they already have a group of their own.
+  const { showing: allEvents, later: laterEvents } = splitShowingLater(
+    events.filter(e => !e.cancelled), user?.uid, now,
+  );
+  events.forEach(e => { if (e.cancelled) allEvents.push(e); });
+  const showsFromLabel = (e) => {
+    const d = dashboardShowDay(e, user?.uid);
+    if (!d) return '';
+    return `Shows from ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })}`;
+  };
+  const laterSection = laterEvents.length > 0 && (
+    <div className={styles.cancelledWrap} data-testid="showing-later">
+      <button className={styles.pastToggle} onClick={() => setShowLater(v => !v)} aria-expanded={showLater}>
+        {showLater ? '▾' : '▸'} Showing later ({laterEvents.length})
+      </button>
+      {showLater && (
+        <div className={isMobile ? styles.mobileList : styles.grid} style={{ marginTop: '0.6rem' }}>
+          {laterEvents.map(e => (
+            <div key={e.id} className={styles.laterItem}>
+              <span className={styles.laterBadge}>🕒 {showsFromLabel(e)}</span>
+              <EventCard event={e} onClick={() => navigate(`/event/${e.id}`)} isOrganizer={isOrganizer(e)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
   const created = allEvents.filter(e => getEventStage(e) === 'voting' && !e.stage);
   const voting = allEvents.filter(e => getEventStage(e) === 'voting' && (e.stage === 'voting' || (!e.stage && false)));
   const finalized = allEvents.filter(e => getEventStage(e) === 'finalized');
@@ -281,7 +311,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {allEvents.length === 0 ? (
+      {events.length === 0 ? (
         <div className={styles.empty}>
           <div className={styles.emptyIcon}>🗓</div>
           <h2 className={styles.emptyTitle}>No events yet</h2>
@@ -315,6 +345,7 @@ export function DashboardPage() {
               );
             })}
           </div>
+          {laterSection}
           {mCancelled.length > 0 && (
             <div className={styles.cancelledWrap}>
               <button className={styles.pastToggle} onClick={() => setShowCancelled(v => !v)} aria-expanded={showCancelled}>
@@ -437,6 +468,7 @@ export function DashboardPage() {
               </div>
             );
           })()}
+          {laterSection}
           {pastFinalizedEvents.length > 0 && (
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>
