@@ -2292,6 +2292,9 @@ export function EventDetail() {
                   data-testid="header-reminders"
                   title={on ? 'Email reminders are on — open the settings' : 'Set up email reminders'}
                   onClick={() => {
+                    // Before-the-event reminders that are off have no section
+                    // on the page: they are switched on in the Edit form.
+                    if (stage === 'finalized' && !on) { setEditing(true); return; }
                     setActiveTab('details');
                     // The section only exists once the People & Poll tab has
                     // rendered, and that tab keeps growing as its lists load —
@@ -4489,8 +4492,10 @@ export function EventDetail() {
             );
           })()}
 
-          {/* Boat Day — owner only */}
-          {isOwner && (() => {
+          {/* Boat Day — owner only, and only once it is switched on. Turning it
+              on is a tick in the Edit form; an event that doesn't use it
+              shouldn't carry an offer for it at the bottom of the page. */}
+          {isOwner && event.boatDay?.enabled && (() => {
             const bd = event.boatDay || {};
             const enabled = !!bd.enabled;
             // Boat Day is multi-day, so "aboard" means everyone sailing on any of
@@ -4700,7 +4705,7 @@ export function EventDetail() {
               stay on the event and come back with it. The button is held shut
               while any are written down all the same, so nobody hides their own
               notes without meaning to. */}
-          {isOwner && (() => {
+          {isOwner && keyConsiderationsOn && (() => {
             const on = keyConsiderationsOn;
             const count = (event.keyConsiderations || []).filter(k => k?.want || k?.action).length;
             return (
@@ -4846,7 +4851,7 @@ export function EventDetail() {
           })()}
 
           {/* Before-the-event reminders to the yeses and maybes — owner only, once a date is set */}
-          {isOwner && stage === 'finalized' && !event.cancelled && (() => {
+          {isOwner && stage === 'finalized' && !event.cancelled && event.eventReminders?.enabled && (() => {
             const er = event.eventReminders || {};
             const enabled = !!er.enabled;
             const days = Array.isArray(er.daysBefore) ? er.daysBefore : DEFAULT_EVENT_REMINDER_DAYS;
