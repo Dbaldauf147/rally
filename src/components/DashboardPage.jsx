@@ -181,7 +181,7 @@ export function DashboardPage() {
   const itineraryCompletedEvents = finalizedEvents.filter(e => e.itineraryComplete && !e.travelBooked);
   const unbookedFinalizedEvents = finalizedEvents.filter(e => !e.itineraryComplete && !e.travelBooked);
 
-  // Badge on the Repeating button, so the count is visible without opening it.
+  // Badge on the Recurring button, so the count is visible without opening it.
   const recurringCount = events.filter(e => isRecurring(e) && !e.cancelled).length;
 
   async function handleCreateEvent(data) {
@@ -269,7 +269,7 @@ export function DashboardPage() {
             onClick={() => navigate('/recurring')}
             title="See and edit every event that repeats every year"
           >
-            🔁 Repeating{recurringCount > 0 ? ` (${recurringCount})` : ''}
+            🔁 Recurring{recurringCount > 0 ? ` (${recurringCount})` : ''}
           </button>
           <button className={styles.createBtn} onClick={() => { setCreateType('event'); setShowCreate(true); }}>
             + New Event

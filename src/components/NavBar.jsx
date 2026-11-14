@@ -12,7 +12,6 @@ const OWNER_EMAIL = 'baldaufdan@gmail.com';
 // The menu shows whenever at least one of its items does, so opening any of
 // these up later is a matter of dropping its ownerOnly flag.
 const GEAR_ITEMS = [
-  { to: '/recurring', label: 'Repeating', ownerOnly: true },
   { to: '/admin', label: 'Admin', ownerOnly: true },
 ];
 
@@ -22,6 +21,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/calendar', label: 'Rally Calendar' },
   { to: '/plans', label: 'Plans' },
+  { to: '/recurring', label: 'Recurring Events' },
   { to: '/voting', label: 'Voting' },
   { to: '/friends', label: 'Friends' },
   { to: '/expenses', label: 'Trip Expenses' },

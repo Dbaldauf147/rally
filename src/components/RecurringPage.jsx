@@ -118,7 +118,7 @@ export function RecurringPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Repeating Events</h1>
+          <h1 className={styles.title}>Recurring Events</h1>
           <p className={styles.subtitle}>
             {total === 0
               ? 'Events set to repeat every year will show up here.'
@@ -130,7 +130,7 @@ export function RecurringPage() {
       {total === 0 ? (
         <div className={styles.empty}>
           <div className={styles.emptyIcon}>🔁</div>
-          <h2 className={styles.emptyTitle}>No repeating events yet</h2>
+          <h2 className={styles.emptyTitle}>No recurring events yet</h2>
           <p className={styles.emptyDesc}>
             Turn on “Repeats every year” when you create or edit an event — birthdays, anniversaries,
             the annual trip — and it will be listed here so you can edit the whole series in one place.
