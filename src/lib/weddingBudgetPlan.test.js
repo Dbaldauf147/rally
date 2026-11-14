@@ -370,3 +370,41 @@ describe('included lines and food per person', async () => {
     expect(venueComparison(cats, [{ id: 'v', name: 'X', amounts: { 'i-site': 1 }, included: {}, savedAt: '' }], 0, 0, 100).venues[0].foodPerPerson).toBeNull();
   });
 });
+
+describe('per-category totals in the calculator', async () => {
+  const { calculatorGroupTotals, venueGroupOf, venueComparison } = await import('./weddingBudgetPlan');
+  const cats = [
+    { id: 'c-venue', name: 'Venue, catering, bar, rentals', pct: 0, taxed: true, items: [
+      { id: 'i-site', name: 'Site fee', pct: 10, taxed: true, perPlate: null, markup: null },
+      { id: 'i-food', name: 'Food', pct: 20, taxed: true, perPlate: null, markup: null },
+      { id: 'i-bar', name: 'Bar', pct: 5, taxed: false, perPlate: null, markup: null },
+      { id: 'i-rent', name: 'Rentals', pct: 5, taxed: true, perPlate: null, markup: null },
+    ] },
+    { id: 'c-photo', name: 'Photography', pct: 5, taxed: true, items: [] },
+  ];
+  const amounts = { 'i-site': 8000, 'i-food': 18000, 'i-bar': 4000, 'i-rent': 999, 'c-photo': 5000 };
+
+  it('sums each category, with its tax, leaving included lines at no cost', () => {
+    const g = calculatorGroupTotals(cats, amounts, 10, { 'i-rent': true });
+    expect(g[0]).toMatchObject({ id: 'c-venue', subtotal: 30000, tax: 2600, total: 32600, filled: 4, priced: 3, lines: 4 });
+    expect(g[1]).toMatchObject({ id: 'c-photo', subtotal: 5000, tax: 500, total: 5500, filled: 1, lines: 1 });
+    expect(calculatorGroupTotals(cats, {}, 10)[0]).toMatchObject({ subtotal: 0, filled: 0, priced: 0 });
+  });
+
+  it('finds the venue category by name', () => {
+    expect(venueGroupOf(calculatorGroupTotals(cats, amounts, 10)).id).toBe('c-venue');
+    expect(venueGroupOf([{ name: 'Flowers' }])).toBeNull();
+    expect(venueGroupOf([{ name: 'Avenue cars' }])).toBeNull();
+  });
+
+  it('gives each saved venue its venue-category price per person', () => {
+    const quotes = [
+      { id: 'v1', name: 'Barn', amounts, included: { 'i-rent': true }, savedAt: '' },
+      { id: 'v2', name: 'Loft', amounts: { 'c-photo': 5000 }, included: {}, savedAt: '' },
+    ];
+    const c = venueComparison(cats, quotes, 10, 0, 100);
+    expect(c.venues[0].venuePerPerson).toEqual({ name: 'Venue, catering, bar, rentals', subtotal: 300, total: 326 });
+    expect(c.venues[1].venuePerPerson).toBeNull();
+    expect(venueComparison(cats, quotes, 10, 0, 0).venues[0].venuePerPerson).toBeNull();
+  });
+});
