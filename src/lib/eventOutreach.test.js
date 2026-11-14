@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { outreachMessage, gmailComposeUrl, AUDIENCES, KINDS, CHANNELS } from './eventOutreach';
+import { outreachMessage, inviteMessage, gmailComposeUrl, AUDIENCES, KINDS, CHANNELS } from './eventOutreach';
 
 const ctx = {
   title: 'Steak Night', location: 'Keens', finalized: false, dateStr: 'Thursday, December 3, 2026',
@@ -50,5 +50,19 @@ describe('gmailComposeUrl', () => {
     expect(url).toContain('to=a%40x.com%2Cb%40x.com');
     expect(url).toContain('su=Hi%20%26%20bye');
     expect(url).toContain('body=line%201%0Aline%202');
+  });
+});
+
+describe('inviteMessage', () => {
+  const base = { title: 'Steak Night', inviteLink: 'https://x/invite/abc', fromName: 'Dan' };
+  it('says what, when, where and gives the link', () => {
+    const m = inviteMessage({ ...base, location: 'Keens', dateStr: 'Thursday, December 3, 2026' });
+    expect(m.subject).toBe('Dan invited you to: Steak Night');
+    expect(m.body).toBe("You're invited to Steak Night!\n\nWhen: Thursday, December 3, 2026\nWhere: Keens\n\nView event & RSVP: https://x/invite/abc");
+  });
+  it('leaves out a date that has not been chosen, and a place that is not set', () => {
+    const m = inviteMessage({ ...base, dateStr: '', fromName: '' });
+    expect(m.subject).toBe('Someone invited you to: Steak Night');
+    expect(m.body).toBe("You're invited to Steak Night!\n\nView event & RSVP: https://x/invite/abc");
   });
 });

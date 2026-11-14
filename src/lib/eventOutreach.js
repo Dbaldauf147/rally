@@ -1,5 +1,6 @@
 // The event page's "Reach Out" dialog: one place to text or email the guests,
-// about the poll or the calendar invite, narrowed to the people it's for.
+// about the poll or the calendar invite, narrowed to the people it's for —
+// and to pass the invite link to someone who isn't a guest yet.
 //
 // Three choices make a send:
 //   channel   'text' | 'email'
@@ -74,6 +75,21 @@ export function outreachMessage({ channel, kind, audience }, ctx) {
     body: hasAnyVotes
       ? `People have suggested additional dates for ${title}. Would any of these new dates work for you?\n\nVote here: ${pollLink}`
       : `You're invited to ${title}!\n\nVote here on what dates you can make: ${pollLink}`,
+  };
+}
+
+/**
+ * The invite for someone who isn't on the guest list yet: what the event is,
+ * and the link that lets them see it and RSVP. `dateStr` is left empty while
+ * the date is still being voted on — there is no "when" to give.
+ */
+export function inviteMessage({ title, location, dateStr, inviteLink, fromName }) {
+  const when = dateStr ? `\nWhen: ${dateStr}` : '';
+  const where = location ? `\nWhere: ${location}` : '';
+  const details = when || where ? `\n${when}${where}` : '';
+  return {
+    subject: `${fromName || 'Someone'} invited you to: ${title}`,
+    body: `You're invited to ${title}!${details}\n\nView event & RSVP: ${inviteLink}`,
   };
 }
 
