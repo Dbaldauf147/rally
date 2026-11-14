@@ -49,9 +49,17 @@ function combine(day, time) {
   return new Date(y, m - 1, d, h, min);
 }
 
+const footBtn = {
+  padding: '0.5rem 1.25rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
+  background: 'var(--color-surface)', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+};
+
 // `focusRepeat` is the event page's "Make recurring" button: the same form,
 // opened at the repeat options instead of at the top.
-export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
+// `onCancelEvent` / `onRestoreEvent` / `onDeleteEvent` are the event page's
+// own handlers (they confirm first). Passing them adds the section at the foot
+// of the form; without them — creating, or editing from a list — it's absent.
+export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCancelEvent, onRestoreEvent, onDeleteEvent }) {
   const { user } = useAuth();
   const uid = user?.uid;
   const repeatRef = useRef(null);
@@ -594,6 +602,43 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
         <button className={styles.saveBtn} type="submit">{event ? 'Save Changes' : 'Create Event'}</button>
         {onCancel && <button className={styles.cancelBtn} type="button" onClick={onCancel}>Cancel</button>}
       </div>
+
+      {/* Calling the event off, or removing it. Set apart below Save so neither
+          is mistaken for the button that just closes this form. */}
+      {event && (onCancelEvent || onRestoreEvent || onDeleteEvent) && (
+        <div data-testid="event-danger" style={{ marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border)' }}>
+          <div className={styles.label} style={{ marginBottom: '0.5rem' }}>Cancel or delete</div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {event.cancelled
+              ? onRestoreEvent && (
+                <button
+                  type="button"
+                  onClick={onRestoreEvent}
+                  style={{ ...footBtn, background: 'var(--color-success-light)', borderColor: 'var(--color-success)', color: 'var(--color-success)' }}
+                >↩ Restore Event</button>
+              )
+              : onCancelEvent && (
+                <button
+                  type="button"
+                  onClick={onCancelEvent}
+                  style={{ ...footBtn, background: 'var(--color-warning-light)', borderColor: 'var(--color-warning)', color: 'var(--color-warning)' }}
+                >🚫 Cancel Event</button>
+              )}
+            {onDeleteEvent && (
+              <button
+                type="button"
+                onClick={onDeleteEvent}
+                style={{ ...footBtn, borderColor: 'var(--color-danger-light)', color: 'var(--color-danger)' }}
+              >Delete Event</button>
+            )}
+          </div>
+          <p className={styles.repeatHint} style={{ marginTop: '0.5rem' }}>
+            {event.cancelled
+              ? 'This event is cancelled. Restoring brings it back as it was; deleting removes it for good.'
+              : 'A cancelled event stays on your dashboard, dimmed, and can be brought back. Deleting can’t be undone.'}
+          </p>
+        </div>
+      )}
     </form>
   );
 }
