@@ -12,6 +12,7 @@ import { normalizeGuestListReview, guestListReviewForSave } from '../lib/guestLi
 import { CADENCES, normalizePollSeries, addMonthsYmd, sendDateLabel, pollWindow, windowLabel, previewDate } from '../lib/pollSeries';
 import { DEFAULT_REMINDER_INTERVALS } from '../lib/autoReminders';
 import { DEFAULT_EVENT_REMINDER_DAYS } from '../lib/eventReminders';
+import { OPTIONAL_TABS, shownTabs, tabsForSave } from '../lib/eventTabs';
 import { buildDashboardFrom, dashboardShowYmd, normalizeDashboardFrom } from '../lib/dashboardFrom';
 import { useAuth } from '../contexts/AuthContext';
 import { BOAT_NAME } from './BoatDay';
@@ -59,7 +60,7 @@ const footBtn = {
 // `onCancelEvent` / `onRestoreEvent` / `onDeleteEvent` are the event page's
 // own handlers (they confirm first). Passing them adds the section at the foot
 // of the form; without them — creating, or editing from a list — it's absent.
-export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCancelEvent, onRestoreEvent, onDeleteEvent }) {
+export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCancelEvent, onRestoreEvent, onDeleteEvent, tabsShown }) {
   const { user } = useAuth();
   const uid = user?.uid;
   const repeatRef = useRef(null);
@@ -101,6 +102,12 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
   const [boatDay, setBoatDay] = useState(boatWas);
   const [keyConsiderations, setKeyConsiderations] = useState(considerationsWas);
   const [eventReminders, setEventReminders] = useState(remindersWas);
+
+  // Optional tabs on the event page (lib/eventTabs.js). The boxes start as
+  // the page stands — `tabsShown` when the event page opened the form, which
+  // knows about chat messages and charges; otherwise what the event says.
+  const [tabsWere] = useState(() => (event ? (tabsShown || shownTabs(event)) : {}));
+  const [tabsOn, setTabsOn] = useState(tabsWere);
 
   // The date field is our own control, so there is no native "required" bubble
   // to lean on. Submitting without a start date says so in the form instead.
@@ -254,6 +261,7 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
       }
     }
     if (keyConsiderations !== considerationsWas) data.keyConsiderationsEnabled = keyConsiderations;
+    Object.assign(data, tabsForSave(tabsOn, tabsWere, !event));
     if (eventReminders !== remindersWas) {
       const days = Array.isArray(event?.eventReminders?.daysBefore) ? event.eventReminders.daysBefore : DEFAULT_EVENT_REMINDER_DAYS;
       data.eventReminders = { enabled: eventReminders, daysBefore: days };
@@ -509,6 +517,22 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
             Draw names on the event page: nobody gets their partner or the person they had last time. You review the draw, then email everyone their person with one button.
           </p>
         )}
+      </div>
+
+      <div className={styles.repeatBox} data-testid="optional-tabs">
+        <div className={styles.label} style={{ marginBottom: '0.35rem' }}>Tabs on the event page</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1.1rem' }}>
+          {OPTIONAL_TABS.map(t => (
+            <label key={t.key} className={styles.repeatToggle} style={{ color: tabsOn[t.key] ? '#4f46e5' : '#6b7280' }}>
+              <input type="checkbox" checked={!!tabsOn[t.key]} onChange={e => setTabsOn(v => ({ ...v, [t.key]: e.target.checked }))} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
+              <span aria-hidden="true">{t.icon}</span>
+              {t.label}
+            </label>
+          ))}
+        </div>
+        <p className={styles.repeatHint} style={{ margin: '0.4rem 0 0' }}>
+          Tick the ones this event needs. Turning one off hides the tab; anything already in it is kept.
+        </p>
       </div>
 
       <div className={styles.repeatBox} data-testid="extra-boat">
