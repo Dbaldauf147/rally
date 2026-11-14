@@ -77,6 +77,16 @@ const headerPillStyle = {
   cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
 };
 
+// The three "+ Add …" buttons under the guest list. Small pills that sit in a
+// row — they used to be full-width bars, three deep, taller than the list of
+// a small event.
+const addGuestBtnStyle = {
+  display: 'inline-flex', alignItems: 'center', marginTop: '0.5rem', marginRight: '0.4rem',
+  padding: '0.2rem 0.6rem', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-full)',
+  background: 'none', color: 'var(--color-text-muted)', fontSize: '0.76rem', fontWeight: 600,
+  cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+};
+
 const calMenuItemStyle = {
   display: 'block',
   width: '100%',
@@ -3932,13 +3942,13 @@ export function EventDetail() {
                 );
               })() : (
                 <>
-                <button onClick={() => { setShowAddFriend(true); setShowAddFromEvent(false); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <button onClick={() => { setShowAddFriend(true); setShowAddFromEvent(false); }} style={addGuestBtnStyle}>
                   + Add Friends
                 </button>
                 {/* Straight to the guest form with "This event only" ticked —
                     someone who's coming to this one thing and shouldn't land
                     in your Friends list. */}
-                <button onClick={() => { setShowAddFriend(true); setShowAddFromEvent(false); setNewContact({ name: '', email: '', phone: '', eventOnly: true }); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <button onClick={() => { setShowAddFriend(true); setShowAddFromEvent(false); setNewContact({ name: '', email: '', phone: '', eventOnly: true }); }} style={addGuestBtnStyle}>
                   + Add Friend (this event only)
                 </button>
                 </>
@@ -4170,7 +4180,7 @@ export function EventDetail() {
                   </div>
                 );
               })() : (
-                <button onClick={() => { setShowAddFromEvent(true); setShowAddFriend(false); }} style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', border: '2px dashed var(--color-border)', borderRadius: 'var(--radius-md)', background: 'none', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <button onClick={() => { setShowAddFromEvent(true); setShowAddFriend(false); }} style={addGuestBtnStyle}>
                   + Add from Another Event
                 </button>
               )
