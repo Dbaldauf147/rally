@@ -15,7 +15,7 @@ export const MAX_DEPTH = 3;
 
 // What a friend with nothing recorded starts with. Offered in the editor, and
 // only stored once something is written under one.
-export const DEFAULT_SECTIONS = ['Likes', 'Things I appreciate'];
+export const DEFAULT_SECTIONS = ['Likes', 'Things I appreciate', 'Foods', 'Drinks', 'Desserts', 'Places'];
 
 let seq = 0;
 export function makeId() {
@@ -56,12 +56,15 @@ export function normalizeProfile(raw) {
   }));
 }
 
-/* What the editor opens with: the stored sections, or the two defaults for a
-   friend who has none yet. */
+/* What the editor opens with: the stored sections, then any default the friend
+   doesn't have yet. Offering the missing ones (rather than only seeding a
+   friend with nothing) is what lets a default added later reach friends who
+   already have a profile; empty ones are dropped again on save. */
 export function profileForEditing(raw) {
   const sections = normalizeProfile(raw);
-  if (sections.length) return sections;
-  return DEFAULT_SECTIONS.map((title) => ({ id: makeId(), title, items: [] }));
+  const have = new Set(sections.map((s) => s.title.toLowerCase()));
+  const missing = DEFAULT_SECTIONS.filter((title) => !have.has(title.toLowerCase()));
+  return [...sections, ...missing.map((title) => ({ id: makeId(), title, items: [] }))];
 }
 
 /* What gets saved. Blank lines go, and so does a section with nothing written

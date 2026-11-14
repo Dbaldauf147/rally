@@ -15,8 +15,19 @@ describe('normalizeItems', () => {
 });
 
 describe('profileForEditing / profileForSaving', () => {
-  it('opens a friend with nothing on the two default sections', () => {
+  it('opens a friend with nothing on the default sections', () => {
     expect(profileForEditing(undefined).map((s) => s.title)).toEqual(DEFAULT_SECTIONS);
+    expect(DEFAULT_SECTIONS).toEqual(['Likes', 'Things I appreciate', 'Foods', 'Drinks', 'Desserts', 'Places']);
+  });
+
+  it('offers the defaults a friend with a stored profile is missing, after their own', () => {
+    const opened = profileForEditing([
+      { id: 'x', title: 'Sizes', items: rows(['Shoes 9', 0]) },
+      { id: 'f', title: 'foods', items: rows(['Omakase', 0]) },
+    ]);
+    expect(opened.map((s) => s.title)).toEqual(['Sizes', 'foods', 'Likes', 'Things I appreciate', 'Drinks', 'Desserts', 'Places']);
+    // Opening and saving untouched stores nothing new.
+    expect(profileForSaving(opened).map((s) => s.title)).toEqual(['Sizes', 'foods']);
   });
 
   it('saves only what was written, dropping blank lines and untouched defaults', () => {
