@@ -106,3 +106,75 @@ describe('event reminders in the daily check', () => {
     expect(sent).toHaveLength(0);
   });
 });
+
+describe('RSVP reminders in the daily check', () => {
+  beforeEach(() => { sent.length = 0; vi.useFakeTimers(); });
+  afterEach(() => vi.useRealTimers());
+
+  const santa = (extra = {}) => ({
+    title: 'Secret Santa', stage: 'finalized',
+    date: { toDate: () => new Date('2026-12-20T23:00:00Z') },
+    rsvpReminders: { enabled: true, intervals: [3, 7], startedAt: '2026-11-14T14:00:00Z' },
+    members: {
+      own: { name: 'Dan', email: 'd@x.com', role: 'owner', rsvp: 'yes' },
+      a: { name: 'Amy', email: 'a@x.com', rsvp: 'pending' },
+      b: { name: 'Bob', email: 'b@x.com', rsvp: 'yes' },
+      c: { name: 'Cat', email: 'c@x.com' },
+    },
+    ...extra,
+  });
+
+  it('emails only the guests with no answer, on the days chosen, and stops when they answer', async () => {
+    db = fakeDb({ e1: santa() });
+
+    vi.setSystemTime(new Date('2026-11-16T14:00:05Z'));
+    await run();
+    expect(sent).toHaveLength(0);
+
+    vi.setSystemTime(new Date('2026-11-17T14:00:05Z'));
+    await run();
+    expect(sent.map((s) => s.to).sort()).toEqual(['a@x.com', 'c@x.com']);
+    expect(sent[0].subject).toBe('Can you make Secret Santa? (Sunday, Dec 20 · 6:00 PM)');
+    expect(sent[0].html).toContain('Reminder 1 of 2');
+    expect(db.docs.get('events/e1').members.a.rsvpRemindersSent).toBe(1);
+
+    // Same day again: nothing new.
+    sent.length = 0;
+    await run();
+    expect(sent).toHaveLength(0);
+
+    // Amy answers; only Cat gets the second one.
+    db.docs.set('events/e1', { ...db.docs.get('events/e1'), members: { ...db.docs.get('events/e1').members, a: { ...db.docs.get('events/e1').members.a, rsvp: 'no' } } });
+    vi.setSystemTime(new Date('2026-11-21T14:00:05Z'));
+    await run();
+    expect(sent.map((s) => s.to)).toEqual(['c@x.com']);
+    expect(sent[0].html).toContain('last reminder');
+
+    sent.length = 0;
+    vi.setSystemTime(new Date('2026-11-30T14:00:05Z'));
+    await run();
+    expect(sent).toHaveLength(0);
+  });
+
+  it('sends nothing while off, or once the event has passed', async () => {
+    db = fakeDb({ e1: santa({ rsvpReminders: { enabled: false, intervals: [3], startedAt: '2026-11-14T14:00:00Z' } }) });
+    vi.setSystemTime(new Date('2026-11-20T14:00:05Z'));
+    await run();
+    expect(sent).toHaveLength(0);
+
+    db = fakeDb({ e1: santa({ date: { toDate: () => new Date('2026-11-15T23:00:00Z') } }) });
+    await run();
+    expect(sent).toHaveLength(0);
+  });
+
+  it('reads a yearly event by its next occurrence, not its first one', async () => {
+    db = fakeDb({ e1: santa({
+      date: { toDate: () => new Date('2024-12-20T23:00:00Z') },
+      recurrence: { freq: 'yearly', mode: 'date', month: 12, day: 20, startYear: 2024, endYear: null },
+    }) });
+    vi.setSystemTime(new Date('2026-11-17T14:00:05Z'));
+    await run();
+    expect(sent).toHaveLength(2);
+    expect(sent[0].subject).toContain('Dec 20');
+  });
+});
