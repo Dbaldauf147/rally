@@ -284,6 +284,11 @@ export function buildNextRound(event, eventId, { timeZone = 'America/New_York', 
   }
   if (shareToken) doc.shareToken = shareToken;
   if (Array.isArray(event.hiddenFrom)) doc.hiddenFrom = [...event.hiddenFrom];
+  // "Show on my dashboard every year from…" is about the series, not the
+  // round, so it follows to the next one (lib/dashboardFrom.js). A one-off
+  // show date was for this round and stays behind.
+  const yearlyShow = Object.entries(event.dashboardFrom || {}).filter(([, v]) => v && v.yearly === true);
+  if (yearlyShow.length > 0) doc.dashboardFrom = Object.fromEntries(yearlyShow);
   if (event.keyConsiderationsEnabled != null) doc.keyConsiderationsEnabled = event.keyConsiderationsEnabled;
   // Next year's steak night keeps the steakhouse list switched on (or off).
   if (typeof event.steakhouseList === 'boolean') doc.steakhouseList = event.steakhouseList;

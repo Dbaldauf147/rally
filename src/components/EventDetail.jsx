@@ -2142,7 +2142,7 @@ export function EventDetail() {
     // The draws are on the organizer's own account, so the tab is theirs alone.
     ...(isOwner && secretSantaEnabled(event) ? [{ key: 'santa', label: '🎅 Santa History' }] : []),
     ...(tripPlanning ? [{ key: 'itinerary', label: 'Itinerary' }] : []),
-    ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
+    ...(optionalTabs.day ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
     ...(optionalTabs.meals ? [{ key: 'meals', label: '🍽 Meals' }] : []),
     ...(keyConsiderationsOn ? [{ key: 'considerations', label: 'Key Considerations' }] : []),

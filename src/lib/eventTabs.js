@@ -14,9 +14,18 @@
 // Meals and Notes keep their content on the event itself. Chat and Expenses
 // keep theirs elsewhere, so the page looks that up and passes it in (`found`).
 //
+// Day is the fifth. It is the itinerary laid out one day at a time, so an
+// unset Day tab follows the trip planning (lib/eventPlanning.js): there when
+// the event plans a trip or already has an itinerary, and it has a date.
+// Switched off, the tab leaves the bar but the itinerary's own "Day view"
+// buttons still open it.
+//
 // Pure: no React, no Firestore.
 
+import { showsTripPlanning } from './eventPlanning.js';
+
 export const OPTIONAL_TABS = [
+  { key: 'day', label: 'Day', icon: '📅' },
   { key: 'meals', label: 'Meals', icon: '🍽' },
   { key: 'notes', label: 'Notes', icon: '📝' },
   { key: 'expenses', label: 'Expenses', icon: '💵' },
@@ -35,18 +44,19 @@ const hasOrder = (m) => {
   return !!o && typeof o === 'object' && (String(o.choice ?? '').trim() !== '' || String(o.text ?? '').trim() !== '' || String(o.other ?? '').trim() !== '');
 };
 
-/** What can be told from the event alone: is there anything in Meals / Notes? */
+/** What can be told from the event alone: is there anything for Day / Meals / Notes? */
 export function eventTabContent(event) {
   const menu = event?.foodMenu;
   const meals = !!menu?.enabled
     || (Array.isArray(menu?.options) && menu.options.length > 0)
     || Object.values(event?.members || {}).some(hasOrder);
   const notes = Array.isArray(event?.notes) && event.notes.length > 0;
-  return { meals, notes };
+  const day = !!event?.date && showsTripPlanning(event);
+  return { day, meals, notes };
 }
 
 /**
- * Which optional tabs the page shows: { meals, notes, expenses, chat }.
+ * Which optional tabs the page shows: { day, meals, notes, expenses, chat }.
  * `found` is what the page learned about content kept off the event —
  * { chat, expenses } — and may be partial or empty while it's still looking.
  */
