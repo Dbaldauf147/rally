@@ -167,7 +167,12 @@
 .calcGroup { padding: 0.35rem 0; border-top: 1px solid var(--color-border-light); }
 .calcGroup:first-child { border-top: none; }
 .calcCat { font-size: 0.78rem; font-weight: 700; color: var(--color-text); margin: 0.1rem 0 0.15rem; }
-.calcLine { display: flex; align-items: center; gap: 0.5rem; padding: 0.05rem 0; cursor: text; }
+.calcLine { display: flex; align-items: center; gap: 0.4rem; padding: 0.05rem 0; }
+.calcLabel { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.5rem; cursor: text; }
+.calcIncHead { text-align: right; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); margin: -0.3rem 0 0.1rem; }
+.calcIncCheck { flex: 0 0 auto; width: 16px; height: 16px; margin: 0 0.15rem 0 0; accent-color: var(--color-accent); cursor: pointer; }
+.calcIncluded { width: 6.5rem; flex: 0 0 auto; box-sizing: border-box; padding: 0.3rem 0.45rem; text-align: right; font-size: 0.82rem; font-weight: 650; color: var(--color-success, #15803d); }
+.calcPerPerson { text-align: right; padding: 0 1.75rem 0.15rem 0; font-size: 0.72rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .calcName, .calcCatName { flex: 1 1 auto; min-width: 0; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calcName { color: var(--color-text-secondary); padding-left: 0.6rem; }
 .calcCatName { font-weight: 650; color: var(--color-text); }
@@ -224,3 +229,4 @@
 .compareTable tfoot td:first-child { text-align: left; }
 .compareTable tfoot tr:first-child td { border-top: 2px solid var(--color-border); padding-top: 0.5rem; }
 .compareTotalLow { font-weight: 750; color: var(--color-success, #15803d); }
+.compareSmall { font-weight: 500; font-size: 0.72rem; color: var(--color-text-muted); }

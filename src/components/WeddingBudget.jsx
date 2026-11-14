@@ -9,7 +9,7 @@ import {
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
   formatRate, guestCounts, headcount, plateAmount, resolveCategories,
   categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
-  saveVenueQuote, findVenueQuote, sameAmounts, venueComparison,
+  saveVenueQuote, findVenueQuote, sameCalc, venueComparison,
 } from '../lib/weddingBudgetPlan';
 import styles from './WeddingBudget.module.css';
 import navStyles from './WeddingDreamVenue.module.css';
@@ -734,8 +734,10 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
   const { amount: budget } = effectiveTotal(plan);
   const cats = resolveCategories(plan.categories, budget, headcount(plan.guests, counts));
   const amounts = plan.calculator.amounts;
+  const included = plan.calculator.included;
+  const guestN = headcount(plan.guests, counts);
   const rate = plan.salesTax.rate;
-  const t = calculatorTotals(cats, amounts, rate);
+  const t = calculatorTotals(cats, amounts, rate, included);
   const budgeted = (line) => {
     if (budget > 0) return formatMoney(amountFor(line.pct, budget));
     return '$0';
@@ -746,9 +748,17 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
     if (v == null) delete next[id]; else next[id] = v;
     return { ...p, calculator: { ...p.calculator, amounts: next } };
   });
+  // "Included": the venue's price already covers this line. It carries no
+  // amount of its own; unticking brings the empty box back.
+  const setIncluded = (id, on) => update((p) => {
+    const inc = { ...p.calculator.included };
+    const amt = { ...p.calculator.amounts };
+    if (on) { inc[id] = true; delete amt[id]; } else delete inc[id];
+    return { ...p, calculator: { amounts: amt, included: inc } };
+  });
   const clear = () => {
     if (!t.filled || !window.confirm('Clear every amount in the calculator?')) return;
-    update((p) => ({ ...p, calculator: { ...p.calculator, amounts: {} } }));
+    update((p) => ({ ...p, calculator: { amounts: {}, included: {} } }));
   };
   const diff = budget > 0 ? budget - t.total : null;
 
@@ -760,13 +770,13 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
   const saveVenue = () => {
     const name = venueName.trim();
     if (!name || !t.filled) return;
-    update((p) => ({ ...p, venueQuotes: saveVenueQuote(p.venueQuotes, name, p.calculator.amounts) }));
+    update((p) => ({ ...p, venueQuotes: saveVenueQuote(p.venueQuotes, name, p.calculator) }));
     setSavedNote(`${existing ? 'Updated' : 'Saved'} ${name}.`);
   };
   const loadVenue = (q) => {
-    const unsaved = t.filled > 0 && !quotes.some((x) => sameAmounts(x.amounts, amounts));
+    const unsaved = t.filled > 0 && !quotes.some((x) => sameCalc(x, plan.calculator));
     if (unsaved && !window.confirm(`Replace what's in the calculator with ${q.name}'s pricing? What's typed now isn't saved under any venue.`)) return;
-    update((p) => ({ ...p, calculator: { ...p.calculator, amounts: { ...q.amounts } } }));
+    update((p) => ({ ...p, calculator: { amounts: { ...q.amounts }, included: { ...q.included } } }));
     setVenueName(q.name);
     setSavedNote('');
   };
@@ -782,24 +792,46 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
         {t.filled > 0 && <button type="button" className={styles.link} onClick={clear}>Clear</button>}
       </div>
       <p className={styles.cardHint}>Type what each line costs to get the total fee. The grey figure is what the split budgets for it; sales tax is added to the lines ticked for it in the split.</p>
+      <div className={styles.calcIncHead} aria-hidden="true">Incl.</div>
       <div className={styles.calcList}>
         {calculatorGroups(cats).map((g) => (
           <div key={g.id} className={styles.calcGroup}>
             {(g.lines.length > 1 || g.lines[0].id !== g.id) && <div className={styles.calcCat}>{g.name || 'Untitled'}</div>}
             {g.lines.map((l) => (
-              <label key={l.id} className={styles.calcLine}>
-                <span className={g.lines[0].id === g.id ? styles.calcCatName : styles.calcName} title={l.name}>
-                  {l.name || 'Untitled'}
-                </span>
-                <NumberField
-                  {...moneyField}
-                  className={styles.calcNum}
-                  label={`${l.name || 'Line'} cost`}
-                  placeholder={budgeted(byId.get(l.id) || { pct: 0 })}
-                  value={amounts[l.id] ?? null}
-                  onCommit={(v) => setAmount(l.id, v)}
-                />
-              </label>
+              <Fragment key={l.id}>
+                <div className={styles.calcLine}>
+                  <label className={styles.calcLabel}>
+                    <span className={g.lines[0].id === g.id ? styles.calcCatName : styles.calcName} title={l.name}>
+                      {l.name || 'Untitled'}
+                    </span>
+                    {included[l.id] ? (
+                      <span className={styles.calcIncluded} data-testid={`calc-included-${l.id}`}>Included</span>
+                    ) : (
+                      <NumberField
+                        {...moneyField}
+                        className={styles.calcNum}
+                        label={`${l.name || 'Line'} cost`}
+                        placeholder={budgeted(byId.get(l.id) || { pct: 0 })}
+                        value={amounts[l.id] ?? null}
+                        onCommit={(v) => setAmount(l.id, v)}
+                      />
+                    )}
+                  </label>
+                  <input
+                    type="checkbox"
+                    className={styles.calcIncCheck}
+                    checked={!!included[l.id]}
+                    aria-label={`${l.name || 'Line'} included in the venue's price`}
+                    title={included[l.id] ? 'Included in the venue’s price — untick to type a cost' : 'Tick if the venue’s price already includes this'}
+                    onChange={(e) => setIncluded(l.id, e.target.checked)}
+                  />
+                </div>
+                {l.food && amounts[l.id] != null && guestN > 0 && (
+                  <div className={styles.calcPerPerson} data-testid={`calc-pp-${l.id}`}>
+                    {formatMoney(amounts[l.id] / guestN) || '$0'} per person × {guestN} guests
+                  </div>
+                )}
+              </Fragment>
             ))}
           </div>
         ))}
@@ -808,11 +840,17 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
         <div><dt>Subtotal</dt><dd data-testid="calc-subtotal">{formatMoney(t.subtotal) || '$0'}</dd></div>
         <div><dt>Sales tax{rate > 0 ? ` (${formatRate(rate)})` : ''}</dt><dd data-testid="calc-tax">{formatMoney(t.tax) || '$0'}</dd></div>
         <div className={styles.calcGrand}><dt>Total fee</dt><dd data-testid="calc-total">{formatMoney(t.total) || '$0'}</dd></div>
+        {t.foodLines > 0 && guestN > 0 && (
+          <div><dt>Food per person</dt><dd data-testid="calc-food-pp">{formatMoney(t.food / guestN) || '$0'}</dd></div>
+        )}
+        {guestN > 0 && t.filled > 0 && (
+          <div><dt>Total per person</dt><dd data-testid="calc-total-pp">{formatMoney(t.total / guestN) || '$0'}</dd></div>
+        )}
       </dl>
       <p className={styles.calcNote} data-testid="calc-note">
         {t.filled === 0
           ? 'Nothing typed in yet.'
-          : <>{t.filled} of {t.lines} lines filled in.{diff != null && (
+          : <>{t.filled} of {t.lines} lines filled in{t.included > 0 ? ` (${t.included} included)` : ''}.{diff != null && (
             <> <span className={diff >= 0 ? styles.calcUnder : styles.calcOver}>
               {diff >= 0 ? `${formatMoney(diff)} under` : `${formatMoney(-diff)} over`} the {formatMoney(budget)} budget.
             </span></>
@@ -845,7 +883,7 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
             {quotes.map((q) => (
               <li key={q.id} data-testid={`venue-quote-${q.name}`}>
                 <button type="button" className={styles.venueLoad} title={`Put ${q.name}'s pricing in the calculator`} onClick={() => loadVenue(q)}>{q.name}</button>
-                <span className={styles.venueTotal}>{formatMoney(calculatorTotals(cats, q.amounts, rate).total) || '$0'}</span>
+                <span className={styles.venueTotal}>{formatMoney(calculatorTotals(cats, q.amounts, rate, q.included).total) || '$0'}</span>
                 <button type="button" className={styles.remove} title={`Delete ${q.name}`} aria-label={`Delete ${q.name}`} onClick={() => removeVenue(q)}>×</button>
               </li>
             ))}
@@ -872,10 +910,10 @@ function VenueCompare({ plan, update, counts, onOpen }) {
   };
   const open = (v) => {
     const q = plan.venueQuotes.find((x) => x.id === v.id);
-    const amounts = plan.calculator.amounts;
-    const unsaved = Object.keys(amounts).length > 0 && !plan.venueQuotes.some((x) => sameAmounts(x.amounts, amounts));
+    const calc = plan.calculator;
+    const unsaved = Object.keys(calc.amounts).length + Object.keys(calc.included).length > 0 && !plan.venueQuotes.some((x) => sameCalc(x, calc));
     if (unsaved && !window.confirm(`Replace what's in the calculator with ${v.name}'s pricing? What's typed there now isn't saved under any venue.`)) return;
-    update((p) => ({ ...p, calculator: { ...p.calculator, amounts: { ...q.amounts } } }));
+    update((p) => ({ ...p, calculator: { amounts: { ...q.amounts }, included: { ...q.included } } }));
     onOpen();
   };
 
@@ -925,7 +963,7 @@ function VenueCompare({ plan, update, counts, onOpen }) {
                 <td className={r.standalone ? styles.compareCatLine : styles.compareLine} title={r.name}>{r.name}</td>
                 <td className={styles.compareBudget}>{cell(r.budgeted)}</td>
                 {r.amounts.map((v, i) => (
-                  <td key={c.venues[i].id} className={r.low === i ? styles.compareLow : styles.compareNum}>{cell(v)}</td>
+                  <td key={c.venues[i].id} className={r.low === i ? styles.compareLow : styles.compareNum}>{r.included[i] ? 'Included' : cell(v)}</td>
                 ))}
               </tr>
             )))}
@@ -957,6 +995,11 @@ function VenueCompare({ plan, update, counts, onOpen }) {
               {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.perPerson == null ? '—' : formatMoney(v.perPerson)}</td>)}
             </tr>
             <tr className={styles.compareSub}>
+              <td className={styles.footLabel}>Food per person <span className={styles.compareSmall}>before tax</span></td>
+              <td />
+              {c.venues.map((v) => <td key={v.id} className={styles.footNumLight} data-testid={`compare-food-pp-${v.name}`}>{v.foodPerPerson == null ? '—' : formatMoney(v.foodPerPerson) || '$0'}</td>)}
+            </tr>
+            <tr className={styles.compareSub}>
               <td className={styles.footLabel}>Against the budget</td>
               <td />
               {c.venues.map((v) => (
@@ -972,7 +1015,7 @@ function VenueCompare({ plan, update, counts, onOpen }) {
             <tr className={styles.compareSub}>
               <td className={styles.footLabel}>Lines priced</td>
               <td />
-              {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.filled} of {v.lines}</td>)}
+              {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.filled} of {v.lines}{v.included > 0 ? ` (${v.included} incl.)` : ''}</td>)}
             </tr>
           </tfoot>
         </table>
