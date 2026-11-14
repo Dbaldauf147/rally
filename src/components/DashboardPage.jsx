@@ -24,6 +24,8 @@ function useIsMobile() {
 
 export function DashboardPage() {
   const { user } = useAuth();
+  // Organizer-only nudges on a card (a yearly guest list waiting to be confirmed).
+  const isOrganizer = (e) => e.members?.[user?.uid]?.role === 'owner' || (!!user?.uid && e.createdBy === user.uid);
   const { events, createEvent } = useEvents();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
@@ -307,7 +309,7 @@ export function DashboardPage() {
               return (
                 <div key={e.id} className={styles.mobileItem}>
                   {mIsNow(e) && <span className={styles.nowBadge}>🟢 Happening now</span>}
-                  <EventCard event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={pct} />
+                  <EventCard event={e} onClick={() => navigate(`/event/${e.id}`)} votePct={pct} isOrganizer={isOrganizer(e)} />
                 </div>
               );
             })}
@@ -422,6 +424,7 @@ export function DashboardPage() {
                                 event={e}
                                 onClick={() => navigate(`/event/${e.id}`)}
                                 votePct={pct}
+                                isOrganizer={isOrganizer(e)}
                               />
                             );
                           })}
