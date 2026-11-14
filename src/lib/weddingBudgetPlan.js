@@ -264,7 +264,20 @@ function normalizeCalculator(raw) {
     const n = money(v);
     if (id && n != null) amounts[id] = n;
   }
-  return { amounts };
+  // Lines a venue's price already covers ("rentals included"): no cost of
+  // their own, but answered. An included line carries no amount.
+  const included = {};
+  const inc = raw && typeof raw === 'object' && raw.included && typeof raw.included === 'object' ? raw.included : {};
+  for (const [id, v] of Object.entries(inc)) {
+    if (id && v === true) { included[id] = true; delete amounts[id]; }
+  }
+  return { amounts, included };
+}
+
+/* Is this a food line? One priced per plate in the split, or named like one.
+   The calculator and the venue comparison show these per person. */
+export function isFoodLine(line) {
+  return !!line?.perPlate || /\b(food|cater|catering|dinner|lunch|brunch|meal|meals|plate)\b/i.test(String(line?.name || ''));
 }
 
 /* The calculator's lines, in the split's order, grouped by category. */
@@ -272,28 +285,35 @@ export function calculatorGroups(categories) {
   return (categories || []).map((c) => ({
     id: c.id,
     name: c.name,
-    lines: (c.items.length ? c.items : [c]).map((l) => ({ id: l.id, name: l.name || c.name, taxed: !!l.taxed })),
+    lines: (c.items.length ? c.items : [c]).map((l) => ({ id: l.id, name: l.name || c.name, taxed: !!l.taxed, food: isFoodLine({ ...l, name: l.name || c.name }) })),
   }));
 }
 
 /* Subtotal of what's typed, sales tax on the taxed lines, and the total fee.
-   Amounts for lines that no longer exist don't count. */
-export function calculatorTotals(categories, amounts, rate) {
+   Amounts for lines that no longer exist don't count. A line marked included
+   is answered at no cost. `food` is the food lines' dollars before tax, and
+   `foodLines` how many of them have a price. */
+export function calculatorTotals(categories, amounts, rate, included = {}) {
   let subtotal = 0;
   let tax = 0;
   let filled = 0;
   let lines = 0;
+  let food = 0;
+  let foodLines = 0;
+  let includedLines = 0;
   for (const g of calculatorGroups(categories)) {
     for (const l of g.lines) {
       lines += 1;
+      if (included?.[l.id]) { filled += 1; includedLines += 1; continue; }
       const v = amounts?.[l.id];
       if (v == null) continue;
       filled += 1;
       subtotal += v;
+      if (l.food) { food += v; foodLines += 1; }
       if (l.taxed) tax += (v * (rate || 0)) / 100;
     }
   }
-  return { subtotal, tax, total: subtotal + tax, filled, lines };
+  return { subtotal, tax, total: subtotal + tax, filled, lines, food, foodLines, included: includedLines };
 }
 
 /* Fill in every markup's % from the lines it's charged on. Markups can be
@@ -530,7 +550,7 @@ function normalizeVenueQuotes(raw) {
     const id = str(q.id) || newId('v');
     if (!name || seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, name, amounts: normalizeCalculator(q).amounts, savedAt: str(q.savedAt) });
+    out.push({ id, name, ...normalizeCalculator(q), savedAt: str(q.savedAt) });
   }
   return out;
 }
@@ -543,10 +563,12 @@ export function findVenueQuote(quotes, name) {
 
 /* Save the amounts under a venue's name: a venue already saved (same name,
    whatever the capitals) is updated in place, a new one goes on the end. */
-export function saveVenueQuote(quotes, name, amounts, now = new Date()) {
+export function saveVenueQuote(quotes, name, calc, now = new Date()) {
   const clean = String(name || '').trim();
   if (!clean) return quotes || [];
-  const entry = { name: clean, amounts: normalizeCalculator({ amounts }).amounts, savedAt: now.toISOString() };
+  // `calc` is the calculator ({ amounts, included }); a bare amounts map is taken as one.
+  const whole = calc && typeof calc.amounts === 'object' && calc.amounts !== null ? calc : { amounts: calc };
+  const entry = { name: clean, ...normalizeCalculator(whole), savedAt: now.toISOString() };
   const existing = findVenueQuote(quotes, clean);
   if (existing) return quotes.map((q) => (q.id === existing.id ? { ...q, ...entry } : q));
   return [...(quotes || []), { id: newId('v'), ...entry }];
@@ -561,43 +583,57 @@ export function sameAmounts(a, b) {
   return [...keys].every((k) => x[k] === y[k]);
 }
 
+/* The same, for a whole calculator or saved venue: amounts and included lines. */
+export function sameCalc(a, b) {
+  const x = normalizeCalculator(a);
+  const y = normalizeCalculator(b);
+  const inc = new Set([...Object.keys(x.included), ...Object.keys(y.included)]);
+  return sameAmounts(x.amounts, y.amounts) && [...inc].every((k) => !!x.included[k] === !!y.included[k]);
+}
+
 /* The comparison table. `categories` are the resolved split, `budget` the
    total budget (0 when none is set), `guestN` the guest count.
 
    rows:   the budget lines at least one venue has a price for, in the split's
-           order — { kind: 'category' | 'line', id, name, budgeted, amounts: [n|null per venue], low }
-           where `low` is the index of the cheapest venue on that line (null on a tie or with one price)
-   venues: per venue { id, name, savedAt, subtotal, tax, total, filled, perPerson, diff }
-           — diff is budget − total (null with no budget)
+           order — { kind: 'category' | 'line', id, name, budgeted, amounts: [n|null per venue],
+           included: [bool per venue], low }
+           where `low` is the index of the cheapest venue on that line (null on a tie or with
+           one price); a line a venue includes counts as $0 there
+   venues: per venue { id, name, savedAt, subtotal, tax, total, filled, perPerson, diff,
+           food, foodPerPerson } — diff is budget − total (null with no budget); foodPerPerson
+           is the food lines before tax over the guests (null with none priced)
    cheapest: id of the venue with the lowest total among those with any price */
 export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0) {
   const list = quotes || [];
   const rows = [];
   for (const g of calculatorGroups(categories)) {
-    const lines = g.lines.filter((l) => list.some((q) => q.amounts[l.id] != null));
+    const lines = g.lines.filter((l) => list.some((q) => q.amounts[l.id] != null || q.included?.[l.id]));
     if (lines.length === 0) continue;
     const byId = new Map((categories.find((c) => c.id === g.id)?.items || []).map((i) => [i.id, i]));
     const cat = categories.find((c) => c.id === g.id);
     const standalone = g.lines.length === 1 && g.lines[0].id === g.id;
     if (!standalone) rows.push({ kind: 'category', id: `cat-${g.id}`, name: g.name || 'Untitled' });
     for (const l of lines) {
-      const amounts = list.map((q) => (q.amounts[l.id] == null ? null : q.amounts[l.id]));
-      const priced = amounts.map((v, i) => [v, i]).filter(([v]) => v != null);
+      const included = list.map((q) => !!q.included?.[l.id]);
+      const amounts = list.map((q, i) => (included[i] || q.amounts[l.id] == null ? null : q.amounts[l.id]));
+      const priced = amounts.map((v, i) => [included[i] ? 0 : v, i]).filter(([v]) => v != null);
       const min = Math.min(...priced.map(([v]) => v));
       const lows = priced.filter(([v]) => v === min);
       const pct = standalone ? cat.pct : (byId.get(l.id)?.pct ?? 0);
       rows.push({
-        kind: 'line', id: l.id, name: l.name || 'Untitled', taxed: l.taxed, standalone,
+        kind: 'line', id: l.id, name: l.name || 'Untitled', taxed: l.taxed, food: l.food, standalone,
         budgeted: budget > 0 ? amountFor(pct, budget) : null,
         amounts,
+        included,
         low: priced.length > 1 && lows.length === 1 ? lows[0][1] : null,
       });
     }
   }
   const venues = list.map((q) => {
-    const t = calculatorTotals(categories, q.amounts, rate);
+    const t = calculatorTotals(categories, q.amounts, rate, q.included);
     return {
       id: q.id, name: q.name, savedAt: q.savedAt, ...t,
+      foodPerPerson: guestN > 0 && t.foodLines > 0 ? t.food / guestN : null,
       perPerson: guestN > 0 && t.filled > 0 ? t.total / guestN : null,
       diff: budget > 0 && t.filled > 0 ? budget - t.total : null,
     };

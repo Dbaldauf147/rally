@@ -225,14 +225,14 @@ describe('calculator', () => {
 
   it('adds the typed amounts, with tax on taxed lines only', () => {
     const t = calculatorTotals(cats, { a: 1000, b: 500, c2: 2000, gone: 99 }, 10);
-    expect(t).toEqual({ subtotal: 3500, tax: 100, total: 3600, filled: 3, lines: 3 });
-    expect(calculatorTotals(cats, {}, 10)).toEqual({ subtotal: 0, tax: 0, total: 0, filled: 0, lines: 3 });
+    expect(t).toMatchObject({ subtotal: 3500, tax: 100, total: 3600, filled: 3, lines: 3 });
+    expect(calculatorTotals(cats, {}, 10)).toMatchObject({ subtotal: 0, tax: 0, total: 0, filled: 0, lines: 3 });
   });
 
   it('keeps the amounts through normalizePlan and drops junk', () => {
     const p = normalizePlan({ calculator: { amounts: { a: 1200, b: '300', c: -5, d: 'x', e: null } } });
     expect(p.calculator.amounts).toEqual({ a: 1200, b: 300, c: 0 });
-    expect(normalizePlan(null).calculator).toEqual({ amounts: {} });
+    expect(normalizePlan(null).calculator).toEqual({ amounts: {}, included: {} });
   });
 });
 
@@ -269,7 +269,7 @@ describe('venue pricing', async () => {
       { id: 'v2', name: ' ', amounts: {} },
       null,
     ] });
-    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, savedAt: 's' }]);
+    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: {}, savedAt: 's' }]);
     expect(normalizePlan(null).venueQuotes).toEqual([]);
   });
 
@@ -311,5 +311,62 @@ describe('venue pricing', async () => {
     ], 0);
     expect(tie.cheapest).toBeNull();
     expect(venueComparison(cats, [], 0)).toEqual({ rows: [], venues: [], cheapest: null });
+  });
+});
+
+describe('included lines and food per person', async () => {
+  const { normalizePlan, saveVenueQuote, sameCalc, venueComparison, calculatorTotals, calculatorGroups, isFoodLine } = await import('./weddingBudgetPlan');
+  const cats = [
+    { id: 'c-venue', name: 'Venue', pct: 0, taxed: true, items: [
+      { id: 'i-site', name: 'Site fee', pct: 10, taxed: true, perPlate: null, markup: null },
+      { id: 'i-food', name: 'Food (cocktail hour, dinner)', pct: 20, taxed: true, perPlate: null, markup: null },
+      { id: 'i-rent', name: 'Rentals', pct: 5, taxed: true, perPlate: null, markup: null },
+      { id: 'i-plate', name: 'Late-night snack', pct: 1, taxed: false, perPlate: { price: 10 }, markup: null },
+    ] },
+  ];
+
+  it('spots food lines by name or by being priced per plate', () => {
+    expect(isFoodLine({ name: 'Food (cocktail hour, dinner, vendor meals)' })).toBe(true);
+    expect(isFoodLine({ name: 'Catering' })).toBe(true);
+    expect(isFoodLine({ name: 'Snack', perPlate: { price: 5 } })).toBe(true);
+    expect(isFoodLine({ name: 'Bar and beverages' })).toBe(false);
+    expect(isFoodLine({ name: 'Photographer' })).toBe(false);
+    expect(calculatorGroups(cats)[0].lines.map((l) => l.food)).toEqual([false, true, false, true]);
+  });
+
+  it('counts an included line as answered at no cost', () => {
+    const t = calculatorTotals(cats, { 'i-site': 5000, 'i-food': 12000, 'i-rent': 999 }, 10, { 'i-rent': true });
+    expect(t).toMatchObject({ subtotal: 17000, tax: 1700, total: 18700, filled: 3, included: 1, food: 12000, foodLines: 1 });
+  });
+
+  it('keeps included lines on the calculator and on saved venues, without an amount beside them', () => {
+    const plan = normalizePlan({
+      calculator: { amounts: { a: 5, b: 7 }, included: { b: true, c: 'yes' } },
+      venueQuotes: [{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: { r: true } }],
+    });
+    expect(plan.calculator).toEqual({ amounts: { a: 5 }, included: { b: true } });
+    expect(plan.venueQuotes[0]).toMatchObject({ amounts: { a: 1 }, included: { r: true } });
+    const q = saveVenueQuote([], 'Loft', { amounts: { a: 2 }, included: { r: true } });
+    expect(q[0]).toMatchObject({ amounts: { a: 2 }, included: { r: true } });
+    expect(saveVenueQuote([], 'Old', { a: 2 })[0]).toMatchObject({ amounts: { a: 2 }, included: {} });
+  });
+
+  it('tells two calculators apart by their included lines too', () => {
+    expect(sameCalc({ amounts: { a: 1 }, included: { r: true } }, { amounts: { a: 1 }, included: { r: true } })).toBe(true);
+    expect(sameCalc({ amounts: { a: 1 }, included: { r: true } }, { amounts: { a: 1 } })).toBe(false);
+  });
+
+  it('shows included in the comparison, as the lowest on its line, with food per person', () => {
+    const quotes = [
+      { id: 'v1', name: 'Barn', amounts: { 'i-site': 5000, 'i-food': 12000, 'i-plate': 500 }, included: { 'i-rent': true }, savedAt: '' },
+      { id: 'v2', name: 'Loft', amounts: { 'i-site': 8000, 'i-food': 9000, 'i-rent': 2000 }, included: {}, savedAt: '' },
+    ];
+    const c = venueComparison(cats, quotes, 0, 0, 100);
+    const rent = c.rows.find((r) => r.id === 'i-rent');
+    expect(rent).toMatchObject({ amounts: [null, 2000], included: [true, false], low: 0 });
+    expect(c.venues[0]).toMatchObject({ filled: 4, included: 1, food: 12500, foodPerPerson: 125, total: 17500 });
+    expect(c.venues[1]).toMatchObject({ food: 9000, foodPerPerson: 90 });
+    expect(venueComparison(cats, quotes, 0, 0, 0).venues[0].foodPerPerson).toBeNull();
+    expect(venueComparison(cats, [{ id: 'v', name: 'X', amounts: { 'i-site': 1 }, included: {}, savedAt: '' }], 0, 0, 100).venues[0].foodPerPerson).toBeNull();
   });
 });
