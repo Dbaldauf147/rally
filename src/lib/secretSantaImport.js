@@ -112,3 +112,44 @@ export function importedPairs(draw, mapping, candidates) {
   };
   return draw.pairs.map((p) => ({ giver: ref(p.giver), receiver: ref(p.receiver) }));
 }
+
+/**
+ * The pairs to store after a past draw was edited by hand.
+ *
+ * Each row is { giver, receiver } as typed, plus — for a pick that was already
+ * saved — the stored people (`giverRef`, `receiverRef`) and the names they were
+ * shown under (`giverWas`, `receiverWas`). A name left untouched keeps its
+ * stored person exactly; a changed or new name is matched like a pasted one
+ * (matchName), falling back to the bare name. Blank rows are dropped.
+ * Returns { pairs } or { error }.
+ */
+export function editedPairs(rows, candidates) {
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  const refFor = (text, was, ref) => {
+    if (ref && norm(text) === norm(was)) return ref;
+    const c = byId.get(matchName(text, candidates));
+    return c ? { key: c.key, name: c.name, email: c.email } : { key: '', name: String(text).trim().replace(/\s+/g, ' '), email: '' };
+  };
+  const same = (a, b) => (a.key && a.key === b.key) || (norm(a.email) && norm(a.email) === norm(b.email)) || norm(a.name) === norm(b.name);
+  const pairs = [];
+  for (const row of rows || []) {
+    const g = String(row.giver || '').trim();
+    const r = String(row.receiver || '').trim();
+    if (!g && !r) continue;
+    if (!g || !r) return { error: `Every pick needs both names — ${g || r} is missing ${g ? 'who they drew' : 'who drew them'}.` };
+    const pair = { giver: refFor(g, row.giverWas, row.giverRef), receiver: refFor(r, row.receiverWas, row.receiverRef) };
+    if (same(pair.giver, pair.receiver)) return { error: `${g} can’t draw themselves.` };
+    if (pairs.some((p) => same(p.giver, pair.giver))) return { error: `${g} is listed twice as the one drawing.` };
+    pairs.push(pair);
+  }
+  if (pairs.length === 0) return { error: 'Add at least one pick.' };
+  return { pairs };
+}
+
+/** Saved years with a draw, newest first — optionally only those before `beforeYear`. */
+export function drawYears(history, beforeYear = Infinity) {
+  return Object.keys(history && typeof history === 'object' ? history : {})
+    .map(Number)
+    .filter((y) => Number.isFinite(y) && y < beforeYear && history[y]?.pairs?.length > 0)
+    .sort((a, b) => b - a);
+}
