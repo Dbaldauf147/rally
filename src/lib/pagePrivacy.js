@@ -38,7 +38,7 @@ const LABELS = {
   wedding: 'Wedding',
   'travel-list': 'Travel List',
   holidays: 'Holidays',
-  recurring: 'Repeating',
+  recurring: 'Recurring Events',
   pto: 'PTO',
   doctors: 'Doctors',
   joanne: 'Joanne',
