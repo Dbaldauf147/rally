@@ -29,6 +29,8 @@ import { normalizeGuestListReview, guestListReviewYear } from '../lib/guestListR
 import { GuestListReview } from './GuestListReview';
 import { secretSantaEnabled, looksLikeGiftExchange } from '../lib/secretSanta';
 import { SecretSanta } from './SecretSanta';
+import { RemindersPopup } from './RemindersPopup';
+import { remindersOn } from '../lib/rsvpReminders';
 import { SecretSantaHistoryTab } from './SecretSantaHistory';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
@@ -116,6 +118,7 @@ export function EventDetail() {
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
   const [activeTab, setActiveTab] = useState(() => {
     const t = searchParams.get('tab');
     return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat', 'santa'].includes(t) ? t : null;
@@ -2255,15 +2258,16 @@ export function EventDetail() {
                   data-testid="header-sync"
                   disabled={calSyncing}
                   onClick={handleCalendarSync}
-                  title={`Add this event to your Google Calendar (${calTarget.name})`}
+                  title={`Not on your Google Calendar yet — click to add it to ${calTarget.name}`}
                   style={headerPillStyle}
-                >📅 {calSyncing ? 'Syncing…' : 'Sync'}</button>
+                >📅 {calSyncing ? 'Syncing…' : <>Sync to {calTarget.name} <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>(off)</span></>}</button>
                 <button
                   type="button"
                   onClick={openCalendarPicker}
                   title="Change which calendar events sync to"
+                  aria-label="Change which calendar events sync to"
                   style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-text-muted)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.72rem' }}
-                >to {calTarget.name} ▾</button>
+                >change</button>
                 {calSyncMsg && (
                   <span style={{ fontSize: '0.78rem', color: calSyncMsg.type === 'success' ? 'var(--color-success)' : 'var(--color-danger, #b91c1c)' }}>
                     {calSyncMsg.message}
@@ -2271,33 +2275,21 @@ export function EventDetail() {
                 )}
               </>
             )}
-            {/* Jumps to the reminder settings on People & Poll: the "please
-                vote" schedule while dates are open, the "it's coming up" one
-                once a date is set. */}
+            {/* Opens the reminders popup, and says at a glance whether any
+                automatic reminder is on for the stage the event is in. */}
             {isOwner && !event.cancelled && (() => {
-              const on = stage === 'finalized' ? !!event.eventReminders?.enabled : !!event.autoReminders?.enabled;
+              const on = remindersOn(event, stage);
               return (
                 <button
                   type="button"
                   data-testid="header-reminders"
-                  title={on ? 'Email reminders are on — open the settings' : 'Set up email reminders'}
-                  onClick={() => {
-                    // Before-the-event reminders that are off have no section
-                    // on the page: they are switched on in the Edit form.
-                    if (stage === 'finalized' && !on) { setEditing(true); return; }
-                    setActiveTab('details');
-                    // The section only exists once the People & Poll tab has
-                    // rendered, and that tab keeps growing as its lists load —
-                    // so go there, then go again once the page has settled.
-                    const go = () => document.getElementById('event-email-reminders')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    setTimeout(go, 60);
-                    setTimeout(go, 700);
-                  }}
+                  title={on ? 'Email reminders are on — change them' : 'Email reminders are off — set them up'}
+                  onClick={() => setShowReminders(true)}
                   style={{
                     ...headerPillStyle,
                     ...(on ? { border: '1px solid var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' } : {}),
                   }}
-                >📧 Reminders{on ? ' on' : ''}</button>
+                >📧 Email reminders <span style={{ fontWeight: on ? 700 : 500, color: on ? 'var(--color-success)' : 'var(--color-text-muted)' }}>({on ? 'on' : 'off'})</span></button>
               );
             })()}
             {/* The repeat options live in the edit form; this opens it at them.
@@ -2325,7 +2317,7 @@ export function EventDetail() {
                   fontSize: '0.82rem', fontWeight: 600,
                   color: calIsStale ? 'var(--color-warning)' : 'var(--color-success)',
                 }}>
-                  {calSyncing ? 'Syncing…' : calIsStale ? '↻ Calendar update available' : '✓ Synced to Google Calendar'}
+                  {calSyncing ? 'Syncing…' : calIsStale ? '↻ Calendar update available' : `📅 Synced to ${userCalSync.calendarName || 'Google Calendar'} (on)`}
                 </span>
                 <button
                   type="button"
@@ -2567,6 +2559,17 @@ export function EventDetail() {
           )}
         </div>
       </div>
+
+      {showReminders && (
+        <RemindersPopup
+          event={event}
+          eventId={eventId}
+          stage={stage}
+          dateOptions={allDateOptions}
+          updateEvent={updateEvent}
+          onClose={() => setShowReminders(false)}
+        />
+      )}
 
       {showCalPicker && (
         <div

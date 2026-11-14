@@ -6,7 +6,9 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { sendOne, mailConfigured } from '../lib/mailer.js';
 import { readyToStartReminders, remindableMembers, pollOptions, reminderAnswers } from '../src/lib/autoReminders.js';
-import { renderReminderEmail, renderEventReminderEmail, eventWhenLabel } from '../lib/reminderEmail.js';
+import { renderReminderEmail, renderEventReminderEmail, renderRsvpReminderEmail, eventWhenLabel } from '../lib/reminderEmail.js';
+import { rsvpReminderRecipients, dueRsvpReminder } from '../src/lib/rsvpReminders.js';
+import { activeOccurrence, isRecurring } from '../src/lib/recurrence.js';
 import { eventReminderRecipients, dueEventReminder } from '../src/lib/eventReminders.js';
 
 if (!getApps().length) {
@@ -47,6 +49,12 @@ export default async function handler(req, res) {
       // yeses and maybes (src/lib/eventReminders.js).
       if (!event.cancelled && event.stage === 'finalized' && event.eventReminders?.enabled) {
         await sendEventReminders(db, eventId, event, now, results);
+      }
+
+      // And, separately, the "are you coming?" kind, to guests with no answer
+      // (src/lib/rsvpReminders.js).
+      if (!event.cancelled && event.stage === 'finalized' && event.rsvpReminders?.enabled) {
+        await sendRsvpReminders(db, eventId, event, now, results);
       }
 
       // Cancelled events shouldn't send reminders, and once a date is chosen
@@ -172,6 +180,49 @@ async function sendEventReminders(db, eventId, event, now, results) {
       }
     } catch (err) {
       results.push({ event: event.title, member: m.name || uid, eventReminder: due.daysAway, success: false, error: err.message });
+    }
+  }
+}
+
+// The "are you coming?" reminders for one event with a date: each guest with
+// no answer whose next reminder is due today gets one email.
+async function sendRsvpReminders(db, eventId, event, now, results) {
+  // A yearly event's stored date is one occurrence; the one that's next is what
+  // the reminder is about, and what decides whether the event has passed.
+  const occ = isRecurring(event) ? activeOccurrence(event, now) : null;
+  const dated = occ ? { ...event, date: occ.start, endDate: occ.hasEnd ? occ.end : null } : event;
+  const raw = dated.date;
+  const eventDate = raw ? (typeof raw.toDate === 'function' ? raw.toDate() : new Date(raw)) : null;
+  const usable = eventDate && !isNaN(eventDate) ? eventDate : null;
+
+  const candidates = Object.values(event.members || {}).filter(m => m && typeof m === 'object' && m.email);
+  if (!candidates.some(m => dueRsvpReminder(event, m, now, usable))) return;
+
+  const dateOptsSnap = await db.collection('events').doc(eventId).collection('dateOptions').get();
+  const recipients = rsvpReminderRecipients(event, dateOptsSnap.docs.map(d => d.data()));
+  const fromName = Object.values(event.members || {}).find(m => m?.role === 'owner')?.name || 'The organizer';
+  const when = event.dateTBD ? '' : eventWhenLabel(dated);
+
+  for (const [uid, m] of recipients) {
+    const due = dueRsvpReminder(event, m, now, usable);
+    if (!due) continue;
+    const link = `https://rally-seven-theta.vercel.app/poll/${eventId}?name=${encodeURIComponent(m.name || 'Friend')}&vid=${encodeURIComponent(uid)}`;
+    const { subject, html } = renderRsvpReminderEmail({
+      name: m.name, eventTitle: event.title, when, location: event.location, link, fromName, ...due,
+    });
+    try {
+      const mail = await sendOne({ to: m.email, subject, html, fromName: 'Rally' });
+      if (mail.ok) {
+        await db.collection('events').doc(eventId).update({
+          [`members.${uid}.rsvpRemindersSent`]: due.reminderNum,
+          [`members.${uid}.rsvpReminderLog`]: FieldValue.arrayUnion(now.toISOString()),
+        });
+        results.push({ event: event.title, member: m.name || uid, rsvpReminder: due.reminderNum, success: true });
+      } else {
+        results.push({ event: event.title, member: m.name || uid, rsvpReminder: due.reminderNum, success: false, error: mail.error });
+      }
+    } catch (err) {
+      results.push({ event: event.title, member: m.name || uid, rsvpReminder: due.reminderNum, success: false, error: err.message });
     }
   }
 }
