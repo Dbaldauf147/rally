@@ -6,6 +6,7 @@ import { useEvents } from '../hooks/useEvents';
 import { useAuth } from '../contexts/AuthContext';
 import { EventForm } from './EventForm';
 import { isRecurring } from '../lib/recurrence';
+import { seriesStatus } from '../lib/pollSeries';
 import { EventCard } from './EventCard';
 import styles from './DashboardPage.module.css';
 
@@ -182,7 +183,7 @@ export function DashboardPage() {
   const unbookedFinalizedEvents = finalizedEvents.filter(e => !e.itineraryComplete && !e.travelBooked);
 
   // Badge on the Recurring button, so the count is visible without opening it.
-  const recurringCount = events.filter(e => isRecurring(e) && !e.cancelled).length;
+  const recurringCount = events.filter(e => (isRecurring(e) && !e.cancelled) || seriesStatus(e)).length;
 
   async function handleCreateEvent(data) {
     setShowCreate(false);
@@ -267,7 +268,7 @@ export function DashboardPage() {
           <button
             className={`${styles.createBtn} ${styles.createBtnAlt}`}
             onClick={() => navigate('/recurring')}
-            title="See and edit every event that repeats every year"
+            title="See and edit every event that repeats"
           >
             🔁 Recurring{recurringCount > 0 ? ` (${recurringCount})` : ''}
           </button>

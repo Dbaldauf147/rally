@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizePollSeries, nextRoundDue, targetMonth, seedOptions, nextRoundMembers, buildNextRound,
-  seededWeekdaysLabel, describePollSeries, monthLabel,
+  seededWeekdaysLabel, describePollSeries, monthLabel, seriesStatus,
 } from './pollSeries';
 
 // Noon UTC keeps every date on the same calendar day in US Eastern.
@@ -157,5 +157,37 @@ describe('the organizer’s heads-up', () => {
     expect(pollPreviewDue({ ...r, pollPreviewSentAt: 'x' }, at('2026-10-14'))).toBe(false);
     expect(pollPreviewDue({ ...r, pollSentAt: 'x' }, at('2026-10-14'))).toBe(false);
     expect(pollPreviewDue({ ...r, cancelled: true }, at('2026-10-14'))).toBe(false);
+  });
+});
+
+describe('seriesStatus', () => {
+  const now = at('2026-11-14');
+  it('is null for anything that is not the latest live round of a series', () => {
+    expect(seriesStatus({ title: 'One-off', date: at('2026-12-03'), stage: 'finalized' }, now)).toBeNull();
+    expect(seriesStatus(round({ nextRoundId: 'e2' }), now)).toBeNull();
+    expect(seriesStatus(round({ cancelled: true }), now)).toBeNull();
+  });
+  it('reports a finalized round still ahead as scheduled, sorted by its date', () => {
+    // Steak Night: yearly, poll went out Oct 7, date finalized for Dec 3.
+    const e = round({ date: at('2026-12-03'), pollSendDate: '2026-10-06', pollSentAt: '2026-10-07T13:00:00Z', pollSeries: { everyMonths: 12, seriesId: 's', round: 1 } });
+    const s = seriesStatus(e, now);
+    expect(s.state).toBe('scheduled');
+    expect(s.sortDate).toEqual(at('2026-12-03'));
+    expect(s.nextSend).toBe('2027-10-06');
+  });
+  it('counts the day itself as still ahead', () => {
+    expect(seriesStatus(round({ date: at('2026-11-14') }), now).state).toBe('scheduled');
+  });
+  it('reports a round that has happened as held, sorted by the next poll', () => {
+    const s = seriesStatus(round({ pollSendDate: '2026-10-01' }), now);
+    expect(s.state).toBe('held');
+    expect(s.nextSend).toBe('2026-11-01');
+    expect(s.sortDate.getFullYear()).toBe(2026);
+    expect(seriesStatus(round(), now)).toMatchObject({ state: 'held', nextSend: '', sortDate: null });
+  });
+  it('reports a round with no date yet as voting', () => {
+    const e = round({ stage: 'voting', dateTBD: true, date: at('2026-12-01'), pollSendDate: '2026-11-20' });
+    expect(seriesStatus(e, now)).toMatchObject({ state: 'voting', sendDate: '2026-11-20', sent: false });
+    expect(seriesStatus({ ...e, pollSentAt: 'x' }, now)).toMatchObject({ sent: true, sortDate: null });
   });
 });
