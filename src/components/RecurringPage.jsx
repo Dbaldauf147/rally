@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, differenceInCalendarDays } from 'date-fns';
 import { useEvents } from '../hooks/useEvents';
+import { useAuth } from '../contexts/AuthContext';
+import { guestListReviewYear } from '../lib/guestListReview';
 import { EventForm } from './EventForm';
 import {
   isRecurring,
@@ -40,6 +42,7 @@ function countdownLabel(start, now) {
 
 export function RecurringPage() {
   const { events, updateEvent } = useEvents();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [editingId, setEditingId] = useState(null);
   const [showEnded, setShowEnded] = useState(false);
@@ -65,6 +68,9 @@ export function RecurringPage() {
   const total = active.length + ended.length;
 
   function renderRow({ event, next, later }) {
+    // Only the organizer confirms a guest list, so only they are nudged.
+    const isOrganizer = event.members?.[user?.uid]?.role === 'owner' || (!!user?.uid && event.createdBy === user.uid);
+    const reviewYear = isOrganizer ? guestListReviewYear(event) : null;
     return (
       <div key={event.id} className={next ? styles.row : `${styles.row} ${styles.rowEnded}`}>
         <div className={styles.rowMain}>
@@ -73,6 +79,11 @@ export function RecurringPage() {
           </button>
           <div className={styles.rule}>🔁 {describeRecurrence(event.recurrence)}</div>
           {event.location && <div className={styles.location}>📍 {event.location}</div>}
+          {reviewYear && (
+            <button type="button" className={styles.reviewDue} data-testid="guest-list-due" onClick={() => navigate(`/event/${event.id}`)}>
+              📋 Confirm the {reviewYear} guest list
+            </button>
+          )}
         </div>
 
         <div className={styles.rowDates}>

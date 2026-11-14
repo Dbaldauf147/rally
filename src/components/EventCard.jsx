@@ -1,9 +1,10 @@
 import { format } from 'date-fns';
 import { isRecurring, shortRecurrenceLabel, describeRecurrence } from '../lib/recurrence';
 import { formatWhen } from '../lib/eventTime';
+import { guestListReviewYear } from '../lib/guestListReview';
 import styles from './EventCard.module.css';
 
-export function EventCard({ event, onClick, votePct }) {
+export function EventCard({ event, onClick, votePct, isOrganizer = false }) {
   const date = event.date?.toDate ? event.date.toDate() : new Date(event.date);
   const members = event.members ? Object.values(event.members).filter(Boolean) : [];
   const memberCount = members.length;
@@ -51,6 +52,16 @@ export function EventCard({ event, onClick, votePct }) {
                 borderRadius: '999px', padding: '0.1rem 0.45rem',
               }}
             >🔁 Yearly · {shortRecurrenceLabel(event.recurrence)}</span>
+          )}
+          {isOrganizer && guestListReviewYear(event) && (
+            <span
+              data-testid="guest-list-due"
+              style={{
+                fontSize: '0.7rem', fontWeight: 700, color: '#92400E',
+                background: '#FEF3C7', border: '1px solid #FDE68A',
+                borderRadius: '999px', padding: '0.1rem 0.45rem',
+              }}
+            >📋 Confirm {guestListReviewYear(event)} guests</span>
           )}
           {cancelled && (
             <span style={{

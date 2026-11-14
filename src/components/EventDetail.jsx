@@ -25,6 +25,8 @@ import { format } from 'date-fns';
 import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
 import { isRecurring, describeRecurrence } from '../lib/recurrence';
+import { normalizeGuestListReview, guestListReviewYear } from '../lib/guestListReview';
+import { GuestListReview } from './GuestListReview';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
@@ -2394,6 +2396,13 @@ export function EventDetail() {
               🔁 {describeRecurrence(event.recurrence)} · showing {event.occurrenceYear ?? format(date, 'yyyy')}
             </p>
           )}
+          {isOwner && isRecurring(event) && !event.dateTBD && normalizeGuestListReview(event.guestListReview) && (
+            <p data-testid="guest-list-status" style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
+              {guestListReviewYear(event)
+                ? `📋 The ${guestListReviewYear(event)} guest list is waiting for you to confirm it (under Details).`
+                : `✓ Guest list confirmed for ${event.occurrenceYear}. You’ll be asked again each year.`}
+            </p>
+          )}
           {normalizePollSeries(event.pollSeries) && (() => {
             // A round of a poll-based repeat: which round, how often, and the
             // way to the rounds either side of it.
@@ -3009,6 +3018,10 @@ export function EventDetail() {
               <h3 className={styles.sectionTitle}>About</h3>
               <p className={styles.description}>{event.description}</p>
             </div>
+          )}
+
+          {isOwner && guestListReviewYear(event) && (
+            <GuestListReview event={event} eventId={eventId} year={guestListReviewYear(event)} />
           )}
 
           <div className={styles.membersSection}>

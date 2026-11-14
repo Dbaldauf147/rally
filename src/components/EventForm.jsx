@@ -8,6 +8,7 @@ import {
   normalizeRecurrence,
   recurrenceFromDate,
 } from '../lib/recurrence';
+import { normalizeGuestListReview, guestListReviewForSave } from '../lib/guestListReview';
 import { CADENCES, normalizePollSeries, addMonthsYmd, sendDateLabel, pollWindow, windowLabel, previewDate } from '../lib/pollSeries';
 import { DEFAULT_REMINDER_INTERVALS } from '../lib/autoReminders';
 import styles from './EventForm.module.css';
@@ -81,6 +82,9 @@ export function EventForm({ event, onSave, onCancel }) {
   const [ruleTouched, setRuleTouched] = useState(!!savedRule);
   const [endsMode, setEndsMode] = useState(savedRule?.endYear != null ? 'year' : 'never');
   const [endYear, setEndYear] = useState(String(savedRule?.endYear ?? new Date().getFullYear() + 5));
+  // Yearly only: treat each year's guest list as a suggestion the organizer
+  // confirms before it carries over (lib/guestListReview.js).
+  const [confirmGuests, setConfirmGuests] = useState(!!normalizeGuestListReview(event?.guestListReview));
 
   // --- Poll-based repeat: the same event every so often, its date picked by a
   // poll each round (lib/pollSeries.js). Offered while the date is to be
@@ -182,6 +186,8 @@ export function EventForm({ event, onSave, onCancel }) {
     // null (not undefined) so saving an edit that turns repeating off actually
     // clears the rule on the stored doc.
     data.recurrence = dateTBD || !repeats || pollRepeat ? null : buildRule();
+    // Goes with the yearly rule: no rule, nothing to confirm each year.
+    data.guestListReview = guestListReviewForSave(!!data.recurrence && confirmGuests, event?.guestListReview, start?.getFullYear());
     // A round keeps its place in the series; turning the repeat off on the
     // latest round is how a series ends.
     data.pollSeries = pollRepeat ? { ...(savedSeries || { seriesId: '', round: 1 }), everyMonths } : null;
@@ -369,6 +375,22 @@ export function EventForm({ event, onSave, onCancel }) {
                   Your dashboard shows the next occurrence; the calendar shows every year.
                 </p>
               )}
+
+              <label className={styles.repeatOption} style={{ alignItems: 'flex-start' }}>
+                <input
+                  type="checkbox"
+                  checked={confirmGuests}
+                  onChange={e => setConfirmGuests(e.target.checked)}
+                  style={{ width: '16px', height: '16px', marginTop: '0.1rem', accentColor: '#4f46e5' }}
+                  data-testid="confirm-guests-toggle"
+                />
+                <span style={{ flex: 1, minWidth: 0, fontSize: '0.82rem' }}>
+                  Confirm the guest list each year
+                  <span className={styles.repeatHint} style={{ display: 'block', marginTop: '0.15rem' }}>
+                    Each year starts with last year’s guests as a suggestion. You tick who’s invited again, and RSVPs start fresh.
+                  </span>
+                </span>
+              </label>
             </div>
           )}
         </div>
