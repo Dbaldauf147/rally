@@ -68,6 +68,8 @@ export function EventForm({ event, onSave, onCancel }) {
     lodging: event?.planning?.lodging || false,
   });
   const togglePlanning = (key) => setPlanning(p => ({ ...p, [key]: !p[key] }));
+  // Adds the organizer's name-drawing panel to the event page (lib/secretSanta.js).
+  const [secretSanta, setSecretSanta] = useState(event?.secretSanta?.enabled === true);
 
   // The date field is our own control, so there is no native "required" bubble
   // to lean on. Submitting without a start date says so in the form instead.
@@ -183,6 +185,7 @@ export function EventForm({ event, onSave, onCancel }) {
       // all-day event clears the flag.
       data.allDay = allDay;
     }
+    data.secretSanta = secretSanta ? { enabled: true } : null;
     // null (not undefined) so saving an edit that turns repeating off actually
     // clears the rule on the stored doc.
     data.recurrence = dateTBD || !repeats || pollRepeat ? null : buildRule();
@@ -395,6 +398,19 @@ export function EventForm({ event, onSave, onCancel }) {
           )}
         </div>
       )}
+
+      <div className={styles.repeatBox}>
+        <label className={styles.repeatToggle} style={{ color: secretSanta ? '#B91C1C' : '#6b7280' }}>
+          <input type="checkbox" checked={secretSanta} onChange={e => setSecretSanta(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#B91C1C' }} data-testid="secret-santa-toggle" />
+          <span aria-hidden="true">🎅</span>
+          Secret Santa
+        </label>
+        {secretSanta && (
+          <p className={styles.repeatHint} style={{ margin: '0.4rem 0 0' }}>
+            Draw names on the event page: nobody gets their partner or the person they had last time. You review the draw, then email everyone their person with one button.
+          </p>
+        )}
+      </div>
 
       {dateTBD && (
         <div style={{ padding: '0.75rem', background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: '8px', fontSize: '0.82rem', color: '#4338CA' }}>

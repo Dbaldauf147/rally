@@ -27,6 +27,8 @@ import { ChatPanel } from './ChatPanel';
 import { isRecurring, describeRecurrence } from '../lib/recurrence';
 import { normalizeGuestListReview, guestListReviewYear } from '../lib/guestListReview';
 import { GuestListReview } from './GuestListReview';
+import { secretSantaEnabled } from '../lib/secretSanta';
+import { SecretSanta } from './SecretSanta';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
@@ -3022,6 +3024,16 @@ export function EventDetail() {
 
           {isOwner && guestListReviewYear(event) && (
             <GuestListReview event={event} eventId={eventId} year={guestListReviewYear(event)} />
+          )}
+
+          {isOwner && secretSantaEnabled(event) && !event.cancelled && (
+            <SecretSanta
+              event={event}
+              eventId={eventId}
+              user={user}
+              year={event.occurrenceYear ?? date.getFullYear()}
+              date={event.dateTBD ? null : date}
+            />
           )}
 
           <div className={styles.membersSection}>
