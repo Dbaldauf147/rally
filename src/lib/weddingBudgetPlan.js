@@ -316,6 +316,33 @@ export function calculatorTotals(categories, amounts, rate, included = {}) {
   return { subtotal, tax, total: subtotal + tax, filled, lines, food, foodLines, included: includedLines };
 }
 
+/* The same sums per category: what's typed on its lines, their sales tax, and
+   how many are answered. One entry per category, in the split's order. */
+export function calculatorGroupTotals(categories, amounts, rate, included = {}) {
+  return calculatorGroups(categories).map((g) => {
+    let subtotal = 0;
+    let tax = 0;
+    let filled = 0;
+    let priced = 0;
+    for (const l of g.lines) {
+      if (included?.[l.id]) { filled += 1; continue; }
+      const v = amounts?.[l.id];
+      if (v == null) continue;
+      filled += 1;
+      priced += 1;
+      subtotal += v;
+      if (l.taxed) tax += (v * (rate || 0)) / 100;
+    }
+    return { id: g.id, name: g.name, subtotal, tax, total: subtotal + tax, filled, priced, lines: g.lines.length };
+  });
+}
+
+/* The category that is the venue's own bill — site fee, catering, bar,
+   rentals: the first one named for the venue. Null when there isn't one. */
+export function venueGroupOf(groups) {
+  return (groups || []).find((g) => /\bvenue\b/i.test(String(g.name || ''))) || null;
+}
+
 /* Fill in every markup's % from the lines it's charged on. Markups can be
    charged on other markups (tax on the service charge), so they settle in
    dependency order; one caught in a loop counts as 0%. A line it names that
@@ -634,6 +661,10 @@ export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0
     return {
       id: q.id, name: q.name, savedAt: q.savedAt, ...t,
       foodPerPerson: guestN > 0 && t.foodLines > 0 ? t.food / guestN : null,
+      venuePerPerson: (() => {
+        const g = venueGroupOf(calculatorGroupTotals(categories, q.amounts, rate, q.included));
+        return g && g.priced > 0 && guestN > 0 ? { name: g.name, subtotal: g.subtotal / guestN, total: g.total / guestN } : null;
+      })(),
       perPerson: guestN > 0 && t.filled > 0 ? t.total / guestN : null,
       diff: budget > 0 && t.filled > 0 ? budget - t.total : null,
     };

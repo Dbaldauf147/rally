@@ -9,7 +9,7 @@ import {
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
   formatRate, guestCounts, headcount, plateAmount, resolveCategories,
   categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
-  saveVenueQuote, findVenueQuote, sameCalc, venueComparison,
+  saveVenueQuote, findVenueQuote, sameCalc, venueComparison, calculatorGroupTotals, venueGroupOf,
 } from '../lib/weddingBudgetPlan';
 import styles from './WeddingBudget.module.css';
 import navStyles from './WeddingDreamVenue.module.css';
@@ -738,6 +738,9 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
   const guestN = headcount(plan.guests, counts);
   const rate = plan.salesTax.rate;
   const t = calculatorTotals(cats, amounts, rate, included);
+  // Each category's own sum, shown under it and — for the venue's bill — per person.
+  const groupTotals = new Map(calculatorGroupTotals(cats, amounts, rate, included).map((g) => [g.id, g]));
+  const venueGroup = venueGroupOf([...groupTotals.values()]);
   const budgeted = (line) => {
     if (budget > 0) return formatMoney(amountFor(line.pct, budget));
     return '$0';
@@ -833,6 +836,17 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
                 )}
               </Fragment>
             ))}
+            {(() => {
+              const gt = groupTotals.get(g.id);
+              if (!gt || gt.priced === 0 || g.lines.length < 2) return null;
+              return (
+                <div className={styles.calcGroupSum} data-testid={`calc-group-${g.id}`}>
+                  <span>{g.name || 'Untitled'} total</span>
+                  <strong>{formatMoney(gt.subtotal) || '$0'}</strong>
+                  {guestN > 0 && <span className={styles.calcGroupPp}>{formatMoney(gt.subtotal / guestN) || '$0'} per person</span>}
+                </div>
+              );
+            })()}
           </div>
         ))}
       </div>
@@ -840,6 +854,12 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
         <div><dt>Subtotal</dt><dd data-testid="calc-subtotal">{formatMoney(t.subtotal) || '$0'}</dd></div>
         <div><dt>Sales tax{rate > 0 ? ` (${formatRate(rate)})` : ''}</dt><dd data-testid="calc-tax">{formatMoney(t.tax) || '$0'}</dd></div>
         <div className={styles.calcGrand}><dt>Total fee</dt><dd data-testid="calc-total">{formatMoney(t.total) || '$0'}</dd></div>
+        {venueGroup && venueGroup.priced > 0 && guestN > 0 && (
+          <div className={styles.calcVenuePp}>
+            <dt>{venueGroup.name} — per person<span className={styles.calcSmall}>{formatMoney(venueGroup.subtotal) || '$0'} ÷ {guestN} guests{venueGroup.tax > 0 ? `, ${formatMoney(venueGroup.total / guestN)} with tax` : ''}</span></dt>
+            <dd data-testid="calc-venue-pp">{formatMoney(venueGroup.subtotal / guestN) || '$0'}</dd>
+          </div>
+        )}
         {t.foodLines > 0 && guestN > 0 && (
           <div><dt>Food per person</dt><dd data-testid="calc-food-pp">{formatMoney(t.food / guestN) || '$0'}</dd></div>
         )}
@@ -994,6 +1014,13 @@ function VenueCompare({ plan, update, counts, onOpen }) {
               <td className={styles.footNumLight}>{budget > 0 && guestN > 0 ? formatMoney(budget / guestN) : '—'}</td>
               {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.perPerson == null ? '—' : formatMoney(v.perPerson)}</td>)}
             </tr>
+            {c.venues.some((v) => v.venuePerPerson) && (
+              <tr className={styles.compareSub}>
+                <td className={styles.footLabel}>{c.venues.find((v) => v.venuePerPerson).venuePerPerson.name} per person <span className={styles.compareSmall}>before tax</span></td>
+                <td />
+                {c.venues.map((v) => <td key={v.id} className={styles.footNumLight} data-testid={`compare-venue-pp-${v.name}`}>{v.venuePerPerson ? formatMoney(v.venuePerPerson.subtotal) || '$0' : '—'}</td>)}
+              </tr>
+            )}
             <tr className={styles.compareSub}>
               <td className={styles.footLabel}>Food per person <span className={styles.compareSmall}>before tax</span></td>
               <td />

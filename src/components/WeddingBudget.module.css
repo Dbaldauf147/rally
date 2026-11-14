@@ -230,3 +230,13 @@
 .compareTable tfoot tr:first-child td { border-top: 2px solid var(--color-border); padding-top: 0.5rem; }
 .compareTotalLow { font-weight: 750; color: var(--color-success, #15803d); }
 .compareSmall { font-weight: 500; font-size: 0.72rem; color: var(--color-text-muted); }
+
+/* A category's own sum under its lines, and the venue bill per person. */
+.calcGroupSum { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.15rem 0.5rem; justify-content: flex-end; margin: 0.25rem 1.75rem 0.1rem 0.6rem; padding-top: 0.25rem; border-top: 1px dashed var(--color-border); font-size: 0.76rem; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.calcGroupSum span:first-child { margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+.calcGroupSum strong { color: var(--color-text); }
+.calcGroupPp { flex-basis: 100%; text-align: right; font-weight: 650; color: var(--color-accent); }
+.calcVenuePp { align-items: flex-start; padding: 0.35rem 0 !important; margin-top: 0.3rem; border-top: 1px dashed var(--color-border); }
+.calcVenuePp dt { color: var(--color-text) !important; font-weight: 650; }
+.calcVenuePp dd { font-size: 1rem; font-weight: 750 !important; color: var(--color-accent); }
+.calcSmall { display: block; font-size: 0.7rem; font-weight: 400; color: var(--color-text-muted); }
