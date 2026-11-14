@@ -256,7 +256,13 @@ export function normalizePlan(raw) {
    What each line actually costs, typed in (a quote, an invoice), added up to
    the total fee. Kept apart from the % split on purpose: the split is the
    plan, this is the bill. `amounts` is { [line id]: dollars }; a line with
-   items is its items, one without is the category itself. */
+   items is its items, one without is the category itself.
+
+   A line can be priced per person instead of as a flat fee ("$185 a head"):
+   `perPerson` is { [line id]: dollars per guest }, and what it comes to is
+   that times the guest count, worked out on read (calcDollars) so it follows
+   the count as the list changes. A line is in one place only: included, per
+   person, or flat. */
 function normalizeCalculator(raw) {
   const amounts = {};
   const src = raw && typeof raw === 'object' && raw.amounts && typeof raw.amounts === 'object' ? raw.amounts : {};
@@ -271,7 +277,49 @@ function normalizeCalculator(raw) {
   for (const [id, v] of Object.entries(inc)) {
     if (id && v === true) { included[id] = true; delete amounts[id]; }
   }
-  return { amounts, included };
+  const perPerson = {};
+  const pp = raw && typeof raw === 'object' && raw.perPerson && typeof raw.perPerson === 'object' ? raw.perPerson : {};
+  for (const [id, v] of Object.entries(pp)) {
+    const n = money(v);
+    if (!id || n == null || included[id]) continue;
+    perPerson[id] = n;
+    delete amounts[id];
+  }
+  return { amounts, included, perPerson };
+}
+
+/* An empty calculator. */
+export const emptyCalculator = () => ({ amounts: {}, included: {}, perPerson: {} });
+
+/* A calculator (or a saved venue) as plain dollars per line: the flat amounts,
+   plus each per-person line at its price times the guest count. This is what
+   the totals and the comparison add up. */
+export function calcDollars(calc, guestN = 0) {
+  const out = { ...(calc?.amounts || {}) };
+  const n = Math.max(0, Number(guestN) || 0);
+  for (const [id, price] of Object.entries(calc?.perPerson || {})) out[id] = price * n;
+  return out;
+}
+
+/* Switch one line between a flat fee and a per-person price, keeping what it
+   comes to: $60,000 flat for 200 guests becomes $300 a person, and back. With
+   no guest count there is nothing to divide by, so the number moves as typed. */
+export function toggleCalcPerPerson(calc, id, guestN = 0) {
+  const c = normalizeCalculator(calc);
+  const n = Math.max(0, Number(guestN) || 0);
+  const cents = (v) => Math.round(v * 100) / 100;
+  if (id in c.perPerson) {
+    const price = c.perPerson[id];
+    delete c.perPerson[id];
+    c.amounts[id] = n > 0 ? cents(price * n) : price;
+    return c;
+  }
+  const flat = c.amounts[id];
+  delete c.amounts[id];
+  delete c.included[id];
+  // No number yet: the line is still switched, waiting for its price.
+  c.perPerson[id] = flat == null ? 0 : (n > 0 ? cents(flat / n) : flat);
+  return c;
 }
 
 /* Is this a food line? One priced per plate in the split, or named like one.
@@ -564,7 +612,7 @@ export function formatRate(n) {
    The calculator's amounts, saved under a venue's name so several venues can
    be held side by side (Budget → Venue cost comparison):
 
-     venueQuotes: [{ id, name, amounts: { [line id]: dollars }, savedAt }]
+     venueQuotes: [{ id, name, amounts: { [line id]: dollars }, included, perPerson, savedAt }]
 
    Amounts are keyed by budget line, like the calculator's, so every venue is
    priced against the same lines and the same sales-tax ticks. */
@@ -593,7 +641,7 @@ export function findVenueQuote(quotes, name) {
 export function saveVenueQuote(quotes, name, calc, now = new Date()) {
   const clean = String(name || '').trim();
   if (!clean) return quotes || [];
-  // `calc` is the calculator ({ amounts, included }); a bare amounts map is taken as one.
+  // `calc` is the calculator ({ amounts, included, perPerson }); a bare amounts map is taken as one.
   const whole = calc && typeof calc.amounts === 'object' && calc.amounts !== null ? calc : { amounts: calc };
   const entry = { name: clean, ...normalizeCalculator(whole), savedAt: now.toISOString() };
   const existing = findVenueQuote(quotes, clean);
@@ -610,12 +658,16 @@ export function sameAmounts(a, b) {
   return [...keys].every((k) => x[k] === y[k]);
 }
 
-/* The same, for a whole calculator or saved venue: amounts and included lines. */
+/* The same, for a whole calculator or saved venue: amounts, included lines
+   and per-person prices. */
 export function sameCalc(a, b) {
   const x = normalizeCalculator(a);
   const y = normalizeCalculator(b);
   const inc = new Set([...Object.keys(x.included), ...Object.keys(y.included)]);
-  return sameAmounts(x.amounts, y.amounts) && [...inc].every((k) => !!x.included[k] === !!y.included[k]);
+  const pp = new Set([...Object.keys(x.perPerson), ...Object.keys(y.perPerson)]);
+  return sameAmounts(x.amounts, y.amounts)
+    && [...inc].every((k) => !!x.included[k] === !!y.included[k])
+    && [...pp].every((k) => x.perPerson[k] === y.perPerson[k]);
 }
 
 /* The comparison table. `categories` are the resolved split, `budget` the
@@ -623,7 +675,8 @@ export function sameCalc(a, b) {
 
    rows:   the budget lines at least one venue has a price for, in the split's
            order — { kind: 'category' | 'line', id, name, budgeted, amounts: [n|null per venue],
-           included: [bool per venue], low }
+           included: [bool per venue], perPerson: [price|null per venue], low }
+           amounts are dollars; a line a venue prices per person is its price × the guests
            where `low` is the index of the cheapest venue on that line (null on a tie or with
            one price); a line a venue includes counts as $0 there
    venues: per venue { id, name, savedAt, subtotal, tax, total, filled, perPerson, diff,
@@ -632,9 +685,11 @@ export function sameCalc(a, b) {
    cheapest: id of the venue with the lowest total among those with any price */
 export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0) {
   const list = quotes || [];
+  // Each venue's lines in dollars, per-person prices multiplied out.
+  const dollars = list.map((q) => calcDollars(q, guestN));
   const rows = [];
   for (const g of calculatorGroups(categories)) {
-    const lines = g.lines.filter((l) => list.some((q) => q.amounts[l.id] != null || q.included?.[l.id]));
+    const lines = g.lines.filter((l) => list.some((q, i) => dollars[i][l.id] != null || q.included?.[l.id]));
     if (lines.length === 0) continue;
     const byId = new Map((categories.find((c) => c.id === g.id)?.items || []).map((i) => [i.id, i]));
     const cat = categories.find((c) => c.id === g.id);
@@ -642,7 +697,8 @@ export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0
     if (!standalone) rows.push({ kind: 'category', id: `cat-${g.id}`, name: g.name || 'Untitled' });
     for (const l of lines) {
       const included = list.map((q) => !!q.included?.[l.id]);
-      const amounts = list.map((q, i) => (included[i] || q.amounts[l.id] == null ? null : q.amounts[l.id]));
+      const amounts = list.map((q, i) => (included[i] || dollars[i][l.id] == null ? null : dollars[i][l.id]));
+      const perPerson = list.map((q, i) => (!included[i] && q.perPerson?.[l.id] != null ? q.perPerson[l.id] : null));
       const priced = amounts.map((v, i) => [included[i] ? 0 : v, i]).filter(([v]) => v != null);
       const min = Math.min(...priced.map(([v]) => v));
       const lows = priced.filter(([v]) => v === min);
@@ -652,17 +708,18 @@ export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0
         budgeted: budget > 0 ? amountFor(pct, budget) : null,
         amounts,
         included,
+        perPerson,
         low: priced.length > 1 && lows.length === 1 ? lows[0][1] : null,
       });
     }
   }
-  const venues = list.map((q) => {
-    const t = calculatorTotals(categories, q.amounts, rate, q.included);
+  const venues = list.map((q, qi) => {
+    const t = calculatorTotals(categories, dollars[qi], rate, q.included);
     return {
       id: q.id, name: q.name, savedAt: q.savedAt, ...t,
       foodPerPerson: guestN > 0 && t.foodLines > 0 ? t.food / guestN : null,
       venuePerPerson: (() => {
-        const g = venueGroupOf(calculatorGroupTotals(categories, q.amounts, rate, q.included));
+        const g = venueGroupOf(calculatorGroupTotals(categories, dollars[qi], rate, q.included));
         return g && g.priced > 0 && guestN > 0 ? { name: g.name, subtotal: g.subtotal / guestN, total: g.total / guestN } : null;
       })(),
       perPerson: guestN > 0 && t.filled > 0 ? t.total / guestN : null,

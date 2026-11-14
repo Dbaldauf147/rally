@@ -9,7 +9,7 @@ import {
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
   formatRate, guestCounts, headcount, plateAmount, resolveCategories,
   categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
-  saveVenueQuote, findVenueQuote, sameCalc, venueComparison, calculatorGroupTotals, venueGroupOf,
+  saveVenueQuote, findVenueQuote, sameCalc, calcDollars, toggleCalcPerPerson, emptyCalculator, venueComparison, calculatorGroupTotals, venueGroupOf,
 } from '../lib/weddingBudgetPlan';
 import styles from './WeddingBudget.module.css';
 import navStyles from './WeddingDreamVenue.module.css';
@@ -733,9 +733,11 @@ function Split({ plan, update, counts }) {
 function Calculator({ plan, update, counts, venueNames, onCompare }) {
   const { amount: budget } = effectiveTotal(plan);
   const cats = resolveCategories(plan.categories, budget, headcount(plan.guests, counts));
-  const amounts = plan.calculator.amounts;
   const included = plan.calculator.included;
+  const perPerson = plan.calculator.perPerson;
   const guestN = headcount(plan.guests, counts);
+  // Every line in dollars: flat fees as typed, per-person prices × the guests.
+  const amounts = calcDollars(plan.calculator, guestN);
   const rate = plan.salesTax.rate;
   const t = calculatorTotals(cats, amounts, rate, included);
   // Each category's own sum, shown under it and — for the venue's bill — per person.
@@ -745,23 +747,30 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
     if (budget > 0) return formatMoney(amountFor(line.pct, budget));
     return '$0';
   };
+  const budgetedEach = (line) => (budget > 0 && guestN > 0 ? formatMoney(amountFor(line.pct, budget) / guestN) || '$0' : '$0');
   const byId = new Map(cats.flatMap((c) => (c.items.length ? c.items : [c])).map((l) => [l.id, l]));
   const setAmount = (id, v) => update((p) => {
     const next = { ...p.calculator.amounts };
     if (v == null) delete next[id]; else next[id] = v;
     return { ...p, calculator: { ...p.calculator, amounts: next } };
   });
+  // A per-person line keeps its switch when the box is cleared ($0 a head).
+  const setPrice = (id, v) => update((p) => ({
+    ...p, calculator: { ...p.calculator, perPerson: { ...p.calculator.perPerson, [id]: v ?? 0 } },
+  }));
+  const togglePerPerson = (id) => update((p) => ({ ...p, calculator: toggleCalcPerPerson(p.calculator, id, guestN) }));
   // "Included": the venue's price already covers this line. It carries no
   // amount of its own; unticking brings the empty box back.
   const setIncluded = (id, on) => update((p) => {
     const inc = { ...p.calculator.included };
     const amt = { ...p.calculator.amounts };
-    if (on) { inc[id] = true; delete amt[id]; } else delete inc[id];
-    return { ...p, calculator: { amounts: amt, included: inc } };
+    const pp = { ...p.calculator.perPerson };
+    if (on) { inc[id] = true; delete amt[id]; delete pp[id]; } else delete inc[id];
+    return { ...p, calculator: { amounts: amt, included: inc, perPerson: pp } };
   });
   const clear = () => {
     if (!t.filled || !window.confirm('Clear every amount in the calculator?')) return;
-    update((p) => ({ ...p, calculator: { amounts: {}, included: {} } }));
+    update((p) => ({ ...p, calculator: emptyCalculator() }));
   };
   const diff = budget > 0 ? budget - t.total : null;
 
@@ -779,7 +788,7 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
   const loadVenue = (q) => {
     const unsaved = t.filled > 0 && !quotes.some((x) => sameCalc(x, plan.calculator));
     if (unsaved && !window.confirm(`Replace what's in the calculator with ${q.name}'s pricing? What's typed now isn't saved under any venue.`)) return;
-    update((p) => ({ ...p, calculator: { amounts: { ...q.amounts }, included: { ...q.included } } }));
+    update((p) => ({ ...p, calculator: { amounts: { ...q.amounts }, included: { ...q.included }, perPerson: { ...q.perPerson } } }));
     setVenueName(q.name);
     setSavedNote('');
   };
@@ -794,7 +803,7 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
         <h2 className={styles.cardTitle}>Calculator</h2>
         {t.filled > 0 && <button type="button" className={styles.link} onClick={clear}>Clear</button>}
       </div>
-      <p className={styles.cardHint}>Type what each line costs to get the total fee. The grey figure is what the split budgets for it; sales tax is added to the lines ticked for it in the split.</p>
+      <p className={styles.cardHint}>Type what each line costs to get the total fee. Press 👤 on a line to price it per person instead of as a flat fee. The grey figure is what the split budgets for it; sales tax is added to the lines ticked for it in the split.</p>
       <div className={styles.calcIncHead} aria-hidden="true">Incl.</div>
       <div className={styles.calcList}>
         {calculatorGroups(cats).map((g) => (
@@ -809,6 +818,15 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
                     </span>
                     {included[l.id] ? (
                       <span className={styles.calcIncluded} data-testid={`calc-included-${l.id}`}>Included</span>
+                    ) : l.id in perPerson ? (
+                      <NumberField
+                        {...moneyField}
+                        className={`${styles.calcNum} ${styles.calcNumPp}`}
+                        label={`${l.name || 'Line'} cost per person`}
+                        placeholder={guestN > 0 ? budgetedEach(byId.get(l.id) || { pct: 0 }) : '$0'}
+                        value={perPerson[l.id] || null}
+                        onCommit={(v) => setPrice(l.id, v)}
+                      />
                     ) : (
                       <NumberField
                         {...moneyField}
@@ -820,6 +838,15 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
                       />
                     )}
                   </label>
+                  <button
+                    type="button"
+                    className={l.id in perPerson ? styles.calcPpOn : styles.calcPpBtn}
+                    aria-pressed={l.id in perPerson}
+                    aria-label={`${l.name || 'Line'} priced per person`}
+                    data-testid={`calc-pp-toggle-${l.id}`}
+                    title={l.id in perPerson ? 'Per person — click to go back to a flat fee' : 'Price this per person instead of a flat fee'}
+                    onClick={() => togglePerPerson(l.id)}
+                  >👤</button>
                   <input
                     type="checkbox"
                     className={styles.calcIncCheck}
@@ -829,7 +856,13 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
                     onChange={(e) => setIncluded(l.id, e.target.checked)}
                   />
                 </div>
-                {l.food && amounts[l.id] != null && guestN > 0 && (
+                {l.id in perPerson ? (
+                  <div className={styles.calcPerPerson} data-testid={`calc-pp-${l.id}`}>
+                    {guestN > 0
+                      ? <>per person × {guestN} guests = <strong>{formatMoney(amounts[l.id]) || '$0'}</strong></>
+                      : 'per person — set a guest count beside the total budget'}
+                  </div>
+                ) : l.food && amounts[l.id] != null && guestN > 0 && (
                   <div className={styles.calcPerPerson} data-testid={`calc-pp-${l.id}`}>
                     {formatMoney(amounts[l.id] / guestN) || '$0'} per person × {guestN} guests
                   </div>
@@ -903,7 +936,7 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
             {quotes.map((q) => (
               <li key={q.id} data-testid={`venue-quote-${q.name}`}>
                 <button type="button" className={styles.venueLoad} title={`Put ${q.name}'s pricing in the calculator`} onClick={() => loadVenue(q)}>{q.name}</button>
-                <span className={styles.venueTotal}>{formatMoney(calculatorTotals(cats, q.amounts, rate, q.included).total) || '$0'}</span>
+                <span className={styles.venueTotal}>{formatMoney(calculatorTotals(cats, calcDollars(q, guestN), rate, q.included).total) || '$0'}</span>
                 <button type="button" className={styles.remove} title={`Delete ${q.name}`} aria-label={`Delete ${q.name}`} onClick={() => removeVenue(q)}>×</button>
               </li>
             ))}
@@ -931,9 +964,9 @@ function VenueCompare({ plan, update, counts, onOpen }) {
   const open = (v) => {
     const q = plan.venueQuotes.find((x) => x.id === v.id);
     const calc = plan.calculator;
-    const unsaved = Object.keys(calc.amounts).length + Object.keys(calc.included).length > 0 && !plan.venueQuotes.some((x) => sameCalc(x, calc));
+    const unsaved = Object.keys(calc.amounts).length + Object.keys(calc.included).length + Object.keys(calc.perPerson).length > 0 && !plan.venueQuotes.some((x) => sameCalc(x, calc));
     if (unsaved && !window.confirm(`Replace what's in the calculator with ${v.name}'s pricing? What's typed there now isn't saved under any venue.`)) return;
-    update((p) => ({ ...p, calculator: { amounts: { ...q.amounts }, included: { ...q.included } } }));
+    update((p) => ({ ...p, calculator: { amounts: { ...q.amounts }, included: { ...q.included }, perPerson: { ...q.perPerson } } }));
     onOpen();
   };
 
@@ -983,7 +1016,10 @@ function VenueCompare({ plan, update, counts, onOpen }) {
                 <td className={r.standalone ? styles.compareCatLine : styles.compareLine} title={r.name}>{r.name}</td>
                 <td className={styles.compareBudget}>{cell(r.budgeted)}</td>
                 {r.amounts.map((v, i) => (
-                  <td key={c.venues[i].id} className={r.low === i ? styles.compareLow : styles.compareNum}>{r.included[i] ? 'Included' : cell(v)}</td>
+                  <td key={c.venues[i].id} className={r.low === i ? styles.compareLow : styles.compareNum}>
+                    {r.included[i] ? 'Included' : cell(v)}
+                    {r.perPerson[i] != null && <span className={styles.compareEach}>{formatMoney(r.perPerson[i]) || '$0'} per person</span>}
+                  </td>
                 ))}
               </tr>
             )))}
