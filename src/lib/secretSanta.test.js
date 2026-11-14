@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  secretSantaEnabled, resolvePerson, partnersOf, defaultParticipants, lastDraw,
+  looksLikeGiftExchange, secretSantaEnabled, resolvePerson, partnersOf, defaultParticipants, lastDraw,
   buildExclusions, drawNames, drawProblems, drawMatchesParticipants, planSecretSantaSend,
 } from './secretSanta';
 import { secretSantaEmail } from './secretSantaEmail';
@@ -194,5 +194,12 @@ describe('secretSantaEmail', () => {
     expect(html).toContain('Bob &lt;b&gt;');
     expect(html).toContain('$50 limit');
     expect(html).toContain('Friday');
+  });
+});
+
+describe('looksLikeGiftExchange', () => {
+  it('spots a gift-exchange title and leaves other events alone', () => {
+    for (const t of ['Secret Santa', 'Family Christmas 2026', 'Xmas Round 2', 'Office white elephant', 'secretsanta']) expect(looksLikeGiftExchange(t), t).toBe(true);
+    for (const t of ['Guys night', 'Santa Fe trip', 'July 4th BBQ', '', null]) expect(looksLikeGiftExchange(t), String(t)).toBe(false);
   });
 });

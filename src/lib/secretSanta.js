@@ -28,6 +28,11 @@ export function secretSantaEnabled(event) {
   return event?.secretSanta?.enabled === true;
 }
 
+/** A title that reads like a gift exchange — the event page then offers to set one up. */
+export function looksLikeGiftExchange(title) {
+  return /\b(secret\s*santa|christmas|xmas|x-mas|holiday party|gift (exchange|swap)|white elephant|yankee swap)\b/i.test(String(title || ''));
+}
+
 const memberEntries = (members) =>
   Object.entries(members && typeof members === 'object' ? members : {}).filter(([, m]) => m && typeof m === 'object');
 
