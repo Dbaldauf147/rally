@@ -1,12 +1,162 @@
 import { useMemo, useState } from 'react';
 import { personLabel, resolvePerson } from '../lib/secretSanta';
-import { parsePastDraws, namesIn, importCandidates, matchName, importedPairs } from '../lib/secretSantaImport';
+import { format } from 'date-fns';
+import { parsePastDraws, namesIn, importCandidates, matchName, importedPairs, editedPairs, drawYears } from '../lib/secretSantaImport';
+import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
+import { DateField } from './DateField';
 
-// Past draws for this event, under the Secret Santa panel: what's saved for
-// each earlier year, and a way to load draws from before Rally by pasting them
-// in. The most recent earlier year is what "had last time" is read from.
-export function SecretSantaHistory({ history, members, friends, year, saveYear, busy }) {
-  const [openYear, setOpenYear] = useState(null);
+// The event's "Santa History" tab (organizer only): every past draw — who
+// picked whom, and when — each one editable, plus loading draws from before
+// Rally by pasting them in. The most recent earlier year is what the draw's
+// "had last time" rule reads from.
+export function SecretSantaHistoryTab({ event, eventId, user, friends, year }) {
+  const { history, loadError, saveYear } = useSecretSantaHistory(user, eventId);
+  const members = useMemo(
+    () => Object.fromEntries(Object.entries(event.members || {}).filter(([, m]) => m && typeof m === 'object')),
+    [event.members],
+  );
+  return (
+    <div data-testid="ss-history-tab" style={{ maxWidth: '760px' }}>
+      <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#991B1B' }}>🎅 Secret Santa history</h3>
+      <p style={hint}>
+        Who picked whom in earlier years. Only you can see this. The most recent year is the one nobody can repeat in the {year} draw.
+      </p>
+      {loadError && <p style={{ ...hint, color: '#B91C1C' }}>Couldn’t load the history: {loadError}</p>}
+      {history === null && !loadError
+        ? <p style={hint}>Loading…</p>
+        : <SecretSantaHistory history={history || {}} members={members} friends={friends} year={year} saveYear={saveYear} />}
+    </div>
+  );
+}
+
+const blankRow = () => ({ id: Math.random().toString(36).slice(2), giver: '', receiver: '' });
+
+// One year's draw: the picks, and an edit mode for changing any of it.
+function YearCard({ y, record, isLatest, label, candidates, year, takenYears, saveYear, startEditing = false, onDone }) {
+  const [editing, setEditing] = useState(startEditing);
+  const isNew = y === null;
+  const initialRows = () => (record?.pairs || []).map((p) => ({
+    ...blankRow(), giver: label(p.giver), receiver: label(p.receiver),
+    giverWas: label(p.giver), receiverWas: label(p.receiver), giverRef: p.giver, receiverRef: p.receiver,
+  })).concat(isNew ? [blankRow(), blankRow(), blankRow()] : []);
+  // A brand-new year opens straight into edit mode, with a few empty rows.
+  const [rows, setRows] = useState(() => (startEditing ? initialRows() : []));
+  const [yearText, setYearText] = useState(String(y ?? ''));
+  const [dateText, setDateText] = useState(record?.date || '');
+  const [title, setTitle] = useState(record?.title || '');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  function begin() {
+    setRows(initialRows());
+    setYearText(String(y ?? ''));
+    setDateText(record?.date || '');
+    setTitle(record?.title || '');
+    setError('');
+    setEditing(true);
+  }
+
+  const patchRow = (id, patch) => setRows((list) => list.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+
+  async function save() {
+    const newYear = Number(yearText);
+    if (!Number.isInteger(newYear) || newYear < 1900) { setError('Enter the year of this draw.'); return; }
+    if (newYear >= year) { setError(`History is for years before ${year} — this year’s draw is on the People & Poll tab.`); return; }
+    if (newYear !== y && takenYears.includes(newYear)) { setError(`There is already a draw saved for ${newYear}.`); return; }
+    const out = editedPairs(rows, candidates);
+    if (out.error) { setError(out.error); return; }
+    setSaving(true);
+    setError('');
+    try {
+      const next = { ...(record || {}), pairs: out.pairs, title: title.trim(), editedAt: new Date().toISOString() };
+      if (dateText) next.date = dateText; else delete next.date;
+      await saveYear(newYear, next);
+      if (!isNew && newYear !== y) await saveYear(y, {});
+      setEditing(false);
+      onDone?.();
+    } catch (err) {
+      setError(`Couldn't save: ${err.message || err}`);
+    }
+    setSaving(false);
+  }
+
+  async function removeYear() {
+    if (!window.confirm(`Delete the ${y} draw from the history?`)) return;
+    try { await saveYear(y, {}); } catch (err) { setError(`Couldn't delete: ${err.message || err}`); }
+  }
+
+  const when = record?.date ? format(new Date(`${record.date}T12:00:00`), 'EEEE, MMMM d, yyyy') : '';
+  const stamp = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : format(d, 'MMM d, yyyy'); };
+  const source = record?.drawnAt ? `drawn in Rally ${stamp(record.drawnAt)}`
+    : record?.imported ? `loaded${record.importedAt ? ` ${stamp(record.importedAt)}` : ' from a past draw'}`
+      : record?.manual ? 'entered by hand' : '';
+
+  return (
+    <div data-testid={isNew ? 'ss-year-new' : `ss-past-${y}`} style={card}>
+      {!editing ? (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '1rem', fontWeight: 700, color: '#1F2937' }}>{y}</span>
+            {record.title && <span style={{ fontSize: '0.84rem', color: '#4B5563' }}>{record.title}</span>}
+            {isLatest && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#991B1B', background: '#FEE2E2', borderRadius: '999px', padding: '0.1rem 0.5rem' }}>used as “last time”</span>}
+            <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
+              <button type="button" style={link} data-testid={`ss-edit-${y}`} onClick={begin}>Edit</button>
+              <button type="button" style={{ ...link, color: '#6B7280' }} onClick={removeYear}>Delete</button>
+            </span>
+          </div>
+          <div data-testid={`ss-when-${y}`} style={{ fontSize: '0.78rem', color: '#6B7280', margin: '0.15rem 0 0.5rem' }}>
+            {[when || `Year ${y}`, `${record.pairs.length} picks`, source, record.editedAt ? `edited ${stamp(record.editedAt)}` : ''].filter(Boolean).join(' · ')}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.15rem 1rem' }}>
+            {record.pairs.map((p, i) => (
+              <div key={i} style={{ fontSize: '0.86rem', padding: '0.1rem 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontWeight: 600 }}>{label(p.giver)}</span> <span style={{ color: '#9CA3AF' }}>→</span> {label(p.receiver)}
+              </div>
+            ))}
+          </div>
+          {error && <p style={{ ...hint, color: '#B91C1C' }}>{error}</p>}
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+            <label style={field}>Year
+              <input type="number" value={yearText} onChange={(e) => setYearText(e.target.value)} data-testid="ss-edit-year" style={{ ...input, width: '5.5rem' }} />
+            </label>
+            <label style={{ ...field, flex: '0 1 11rem' }}>Date (optional)
+              <DateField value={dateText} onChange={(e) => setDateText(e.target.value)} aria-label="Date of this draw" style={{ ...input, background: "#fff", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.4rem", width: "100%" }} />
+            </label>
+            <label style={{ ...field, flex: '1 1 10rem' }}>Name (optional)
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Secret Santa 2025" style={input} />
+            </label>
+          </div>
+          <datalist id="ss-people">
+            {candidates.map((c) => <option key={c.id} value={c.name || c.email} />)}
+          </datalist>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginBottom: '0.5rem' }}>
+            {rows.map((r) => (
+              <div key={r.id} data-testid="ss-edit-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                <input list="ss-people" value={r.giver} onChange={(e) => patchRow(r.id, { giver: e.target.value })} placeholder="Who drew" aria-label="Who drew" style={{ ...input, flex: 1, minWidth: 0 }} />
+                <span style={{ color: '#9CA3AF', fontSize: '0.8rem', flexShrink: 0 }}>drew</span>
+                <input list="ss-people" value={r.receiver} onChange={(e) => patchRow(r.id, { receiver: e.target.value })} placeholder="Whom" aria-label="Whom they drew" style={{ ...input, flex: 1, minWidth: 0 }} />
+                <button type="button" title="Remove this pick" aria-label="Remove this pick" onClick={() => setRows((list) => list.filter((x) => x.id !== r.id))} style={{ border: 'none', background: 'none', color: '#9CA3AF', fontSize: '1.1rem', cursor: 'pointer', padding: '0 0.25rem', flexShrink: 0 }}>×</button>
+              </div>
+            ))}
+          </div>
+          <button type="button" style={link} data-testid="ss-edit-add" onClick={() => setRows((list) => [...list, blankRow()])}>+ Add a pick</button>
+          <p style={hint}>Pick a name from the list (your guests and friends) or type anyone else’s.</p>
+          {error && <p data-testid="ss-edit-error" style={{ ...hint, color: '#B91C1C' }}>{error}</p>}
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+            <button type="button" style={{ ...secondary, opacity: saving ? 0.5 : 1 }} disabled={saving} data-testid="ss-edit-save" onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
+            <button type="button" style={{ ...link, color: '#6B7280' }} onClick={() => { setEditing(false); onDone?.(); }}>Cancel</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SecretSantaHistory({ history, members, friends, year, saveYear }) {
+  const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [text, setText] = useState('');
   const [draws, setDraws] = useState(null); // parsed, each with { include, year }
@@ -14,9 +164,7 @@ export function SecretSantaHistory({ history, members, friends, year, saveYear, 
   const [message, setMessage] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const pastYears = Object.keys(history || {}).map(Number)
-    .filter((y) => Number.isFinite(y) && y < year && history[y]?.pairs?.length > 0)
-    .sort((a, b) => b - a);
+  const pastYears = drawYears(history, year);
   const candidates = useMemo(() => importCandidates(members, friends), [members, friends]);
   const chosen = (draws || []).filter((d) => d.include);
   const names = useMemo(() => namesIn((draws || []).filter((d) => d.include)), [draws]);
@@ -62,7 +210,7 @@ export function SecretSantaHistory({ history, members, friends, year, saveYear, 
     setMessage(null);
     try {
       for (const d of chosen) {
-        await saveYear(Number(d.year), { pairs: importedPairs(d, mapping, candidates), imported: true, title: d.title || '' });
+        await saveYear(Number(d.year), { pairs: importedPairs(d, mapping, candidates), imported: true, importedAt: new Date().toISOString(), title: d.title || '' });
       }
       setMessage({ type: 'ok', text: `Loaded ${chosen.length} past ${chosen.length === 1 ? 'draw' : 'draws'}: ${[...years].sort((a, b) => b - a).join(', ')}.` });
       setDraws(null);
@@ -74,38 +222,30 @@ export function SecretSantaHistory({ history, members, friends, year, saveYear, 
     setSaving(false);
   }
 
-  async function remove(y) {
-    if (!window.confirm(`Remove the saved ${y} draw?`)) return;
-    try { await saveYear(y, {}); } catch (err) { setMessage({ type: 'error', text: `Couldn't remove: ${err.message || err}` }); }
-  }
-
   const unmatched = names.filter((n) => !mapping[n]);
 
   return (
-    <div data-testid="ss-history" style={{ marginTop: '0.9rem', paddingTop: '0.75rem', borderTop: '1px solid #FECACA' }}>
-      <div style={subhead}>Past draws</div>
-      {pastYears.length === 0 && <p style={hint}>None saved yet. Load earlier years so nobody gets the same person twice running.</p>}
+    <div data-testid="ss-history">
+      {pastYears.length === 0 && !adding && <p style={hint}>Nothing saved yet. Load earlier years, or add one by hand, so nobody gets the same person twice running.</p>}
       {pastYears.map((y) => (
-        <div key={y} data-testid={`ss-past-${y}`} style={{ marginBottom: '0.3rem', fontSize: '0.84rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600 }}>{y}</span>
-            <span style={{ color: '#6B7280', fontSize: '0.78rem' }}>
-              {history[y].pairs.length} picks{history[y].title ? ` · ${history[y].title}` : ''}{y === pastYears[0] ? ' · used as “last time”' : ''}
-            </span>
-            <button type="button" style={link} onClick={() => setOpenYear(openYear === y ? null : y)}>{openYear === y ? 'hide' : 'view'}</button>
-            <button type="button" style={{ ...link, color: '#6B7280' }} disabled={busy || saving} onClick={() => remove(y)}>remove</button>
-          </div>
-          {openYear === y && (
-            <div style={{ margin: '0.3rem 0 0.5rem', padding: '0.5rem 0.7rem', background: '#fff', border: '1px solid #FECACA', borderRadius: '8px' }}>
-              {history[y].pairs.map((p, i) => (
-                <div key={i} style={{ fontSize: '0.82rem', padding: '0.1rem 0' }}>
-                  <span style={{ fontWeight: 600 }}>{label(p.giver)}</span> <span style={{ color: '#9CA3AF' }}>→</span> {label(p.receiver)}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <YearCard
+          key={y}
+          y={y}
+          record={history[y]}
+          isLatest={y === pastYears[0]}
+          label={label}
+          candidates={candidates}
+          year={year}
+          takenYears={pastYears}
+          saveYear={saveYear}
+        />
       ))}
+      {adding && (
+        <YearCard y={null} record={null} label={label} candidates={candidates} year={year} takenYears={pastYears} saveYear={saveYear} startEditing onDone={() => setAdding(false)} />
+      )}
+      {!adding && !importing && (
+        <button type="button" style={{ ...link, marginRight: '1rem' }} data-testid="ss-add-year" onClick={() => setAdding(true)}>+ Add a year by hand</button>
+      )}
 
       {!importing ? (
         <button type="button" style={link} data-testid="ss-import-open" onClick={() => { setImporting(true); setMessage(null); }}>
@@ -195,5 +335,8 @@ export function SecretSantaHistory({ history, members, friends, year, saveYear, 
 
 const hint = { margin: '0.2rem 0 0.5rem', fontSize: '0.78rem', color: '#6B7280', lineHeight: 1.45 };
 const subhead = { fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280', margin: '0.5rem 0 0.35rem' };
+const card = { marginBottom: '0.75rem', padding: '0.8rem 1rem', background: '#fff', border: '1px solid #FECACA', borderRadius: 'var(--radius-md)' };
+const field = { display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.72rem', fontWeight: 600, color: '#6B7280' };
+const input = { padding: '0.35rem 0.5rem', border: '1px solid #E5E7EB', borderRadius: '6px', fontFamily: 'inherit', fontSize: '0.84rem', boxSizing: 'border-box' };
 const link = { padding: 0, border: 'none', background: 'none', fontFamily: 'inherit', fontSize: '0.8rem', fontWeight: 600, color: '#B91C1C', cursor: 'pointer', textDecoration: 'underline' };
 const secondary = { padding: '0.4rem 0.9rem', border: '1px solid #B91C1C', borderRadius: 'var(--radius-md)', background: '#fff', color: '#B91C1C', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' };

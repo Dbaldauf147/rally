@@ -97,3 +97,38 @@ describe('matching names to people', () => {
     expect(lastDraw({ 2025: { pairs } }, 2026, later)).toEqual({ year: 2025, map: { u1: 'u9' } });
   });
 });
+
+describe('editedPairs', async () => {
+  const { editedPairs, drawYears } = await import('./secretSantaImport');
+  const candidates = importCandidates(
+    { u1: { name: 'Dan Baldauf', email: 'dan@x.com' }, u2: { name: 'Mike Baldauf', email: 'mike@x.com' } },
+    [{ id: 'f3', name: 'Amanda Smith', email: 'amanda@x.com' }],
+  );
+  const stored = { key: 'old', name: 'Milan', email: 'milan@x.com' };
+
+  it('keeps an untouched person exactly as stored, and matches a changed one', () => {
+    const { pairs } = editedPairs([
+      { giver: 'Milan', giverWas: 'Milan', giverRef: stored, receiver: 'amanda', receiverWas: 'Katie', receiverRef: { key: 'k', name: 'Katie', email: '' } },
+      { giver: 'Dan', receiver: 'Someone New' },
+      { giver: ' ', receiver: '' },
+    ], candidates);
+    expect(pairs).toEqual([
+      { giver: stored, receiver: { key: '', name: 'Amanda Smith', email: 'amanda@x.com' } },
+      { giver: { key: 'u1', name: 'Dan Baldauf', email: 'dan@x.com' }, receiver: { key: '', name: 'Someone New', email: '' } },
+    ]);
+  });
+
+  it('refuses half a pick, a self-pick, a repeated giver, or nothing at all', () => {
+    expect(editedPairs([{ giver: 'Dan', receiver: '' }], candidates).error).toMatch(/both names/);
+    expect(editedPairs([{ giver: 'Dan', receiver: 'Dan Baldauf' }], candidates).error).toMatch(/themselves/);
+    expect(editedPairs([{ giver: 'Dan', receiver: 'Mike' }, { giver: 'Dan Baldauf', receiver: 'Amanda' }], candidates).error).toMatch(/twice/);
+    expect(editedPairs([], candidates).error).toMatch(/at least one/);
+  });
+
+  it('lists years that hold a draw, newest first', () => {
+    const h = { 2022: { pairs: [{}] }, 2025: { pairs: [{}] }, 2024: {}, 2026: { pairs: [{}] }, junk: { pairs: [{}] } };
+    expect(drawYears(h)).toEqual([2026, 2025, 2022]);
+    expect(drawYears(h, 2026)).toEqual([2025, 2022]);
+    expect(drawYears(null)).toEqual([]);
+  });
+});

@@ -29,6 +29,7 @@ import { normalizeGuestListReview, guestListReviewYear } from '../lib/guestListR
 import { GuestListReview } from './GuestListReview';
 import { secretSantaEnabled, looksLikeGiftExchange } from '../lib/secretSanta';
 import { SecretSanta } from './SecretSanta';
+import { SecretSantaHistoryTab } from './SecretSantaHistory';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
@@ -106,7 +107,7 @@ export function EventDetail() {
   const [editing, setEditing] = useState(false);
   const [activeTab, setActiveTab] = useState(() => {
     const t = searchParams.get('tab');
-    return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat'].includes(t) ? t : null;
+    return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat', 'santa'].includes(t) ? t : null;
   });
   const initialTabPickedRef = useRef(false);
   const [inviteCopied, setInviteCopied] = useState(false);
@@ -2124,6 +2125,8 @@ export function EventDetail() {
 
   const tabs = [
     { key: 'details', label: 'People & Poll' },
+    // The draws are on the organizer's own account, so the tab is theirs alone.
+    ...(isOwner && secretSantaEnabled(event) ? [{ key: 'santa', label: '🎅 Santa History' }] : []),
     ...(tripPlanning ? [{ key: 'itinerary', label: 'Itinerary' }] : []),
     ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
@@ -3076,7 +3079,7 @@ export function EventDetail() {
               event={event}
               eventId={eventId}
               user={user}
-              friends={friends}
+              onOpenHistory={() => setActiveTab('santa')}
               year={event.occurrenceYear ?? date.getFullYear()}
               date={event.dateTBD ? null : date}
             />
@@ -4900,6 +4903,12 @@ export function EventDetail() {
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {activeTab === 'santa' && isOwner && secretSantaEnabled(event) && (
+        <div className={styles.content}>
+          <SecretSantaHistoryTab event={event} eventId={eventId} user={user} friends={friends} year={event.occurrenceYear ?? date.getFullYear()} />
         </div>
       )}
 

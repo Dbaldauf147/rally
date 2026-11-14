@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { doc, onSnapshot, setDoc, FieldPath } from 'firebase/firestore';
+import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { db } from '../firebase';
 import {
   MIN_PARTICIPANTS,
   personLabel,
@@ -15,28 +13,19 @@ import {
   drawMatchesParticipants,
   resolvePerson,
 } from '../lib/secretSanta';
-import { SecretSantaHistory } from './SecretSantaHistory';
+import { drawYears } from '../lib/secretSantaImport';
+import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
 
 // The organizer's Secret Santa panel on an event with it switched on
 // (lib/secretSanta.js): pick who is in, draw, review, then email everyone the
 // name they drew. The pairs are saved on the organizer's own user doc, never
 // on the event, so no guest can read them.
-export function SecretSanta({ event, eventId, user, year, date, friends = [] }) {
-  const [history, setHistory] = useState(null); // users/{uid}.secretSanta[eventId]
-  const [loadError, setLoadError] = useState('');
+export function SecretSanta({ event, eventId, user, year, date, onOpenHistory }) {
+  const { history, loadError, saveYear } = useSecretSantaHistory(user, eventId);
   const [showPairs, setShowPairs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null); // { type: 'ok' | 'error', message }
   const [noteDraft, setNoteDraft] = useState(null);
-
-  useEffect(() => {
-    if (!user?.uid) return undefined;
-    return onSnapshot(
-      doc(db, 'users', user.uid),
-      (snap) => setHistory((snap.exists() ? snap.data().secretSanta?.[eventId] : null) || {}),
-      (err) => setLoadError(err.message || String(err)),
-    );
-  }, [user?.uid, eventId]);
 
   const members = useMemo(
     () => Object.fromEntries(Object.entries(event.members || {}).filter(([, m]) => m && typeof m === 'object')),
@@ -75,16 +64,6 @@ export function SecretSanta({ event, eventId, user, year, date, friends = [] }) 
   const problems = drawCurrent ? drawProblems(drawn, participants, exclusions) : [];
   const sentMap = record?.sent || {};
   const note = noteDraft ?? record?.note ?? '';
-
-  // Replaces one year's record whole (mergeFields), leaving every other event
-  // and year on the user doc alone.
-  function saveYear(y, value) {
-    return setDoc(
-      doc(db, 'users', user.uid),
-      { secretSanta: { [eventId]: { [y]: value } } },
-      { mergeFields: [new FieldPath('secretSanta', eventId, String(y))] },
-    );
-  }
 
   async function run(fn) {
     setBusy(true);
@@ -294,7 +273,16 @@ export function SecretSanta({ event, eventId, user, year, date, friends = [] }) 
           {status && (
             <p data-testid="ss-status" style={{ margin: '0.6rem 0 0', fontSize: '0.8rem', color: status.type === 'error' ? '#B91C1C' : '#166534' }}>{status.message}</p>
           )}
-          <SecretSantaHistory history={history} members={members} friends={friends} year={year} saveYear={saveYear} busy={busy} />
+          <div data-testid="ss-history-link" style={{ marginTop: '0.9rem', paddingTop: '0.7rem', borderTop: '1px solid #FECACA', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', fontSize: '0.8rem', color: '#6B7280' }}>
+            <span>
+              {drawYears(history, year).length === 0
+                ? 'No past draws saved yet.'
+                : `Past draws saved: ${drawYears(history, year).join(', ')}.`}
+            </span>
+            <button type="button" onClick={onOpenHistory} style={link}>
+              {drawYears(history, year).length === 0 ? 'Load past draws' : 'View and edit history'}
+            </button>
+          </div>
         </>
       )}
     </div>
