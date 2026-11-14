@@ -2235,6 +2235,24 @@ export function EventDetail() {
                 fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
               }}
             >📌 {pinned ? 'Pinned' : 'Pin to menu'}</button>
+            {/* The repeat options live in the edit form; this opens it at them.
+                Once the event repeats, the badge below says so and Edit Event
+                is where it's changed. */}
+            {isOwner && !event.cancelled && !isRecurring(event) && !normalizePollSeries(event.pollSeries) && (
+              <button
+                type="button"
+                data-testid="make-recurring"
+                onClick={() => setEditing('repeat')}
+                title="Set this event to repeat"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                  border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+                  color: 'var(--color-text-secondary)',
+                  borderRadius: 'var(--radius-full)', padding: '0.25rem 0.6rem',
+                  fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >🔁 Make recurring</button>
+            )}
             {user?.uid && stage === 'finalized' && !event.dateTBD && userCalSync && (
               <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
                 <span style={{
@@ -5104,6 +5122,7 @@ export function EventDetail() {
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <EventForm
               event={event}
+              focusRepeat={editing === 'repeat'}
               onSave={async (data) => {
                 await updateEvent(eventId, data);
                 // The form can rename too, and a pin holds its own copy.
