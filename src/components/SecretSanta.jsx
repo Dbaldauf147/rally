@@ -15,12 +15,13 @@ import {
   drawMatchesParticipants,
   resolvePerson,
 } from '../lib/secretSanta';
+import { SecretSantaHistory } from './SecretSantaHistory';
 
 // The organizer's Secret Santa panel on an event with it switched on
 // (lib/secretSanta.js): pick who is in, draw, review, then email everyone the
 // name they drew. The pairs are saved on the organizer's own user doc, never
 // on the event, so no guest can read them.
-export function SecretSanta({ event, eventId, user, year, date }) {
+export function SecretSanta({ event, eventId, user, year, date, friends = [] }) {
   const [history, setHistory] = useState(null); // users/{uid}.secretSanta[eventId]
   const [loadError, setLoadError] = useState('');
   const [showPairs, setShowPairs] = useState(false);
@@ -108,7 +109,14 @@ export function SecretSanta({ event, eventId, user, year, date }) {
     const map = { ...last.map };
     if (receiverKey) map[giverKey] = receiverKey; else delete map[giverKey];
     const y = last.year ?? year - 1;
-    run(() => saveYear(y, { ...(history?.[y] || {}), pairs: pairsFrom(map), ...(history?.[y]?.drawnAt ? {} : { manual: true }) }));
+    // Picks that involve somebody who isn't a guest (a loaded past draw can
+    // have some) aren't in `map`, but they are history too, and stay — all but
+    // the pick being changed here.
+    const others = (history?.[y]?.pairs || []).filter((p) => {
+      const g = resolvePerson(p.giver, members);
+      return g !== giverKey && !(g && resolvePerson(p.receiver, members));
+    });
+    run(() => saveYear(y, { ...(history?.[y] || {}), pairs: [...others, ...pairsFrom(map)], ...(history?.[y]?.drawnAt ? {} : { manual: true }) }));
   }
 
   function draw() {
@@ -286,6 +294,7 @@ export function SecretSanta({ event, eventId, user, year, date }) {
           {status && (
             <p data-testid="ss-status" style={{ margin: '0.6rem 0 0', fontSize: '0.8rem', color: status.type === 'error' ? '#B91C1C' : '#166534' }}>{status.message}</p>
           )}
+          <SecretSantaHistory history={history} members={members} friends={friends} year={year} saveYear={saveYear} busy={busy} />
         </>
       )}
     </div>
