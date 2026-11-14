@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { format, eachDayOfInterval, startOfMonth, endOfMonth, getDay, addMonths, subMonths, isSameDay } from 'date-fns';
 import { getHolidayMap } from '../holidays';
+import { DateSuggester } from './DateSuggester';
 import styles from './DatePoll.module.css';
 import { DateField } from './DateField';
 
@@ -19,7 +20,10 @@ function firstNameWithInitial(name) {
   return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
 }
 
-export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange, onUpdateAltRange, onEditDate, finalizedDates = [] }) {
+// `suggestFrom` switches on the organizer's "suggest dates from my
+// availability" panel (DateSuggester): `{ window }`, the round's poll window if
+// it has one. The event page passes it for rounds of a recurring poll series.
+export function DatePoll({ entityType, entityId, stage = 'voting', canManage = false, members = [], altRanges = [], onAddAltRange, onRemoveAltRange, onUpdateAltRange, onEditDate, finalizedDates = [], suggestFrom = null }) {
   const isFinalized = stage === 'finalized';
   const { user } = useAuth();
   const [options, setOptions] = useState([]);
@@ -331,6 +335,23 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
     setAdding(false);
   }
 
+  // The dates the availability panel came up with, one suggestion a day —
+  // the same docs "Single Day(s)" writes.
+  async function addSuggestedDays(days) {
+    if (!user) return;
+    for (const ds of days) {
+      await addDoc(collection(db, entityType, entityId, 'dateOptions'), {
+        note: '',
+        suggestedBy: user.uid,
+        suggestedByName: user.displayName || user.email || 'Someone',
+        votes: {},
+        createdAt: serverTimestamp(),
+        startDate: ds,
+        endDate: ds,
+      });
+    }
+  }
+
   async function handleVote(optionId, vote) {
     if (!user) return;
     await updateDoc(doc(db, entityType, entityId, 'dateOptions', optionId), {
@@ -588,6 +609,16 @@ export function DatePoll({ entityType, entityId, stage = 'voting', canManage = f
             Dates have been finalized. Voting is closed.
           </div>
         )
+      )}
+
+      {suggestFrom && canManage && !isFinalized && user && entityType === 'events' && (
+        <DateSuggester
+          eventId={entityId}
+          window={suggestFrom.window}
+          options={options}
+          otherPolls={otherEventDates}
+          onAdd={addSuggestedDays}
+        />
       )}
 
       {/* Calendar + side panel — read-only when finalized */}

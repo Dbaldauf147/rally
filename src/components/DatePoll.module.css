@@ -187,3 +187,23 @@
 .altRangeSubmit { padding: 0.45rem 0.95rem; border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font-size: 0.82rem; font-weight: 600; cursor: pointer; font-family: inherit; }
 .altRangeSubmit:disabled { background: var(--color-border); cursor: default; }
 .altRangeCancel { padding: 0.45rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.82rem; cursor: pointer; font-family: inherit; }
+
+/* Suggest dates from my availability (DateSuggester) */
+.suggestBox { margin: 0 0 1rem; padding: 0.85rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-width: 560px; }
+.suggestHead { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; font-size: 0.88rem; }
+.suggestHint { margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--color-text-muted); }
+.suggestWarn { margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--color-warning); }
+.suggestLabel { margin: 0.85rem 0 0.35rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.suggestRange { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.35rem; }
+.suggestRange .suggestHint { margin: 0; }
+.suggestDate { flex: 1 1 8.5rem; min-width: 0; padding: 0.4rem 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text); font-size: 0.82rem; font-family: inherit; }
+.suggestLink { padding: 0.15rem 0.1rem; border: none; background: none; color: var(--color-accent); font-size: 0.78rem; font-family: inherit; cursor: pointer; }
+.suggestDays { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.suggestDay, .suggestDayOn { padding: 0.35rem 0.6rem; border-radius: var(--radius-full); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.78rem; font-weight: 600; font-family: inherit; cursor: pointer; }
+.suggestDayOn { border-color: var(--color-accent); background: var(--color-accent-light); color: var(--color-accent); }
+.suggestList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; max-height: 260px; overflow-y: auto; }
+.suggestItem { display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; padding: 0.25rem 0; font-size: 0.85rem; cursor: pointer; }
+.suggestItem input { margin: 0; }
+.suggestCaution { font-size: 0.72rem; color: var(--color-warning); }
+.suggestActions { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.85rem; }
+.suggestDone { font-size: 0.78rem; color: var(--color-success); font-weight: 600; }
