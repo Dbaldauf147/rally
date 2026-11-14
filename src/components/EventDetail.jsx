@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { doc, collection, onSnapshot, updateDoc, setDoc, arrayUnion, arrayRemove, getDocs, deleteField } from 'firebase/firestore';
+import { doc, collection, onSnapshot, updateDoc, setDoc, arrayUnion, arrayRemove, getDocs, deleteField, query, where, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { planMemberUpsert } from '../lib/members';
 import { planComesWithSync } from '../lib/comesWith';
@@ -36,6 +36,7 @@ import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLa
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
 import { EventOutreach } from './EventOutreach';
+import { shownTabs, tabSetting } from '../lib/eventTabs';
 import { outreachMessage, gmailComposeUrl } from '../lib/eventOutreach';
 import { showsTripPlanning } from '../lib/eventPlanning';
 import { DEFAULT_REMINDER_INTERVALS, reminderSendDates, hasMissingAnswers } from '../lib/autoReminders';
@@ -370,6 +371,32 @@ export function EventDetail() {
   useEffect(() => {
     if (event && activeTab === 'itinerary' && !showsTripPlanning(event)) setActiveTab('details');
   }, [event, activeTab]);
+
+  // Chat and Expenses are optional tabs (lib/eventTabs.js). On an event where
+  // they were never switched on or off, they show only if there's something in
+  // them — and their content isn't on the event doc, so look once: is there a
+  // message, is there a charge. `done` is what lets a ?tab=chat link wait for
+  // the answer instead of being bounced before it arrives.
+  const [tabProbe, setTabProbe] = useState({ id: null });
+  useEffect(() => {
+    if (!user?.uid || !eventId) return undefined;
+    let live = true;
+    const any = (q) => getDocs(q).then((s) => !s.empty).catch(() => false);
+    Promise.all([
+      any(query(collection(db, 'events', eventId, 'chat'), limit(1))),
+      any(query(collection(db, 'expenses'), where('eventId', '==', eventId), limit(1))),
+    ]).then(([chat, expenses]) => { if (live) setTabProbe({ id: eventId, chat, expenses, done: true }); });
+    return () => { live = false; };
+  }, [eventId, user?.uid]);
+  const tabsFound = tabProbe.id === eventId ? tabProbe : {};
+  useEffect(() => {
+    if (!event || !['meals', 'notes', 'expenses', 'chat'].includes(activeTab)) return;
+    if (shownTabs(event, tabsFound)[activeTab]) return;
+    // Still looking, and the answer could yet be "show it".
+    const waiting = (activeTab === 'chat' || activeTab === 'expenses') && tabSetting(event, activeTab) === null && !tabsFound.done;
+    if (!waiting) setActiveTab('details');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event, activeTab, tabProbe]);
 
   // Load date option voters to include poll participants in members list + track vote stats
   const [voteStats, setVoteStats] = useState({}); // { visitorId: { total, yes, maybe, no } }
@@ -2150,6 +2177,9 @@ export function EventDetail() {
   // that plan a trip, or already hold one (lib/eventPlanning.js).
   const tripPlanning = showsTripPlanning(event);
 
+  // Meals, Notes, Expenses, Chat: switched on per event in Edit Event.
+  const optionalTabs = shownTabs(event, tabsFound);
+
   const tabs = [
     { key: 'details', label: 'People & Poll' },
     // The draws are on the organizer's own account, so the tab is theirs alone.
@@ -2157,11 +2187,11 @@ export function EventDetail() {
     ...(tripPlanning ? [{ key: 'itinerary', label: 'Itinerary' }] : []),
     ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
-    { key: 'meals', label: '🍽 Meals' },
+    ...(optionalTabs.meals ? [{ key: 'meals', label: '🍽 Meals' }] : []),
     ...(keyConsiderationsOn ? [{ key: 'considerations', label: 'Key Considerations' }] : []),
-    { key: 'notes', label: 'Notes' },
-    { key: 'expenses', label: 'Expenses' },
-    { key: 'chat', label: 'Chat' },
+    ...(optionalTabs.notes ? [{ key: 'notes', label: 'Notes' }] : []),
+    ...(optionalTabs.expenses ? [{ key: 'expenses', label: 'Expenses' }] : []),
+    ...(optionalTabs.chat ? [{ key: 'chat', label: 'Chat' }] : []),
   ];
 
   return (
@@ -5113,6 +5143,7 @@ export function EventDetail() {
             <EventForm
               event={event}
               focusRepeat={editing === 'repeat'}
+              tabsShown={optionalTabs}
               onSave={async (data) => {
                 await updateEvent(eventId, data);
                 // The form can rename too, and a pin holds its own copy.
