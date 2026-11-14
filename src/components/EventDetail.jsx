@@ -3055,7 +3055,10 @@ export function EventDetail() {
                   { key: 'phone', label: 'Missing phone' },
                   { key: 'email', label: 'Missing email' },
                   { key: 'both', label: 'Missing both' },
-                ];
+                // Only the ones with somebody in them. A chip that is switched
+                // on stays put even at zero, so its filter can still be cleared.
+                ].filter(c => counts[c.key] > 0 || missingFilter === c.key);
+                if (chips.length === 0) return null;
                 return (
                   <span style={{ display: 'inline-flex', gap: '0.3rem', marginLeft: '0.6rem', flexWrap: 'wrap' }}>
                     {chips.map(c => {
