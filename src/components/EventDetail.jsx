@@ -27,7 +27,7 @@ import { ChatPanel } from './ChatPanel';
 import { isRecurring, describeRecurrence } from '../lib/recurrence';
 import { normalizeGuestListReview, guestListReviewYear } from '../lib/guestListReview';
 import { GuestListReview } from './GuestListReview';
-import { secretSantaEnabled } from '../lib/secretSanta';
+import { secretSantaEnabled, looksLikeGiftExchange } from '../lib/secretSanta';
 import { SecretSanta } from './SecretSanta';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
@@ -3054,6 +3054,21 @@ export function EventDetail() {
 
           {isOwner && guestListReviewYear(event) && (
             <GuestListReview event={event} eventId={eventId} year={guestListReviewYear(event)} />
+          )}
+
+          {isOwner && !secretSantaEnabled(event) && !event.cancelled && looksLikeGiftExchange(event.title) && (
+            <div data-testid="secret-santa-offer" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.25rem', padding: '0.7rem 1rem', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 'var(--radius-md)' }}>
+              <span style={{ flex: '1 1 240px', fontSize: '0.86rem', color: '#991B1B' }}>
+                🎅 <strong>Secret Santa</strong> — draw names for this event, review them, and email everyone their person.
+              </span>
+              <button
+                type="button"
+                onClick={() => updateEvent(eventId, { secretSanta: { enabled: true } })}
+                style={{ padding: '0.45rem 0.9rem', border: 'none', borderRadius: 'var(--radius-md)', background: '#B91C1C', color: '#fff', fontFamily: 'inherit', fontSize: '0.84rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Set up Secret Santa
+              </button>
+            </div>
           )}
 
           {isOwner && secretSantaEnabled(event) && !event.cancelled && (
