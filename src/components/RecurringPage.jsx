@@ -12,6 +12,7 @@ import {
   nextOccurrence,
   occurrenceForYear,
 } from '../lib/recurrence';
+import { normalizePollSeries, describePollSeries, seriesStatus, sendDateLabel } from '../lib/pollSeries';
 import styles from './RecurringPage.module.css';
 
 // How many future occurrences to preview after the next one. Enough to make the
@@ -55,11 +56,21 @@ export function RecurringPage() {
       .filter(e => isRecurring(e) && !e.cancelled)
       .map(e => {
         const next = e.dateTBD ? null : nextOccurrence(e, now);
-        return { event: e, next, later: upcomingAfter(e, next) };
+        return { event: e, next, later: upcomingAfter(e, next), sortDate: next?.start || null };
       });
-    // Soonest first; a series with no upcoming occurrence (ended, or date TBD)
-    // has nothing to sort by, so it drops to its own list below.
-    const active = rows.filter(r => r.next).sort((a, b) => a.next.start - b.next.start);
+    // The other kind of repeat: a series whose date is polled each round
+    // (lib/pollSeries.js). One row per series — its latest round. These have
+    // no date rule to compute from, so the row says where the round stands.
+    const polled = events
+      .filter(e => !isRecurring(e))
+      .map(e => ({ event: e, series: seriesStatus(e, now) }))
+      .filter(r => r.series)
+      .map(r => ({ ...r, sortDate: r.series.sortDate }));
+    // Soonest first. A yearly series with no upcoming occurrence (ended, or
+    // date TBD) drops to its own list below; a polled series is live for as
+    // long as its latest round exists, so it stays up top, undated ones last.
+    const when = (r) => (r.sortDate ? r.sortDate.getTime() : Infinity);
+    const active = [...rows.filter(r => r.next), ...polled].sort((a, b) => when(a) - when(b));
     const ended = rows.filter(r => !r.next);
     return { active, ended };
   }, [events, now]);
@@ -67,7 +78,56 @@ export function RecurringPage() {
   const editing = editingId ? events.find(e => e.id === editingId) : null;
   const total = active.length + ended.length;
 
-  function renderRow({ event, next, later }) {
+  // A polled series: the same row, but the date column reports the round.
+  function renderSeriesRow({ event, series }) {
+    const round = normalizePollSeries(event.pollSeries).round;
+    const today = format(now, 'yyyy-MM-dd');
+    const send = (ymd) => sendDateLabel(ymd, today);
+    const nextPoll = series.nextSend
+      ? `next round’s poll goes out ${send(series.nextSend)}`
+      : 'next round opens once this one has passed';
+    return (
+      <div key={event.id} className={styles.row} data-testid="poll-series-row">
+        <div className={styles.rowMain}>
+          <button type="button" className={styles.rowTitle} onClick={() => navigate(`/event/${event.id}`)}>
+            {event.title || '(untitled)'}
+          </button>
+          <div className={styles.rule}>🔁 {describePollSeries(event.pollSeries)} · round {round}</div>
+          {event.location && <div className={styles.location}>📍 {event.location}</div>}
+        </div>
+
+        <div className={styles.rowDates}>
+          {series.state === 'voting' ? (
+            <>
+              <div className={styles.nextDate}>Date being voted on</div>
+              {series.sendDate && (
+                <div className={styles.laterDates}>
+                  {series.sent ? 'poll is out' : `poll goes out ${send(series.sendDate)}`}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className={styles.nextDate}>
+                {format(series.date, 'EEE, MMM d yyyy')}
+                <span className={styles.countdown}>{countdownLabel(series.date, now)}</span>
+              </div>
+              <div className={styles.laterDates}>{nextPoll}</div>
+            </>
+          )}
+        </div>
+
+        <div className={styles.rowActions}>
+          <button type="button" className={styles.btn} onClick={() => setEditingId(event.id)}>Edit</button>
+          <button type="button" className={styles.btn} onClick={() => navigate(`/event/${event.id}`)}>Open</button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderRow(row) {
+    if (row.series) return renderSeriesRow(row);
+    const { event, next, later } = row;
     // Only the organizer confirms a guest list, so only they are nudged.
     const isOrganizer = event.members?.[user?.uid]?.role === 'owner' || (!!user?.uid && event.createdBy === user.uid);
     const reviewYear = isOrganizer ? guestListReviewYear(event) : null;
@@ -121,8 +181,8 @@ export function RecurringPage() {
           <h1 className={styles.title}>Recurring Events</h1>
           <p className={styles.subtitle}>
             {total === 0
-              ? 'Events set to repeat every year will show up here.'
-              : `${total} ${total === 1 ? 'series' : 'series'} repeating every year.`}
+              ? 'Events set to repeat will show up here.'
+              : `${total} recurring series.`}
           </p>
         </div>
       </div>
@@ -132,8 +192,9 @@ export function RecurringPage() {
           <div className={styles.emptyIcon}>🔁</div>
           <h2 className={styles.emptyTitle}>No recurring events yet</h2>
           <p className={styles.emptyDesc}>
-            Turn on “Repeats every year” when you create or edit an event — birthdays, anniversaries,
-            the annual trip — and it will be listed here so you can edit the whole series in one place.
+            Set an event to repeat when you create or edit it — on a fixed date every year, or on a
+            schedule with a poll picking the date each time — and it will be listed here so you can
+            edit the whole series in one place.
           </p>
           <button type="button" className={styles.primaryBtn} onClick={() => navigate('/')}>Go to Dashboard</button>
         </div>

@@ -292,6 +292,32 @@ export function buildNextRound(event, eventId, { timeZone = 'America/New_York', 
   return { doc, target, window };
 }
 
+/* Where a series stands, for a list of everything that repeats (the Recurring
+ * page). Only the latest round speaks for its series — earlier rounds are
+ * history, reachable from it — so a round with a `nextRoundId` gives null.
+ *
+ *   { state: 'scheduled', date, sortDate }  this round has a date still ahead
+ *   { state: 'voting', sendDate, sortDate } its date is still being picked;
+ *                                           sendDate is when its poll goes/went
+ *   { state: 'held', date, nextSend, sortDate }  it has happened; nextSend is
+ *                                           when the next round's poll goes out
+ *
+ * `nextSend` is '' for a series without send dates. `sortDate` is the next
+ * thing to happen in the series, or null when nothing is dated. */
+export function seriesStatus(event, now = new Date(), timeZone = 'America/New_York') {
+  if (!event || event.cancelled || event.nextRoundId || !normalizePollSeries(event.pollSeries)) return null;
+  const nextSend = nextSendDate(event);
+  const noon = (s) => (isYmd(s) ? new Date(`${s}T12:00:00`) : null);
+  const date = (event.stage || 'voting') === 'finalized' && !event.dateTBD ? toDate(event.date) : null;
+  if (!date) {
+    const sendDate = isYmd(event.pollSendDate) ? event.pollSendDate : '';
+    return { state: 'voting', sendDate, sent: !!event.pollSentAt, nextSend, sortDate: (!event.pollSentAt && noon(sendDate)) || null };
+  }
+  const last = toDate(event.endDate) || date;
+  if (dayInZone(last, timeZone) >= dayInZone(now, timeZone)) return { state: 'scheduled', date, nextSend, sortDate: date };
+  return { state: 'held', date, nextSend, sortDate: noon(nextSend) };
+}
+
 // A window as a phrase: "Oct 27 – Nov 26".
 export function windowLabel(window) {
   if (!window) return '';
