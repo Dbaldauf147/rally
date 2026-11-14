@@ -24,7 +24,7 @@ import { useEvents } from '../hooks/useEvents';
 import { format } from 'date-fns';
 import { RSVPWidget } from './RSVPWidget';
 import { ChatPanel } from './ChatPanel';
-import { isRecurring, describeRecurrence } from '../lib/recurrence';
+import { isRecurring, repeatBadgeLabel } from '../lib/recurrence';
 import { normalizeGuestListReview, guestListReviewYear } from '../lib/guestListReview';
 import { GuestListReview } from './GuestListReview';
 import { secretSantaEnabled, looksLikeGiftExchange } from '../lib/secretSanta';
@@ -2188,19 +2188,6 @@ export function EventDetail() {
       </div>
 
       <div className={styles.hero}>
-        <div className={styles.dateBadge}>
-          {event.dateTBD ? (
-            <>
-              <span className={styles.dateMonth}>TBD</span>
-              <span className={styles.dateDay}>📊</span>
-            </>
-          ) : (
-            <>
-              <span className={styles.dateMonth}>{format(date, 'MMM')}</span>
-              <span className={styles.dateDay}>{format(date, 'd')}</span>
-            </>
-          )}
-        </div>
         <div className={styles.heroInfo}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             {titleDraft === null ? (
@@ -2499,7 +2486,9 @@ export function EventDetail() {
               background: 'var(--color-accent-light)', border: '1px solid var(--color-accent)',
               borderRadius: 'var(--radius-full)', padding: '0.15rem 0.55rem',
             }}>
-              🔁 {describeRecurrence(event.recurrence)} · showing {event.occurrenceYear ?? format(date, 'yyyy')}
+              {/* How it repeats, not when it is — the date line below is the
+                  one place the header says the date. */}
+              🔁 {repeatBadgeLabel(event.recurrence)}
             </p>
           )}
           {isOwner && isRecurring(event) && !event.dateTBD && normalizeGuestListReview(event.guestListReview) && (
@@ -2576,8 +2565,8 @@ export function EventDetail() {
           <p className={styles.datetime}>
             {event.dateTBD
               ? (event.targetMonth?.year && event.targetMonth?.month
-                  ? `Date to be determined — poll for ${monthLabel(event.targetMonth)}`
-                  : 'Date to be determined — based on poll voting')
+                  ? `Date TBD — poll for ${monthLabel(event.targetMonth)}`
+                  : 'Date TBD')
               : (endDate && format(endDate, 'yyyy-MM-dd') !== format(date, 'yyyy-MM-dd'))
                 ? (format(date, 'yyyy') === format(endDate, 'yyyy')
                     ? `${format(date, 'MMM d')} – ${format(endDate, 'MMM d, yyyy')}`

@@ -235,6 +235,19 @@ export function describeRecurrence(rule) {
   return r.endYear !== null ? `${base}, through ${r.endYear}` : base;
 }
 
+/**
+ * For a badge that sits beside the event's date: how the series repeats,
+ * without saying the date again. A fixed-date rule is just "Every year" (the
+ * date is right there); a weekday rule keeps its wording, since "the third
+ * Saturday of September" is the rule and can't be read off one year's date.
+ */
+export function repeatBadgeLabel(rule) {
+  const r = normalizeRecurrence(rule);
+  if (!r) return '';
+  if (r.mode === 'weekday') return describeRecurrence(r);
+  return r.endYear !== null ? `Every year, through ${r.endYear}` : 'Every year';
+}
+
 /** Short form for chips and cards: "Jul 4" / "3rd Sat of Sep". */
 export function shortRecurrenceLabel(rule) {
   const r = normalizeRecurrence(rule);
