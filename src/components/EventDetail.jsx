@@ -32,6 +32,7 @@ import { SecretSanta } from './SecretSanta';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
+import { showsTripPlanning } from '../lib/eventPlanning';
 import { DEFAULT_REMINDER_INTERVALS, reminderSendDates, hasMissingAnswers } from '../lib/autoReminders';
 import { DEFAULT_EVENT_REMINDER_DAYS, eventReminderRecipients, eventReminderSchedule, eventRemindersSentFor } from '../lib/eventReminders';
 import { DatePoll } from './DatePoll';
@@ -330,11 +331,18 @@ export function EventDetail() {
     initialTabPickedRef.current = true;
     if (activeTab) return; // URL ?tab= already set it
     const stage = event.stage || 'voting';
-    if (stage === 'finalized' && !event.itineraryComplete) {
+    if (stage === 'finalized' && !event.itineraryComplete && showsTripPlanning(event)) {
       setActiveTab('itinerary');
     } else {
       setActiveTab('details');
     }
+  }, [event, activeTab]);
+
+  // The Itinerary tab can go away under the viewer — a link with ?tab=itinerary
+  // to an event that plans no trip, or the last planning box unticked in Edit
+  // Event. Fall back to the tab every event has rather than a blank page.
+  useEffect(() => {
+    if (event && activeTab === 'itinerary' && !showsTripPlanning(event)) setActiveTab('details');
   }, [event, activeTab]);
 
   // Load date option voters to include poll participants in members list + track vote stats
@@ -2110,9 +2118,13 @@ export function EventDetail() {
      brings the tab back with all of them still there. */
   const keyConsiderationsOn = !!event.keyConsiderationsEnabled;
 
+  // Trip itinerary, and the itinerary/travel steps and buttons: only on events
+  // that plan a trip, or already hold one (lib/eventPlanning.js).
+  const tripPlanning = showsTripPlanning(event);
+
   const tabs = [
     { key: 'details', label: 'People & Poll' },
-    { key: 'itinerary', label: 'Itinerary' },
+    ...(tripPlanning ? [{ key: 'itinerary', label: 'Itinerary' }] : []),
     ...(event.date ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
     { key: 'meals', label: '🍽 Meals' },
@@ -2133,7 +2145,7 @@ export function EventDetail() {
           { key: 'finalized', label: 'Date Finalized' },
           { key: 'itinerary', label: 'Itinerary Completed' },
           { key: 'booked', label: 'Travel Booked' },
-        ].map((step, i, arr) => {
+        ].filter(step => tripPlanning || (step.key !== 'itinerary' && step.key !== 'booked')).map((step, i, arr) => {
           const isFinalized = stage === 'finalized';
           const isItineraryComplete = isFinalized && event.itineraryComplete;
           const isBooked = isFinalized && event.travelBooked;
@@ -4214,7 +4226,7 @@ export function EventDetail() {
               <button className={styles.editBtn} onClick={toggleStage} style={{ background: stage === 'voting' ? 'var(--color-success-light)' : 'var(--color-warning-light)', borderColor: stage === 'voting' ? 'var(--color-success)' : 'var(--color-warning)', color: stage === 'voting' ? 'var(--color-success)' : 'var(--color-warning)' }}>
                 {stage === 'voting' ? '✓ Finalize Dates' : '↩ Reopen Voting'}
               </button>
-              {stage === 'finalized' && (
+              {stage === 'finalized' && tripPlanning && (
                 <button
                   className={styles.editBtn}
                   onClick={() => updateEvent(eventId, { itineraryComplete: !event.itineraryComplete })}
@@ -4227,7 +4239,7 @@ export function EventDetail() {
                   {event.itineraryComplete ? '✓ Itinerary Completed' : '📝 Mark Itinerary Complete'}
                 </button>
               )}
-              {stage === 'finalized' && (
+              {stage === 'finalized' && tripPlanning && (
                 <button
                   className={styles.editBtn}
                   onClick={() => updateEvent(eventId, { travelBooked: !event.travelBooked })}
