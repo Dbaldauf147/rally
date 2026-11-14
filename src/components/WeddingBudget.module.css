@@ -179,6 +179,12 @@
 .calcNum { width: 6.5rem; flex: 0 0 auto; box-sizing: border-box; padding: 0.3rem 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-family: inherit; font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text); }
 .calcNum::placeholder { color: var(--color-text-muted); opacity: 0.7; }
 .calcNum:focus { outline: none; border-color: var(--color-accent); }
+.calcNumPp { border-color: var(--color-accent); }
+.calcPpBtn, .calcPpOn { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; font-size: 0.75rem; line-height: 1; cursor: pointer; }
+.calcPpBtn { opacity: 0.35; filter: grayscale(1); }
+.calcPpBtn:hover { opacity: 1; filter: none; background: var(--color-surface-alt); }
+.calcPpOn { border-color: var(--color-accent); background: var(--color-accent-light); }
+.compareEach { display: block; font-size: 0.7rem; font-weight: 400; color: var(--color-text-muted); }
 .calcTotals { margin: 0.6rem 0 0; padding-top: 0.5rem; border-top: 1px solid var(--color-border); }
 .calcTotals div { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.85rem; padding: 0.1rem 0; }
 .calcTotals dt { color: var(--color-text-secondary); }
