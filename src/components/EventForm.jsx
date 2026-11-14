@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, deleteField } from 'firebase/firestore';
 import {
   MONTH_NAMES,
   WEEKDAY_NAMES,
@@ -12,6 +12,8 @@ import { normalizeGuestListReview, guestListReviewForSave } from '../lib/guestLi
 import { CADENCES, normalizePollSeries, addMonthsYmd, sendDateLabel, pollWindow, windowLabel, previewDate } from '../lib/pollSeries';
 import { DEFAULT_REMINDER_INTERVALS } from '../lib/autoReminders';
 import { DEFAULT_EVENT_REMINDER_DAYS } from '../lib/eventReminders';
+import { buildDashboardFrom, dashboardShowYmd, normalizeDashboardFrom } from '../lib/dashboardFrom';
+import { useAuth } from '../contexts/AuthContext';
 import { BOAT_NAME } from './BoatDay';
 import styles from './EventForm.module.css';
 import { DateField } from './DateField';
@@ -50,6 +52,8 @@ function combine(day, time) {
 // `focusRepeat` is the event page's "Make recurring" button: the same form,
 // opened at the repeat options instead of at the top.
 export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
+  const { user } = useAuth();
+  const uid = user?.uid;
   const repeatRef = useRef(null);
   useEffect(() => {
     if (focusRepeat) repeatRef.current?.scrollIntoView({ block: 'center' });
@@ -93,6 +97,11 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
   // The date field is our own control, so there is no native "required" bubble
   // to lean on. Submitting without a start date says so in the form instead.
   const [dateMissing, setDateMissing] = useState(false);
+
+  // The day this event turns up on *my* dashboard (lib/dashboardFrom.js). Kept
+  // per person, so it's read and written under this user's id only.
+  const [showFrom, setShowFrom] = useState(() => dashboardShowYmd(event, uid));
+  const [showFromLate, setShowFromLate] = useState(false);
 
   // --- Yearly repeat. The rule is seeded from whatever start date is in the
   // form and keeps tracking it until the user edits the rule themselves, so
@@ -178,6 +187,9 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
   // silently ignoring what was typed.
   const endYearIgnored = !!previewRule && endsMode === 'year' && previewRule.endYear === null;
 
+  // How far ahead of the event the dashboard day is, for the yearly hint.
+  const showLead = buildDashboardFrom(showFrom, dateTBD ? null : startAsDate())?.daysBefore ?? null;
+
   function handleSubmit(e) {
     e.preventDefault();
     if (!title.trim()) return;
@@ -186,6 +198,9 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
     setDateMissing(false);
     if (pollRepeat && !pollAlreadySent && !pollSendDate) { setSendDateMissing(true); return; }
     setSendDateMissing(false);
+    // Held back past the event itself, it would never be seen in time.
+    if (showFrom && !dateTBD && showFrom > startDay) { setShowFromLate(true); return; }
+    setShowFromLate(false);
     const data = {
       title: title.trim(),
       description: description.trim(),
@@ -206,6 +221,16 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
       // Written on every save (not just when true) so adding a time to an
       // all-day event clears the flag.
       data.allDay = allDay;
+    }
+    // Written only when it changed, and only under this person's key: everyone
+    // else's dashboard setting on the event is theirs.
+    if (uid) {
+      const nextShow = buildDashboardFrom(showFrom, start);
+      const prevShow = normalizeDashboardFrom(event?.dashboardFrom?.[uid]);
+      if (JSON.stringify(nextShow) !== JSON.stringify(prevShow)) {
+        if (!event) data.dashboardFrom = { [uid]: nextShow };
+        else data[`dashboardFrom.${uid}`] = nextShow || deleteField();
+      }
     }
     data.secretSanta = secretSanta ? { enabled: true } : null;
     // The extras are written only when their box actually changed, so an
@@ -301,6 +326,27 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
             ? 'Time is optional — with none set this is an all-day event.'
             : 'Clear the time fields to make this an all-day event.'}
         </p>
+      )}
+
+      {uid && (
+        <div className={styles.label} data-testid="show-from">
+          <span>Show on my dashboard from (optional)</span>
+          <DateField
+            className={styles.input}
+            value={showFrom}
+            max={(!dateTBD && startDay) || undefined}
+            onChange={e => { setShowFrom(e.target.value); setShowFromLate(false); }}
+            aria-label="Show on my dashboard from (optional)"
+          />
+          {showFromLate && <span className={styles.fieldError}>Pick a day on or before the event’s start date.</span>}
+          <p className={styles.timeHint} style={{ margin: 0 }}>
+            {!showFrom
+              ? 'Leave empty to see it on your dashboard right away.'
+              : showLead !== null && repeats && !dateTBD && !pollRepeat
+                ? `Until then it waits under “Showing later” on your dashboard. Each year it comes back ${showLead === 0 ? 'on the day' : `${showLead} day${showLead === 1 ? '' : 's'} before the date`}. Only your dashboard changes — the calendar and other guests still see it.`
+                : 'Until then it waits under “Showing later” on your dashboard. Only your dashboard changes — the calendar and other guests still see it.'}
+          </p>
+        </div>
       )}
 
       {(dateTBD || pollRepeat || savedSeries) && (
