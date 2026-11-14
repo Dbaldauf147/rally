@@ -64,6 +64,15 @@ import { SteakhouseList } from './SteakhouseList';
 import { steakhouseListOn } from '../lib/guysNight';
 
 // Shared style for items inside the calendar-sync gear dropdown.
+// The small round buttons beside an event's title (Pin, Sync, Reminders, Edit).
+const headerPillStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+  border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+  color: 'var(--color-text-secondary)', borderRadius: 'var(--radius-full)',
+  padding: '0.2rem 0.55rem', fontSize: '0.76rem', fontWeight: 600,
+  cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+};
+
 const calMenuItemStyle = {
   display: 'block',
   width: '100%',
@@ -2241,17 +2250,65 @@ export function EventDetail() {
               onClick={() => togglePin(user?.uid, { id: eventId, title: event.title })}
               title={pinned ? 'Unpin from the top menu' : 'Pin this trip to the top menu'}
               aria-pressed={pinned}
+              data-testid="header-pin"
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                border: pinned ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
-                background: pinned ? 'var(--color-accent-light)' : 'var(--color-surface)',
-                color: pinned ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                borderRadius: 'var(--radius-full)', padding: '0.25rem 0.6rem',
-                fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                ...headerPillStyle,
+                ...(pinned ? { border: '1px solid var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' } : {}),
               }}
-            >📌 {pinned ? 'Pinned' : 'Pin to menu'}</button>
+            >📌 {pinned ? 'Pinned' : 'Pin'}</button>
+            {/* Not synced yet: the Sync button sits here, beside Pin. Once it is
+                synced, the "On my calendar" menu further along takes over. */}
+            {user?.uid && stage === 'finalized' && !event.dateTBD && !userCalSync && (
+              <>
+                <button
+                  type="button"
+                  data-testid="header-sync"
+                  disabled={calSyncing}
+                  onClick={handleCalendarSync}
+                  title={`Add this event to your Google Calendar (${calTarget.name})`}
+                  style={headerPillStyle}
+                >📅 {calSyncing ? 'Syncing…' : 'Sync'}</button>
+                <button
+                  type="button"
+                  onClick={openCalendarPicker}
+                  title="Change which calendar events sync to"
+                  style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-text-muted)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.72rem' }}
+                >to {calTarget.name} ▾</button>
+                {calSyncMsg && (
+                  <span style={{ fontSize: '0.78rem', color: calSyncMsg.type === 'success' ? 'var(--color-success)' : 'var(--color-danger, #b91c1c)' }}>
+                    {calSyncMsg.message}
+                  </span>
+                )}
+              </>
+            )}
+            {/* Jumps to the reminder settings on People & Poll: the "please
+                vote" schedule while dates are open, the "it's coming up" one
+                once a date is set. */}
+            {isOwner && !event.cancelled && (() => {
+              const on = stage === 'finalized' ? !!event.eventReminders?.enabled : !!event.autoReminders?.enabled;
+              return (
+                <button
+                  type="button"
+                  data-testid="header-reminders"
+                  title={on ? 'Email reminders are on — open the settings' : 'Set up email reminders'}
+                  onClick={() => {
+                    setActiveTab('details');
+                    // The section only exists once the People & Poll tab has
+                    // rendered, and that tab keeps growing as its lists load —
+                    // so go there, then go again once the page has settled.
+                    const go = () => document.getElementById('event-email-reminders')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setTimeout(go, 60);
+                    setTimeout(go, 700);
+                  }}
+                  style={{
+                    ...headerPillStyle,
+                    ...(on ? { border: '1px solid var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' } : {}),
+                  }}
+                >📧 Reminders{on ? ' on' : ''}</button>
+              );
+            })()}
             {/* The repeat options live in the edit form; this opens it at them.
-                Once the event repeats, the badge below says so and Edit Event
+                Once the event repeats, the badge below says so and Edit
                 is where it's changed. */}
             {isOwner && !event.cancelled && !isRecurring(event) && !normalizePollSeries(event.pollSeries) && (
               <button
@@ -2419,6 +2476,17 @@ export function EventDetail() {
                   );
                 })()}
               </>
+            )}
+            {/* Top right of the header: everything about the event itself —
+                date, repeat, Secret Santa — is behind this. */}
+            {isOwner && (
+              <button
+                type="button"
+                data-testid="header-edit"
+                onClick={() => setEditing(true)}
+                title="Edit this event"
+                style={{ ...headerPillStyle, marginLeft: 'auto', color: 'var(--color-text)' }}
+              >✎ Edit</button>
             )}
           </div>
           {isRecurring(event) && !event.dateTBD && (
@@ -2589,35 +2657,6 @@ export function EventDetail() {
           )}
         </div>
       </div>
-
-      {user?.uid && stage === 'finalized' && !event.dateTBD && !userCalSync && (
-        <div className={styles.rsvpSection} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.4rem' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-            <button className={styles.shareBtn} disabled={calSyncing} onClick={handleCalendarSync}>
-              {calSyncing ? 'Syncing…' : '📅 Sync to my Google Calendar'}
-            </button>
-            {calSyncMsg && (
-              <span style={{
-                fontSize: '0.85rem',
-                color: calSyncMsg.type === 'success' ? 'var(--color-success)' : 'var(--color-danger, #b91c1c)',
-              }}>
-                {calSyncMsg.message}
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-            Syncing to <strong>{calTarget.name}</strong>
-            {' · '}
-            <button
-              type="button"
-              onClick={openCalendarPicker}
-              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-accent)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit' }}
-            >
-              Change
-            </button>
-          </div>
-        </div>
-      )}
 
       {showCalPicker && (
         <div
@@ -4317,7 +4356,6 @@ export function EventDetail() {
                 onClick={() => setStatusOpen((v) => !v)}
                 style={{ background: '#EEF2FF', borderColor: '#6366F1', color: '#3730A3' }}
               >📊 Email Status Update</button>
-              <button className={styles.editBtn} onClick={() => setEditing(true)}>Edit Event</button>
               <button
                 className={styles.editBtn}
                 onClick={() => setHideOpen((v) => !v)}
@@ -4720,7 +4758,7 @@ export function EventDetail() {
             const nonVoterCount = members.filter(([uid, m]) => uid !== user?.uid && !m.skipVote && m.email && hasMissingAnswers(uid, openOptions)).length;
 
             return (
-              <div style={{
+              <div id="event-email-reminders" style={{
                 marginTop: '1rem',
                 padding: '1rem',
                 background: enabled ? '#EEF2FF' : 'var(--color-surface)',
@@ -4820,7 +4858,7 @@ export function EventDetail() {
             const peopleWord = (n) => `${n} ${n !== 1 ? 'people' : 'person'}`;
 
             return (
-              <div style={{
+              <div id="event-email-reminders" style={{
                 marginTop: '1rem',
                 padding: '1rem',
                 background: enabled ? '#EEF2FF' : 'var(--color-surface)',
