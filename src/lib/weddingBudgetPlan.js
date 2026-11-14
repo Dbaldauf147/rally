@@ -285,11 +285,86 @@ function normalizeCalculator(raw) {
     perPerson[id] = n;
     delete amounts[id];
   }
-  return { amounts, included, perPerson };
+  return { amounts, included, perPerson, subs: normalizeSubs(raw && typeof raw === 'object' ? raw.subs : null) };
 }
 
 /* An empty calculator. */
-export const emptyCalculator = () => ({ amounts: {}, included: {}, perPerson: {} });
+export const emptyCalculator = () => ({ amounts: {}, included: {}, perPerson: {}, subs: {} });
+
+/* ── Sub-items ──
+   A calculator line can be broken down: Food into cocktail hour, raw bar,
+   dinner. They hang off the line by its id:
+
+     subs: { [line id]: [{ id, name, amount: dollars|null, pp: bool, included: bool }] }
+
+   `pp` makes the amount a price per person. A sub-item is "answered" once it
+   has an amount or is marked included. As soon as one is, the line stops
+   using its own figure and becomes the sum of its sub-items (or Included,
+   when every answered one is). */
+function normalizeSubs(raw) {
+  const out = {};
+  for (const [lineId, list] of Object.entries(raw && typeof raw === 'object' ? raw : {})) {
+    if (!lineId || !Array.isArray(list)) continue;
+    const seen = new Set();
+    const subs = [];
+    for (const x of list) {
+      if (!x || typeof x !== 'object') continue;
+      const id = str(x.id) || newId('s');
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const included = x.included === true;
+      subs.push({ id, name: str(x.name), amount: included ? null : money(x.amount), pp: !included && x.pp === true, included });
+    }
+    if (subs.length) out[lineId] = subs;
+  }
+  return out;
+}
+
+export const subAnswered = (sub) => !!sub && (sub.included || sub.amount != null);
+export const subDollars = (sub, guestN = 0) => (sub?.amount == null || sub.included ? null : sub.pp ? sub.amount * Math.max(0, Number(guestN) || 0) : sub.amount);
+
+/* Does this line take its figure from its sub-items? */
+export function lineFromSubs(calc, lineId) {
+  return (calc?.subs?.[lineId] || []).some(subAnswered);
+}
+
+/* The calculator as the totals read it: every line in dollars and which are
+   included — per-person prices multiplied out, and any line with answered
+   sub-items replaced by their sum. */
+export function effectiveCalc(calc, guestN = 0) {
+  const amounts = calcDollars(calc, guestN);
+  const included = { ...(calc?.included || {}) };
+  for (const [lineId, list] of Object.entries(calc?.subs || {})) {
+    const answered = list.filter(subAnswered);
+    if (answered.length === 0) continue;
+    const priced = answered.filter((x) => !x.included);
+    if (priced.length) {
+      amounts[lineId] = priced.reduce((sum, x) => sum + subDollars(x, guestN), 0);
+      delete included[lineId];
+    } else {
+      delete amounts[lineId];
+      included[lineId] = true;
+    }
+  }
+  return { amounts, included };
+}
+
+/* Clearing the calculator for the next venue: every figure goes, but the
+   sub-items stay as empty rows, so the same breakdown can be priced again. */
+export function clearedCalculator(calc) {
+  const subs = {};
+  for (const [lineId, list] of Object.entries(normalizeSubs(calc?.subs))) {
+    const named = list.filter((x) => x.name.trim()).map((x) => ({ ...x, amount: null, pp: false, included: false }));
+    if (named.length) subs[lineId] = named;
+  }
+  return { ...emptyCalculator(), subs };
+}
+
+/* Is anything answered at all — a line, or a sub-item? */
+export function calcHasAnswers(calc) {
+  return Object.keys(calc?.amounts || {}).length + Object.keys(calc?.included || {}).length + Object.keys(calc?.perPerson || {}).length > 0
+    || Object.values(calc?.subs || {}).some((list) => list.some(subAnswered));
+}
 
 /* A calculator (or a saved venue) as plain dollars per line: the flat amounts,
    plus each per-person line at its price times the guest count. This is what
@@ -667,7 +742,15 @@ export function sameCalc(a, b) {
   const pp = new Set([...Object.keys(x.perPerson), ...Object.keys(y.perPerson)]);
   return sameAmounts(x.amounts, y.amounts)
     && [...inc].every((k) => !!x.included[k] === !!y.included[k])
-    && [...pp].every((k) => x.perPerson[k] === y.perPerson[k]);
+    && [...pp].every((k) => x.perPerson[k] === y.perPerson[k])
+    && JSON.stringify(answeredSubs(x.subs)) === JSON.stringify(answeredSubs(y.subs));
+}
+
+// Sub-items that say something, in a form two calculators can be compared by:
+// empty rows and ids don't make a venue different.
+function answeredSubs(subs) {
+  return Object.keys(subs).sort().map((lineId) => [lineId, subs[lineId].filter(subAnswered).map((x) => [x.name.trim(), x.amount, x.pp, x.included])])
+    .filter(([, list]) => list.length);
 }
 
 /* The comparison table. `categories` are the resolved split, `budget` the
@@ -685,20 +768,24 @@ export function sameCalc(a, b) {
    cheapest: id of the venue with the lowest total among those with any price */
 export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0) {
   const list = quotes || [];
-  // Each venue's lines in dollars, per-person prices multiplied out.
-  const dollars = list.map((q) => calcDollars(q, guestN));
+  // Each venue's lines in dollars — per-person prices multiplied out, lines
+  // with sub-items summed — and which lines it includes.
+  const effs = list.map((q) => effectiveCalc(q, guestN));
+  const dollars = effs.map((e) => e.amounts);
+  const inc = effs.map((e) => e.included);
+  const subKey = (name) => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
   const rows = [];
   for (const g of calculatorGroups(categories)) {
-    const lines = g.lines.filter((l) => list.some((q, i) => dollars[i][l.id] != null || q.included?.[l.id]));
+    const lines = g.lines.filter((l) => list.some((q, i) => dollars[i][l.id] != null || inc[i][l.id]));
     if (lines.length === 0) continue;
     const byId = new Map((categories.find((c) => c.id === g.id)?.items || []).map((i) => [i.id, i]));
     const cat = categories.find((c) => c.id === g.id);
     const standalone = g.lines.length === 1 && g.lines[0].id === g.id;
     if (!standalone) rows.push({ kind: 'category', id: `cat-${g.id}`, name: g.name || 'Untitled' });
     for (const l of lines) {
-      const included = list.map((q) => !!q.included?.[l.id]);
+      const included = list.map((q, i) => !!inc[i][l.id]);
       const amounts = list.map((q, i) => (included[i] || dollars[i][l.id] == null ? null : dollars[i][l.id]));
-      const perPerson = list.map((q, i) => (!included[i] && q.perPerson?.[l.id] != null ? q.perPerson[l.id] : null));
+      const perPerson = list.map((q, i) => (!included[i] && !lineFromSubs(q, l.id) && q.perPerson?.[l.id] != null ? q.perPerson[l.id] : null));
       const priced = amounts.map((v, i) => [included[i] ? 0 : v, i]).filter(([v]) => v != null);
       const min = Math.min(...priced.map(([v]) => v));
       const lows = priced.filter(([v]) => v === min);
@@ -711,15 +798,37 @@ export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0
         perPerson,
         low: priced.length > 1 && lows.length === 1 ? lows[0][1] : null,
       });
+      // The line's sub-items, under it: one row per name, whichever venues have it.
+      const names = new Map();
+      for (const q of list) {
+        for (const x of q.subs?.[l.id] || []) {
+          if (subAnswered(x) && subKey(x.name) && !names.has(subKey(x.name))) names.set(subKey(x.name), x.name.trim());
+        }
+      }
+      for (const [key, name] of names) {
+        const found = list.map((q) => (q.subs?.[l.id] || []).find((x) => subAnswered(x) && subKey(x.name) === key) || null);
+        const subIncluded = found.map((x) => !!x?.included);
+        const subAmounts = found.map((x) => subDollars(x, guestN));
+        const subPriced = subAmounts.map((v, i) => [subIncluded[i] ? 0 : v, i]).filter(([v]) => v != null);
+        const subMin = Math.min(...subPriced.map(([v]) => v));
+        const subLows = subPriced.filter(([v]) => v === subMin);
+        rows.push({
+          kind: 'sub', id: `${l.id}:${key}`, name,
+          amounts: subAmounts,
+          included: subIncluded,
+          perPerson: found.map((x) => (x && !x.included && x.pp ? x.amount : null)),
+          low: subPriced.length > 1 && subLows.length === 1 ? subLows[0][1] : null,
+        });
+      }
     }
   }
   const venues = list.map((q, qi) => {
-    const t = calculatorTotals(categories, dollars[qi], rate, q.included);
+    const t = calculatorTotals(categories, dollars[qi], rate, inc[qi]);
     return {
       id: q.id, name: q.name, savedAt: q.savedAt, ...t,
       foodPerPerson: guestN > 0 && t.foodLines > 0 ? t.food / guestN : null,
       venuePerPerson: (() => {
-        const g = venueGroupOf(calculatorGroupTotals(categories, dollars[qi], rate, q.included));
+        const g = venueGroupOf(calculatorGroupTotals(categories, dollars[qi], rate, inc[qi]));
         return g && g.priced > 0 && guestN > 0 ? { name: g.name, subtotal: g.subtotal / guestN, total: g.total / guestN } : null;
       })(),
       perPerson: guestN > 0 && t.filled > 0 ? t.total / guestN : null,
