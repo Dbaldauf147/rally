@@ -223,7 +223,7 @@ const SOURCE_LABELS = {
 
 /* How many people the wedding is for: linked to the guest list or typed.
    Per-plate lines and the per-person column both count from it. */
-function GuestsField({ plan, update, counts }) {
+function GuestsField({ plan, update, counts, hint = 'used for per-plate lines and the per-person column' }) {
   const g = plan.guests;
   const n = headcount(g, counts);
   const set = (patch) => update((p) => ({ ...p, guests: { ...p.guests, ...patch } }));
@@ -255,7 +255,7 @@ function GuestsField({ plan, update, counts }) {
           onCommit={(v) => set({ count: v })}
         />
       )}
-      <span className={styles.guestsHint} data-testid="guest-n">{n} {n === 1 ? 'guest' : 'guests'} — used for per-plate lines and the per-person column</span>
+      <span className={styles.guestsHint} data-testid="guest-n">{n} {n === 1 ? 'guest' : 'guests'} — {hint}</span>
     </div>
   );
 }
@@ -726,7 +726,7 @@ function Split({ plan, update, counts }) {
   );
 }
 
-/* The calculator on the right: type what each budget line actually costs —
+/* The calculator, on its own tab: type what each budget line actually costs —
    a quote, an invoice — and it adds them up to the total fee, with sales tax
    on the lines ticked for it in the split. Each box's placeholder is what the
    split budgets for that line, and the total is held against the budget. */
@@ -804,6 +804,8 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
         {t.filled > 0 && <button type="button" className={styles.link} onClick={clear}>Clear</button>}
       </div>
       <p className={styles.cardHint}>Type what each line costs to get the total fee. Press 👤 on a line to price it per person instead of as a flat fee. The grey figure is what the split budgets for it; sales tax is added to the lines ticked for it in the split.</p>
+      {/* The same guest count as the Budget tab's, here because per-person lines turn on it. */}
+      <GuestsField plan={plan} update={update} counts={counts} hint="what a per-person line is multiplied by" />
       <div className={styles.calcIncHead} aria-hidden="true">Incl.</div>
       <div className={styles.calcList}>
         {calculatorGroups(cats).map((g) => (
@@ -860,7 +862,7 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
                   <div className={styles.calcPerPerson} data-testid={`calc-pp-${l.id}`}>
                     {guestN > 0
                       ? <>per person × {guestN} guests = <strong>{formatMoney(amounts[l.id]) || '$0'}</strong></>
-                      : 'per person — set a guest count beside the total budget'}
+                      : 'per person — set a guest count above'}
                   </div>
                 ) : l.food && amounts[l.id] != null && guestN > 0 && (
                   <div className={styles.calcPerPerson} data-testid={`calc-pp-${l.id}`}>
@@ -975,7 +977,7 @@ function VenueCompare({ plan, update, counts, onOpen }) {
       <section className={styles.card} data-testid="venue-compare-empty">
         <h2 className={styles.cardTitle}>Venue cost comparison</h2>
         <p className={styles.cardHint}>
-          No venue pricing saved yet. On the Budget tab, type a venue's prices into the calculator, give it the venue's name under
+          No venue pricing saved yet. On the Calculator tab, type a venue's prices, give it the venue's name under
           “Save this pricing for a venue”, and it will show up here beside the others.
         </p>
         <button type="button" className={styles.link} onClick={onOpen}>Go to the calculator →</button>
@@ -1094,24 +1096,42 @@ export function WeddingBudget() {
   const { user } = useAuth();
   const { plan, update, saved, counts, venueNames } = usePlan(user?.uid);
   const [searchParams, setSearchParams] = useSearchParams();
-  const sub = searchParams.get('budget') === 'compare' ? 'compare' : 'plan';
-  const setSub = (v) => setSearchParams(v === 'compare' ? { view: 'budget', budget: 'compare' } : { view: 'budget' });
+  // Three tabs, kept in the URL: the plan (who's helping, the total, the
+  // split), the calculator (what a venue actually charges), and the saved
+  // venues side by side.
+  const raw = searchParams.get('budget');
+  const sub = raw === 'compare' || raw === 'calc' ? raw : 'plan';
+  const setSub = (v) => setSearchParams(v === 'plan' ? { view: 'budget' } : { view: 'budget', budget: v });
   if (!plan) return <p className={styles.loading}>Loading…</p>;
+  const tab = (key, label) => (
+    <button type="button" role="tab" aria-selected={sub === key} className={sub === key ? navStyles.subnavOn : navStyles.subnavBtn} onClick={() => setSub(key)}>{label}</button>
+  );
   const subnav = (
     <div className={navStyles.subnav} role="tablist" aria-label="Budget">
-      <button type="button" role="tab" aria-selected={sub === 'plan'} className={sub === 'plan' ? navStyles.subnavOn : navStyles.subnavBtn} onClick={() => setSub('plan')}>Budget</button>
-      <button type="button" role="tab" aria-selected={sub === 'compare'} className={sub === 'compare' ? navStyles.subnavOn : navStyles.subnavBtn} onClick={() => setSub('compare')}>
-        Venue cost comparison{plan.venueQuotes.length ? ` (${plan.venueQuotes.length})` : ''}
-      </button>
+      {tab('plan', 'Budget')}
+      {tab('calc', 'Calculator')}
+      {tab('compare', `Venue cost comparison${plan.venueQuotes.length ? ` (${plan.venueQuotes.length})` : ''}`)}
     </div>
   );
+  const status = <div className={styles.status} data-testid="budget-status">{saved ? 'Saved' : 'Saving…'}</div>;
   if (sub === 'compare') {
     return (
       <div>
         {subnav}
         <div className={styles.compareWrap}>
-          <div className={styles.status} data-testid="budget-status">{saved ? 'Saved' : 'Saving…'}</div>
-          <VenueCompare plan={plan} update={update} counts={counts} onOpen={() => setSub('plan')} />
+          {status}
+          <VenueCompare plan={plan} update={update} counts={counts} onOpen={() => setSub('calc')} />
+        </div>
+      </div>
+    );
+  }
+  if (sub === 'calc') {
+    return (
+      <div>
+        {subnav}
+        <div className={styles.calcWrap}>
+          {status}
+          <Calculator plan={plan} update={update} counts={counts} venueNames={venueNames} onCompare={() => setSub('compare')} />
         </div>
       </div>
     );
@@ -1119,14 +1139,11 @@ export function WeddingBudget() {
   return (
     <div>
       {subnav}
-      <div className={styles.layout}>
-        <div className={styles.wrap}>
-          <div className={styles.status} data-testid="budget-status">{saved ? 'Saved' : 'Saving…'}</div>
-          <Contributors plan={plan} update={update} />
-          <TotalCard plan={plan} update={update} counts={counts} />
-          <Split plan={plan} update={update} counts={counts} />
-        </div>
-        <Calculator plan={plan} update={update} counts={counts} venueNames={venueNames} onCompare={() => setSub('compare')} />
+      <div className={styles.wrap}>
+        {status}
+        <Contributors plan={plan} update={update} />
+        <TotalCard plan={plan} update={update} counts={counts} />
+        <Split plan={plan} update={update} counts={counts} />
       </div>
     </div>
   );
