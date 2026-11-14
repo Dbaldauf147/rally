@@ -158,12 +158,12 @@
 .markupPopOff:hover { color: var(--color-danger); }
 .markupPopDone { border: none; border-radius: var(--radius-md); background: var(--color-accent); color: #fff; font: inherit; font-weight: 600; font-size: 0.82rem; padding: 0.35rem 0.85rem; cursor: pointer; }
 
-/* ── Calculator: a column on the right of the budget, below it when narrow ── */
-.layout { display: grid; grid-template-columns: minmax(0, 860px) minmax(260px, 320px); gap: 1.25rem; align-items: start; }
-.layout .wrap { max-width: none; }
-.calc { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); display: flex; flex-direction: column; margin-bottom: 0; }
+/* ── Calculator: its own tab beside the budget ── */
+.calcWrap { position: relative; max-width: 620px; }
+.calc { display: flex; flex-direction: column; margin-bottom: 0; }
+.calc .guestsRow { margin: 0.2rem 0 0.4rem; }
 .calcHead { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
-.calcList { overflow-y: auto; margin: 0 -0.3rem; padding: 0 0.3rem; flex: 1 1 auto; min-height: 0; }
+.calcList { margin: 0 -0.3rem; padding: 0 0.3rem; }
 .calcGroup { padding: 0.35rem 0; border-top: 1px solid var(--color-border-light); }
 .calcGroup:first-child { border-top: none; }
 .calcCat { font-size: 0.78rem; font-weight: 700; color: var(--color-text); margin: 0.1rem 0 0.15rem; }
@@ -196,12 +196,6 @@
 .calcUnder { color: var(--color-success, #15803d); font-weight: 600; }
 .calcOver { color: var(--color-danger, #b91c1c); font-weight: 600; }
 
-@media (max-width: 1100px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  .layout .wrap { max-width: 860px; }
-  .calc { position: static; max-height: none; max-width: 860px; }
-  .calcList { overflow: visible; }
-}
 
 /* Saving the calculator's amounts under a venue, and the saved venues. */
 .venueSave { margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px solid var(--color-border); }
