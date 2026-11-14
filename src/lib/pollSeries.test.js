@@ -191,3 +191,11 @@ describe('seriesStatus', () => {
     expect(seriesStatus({ ...e, pollSentAt: 'x' }, now)).toMatchObject({ sent: true, sortDate: null });
   });
 });
+
+describe('buildNextRound: dashboard show dates', () => {
+  it('carries a yearly window to the next round and leaves a one-off behind', () => {
+    const e = round({ dashboardFrom: { u1: { date: '2026-11-01', daysBefore: null, yearly: true, until: '2026-12-26' }, u2: { date: '2026-09-01', daysBefore: 46 } } });
+    expect(buildNextRound(e, 'e1').doc.dashboardFrom).toEqual({ u1: { date: '2026-11-01', daysBefore: null, yearly: true, until: '2026-12-26' } });
+    expect('dashboardFrom' in buildNextRound(round(), 'e1').doc).toBe(false);
+  });
+});

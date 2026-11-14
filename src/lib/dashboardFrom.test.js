@@ -96,3 +96,57 @@ describe('splitting a dashboard', () => {
     expect(later.map(e => e.id)).toEqual(['b', 'a']);
   });
 });
+
+describe('a yearly window', () => {
+  // Secret Santa: no date of its own, on the dashboard Nov 1 – Dec 26 each year.
+  const santa = { dateTBD: true, date: new Date(2026, 10, 1), dashboardFrom: { [ME]: { date: '2026-11-01', daysBefore: null, yearly: true, until: '2026-12-26' } } };
+  const at = (y, m, d) => new Date(y, m - 1, d, 12);
+
+  it('is stored with both ends, and only when asked for', () => {
+    expect(buildDashboardFrom('2026-11-01', null, { yearly: true, until: '2026-12-26' }))
+      .toEqual({ date: '2026-11-01', daysBefore: null, yearly: true, until: '2026-12-26' });
+    expect(buildDashboardFrom('2026-11-01', null, { yearly: true, until: '' })).toEqual({ date: '2026-11-01', daysBefore: null });
+    expect(buildDashboardFrom('2026-11-01', null)).toEqual({ date: '2026-11-01', daysBefore: null });
+  });
+
+  it('shows inside the window and waits outside it, every year', () => {
+    expect(isShowingLater(santa, ME, at(2026, 10, 31))).toBe(true);
+    expect(isShowingLater(santa, ME, at(2026, 11, 1))).toBe(false);
+    expect(isShowingLater(santa, ME, at(2026, 12, 26))).toBe(false);
+    expect(isShowingLater(santa, ME, at(2026, 12, 27))).toBe(true);
+    expect(isShowingLater(santa, ME, at(2027, 6, 1))).toBe(true);
+    expect(isShowingLater(santa, ME, at(2027, 11, 15))).toBe(false);
+    expect(isShowingLater(santa, ME, at(2031, 2, 1))).toBe(true);
+  });
+
+  it('names the next day it shows', () => {
+    expect(ymd(dashboardShowDay(santa, ME, at(2026, 10, 1)))).toBe('2026-11-01');
+    expect(ymd(dashboardShowDay(santa, ME, at(2026, 12, 27)))).toBe('2027-11-01');
+    expect(ymd(dashboardShowDay(santa, ME, at(2027, 11, 20)))).toBe('2027-11-01');
+  });
+
+  it('can run over New Year', () => {
+    const nye = { dateTBD: true, dashboardFrom: { [ME]: { date: '2026-12-01', yearly: true, until: '2027-01-05' } } };
+    expect(isShowingLater(nye, ME, at(2027, 1, 3))).toBe(false);
+    expect(isShowingLater(nye, ME, at(2027, 1, 6))).toBe(true);
+    expect(isShowingLater(nye, ME, at(2027, 12, 31))).toBe(false);
+    expect(ymd(dashboardShowDay(nye, ME, at(2027, 1, 3)))).toBe('2026-12-01');
+  });
+
+  it('is not cut short by the event having a date before the window', () => {
+    const dated = { ...santa, dateTBD: false, date: new Date(2026, 9, 1) };
+    expect(isShowingLater(dated, ME, at(2026, 10, 15))).toBe(true);
+  });
+
+  it('fills the form with the day that was picked, and is someone else’s business only', () => {
+    expect(dashboardShowYmd(santa, ME)).toBe('2026-11-01');
+    expect(isShowingLater(santa, 'someone-else', at(2026, 6, 1))).toBe(false);
+  });
+
+  it('sorts held-back events by when they next show', () => {
+    const soon = { id: 'soon', dashboardFrom: { [ME]: { date: '2026-08-01', yearly: true, until: '2026-08-31' } } };
+    const { showing, later } = splitShowingLater([{ ...santa, id: 'santa' }, soon, { id: 'plain' }], ME, at(2026, 6, 1));
+    expect(showing.map(e => e.id)).toEqual(['plain']);
+    expect(later.map(e => e.id)).toEqual(['soon', 'santa']);
+  });
+});
