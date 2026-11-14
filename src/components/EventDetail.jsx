@@ -37,7 +37,7 @@ import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/even
 import { EventForm } from './EventForm';
 import { EventOutreach } from './EventOutreach';
 import { shownTabs, tabSetting } from '../lib/eventTabs';
-import { outreachMessage, gmailComposeUrl } from '../lib/eventOutreach';
+import { outreachMessage, inviteMessage, gmailComposeUrl } from '../lib/eventOutreach';
 import { showsTripPlanning } from '../lib/eventPlanning';
 import { DEFAULT_REMINDER_INTERVALS, reminderSendDates, hasMissingAnswers } from '../lib/autoReminders';
 import { DEFAULT_EVENT_REMINDER_DAYS, eventReminderRecipients, eventReminderSchedule, eventRemindersSentFor } from '../lib/eventReminders';
@@ -135,13 +135,9 @@ export function EventDetail() {
     return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat', 'santa'].includes(t) ? t : null;
   });
   const initialTabPickedRef = useRef(false);
-  const [inviteCopied, setInviteCopied] = useState(false);
   const [result, setResult] = useState(null);
-  const [showInvite, setShowInvite] = useState(false);
   const [showReachOut, setShowReachOut] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
   const [inviteSending, setInviteSending] = useState(false);
-  const [inviteResult, setInviteResult] = useState('');
   const [boatCopied, setBoatCopied] = useState(false);
   const [boatSynced, setBoatSynced] = useState(false);
   // Track a narrow (phone) viewport so the Voted table can tighten up its cells
@@ -2122,45 +2118,6 @@ export function EventDetail() {
     setShowCalPicker(false);
   }
 
-  function handleCopyLink() {
-    const fromName = user?.displayName || 'Someone';
-    const pollUrl = `${WEB_ORIGIN}/poll/${eventId}?name=Friend`;
-    const message = `Hey! ${fromName} invited you to ${event.title}.\n\nVote here on what dates you can make: ${pollUrl}`;
-    navigator.clipboard.writeText(message);
-    setInviteCopied(true);
-    setTimeout(() => setInviteCopied(false), 2000);
-  }
-
-  function handleSendInvite(e) {
-    e.preventDefault();
-    const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
-    const fromName = user?.displayName || 'Someone';
-    const messageText = `You're invited to ${event.title}!\n\nWhen: ${dateStr}${event.location ? `\nWhere: ${event.location}` : ''}${event.description ? `\n\n${event.description}` : ''}\n\nView event & RSVP: ${inviteLink}`;
-
-    if (inviteEmail.trim()) {
-      // Open Gmail compose with pre-filled recipient
-      const subject = encodeURIComponent(`${fromName} invited you to: ${event.title}`);
-      const body = encodeURIComponent(messageText);
-      const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(inviteEmail.trim())}&su=${subject}&body=${body}`;
-      window.open(gmailUrl, '_blank');
-      // Mark member as emailed
-      const emailLower = inviteEmail.trim().toLowerCase();
-      const memberEntry = members.find(([uid, m]) => (m.email || '').toLowerCase() === emailLower || uid.toLowerCase() === emailLower);
-      if (memberEntry) {
-        updateEvent(eventId, { [`members.${memberEntry[0]}.emailed`]: new Date().toISOString() });
-      }
-      setInviteResult('Gmail opened!');
-      setInviteEmail('');
-    } else if (navigator.share) {
-      // Use native share on mobile
-      navigator.share({ title: event.title, text: messageText, url: inviteLink }).catch(() => {});
-    } else {
-      // Fallback: copy message
-      navigator.clipboard.writeText(messageText);
-      setInviteResult('Invite message copied to clipboard!');
-    }
-  }
-
   /* Key Considerations is opt-in per event, the same way Boat Day is: the
      question it asks — what do I want out of this, and what will I do to get
      it — belongs to a wedding or a week away, not to every Tuesday dinner.
@@ -2407,16 +2364,12 @@ export function EventDetail() {
             )}
             {user?.email === 'baldaufdan@gmail.com' && (
               <>
-                <button className={styles.shareBtn} onClick={() => setShowInvite(true)}>
-                  ✉ Share invite
+                {/* One door to everyone: text or email the guests — the poll or
+                    the calendar invite, to all or a slice of them — or hand the
+                    invite link to someone who isn't on the list yet. */}
+                <button className={styles.shareBtn} data-testid="reach-out" onClick={() => setShowReachOut(true)}>
+                  📣 Reach Out
                 </button>
-                {/* One door to texting or emailing the guests — the poll or the
-                    calendar invite, to everyone or a slice of them. */}
-                {members.length > 1 && (
-                  <button className={styles.shareBtn} data-testid="reach-out" onClick={() => setShowReachOut(true)}>
-                    📣 Reach Out
-                  </button>
-                )}
               </>
             )}
             {/* Top right of the header: everything about the event itself —
@@ -5201,6 +5154,17 @@ export function EventDetail() {
         return (
           <EventOutreach
             dateTBD={!!event.dateTBD}
+            hasGuests={members.some(([uid]) => uid !== user?.uid)}
+            share={{
+              link: inviteLink,
+              message: inviteMessage({
+                title: event.title,
+                location: event.location,
+                dateStr: event.dateTBD ? '' : formatWhen(event, date, 'EEEE, MMMM d, yyyy'),
+                inviteLink,
+                fromName: user?.displayName,
+              }),
+            }}
             count={(channel, audience) => reach(channel, audience).length}
             onSend={send}
             onClose={() => setShowReachOut(false)}
@@ -5208,80 +5172,6 @@ export function EventDetail() {
         );
       })()}
 
-      {showInvite && (() => {
-        const dateStr = formatWhen(event, date, 'EEEE, MMMM d, yyyy');
-        const fromName = user?.displayName || 'Someone';
-        const messageText = `You're invited to ${event.title}!\n\nWhen: ${dateStr}${event.location ? `\nWhere: ${event.location}` : ''}\n\nView event & RSVP: ${inviteLink}`;
-        const subject = `${fromName} invited you to: ${event.title}`;
-        return (
-          <div className={styles.modalOverlay} onClick={() => { setShowInvite(false); setInviteResult(''); }}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 0.25rem' }}>Share This Event</h2>
-              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 1.25rem' }}>Invite friends to join your event.</p>
-
-              {/* Email input + Gmail button */}
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const to = inviteEmail.trim();
-                const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(messageText)}`;
-                window.open(gmailUrl, '_blank');
-                // Mark member as emailed
-                const emailLower = to.toLowerCase();
-                const memberEntry = members.find(([uid, m]) => (m.email || '').toLowerCase() === emailLower || uid.toLowerCase() === emailLower);
-                if (memberEntry) {
-                  updateEvent(eventId, { [`members.${memberEntry[0]}.emailed`]: new Date().toISOString() });
-                }
-                setInviteEmail('');
-                setInviteResult('Gmail opened!');
-              }} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={e => setInviteEmail(e.target.value)}
-                  placeholder="friend@email.com"
-                  required
-                  autoFocus
-                  style={{ flex: 1, padding: '0.6rem 0.85rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '0.9rem', outline: 'none' }}
-                />
-                <button type="submit" style={{ padding: '0.6rem 1rem', border: 'none', borderRadius: 'var(--radius-md)', background: '#ea4335', color: '#fff', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  Gmail
-                </button>
-              </form>
-
-              {inviteResult && <p style={{ fontSize: '0.82rem', color: 'var(--color-success)', margin: '0 0 0.75rem' }}>{inviteResult}</p>}
-
-              {/* Share buttons */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-                <button onClick={() => {
-                  const smsBody = encodeURIComponent(messageText);
-                  window.open(`sms:?body=${smsBody}`, '_blank');
-                }} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.65rem 1rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.88rem', fontWeight: 500, color: 'var(--color-text)' }}>
-                  💬 Send via Text Message
-                </button>
-                <button onClick={() => {
-                  const waUrl = `https://wa.me/?text=${encodeURIComponent(messageText)}`;
-                  window.open(waUrl, '_blank');
-                }} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.65rem 1rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.88rem', fontWeight: 500, color: 'var(--color-text)' }}>
-                  📱 Share via WhatsApp
-                </button>
-                <button onClick={() => {
-                  navigator.clipboard.writeText(messageText);
-                  setInviteResult('Invite message copied!');
-                }} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.65rem 1rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.88rem', fontWeight: 500, color: 'var(--color-text)' }}>
-                  📋 Copy Invite Message
-                </button>
-                <button onClick={handleCopyLink} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.65rem 1rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.88rem', fontWeight: 500, color: 'var(--color-text)' }}>
-                  🔗 {inviteCopied ? '✓ Link Copied!' : 'Copy Link Only'}
-                </button>
-              </div>
-
-              <button onClick={() => { setShowInvite(false); setInviteResult(''); }} style={{ width: '100%', padding: '0.6rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.88rem', cursor: 'pointer', fontFamily: 'inherit' }}>
-                Done
-              </button>
-            </div>
-          </div>
-        );
-      })()}
       {/* Edit member modal */}
       {showFinalize && (
         <div className={styles.modalOverlay} onClick={() => { setShowFinalize(false); setEditingOptionId(null); }}>
