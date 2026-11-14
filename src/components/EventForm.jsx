@@ -11,6 +11,8 @@ import {
 import { normalizeGuestListReview, guestListReviewForSave } from '../lib/guestListReview';
 import { CADENCES, normalizePollSeries, addMonthsYmd, sendDateLabel, pollWindow, windowLabel, previewDate } from '../lib/pollSeries';
 import { DEFAULT_REMINDER_INTERVALS } from '../lib/autoReminders';
+import { DEFAULT_EVENT_REMINDER_DAYS } from '../lib/eventReminders';
+import { BOAT_NAME } from './BoatDay';
 import styles from './EventForm.module.css';
 import { DateField } from './DateField';
 
@@ -77,6 +79,16 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
   const togglePlanning = (key) => setPlanning(p => ({ ...p, [key]: !p[key] }));
   // Adds the organizer's name-drawing panel to the event page (lib/secretSanta.js).
   const [secretSanta, setSecretSanta] = useState(event?.secretSanta?.enabled === true);
+
+  // The other per-event extras. Each also has its own Enable/Disable panel on
+  // the event page (People & Poll), which stays the place to manage it; these
+  // are the same switches, offered up front so setup happens in one go.
+  const boatWas = event?.boatDay?.enabled === true;
+  const considerationsWas = event?.keyConsiderationsEnabled === true;
+  const remindersWas = event?.eventReminders?.enabled === true;
+  const [boatDay, setBoatDay] = useState(boatWas);
+  const [keyConsiderations, setKeyConsiderations] = useState(considerationsWas);
+  const [eventReminders, setEventReminders] = useState(remindersWas);
 
   // The date field is our own control, so there is no native "required" bubble
   // to lean on. Submitting without a start date says so in the form instead.
@@ -196,6 +208,23 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
       data.allDay = allDay;
     }
     data.secretSanta = secretSanta ? { enabled: true } : null;
+    // The extras are written only when their box actually changed, so an
+    // ordinary edit never rewrites a roster or a reminder schedule in passing.
+    if (boatDay !== boatWas) {
+      if (event) {
+        // An existing event is saved with updateDoc: dotted paths flip the
+        // switch and leave the roster and days that are already there.
+        data['boatDay.enabled'] = boatDay;
+        if (!Array.isArray(event.boatDay?.roster)) data['boatDay.roster'] = [];
+      } else {
+        data.boatDay = { enabled: true, roster: [] };
+      }
+    }
+    if (keyConsiderations !== considerationsWas) data.keyConsiderationsEnabled = keyConsiderations;
+    if (eventReminders !== remindersWas) {
+      const days = Array.isArray(event?.eventReminders?.daysBefore) ? event.eventReminders.daysBefore : DEFAULT_EVENT_REMINDER_DAYS;
+      data.eventReminders = { enabled: eventReminders, daysBefore: days };
+    }
     // null (not undefined) so saving an edit that turns repeating off actually
     // clears the rule on the stored doc.
     data.recurrence = dateTBD || !repeats || pollRepeat ? null : buildRule();
@@ -424,6 +453,45 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
         {secretSanta && (
           <p className={styles.repeatHint} style={{ margin: '0.4rem 0 0' }}>
             Draw names on the event page: nobody gets their partner or the person they had last time. You review the draw, then email everyone their person with one button.
+          </p>
+        )}
+      </div>
+
+      <div className={styles.repeatBox} data-testid="extra-boat">
+        <label className={styles.repeatToggle} style={{ color: boatDay ? '#0369A1' : '#6b7280' }}>
+          <input type="checkbox" checked={boatDay} onChange={e => setBoatDay(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#0EA5E9' }} />
+          <span aria-hidden="true">⛵</span>
+          Boat Day
+        </label>
+        {boatDay && (
+          <p className={styles.repeatHint} style={{ margin: '0.4rem 0 0' }}>
+            Adds a Boat tab with a roster ({BOAT_NAME}, The Islander + Kyle’s & Nick’s boats) that anyone with the boat link can add to.
+          </p>
+        )}
+      </div>
+
+      <div className={styles.repeatBox} data-testid="extra-considerations">
+        <label className={styles.repeatToggle} style={{ color: keyConsiderations ? '#6D28D9' : '#6b7280' }}>
+          <input type="checkbox" checked={keyConsiderations} onChange={e => setKeyConsiderations(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#8B5CF6' }} />
+          <span aria-hidden="true">🎯</span>
+          Key Considerations
+        </label>
+        {keyConsiderations && (
+          <p className={styles.repeatHint} style={{ margin: '0.4rem 0 0' }}>
+            Adds a tab for what you want out of this event, and what you’ll do to get it.
+          </p>
+        )}
+      </div>
+
+      <div className={styles.repeatBox} data-testid="extra-reminders">
+        <label className={styles.repeatToggle} style={{ color: eventReminders ? '#4f46e5' : '#6b7280' }}>
+          <input type="checkbox" checked={eventReminders} onChange={e => setEventReminders(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
+          <span aria-hidden="true">📧</span>
+          Event reminder emails
+        </label>
+        {eventReminders && (
+          <p className={styles.repeatHint} style={{ margin: '0.4rem 0 0' }}>
+            Everyone who said yes or maybe gets an email {(Array.isArray(event?.eventReminders?.daysBefore) ? event.eventReminders.daysBefore : DEFAULT_EVENT_REMINDER_DAYS).map(d => `${d} day${d === 1 ? '' : 's'}`).join(' and ')} before the event. They start once the date is final; you can change the days or stop them on the event page.
           </p>
         )}
       </div>
