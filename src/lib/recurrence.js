@@ -70,6 +70,16 @@ function intInRange(value, min, max) {
   return n;
 }
 
+// A stored year, or null for "not set". null and '' are checked first because
+// Number() turns both into 0 — which reads as "the series ended in year 0" and
+// silently removes every occurrence. A normalized rule carries null for an
+// open end, so without this, normalizing a rule twice broke it.
+function yearOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
 /** True when the event carries a usable annual recurrence rule. */
 export function isRecurring(event) {
   return !!normalizeRecurrence(event?.recurrence);
@@ -87,8 +97,8 @@ export function normalizeRecurrence(raw) {
   const month = intInRange(raw.month, 1, 12);
   if (month === null) return null;
 
-  const startYear = Number.isFinite(Number(raw.startYear)) ? Math.trunc(Number(raw.startYear)) : null;
-  const endYearRaw = Number.isFinite(Number(raw.endYear)) ? Math.trunc(Number(raw.endYear)) : null;
+  const startYear = yearOrNull(raw.startYear);
+  const endYearRaw = yearOrNull(raw.endYear);
   // An endYear before the series starts would silently kill every occurrence;
   // drop it rather than render a series that can never happen.
   const endYear = endYearRaw !== null && startYear !== null && endYearRaw < startYear ? null : endYearRaw;
