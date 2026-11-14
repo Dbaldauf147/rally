@@ -1820,7 +1820,9 @@ export function EventDetail() {
   async function handleCancel() {
     if (window.confirm('Cancel this event? It stays on your dashboard (dimmed) and you can bring it back anytime.')) {
       await cancelEvent(eventId);
+      return true;
     }
+    return false;
   }
 
   async function handleRestore() {
@@ -4320,20 +4322,6 @@ export function EventDetail() {
                   </div>
                 </div>
               )}
-              {event.cancelled ? (
-                <button
-                  className={styles.editBtn}
-                  onClick={handleRestore}
-                  style={{ background: 'var(--color-success-light)', borderColor: 'var(--color-success)', color: 'var(--color-success)' }}
-                >↩ Restore Event</button>
-              ) : (
-                <button
-                  className={styles.editBtn}
-                  onClick={handleCancel}
-                  style={{ background: 'var(--color-warning-light)', borderColor: 'var(--color-warning)', color: 'var(--color-warning)' }}
-                >🚫 Cancel Event</button>
-              )}
-              <button className={styles.deleteBtn} onClick={handleDelete}>Delete Event</button>
             </div>
           )}
 
@@ -5122,6 +5110,11 @@ export function EventDetail() {
                 setEditing(false);
               }}
               onCancel={() => setEditing(false)}
+              // Cancel / Restore / Delete live at the foot of the form. Each
+              // closes it once done; a declined confirm leaves it open.
+              onCancelEvent={async () => { if (await handleCancel()) setEditing(false); }}
+              onRestoreEvent={async () => { await handleRestore(); setEditing(false); }}
+              onDeleteEvent={handleDelete}
             />
           </div>
         </div>
