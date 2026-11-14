@@ -191,3 +191,36 @@
   .calc { position: static; max-height: none; max-width: 860px; }
   .calcList { overflow: visible; }
 }
+
+/* Saving the calculator's amounts under a venue, and the saved venues. */
+.venueSave { margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px solid var(--color-border); }
+.venueSaveTitle { font-size: 0.8rem; font-weight: 650; margin-bottom: 0.35rem; }
+.venueSaveRow { display: flex; gap: 0.4rem; }
+.venueSaveName { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text); font-family: inherit; font-size: 0.85rem; }
+.venueSaveBtn { padding: 0.35rem 0.8rem; border: none; border-radius: var(--radius-sm); background: var(--color-accent); color: #fff; font-family: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+.venueSaveBtn:disabled { opacity: 0.45; cursor: default; }
+.venueList { list-style: none; margin: 0.5rem 0 0.4rem; padding: 0; }
+.venueList li { display: flex; align-items: center; gap: 0.4rem; padding: 0.1rem 0; font-size: 0.85rem; }
+.venueLoad { flex: 1; min-width: 0; padding: 0; border: none; background: none; text-align: left; font-family: inherit; font-size: inherit; font-weight: 600; color: var(--color-accent); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.venueLoad:hover { text-decoration: underline; }
+.venueTotal { font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+
+/* Budget → Venue cost comparison. */
+.compareWrap { position: relative; max-width: 1100px; }
+.compareTable { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.compareTable th { text-align: left; vertical-align: bottom; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--color-border); }
+.compareTable th.numHead { text-align: right; min-width: 8.5rem; padding-right: 0.75rem; }
+.compareVenue { display: block; font-size: 0.9rem; font-weight: 700; text-transform: none; letter-spacing: 0; color: var(--color-text); }
+.compareBest { display: inline-block; margin-top: 0.15rem; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--color-success-light, #dcfce7); color: var(--color-success, #15803d); font-size: 0.66rem; }
+.compareActs { display: flex; justify-content: flex-end; align-items: center; gap: 0.2rem; text-transform: none; letter-spacing: 0; }
+.compareTable td { padding: 0.28rem 0.5rem; border-bottom: 1px solid var(--color-border); }
+.compareCat td { padding-top: 0.7rem; font-weight: 650; border-bottom: none; }
+.compareLine { padding-left: 1.2rem !important; max-width: 20rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); }
+.compareCatLine { font-weight: 650; max-width: 20rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compareNum, .compareLow, .compareBudget { padding-right: 0.75rem !important; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.compareBudget { color: var(--color-text-muted); }
+.compareLow { color: var(--color-success, #15803d); font-weight: 700; }
+.compareTable tfoot td { padding-right: 0.75rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; border-bottom: none; padding-top: 0.3rem; padding-bottom: 0.2rem; }
+.compareTable tfoot td:first-child { text-align: left; }
+.compareTable tfoot tr:first-child td { border-top: 2px solid var(--color-border); padding-top: 0.5rem; }
+.compareTotalLow { font-weight: 750; color: var(--color-success, #15803d); }

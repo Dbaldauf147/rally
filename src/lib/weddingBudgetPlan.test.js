@@ -235,3 +235,81 @@ describe('calculator', () => {
     expect(normalizePlan(null).calculator).toEqual({ amounts: {} });
   });
 });
+
+describe('venue pricing', async () => {
+  const { normalizePlan, saveVenueQuote, findVenueQuote, sameAmounts, venueComparison, resolveCategories } = await import('./weddingBudgetPlan');
+  const cats = [
+    { id: 'c-venue', name: 'Venue', pct: 0, taxed: true, items: [
+      { id: 'i-site', name: 'Site fee', pct: 10, taxed: true, perPlate: null, markup: null },
+      { id: 'i-food', name: 'Food', pct: 20, taxed: true, perPlate: null, markup: null },
+      { id: 'i-bar', name: 'Bar', pct: 5, taxed: false, perPlate: null, markup: null },
+    ] },
+    { id: 'c-planner', name: 'Planner', pct: 5, taxed: false, items: [] },
+  ];
+  const at = new Date('2026-11-14T12:00:00Z');
+
+  it('saves a new venue, and updates one already saved under the same name', () => {
+    let q = saveVenueQuote([], '  The Barn ', { 'i-site': 5000, 'i-food': '12000', junk: 'x' }, at);
+    expect(q).toHaveLength(1);
+    expect(q[0]).toMatchObject({ name: 'The Barn', amounts: { 'i-site': 5000, 'i-food': 12000 }, savedAt: '2026-11-14T12:00:00.000Z' });
+    const id = q[0].id;
+    q = saveVenueQuote(q, 'the barn', { 'i-site': 6000 }, at);
+    expect(q).toHaveLength(1);
+    expect(q[0]).toMatchObject({ id, name: 'the barn', amounts: { 'i-site': 6000 } });
+    q = saveVenueQuote(q, 'Loft', { 'i-site': 9000 }, at);
+    expect(q.map((x) => x.name)).toEqual(['the barn', 'Loft']);
+    expect(findVenueQuote(q, 'LOFT').amounts).toEqual({ 'i-site': 9000 });
+    expect(saveVenueQuote(q, '   ', { a: 1 }, at)).toBe(q);
+  });
+
+  it('keeps saved venues through normalizePlan, dropping nameless and repeated ones', () => {
+    const plan = normalizePlan({ venueQuotes: [
+      { id: 'v1', name: 'Barn', amounts: { a: 1, b: 'x' }, savedAt: 's' },
+      { id: 'v1', name: 'Dupe', amounts: {} },
+      { id: 'v2', name: ' ', amounts: {} },
+      null,
+    ] });
+    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, savedAt: 's' }]);
+    expect(normalizePlan(null).venueQuotes).toEqual([]);
+  });
+
+  it('knows when two sets of amounts are the same', () => {
+    expect(sameAmounts({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true);
+    expect(sameAmounts({ a: 1 }, { a: 1, b: 2 })).toBe(false);
+    expect(sameAmounts({}, undefined)).toBe(true);
+  });
+
+  it('lines venues up against the same budget lines, with tax, totals and the cheapest', () => {
+    const quotes = [
+      { id: 'v1', name: 'Barn', amounts: { 'i-site': 5000, 'i-food': 10000, 'c-planner': 3000 }, savedAt: '' },
+      { id: 'v2', name: 'Loft', amounts: { 'i-site': 8000, 'i-food': 9000, 'i-bar': 2000 }, savedAt: '' },
+      { id: 'v3', name: 'Empty', amounts: {}, savedAt: '' },
+    ];
+    const c = venueComparison(resolveCategories(cats, 100000, 100), quotes, 10, 100000, 100);
+    expect(c.rows.map((r) => [r.kind, r.name])).toEqual([
+      ['category', 'Venue'], ['line', 'Site fee'], ['line', 'Food'], ['line', 'Bar'], ['line', 'Planner'],
+    ]);
+    const site = c.rows[1];
+    expect(site).toMatchObject({ budgeted: 10000, amounts: [5000, 8000, null], low: 0 });
+    expect(c.rows[2].low).toBe(1);
+    expect(c.rows[3]).toMatchObject({ amounts: [null, 2000, null], low: null });
+    expect(c.rows[4]).toMatchObject({ budgeted: 5000, amounts: [3000, null, null] });
+    // Barn: 18,000 + 10% on site and food (1,500). Loft: 19,000 + 10% on 17,000 (bar isn't taxed).
+    expect(c.venues[0]).toMatchObject({ subtotal: 18000, tax: 1500, total: 19500, filled: 3, perPerson: 195, diff: 80500 });
+    expect(c.venues[1]).toMatchObject({ subtotal: 19000, tax: 1700, total: 20700, perPerson: 207 });
+    expect(c.venues[2]).toMatchObject({ filled: 0, perPerson: null, diff: null });
+    expect(c.cheapest).toBe('v1');
+  });
+
+  it('names no cheapest with one venue or a tie, and no budget figures without a budget', () => {
+    const one = venueComparison(cats, [{ id: 'v1', name: 'Barn', amounts: { 'i-site': 5 }, savedAt: '' }], 0, 0, 0);
+    expect(one.cheapest).toBeNull();
+    expect(one.rows[1].budgeted).toBeNull();
+    expect(one.venues[0]).toMatchObject({ diff: null, perPerson: null });
+    const tie = venueComparison(cats, [
+      { id: 'v1', name: 'A', amounts: { 'i-site': 5 }, savedAt: '' }, { id: 'v2', name: 'B', amounts: { 'i-bar': 5 }, savedAt: '' },
+    ], 0);
+    expect(tie.cheapest).toBeNull();
+    expect(venueComparison(cats, [], 0)).toEqual({ rows: [], venues: [], cheapest: null });
+  });
+});

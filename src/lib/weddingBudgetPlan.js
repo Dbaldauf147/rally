@@ -248,6 +248,7 @@ export function normalizePlan(raw) {
     })),
     categories,
     calculator: normalizeCalculator(r.calculator),
+    venueQuotes: normalizeVenueQuotes(r.venueQuotes),
   };
 }
 
@@ -510,4 +511,99 @@ export function formatPct(n) {
 export function formatRate(n) {
   if (n == null || !Number.isFinite(n)) return '';
   return `${Math.round(n * 1000) / 1000}%`;
+}
+
+/* ── Venue pricing ──
+   The calculator's amounts, saved under a venue's name so several venues can
+   be held side by side (Budget → Venue cost comparison):
+
+     venueQuotes: [{ id, name, amounts: { [line id]: dollars }, savedAt }]
+
+   Amounts are keyed by budget line, like the calculator's, so every venue is
+   priced against the same lines and the same sales-tax ticks. */
+function normalizeVenueQuotes(raw) {
+  const seen = new Set();
+  const out = [];
+  for (const q of Array.isArray(raw) ? raw : []) {
+    if (!q || typeof q !== 'object') continue;
+    const name = str(q.name).trim();
+    const id = str(q.id) || newId('v');
+    if (!name || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name, amounts: normalizeCalculator(q).amounts, savedAt: str(q.savedAt) });
+  }
+  return out;
+}
+
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+export function findVenueQuote(quotes, name) {
+  return (quotes || []).find((q) => sameName(q.name, name)) || null;
+}
+
+/* Save the amounts under a venue's name: a venue already saved (same name,
+   whatever the capitals) is updated in place, a new one goes on the end. */
+export function saveVenueQuote(quotes, name, amounts, now = new Date()) {
+  const clean = String(name || '').trim();
+  if (!clean) return quotes || [];
+  const entry = { name: clean, amounts: normalizeCalculator({ amounts }).amounts, savedAt: now.toISOString() };
+  const existing = findVenueQuote(quotes, clean);
+  if (existing) return quotes.map((q) => (q.id === existing.id ? { ...q, ...entry } : q));
+  return [...(quotes || []), { id: newId('v'), ...entry }];
+}
+
+/* True when the calculator holds exactly what a saved venue holds — nothing
+   would be lost by loading another one over it. */
+export function sameAmounts(a, b) {
+  const x = normalizeCalculator({ amounts: a }).amounts;
+  const y = normalizeCalculator({ amounts: b }).amounts;
+  const keys = new Set([...Object.keys(x), ...Object.keys(y)]);
+  return [...keys].every((k) => x[k] === y[k]);
+}
+
+/* The comparison table. `categories` are the resolved split, `budget` the
+   total budget (0 when none is set), `guestN` the guest count.
+
+   rows:   the budget lines at least one venue has a price for, in the split's
+           order — { kind: 'category' | 'line', id, name, budgeted, amounts: [n|null per venue], low }
+           where `low` is the index of the cheapest venue on that line (null on a tie or with one price)
+   venues: per venue { id, name, savedAt, subtotal, tax, total, filled, perPerson, diff }
+           — diff is budget − total (null with no budget)
+   cheapest: id of the venue with the lowest total among those with any price */
+export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0) {
+  const list = quotes || [];
+  const rows = [];
+  for (const g of calculatorGroups(categories)) {
+    const lines = g.lines.filter((l) => list.some((q) => q.amounts[l.id] != null));
+    if (lines.length === 0) continue;
+    const byId = new Map((categories.find((c) => c.id === g.id)?.items || []).map((i) => [i.id, i]));
+    const cat = categories.find((c) => c.id === g.id);
+    const standalone = g.lines.length === 1 && g.lines[0].id === g.id;
+    if (!standalone) rows.push({ kind: 'category', id: `cat-${g.id}`, name: g.name || 'Untitled' });
+    for (const l of lines) {
+      const amounts = list.map((q) => (q.amounts[l.id] == null ? null : q.amounts[l.id]));
+      const priced = amounts.map((v, i) => [v, i]).filter(([v]) => v != null);
+      const min = Math.min(...priced.map(([v]) => v));
+      const lows = priced.filter(([v]) => v === min);
+      const pct = standalone ? cat.pct : (byId.get(l.id)?.pct ?? 0);
+      rows.push({
+        kind: 'line', id: l.id, name: l.name || 'Untitled', taxed: l.taxed, standalone,
+        budgeted: budget > 0 ? amountFor(pct, budget) : null,
+        amounts,
+        low: priced.length > 1 && lows.length === 1 ? lows[0][1] : null,
+      });
+    }
+  }
+  const venues = list.map((q) => {
+    const t = calculatorTotals(categories, q.amounts, rate);
+    return {
+      id: q.id, name: q.name, savedAt: q.savedAt, ...t,
+      perPerson: guestN > 0 && t.filled > 0 ? t.total / guestN : null,
+      diff: budget > 0 && t.filled > 0 ? budget - t.total : null,
+    };
+  });
+  const priced = venues.filter((v) => v.filled > 0);
+  const min = Math.min(...priced.map((v) => v.total));
+  const lowest = priced.filter((v) => v.total === min);
+  return { rows, venues, cheapest: priced.length > 1 && lowest.length === 1 ? lowest[0].id : null };
 }
