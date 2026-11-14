@@ -232,7 +232,7 @@ describe('calculator', () => {
   it('keeps the amounts through normalizePlan and drops junk', () => {
     const p = normalizePlan({ calculator: { amounts: { a: 1200, b: '300', c: -5, d: 'x', e: null } } });
     expect(p.calculator.amounts).toEqual({ a: 1200, b: 300, c: 0 });
-    expect(normalizePlan(null).calculator).toEqual({ amounts: {}, included: {}, perPerson: {} });
+    expect(normalizePlan(null).calculator).toEqual({ amounts: {}, included: {}, perPerson: {}, subs: {} });
   });
 });
 
@@ -269,7 +269,7 @@ describe('venue pricing', async () => {
       { id: 'v2', name: ' ', amounts: {} },
       null,
     ] });
-    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: {}, perPerson: {}, savedAt: 's' }]);
+    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: {}, perPerson: {}, subs: {}, savedAt: 's' }]);
     expect(normalizePlan(null).venueQuotes).toEqual([]);
   });
 
@@ -344,7 +344,7 @@ describe('included lines and food per person', async () => {
       calculator: { amounts: { a: 5, b: 7 }, included: { b: true, c: 'yes' } },
       venueQuotes: [{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: { r: true } }],
     });
-    expect(plan.calculator).toEqual({ amounts: { a: 5 }, included: { b: true }, perPerson: {} });
+    expect(plan.calculator).toEqual({ amounts: { a: 5 }, included: { b: true }, perPerson: {}, subs: {} });
     expect(plan.venueQuotes[0]).toMatchObject({ amounts: { a: 1 }, included: { r: true } });
     const q = saveVenueQuote([], 'Loft', { amounts: { a: 2 }, included: { r: true } });
     expect(q[0]).toMatchObject({ amounts: { a: 2 }, included: { r: true } });
@@ -440,13 +440,13 @@ describe('per-person calculator lines', async () => {
       included: { c: true },
       perPerson: { b: 30, c: 40, d: 'x', e: -5 },
     } });
-    expect(plan.calculator).toEqual({ amounts: { a: 5 }, included: { c: true }, perPerson: { b: 30, e: 0 } });
+    expect(plan.calculator).toEqual({ amounts: { a: 5 }, included: { c: true }, perPerson: { b: 30, e: 0 }, subs: {} });
   });
 
   it('switches a line to per person and back without changing what it comes to', () => {
-    const flat = { amounts: { 'i-food': 60000 }, included: {}, perPerson: {} };
+    const flat = { amounts: { 'i-food': 60000 }, included: {}, perPerson: {}, subs: {} };
     const pp = toggleCalcPerPerson(flat, 'i-food', 200);
-    expect(pp).toEqual({ amounts: {}, included: {}, perPerson: { 'i-food': 300 } });
+    expect(pp).toEqual({ amounts: {}, included: {}, perPerson: { 'i-food': 300 }, subs: {} });
     expect(toggleCalcPerPerson(pp, 'i-food', 200)).toEqual(flat);
     // Rounded to the cent when it doesn't divide evenly.
     expect(toggleCalcPerPerson({ amounts: { x: 1000 } }, 'x', 3).perPerson.x).toBe(333.33);
@@ -454,7 +454,7 @@ describe('per-person calculator lines', async () => {
     expect(toggleCalcPerPerson(flat, 'i-food', 0).perPerson['i-food']).toBe(60000);
     // An empty or included line switches too, waiting for its price.
     expect(toggleCalcPerPerson({ amounts: {}, included: { 'i-bar': true } }, 'i-bar', 200))
-      .toEqual({ amounts: {}, included: {}, perPerson: { 'i-bar': 0 } });
+      .toEqual({ amounts: {}, included: {}, perPerson: { 'i-bar': 0 }, subs: {} });
   });
 
   it('tells a per-person price from a flat one when comparing calculators', () => {
@@ -477,5 +477,96 @@ describe('per-person calculator lines', async () => {
     expect(c.cheapest).toBe(quotes[0].id);
     // With fewer guests the per-person venue gets cheaper; the flat one doesn't.
     expect(venueComparison(cats, quotes, 0, 0, 100).venues.map((v) => v.total)).toEqual([30000, 53000]);
+  });
+});
+
+describe('sub-items under a calculator line', async () => {
+  const {
+    normalizePlan, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, sameCalc, saveVenueQuote, venueComparison, calculatorTotals,
+  } = await import('./weddingBudgetPlan');
+  const cats = [
+    { id: 'c-venue', name: 'Venue', pct: 0, taxed: true, items: [
+      { id: 'i-site', name: 'Site fee', pct: 10, taxed: true, perPlate: null, markup: null },
+      { id: 'i-food', name: 'Food', pct: 20, taxed: true, perPlate: null, markup: null },
+      { id: 'i-bar', name: 'Bar', pct: 5, taxed: false, perPlate: null, markup: null },
+    ] },
+  ];
+  const sub = (name, extra = {}) => ({ id: `s-${name}`, name, amount: null, pp: false, included: false, ...extra });
+  const calc = {
+    amounts: { 'i-site': 8000, 'i-food': 99999, 'i-bar': 4000 },
+    included: {}, perPerson: {},
+    subs: {
+      'i-food': [sub('Cocktail hour', { amount: 3000 }), sub('Raw bar', { amount: 25, pp: true }), sub('Dinner', { included: true }), sub('Dessert')],
+      'i-bar': [sub('Champagne toast')],
+    },
+  };
+
+  it('makes a line the sum of its answered sub-items, per-person ones multiplied out', () => {
+    const eff = effectiveCalc(calc, 100);
+    expect(eff.amounts).toEqual({ 'i-site': 8000, 'i-food': 5500, 'i-bar': 4000 });
+    expect(lineFromSubs(calc, 'i-food')).toBe(true);
+    // Bar's only sub-item has no figure yet, so the line keeps its own.
+    expect(lineFromSubs(calc, 'i-bar')).toBe(false);
+    expect(calculatorTotals(cats, eff.amounts, 0, eff.included)).toMatchObject({ subtotal: 17500, filled: 3 });
+  });
+
+  it('reads a line as included when every answered sub-item is', () => {
+    const eff = effectiveCalc({ amounts: { 'i-food': 500 }, included: {}, perPerson: {}, subs: { 'i-food': [sub('Dinner', { included: true }), sub('Dessert')] } }, 100);
+    expect(eff).toEqual({ amounts: {}, included: { 'i-food': true } });
+  });
+
+  it('keeps sub-items through normalizePlan and on a saved venue', () => {
+    const plan = normalizePlan({ calculator: { amounts: {}, subs: { 'i-food': [
+      { id: 'a', name: 'Raw bar', amount: '25', pp: true },
+      { id: 'a', name: 'Dupe', amount: 1 },
+      { id: 'b', name: 'Dinner', amount: 5, included: true, pp: true },
+      null,
+    ], 'i-none': [] } } });
+    expect(plan.calculator.subs).toEqual({ 'i-food': [
+      { id: 'a', name: 'Raw bar', amount: 25, pp: true, included: false },
+      { id: 'b', name: 'Dinner', amount: null, pp: false, included: true },
+    ] });
+    expect(normalizePlan(null).calculator.subs).toEqual({});
+    expect(saveVenueQuote([], 'Barn', calc)[0].subs['i-food']).toHaveLength(4);
+  });
+
+  it('clears the figures but keeps the named sub-items for the next venue', () => {
+    const c = clearedCalculator({ ...calc, subs: { ...calc.subs, 'i-site': [sub('')] } });
+    expect(c.amounts).toEqual({});
+    expect(c.subs['i-food'].map((x) => [x.name, x.amount, x.pp, x.included])).toEqual([
+      ['Cocktail hour', null, false, false], ['Raw bar', null, false, false], ['Dinner', null, false, false], ['Dessert', null, false, false],
+    ]);
+    expect(c.subs['i-site']).toBeUndefined();
+    expect(calcHasAnswers(c)).toBe(false);
+    expect(calcHasAnswers(calc)).toBe(true);
+    expect(calcHasAnswers({ amounts: {}, included: {}, perPerson: {}, subs: { x: [sub('A', { included: true })] } })).toBe(true);
+  });
+
+  it('tells calculators apart by their sub-items, ignoring empty rows', () => {
+    expect(sameCalc(calc, { ...calc, subs: { ...calc.subs, 'i-site': [sub('Later')] } })).toBe(true);
+    expect(sameCalc(calc, { ...calc, subs: { ...calc.subs, 'i-food': [sub('Cocktail hour', { amount: 3001 })] } })).toBe(false);
+  });
+
+  it('lists sub-items under their line in the comparison, matched across venues by name', () => {
+    const quotes = [
+      { id: 'v1', name: 'Barn', ...calc, savedAt: '' },
+      { id: 'v2', name: 'Loft', amounts: { 'i-site': 9000 }, included: {}, perPerson: {}, savedAt: '', subs: { 'i-food': [
+        sub('raw  bar', { amount: 4000 }), sub('Dinner', { amount: 12000 }), sub('Late snack', { amount: 800 }),
+      ] } },
+    ];
+    const c = venueComparison(cats, quotes, 0, 0, 100);
+    expect(c.rows.map((r) => [r.kind, r.name])).toEqual([
+      ['category', 'Venue'], ['line', 'Site fee'], ['line', 'Food'],
+      ['sub', 'Cocktail hour'], ['sub', 'Raw bar'], ['sub', 'Dinner'], ['sub', 'Late snack'],
+      ['line', 'Bar'],
+    ]);
+    const row = (name) => c.rows.find((r) => r.name === name);
+    expect(row('Food')).toMatchObject({ amounts: [5500, 16800], perPerson: [null, null] });
+    expect(row('Cocktail hour')).toMatchObject({ amounts: [3000, null], included: [false, false], low: null });
+    expect(row('Raw bar')).toMatchObject({ amounts: [2500, 4000], perPerson: [25, null], low: 0 });
+    expect(row('Dinner')).toMatchObject({ amounts: [null, 12000], included: [true, false], low: 0 });
+    expect(row('Late snack')).toMatchObject({ amounts: [null, 800] });
+    expect(c.venues[0].subtotal).toBe(17500);
+    expect(c.venues[1].subtotal).toBe(25800);
   });
 });
