@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Timestamp } from 'firebase/firestore';
 import {
   MONTH_NAMES,
@@ -45,7 +45,14 @@ function combine(day, time) {
   return new Date(y, m - 1, d, h, min);
 }
 
-export function EventForm({ event, onSave, onCancel }) {
+// `focusRepeat` is the event page's "Make recurring" button: the same form,
+// opened at the repeat options instead of at the top.
+export function EventForm({ event, onSave, onCancel, focusRepeat = false }) {
+  const repeatRef = useRef(null);
+  useEffect(() => {
+    if (focusRepeat) repeatRef.current?.scrollIntoView({ block: 'center' });
+  }, [focusRepeat]);
+  const repeatFocusStyle = focusRepeat ? { borderColor: '#4f46e5', boxShadow: '0 0 0 3px rgba(79,70,229,0.15)' } : undefined;
   const [title, setTitle] = useState(event?.title || '');
   const [description, setDescription] = useState(event?.description || '');
   const [location, setLocation] = useState(event?.location || '');
@@ -79,7 +86,10 @@ export function EventForm({ event, onSave, onCancel }) {
   // form and keeps tracking it until the user edits the rule themselves, so
   // picking a date first and ticking "repeats" second does the obvious thing.
   const savedRule = normalizeRecurrence(event?.recurrence);
-  const [repeats, setRepeats] = useState(!!savedRule);
+  // Arriving from "Make recurring" with a settled date, the yearly box starts
+  // ticked — that's what was asked for, and nothing is saved until Save. The
+  // poll kind is never pre-ticked: saving it schedules emails to the guests.
+  const [repeats, setRepeats] = useState(!!savedRule || (focusRepeat && !!event && !event.dateTBD));
   const [rule, setRule] = useState(() => savedRule || recurrenceFromDate(event?.date || new Date(), 'date'));
   const [ruleTouched, setRuleTouched] = useState(!!savedRule);
   const [endsMode, setEndsMode] = useState(savedRule?.endYear != null ? 'year' : 'never');
@@ -265,7 +275,13 @@ export function EventForm({ event, onSave, onCancel }) {
       )}
 
       {(dateTBD || pollRepeat || savedSeries) && (
-        <div className={styles.repeatBox}>
+        <div className={styles.repeatBox} ref={repeatRef} style={repeatFocusStyle} data-testid="repeat-poll">
+          {focusRepeat && dateTBD && !pollRepeat && (
+            <p className={styles.repeatHint} style={{ marginBottom: '0.4rem' }}>
+              This event’s date is still to be decided, so it can repeat with a poll picking the date each
+              time. To repeat on a fixed date every year instead, untick “to be determined” above and set the date.
+            </p>
+          )}
           <label className={styles.repeatToggle} style={{ color: pollRepeat ? '#4f46e5' : '#6b7280' }}>
             <input type="checkbox" checked={pollRepeat} onChange={e => setPollRepeat(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
             <span aria-hidden="true">🔁</span>
@@ -310,7 +326,7 @@ export function EventForm({ event, onSave, onCancel }) {
       )}
 
       {!dateTBD && !pollRepeat && (
-        <div className={styles.repeatBox}>
+        <div className={styles.repeatBox} ref={repeatRef} style={repeatFocusStyle} data-testid="repeat-yearly">
           <label className={styles.repeatToggle} style={{ color: repeats ? '#4f46e5' : '#6b7280' }}>
             <input type="checkbox" checked={repeats} onChange={e => setRepeats(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
             <span aria-hidden="true">🔁</span>
