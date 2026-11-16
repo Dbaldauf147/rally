@@ -2139,8 +2139,9 @@ export function EventDetail() {
 
   const tabs = [
     { key: 'details', label: 'People & Poll' },
-    // The draws are on the organizer's own account, so the tab is theirs alone.
-    ...(isOwner && secretSantaEnabled(event) ? [{ key: 'santa', label: '🎅 Santa History' }] : []),
+    // The draws are on the organizer's own account: the tab is theirs, and the
+    // app's admin can open it to look.
+    ...((isOwner || isAppOwner) && secretSantaEnabled(event) ? [{ key: 'santa', label: '🎅 Secret Santa' }] : []),
     ...(tripPlanning ? [{ key: 'itinerary', label: 'Itinerary' }] : []),
     ...(optionalTabs.day ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
@@ -4844,7 +4845,7 @@ export function EventDetail() {
         </div>
       )}
 
-      {activeTab === 'santa' && isOwner && secretSantaEnabled(event) && (
+      {activeTab === 'santa' && (isOwner || isAppOwner) && secretSantaEnabled(event) && (
         <div className={styles.content}>
           <SecretSantaHistoryTab event={event} eventId={eventId} user={user} friends={friends} year={event.occurrenceYear ?? date.getFullYear()} />
         </div>
