@@ -17,6 +17,9 @@ import {
 } from '../lib/secretSanta';
 import { drawYears } from '../lib/secretSantaImport';
 import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase';
+import { planMemberUpserts } from '../lib/members';
 
 // The organizer's Secret Santa panel on an event with it switched on
 // (lib/secretSanta.js): pick who is in, draw, review, then email everyone the
@@ -25,13 +28,15 @@ import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
 //
 // `draw` ({ id, name }) makes this the panel of an extra exchange on the same
 // event: its own people, its own draw and history. Nobody is in one of those
-// until ticked — it exists because it is for only some of the guests.
-export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, draw: extra = null, onRename, onRemove }) {
+// until added — it exists because it is for only some of the guests.
+export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, friends = [], draw: extra = null, onRename, onRemove }) {
   const { history, loadError, saveYear } = useSecretSantaHistory(user, eventId, extra?.id || '');
   const [showPairs, setShowPairs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null); // { type: 'ok' | 'error', message }
   const [noteDraft, setNoteDraft] = useState(null);
+  // Adding somebody who isn't a guest of the event yet: null, or { name, email }.
+  const [newPerson, setNewPerson] = useState(null);
 
   const members = useMemo(
     () => Object.fromEntries(Object.entries(event.members || {}).filter(([, m]) => m && typeof m === 'object')),
@@ -45,7 +50,17 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, d
   const record = history?.[year] || null;
   // Until the organizer has chosen, everyone who hasn't said no is in.
   const outKeys = useMemo(() => {
-    if (record?.out) return new Set(record.out);
+    if (record?.out) {
+      const out = new Set(record.out);
+      // Once a list has been edited or drawn it is settled: a guest who joins
+      // the event afterwards isn't on it until added here. Otherwise adding
+      // somebody to one draw would quietly change — and un-draw — another.
+      if (Array.isArray(record.seen)) {
+        const seen = new Set(record.seen);
+        for (const k of Object.keys(members)) if (!seen.has(k)) out.add(k);
+      }
+      return out;
+    }
     if (extra) return new Set(Object.keys(members));
     const inByDefault = new Set(defaultParticipants(members));
     return new Set(Object.keys(members).filter((k) => !inByDefault.has(k)));
@@ -81,14 +96,41 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, d
 
   const pairsFrom = (map) => Object.entries(map).map(([g, r]) => ({ giver: personRef(g, members[g]), receiver: personRef(r, members[r]) }));
 
-  function toggleParticipant(key) {
+  // Put somebody on this draw's list, or take them off. `knownKey` is a guest
+  // being added to the event in the same breath, who isn't in `members` yet.
+  function toggleParticipant(key, knownKey = null) {
     const next = new Set(outKeys);
     if (next.has(key)) next.delete(key); else next.add(key);
+    if (knownKey) next.delete(knownKey);
     if (drawn && Object.keys(sentMap).length > 0
-      && !window.confirm('Names have already been emailed. Changing who is in throws that draw away — you would need to draw and email again. Continue?')) return;
+      && !window.confirm('Names have already been emailed. Changing who is in throws that draw away — you would need to draw and email again. Continue?')) return false;
     // Changing who is in makes any draw stale, so it is dropped rather than
     // left half-valid.
-    run(() => saveYear(year, { out: [...next], note }));
+    const seen = [...new Set([...Object.keys(members), ...(knownKey ? [knownKey] : [])])];
+    run(() => saveYear(year, { out: [...next], seen, note }));
+    return true;
+  }
+
+  // Somebody who isn't a guest of the event: they are added to the event's
+  // guest list (the email is sent from there) and put on this draw.
+  async function addNewPerson() {
+    const name = (newPerson?.name || '').trim().replace(/\s+/g, ' ');
+    const email = (newPerson?.email || '').trim();
+    if (!name) { setStatus({ type: 'error', message: 'Type the person’s name.' }); return; }
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) { setStatus({ type: 'error', message: 'That email address doesn’t look right.' }); return; }
+    const plan = planMemberUpserts(members, [{ name, email }]);
+    const key = plan.keys[0];
+    if (!plan.added.length && !outKeys.has(key)) { setStatus({ type: 'error', message: `${name} is already on this list.` }); return; }
+    if (drawn && Object.keys(sentMap).length > 0
+      && !window.confirm('Names have already been emailed. Changing who is in throws that draw away — you would need to draw and email again. Continue?')) return;
+    await run(async () => {
+      await updateDoc(doc(db, 'events', eventId), { ...plan.updates, updatedAt: serverTimestamp() });
+      const next = new Set(outKeys);
+      next.delete(key);
+      await saveYear(year, { out: [...next], seen: [...new Set([...Object.keys(members), key])], note });
+      setNewPerson(null);
+      setStatus({ type: 'ok', message: plan.added.length ? `${name} added, and to this event’s guest list.` : `${name} added.` });
+    });
   }
 
   function setLastYear(giverKey, receiverKey) {
@@ -115,7 +157,7 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, d
     }
     setShowPairs(false);
     run(async () => {
-      await saveYear(year, { out: [...outKeys], note, pairs: pairsFrom(map), drawnAt: new Date().toISOString(), sent: {} });
+      await saveYear(year, { out: [...outKeys], seen: Object.keys(members), note, pairs: pairsFrom(map), drawnAt: new Date().toISOString(), sent: {} });
       setStatus({ type: 'ok', message: `Names drawn for ${participants.length} people.` });
     });
   }
@@ -172,7 +214,7 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, d
         )}
       </div>
       <p style={hint}>
-        {extra ? 'A separate draw on this event — tick the people it is for. ' : ''}
+        {extra ? 'A separate draw on this event — add the people it is for. ' : ''}
         Nobody draws themselves, their partner (the guest they come with), or the person they had last time.
         Guests can’t see the draw.
       </p>
@@ -187,24 +229,24 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, d
             <table data-testid="ss-table" style={{ width: '100%', minWidth: canSend ? '640px' : '480px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr>
-                  <th style={{ ...th, width: '2.2rem' }}>In</th>
                   <th style={th}>Name</th>
                   <th style={th}>Comes with</th>
                   <th style={th}>Had last time</th>
                   {canSend && showPairs && <th style={th}>Has this year</th>}
                   {canSend && <th style={th}>Email</th>}
                   {canSend && <th style={{ ...th, textAlign: 'right' }} aria-label="Send" />}
+                  <th style={{ ...th, width: '2rem' }} aria-label="Remove" />
                 </tr>
               </thead>
               <tbody>
-                {everyone.map(([key, m]) => {
-                  const isIn = !outKeys.has(key);
+                {participants.length === 0 && (
+                  <tr><td style={{ ...td, color: '#6B7280' }} colSpan={7}>Nobody on this list yet. Add people below.</td></tr>
+                )}
+                {everyone.filter(([key]) => !outKeys.has(key)).map(([key, m]) => {
+                  const isIn = true;
                   const partnerNames = [...(partners.get(key) || [])].map((p) => personLabel(members[p]));
                   return (
-                    <tr key={key} data-testid={`ss-row-${key}`} style={{ opacity: isIn ? 1 : 0.5 }}>
-                      <td style={td}>
-                        <input type="checkbox" checked={isIn} disabled={busy} onChange={() => toggleParticipant(key)} aria-label={`${personLabel(m)} is in the draw`} style={{ width: '16px', height: '16px', accentColor: '#B91C1C', display: 'block' }} />
-                      </td>
+                    <tr key={key} data-testid={`ss-row-${key}`}>
                       <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{personLabel(m)}</td>
                       <td style={{ ...td, color: '#6B7280', whiteSpace: 'nowrap' }}>{partnerNames.join(', ') || '—'}</td>
                       <td style={td}>
@@ -246,6 +288,17 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, d
                           )}
                         </td>
                       )}
+                      <td style={{ ...td, textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => toggleParticipant(key)}
+                          data-testid={`ss-remove-${key}`}
+                          aria-label={`Remove ${personLabel(m)} from this list`}
+                          title={`Take ${personLabel(m)} off this list (they stay a guest of the event)`}
+                          style={{ border: 'none', background: 'none', color: '#9CA3AF', fontSize: '1.1rem', lineHeight: 1, cursor: 'pointer', padding: '0 0.2rem' }}
+                        >×</button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -253,8 +306,64 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, d
             </table>
           </div>
 
+          <div data-testid="ss-add" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', margin: '-0.25rem 0 0.75rem' }}>
+            {newPerson === null ? (
+              <select
+                value=""
+                disabled={busy}
+                aria-label="Add someone to this list"
+                data-testid="ss-add-select"
+                onChange={(e) => {
+                  if (e.target.value === '__new') setNewPerson({ name: '', email: '' });
+                  else if (e.target.value) toggleParticipant(e.target.value);
+                }}
+                style={{ padding: '0.3rem 0.5rem', border: '1px dashed #F87171', borderRadius: '8px', background: '#fff', color: '#B91C1C', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, maxWidth: '100%' }}
+              >
+                <option value="">+ Add someone…</option>
+                {everyone.filter(([key]) => outKeys.has(key)).length > 0 && (
+                  <optgroup label="Guests of this event">
+                    {everyone.filter(([key]) => outKeys.has(key)).map(([key, m]) => <option key={key} value={key}>{personLabel(m)}</option>)}
+                  </optgroup>
+                )}
+                <option value="__new">Someone who isn’t a guest yet…</option>
+              </select>
+            ) : (
+              <>
+                <input
+                  autoFocus
+                  list="ss-friend-names"
+                  placeholder="Name"
+                  aria-label="New person’s name"
+                  value={newPerson.name}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    // Picking a friend by name brings their email with them.
+                    const friend = friends.find((f) => (f.name || '').trim().toLowerCase() === name.trim().toLowerCase());
+                    setNewPerson((p) => ({ name, email: friend?.email && !p.email ? friend.email : p.email }));
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addNewPerson(); }}
+                  style={addInput}
+                />
+                <datalist id="ss-friend-names">
+                  {friends.filter((f) => (f.name || '').trim()).map((f) => <option key={f.id} value={f.name.trim()} />)}
+                </datalist>
+                <input
+                  type="email"
+                  placeholder="Email (to send them their person)"
+                  aria-label="New person’s email"
+                  value={newPerson.email}
+                  onChange={(e) => setNewPerson((p) => ({ ...p, email: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addNewPerson(); }}
+                  style={{ ...addInput, flex: '1 1 220px' }}
+                />
+                <button type="button" disabled={busy} onClick={addNewPerson} data-testid="ss-add-new" style={rowBtn(busy)}>Add</button>
+                <button type="button" onClick={() => setNewPerson(null)} style={{ ...link, color: '#6B7280' }}>Cancel</button>
+              </>
+            )}
+          </div>
+
           {participants.length < MIN_PARTICIPANTS ? (
-            <p style={hint}>Tick at least {MIN_PARTICIPANTS} people to draw names.</p>
+            <p style={hint}>Add at least {MIN_PARTICIPANTS} people to draw names.</p>
           ) : !drawCurrent ? (
             <>
               {drawn && <p style={{ ...hint, color: '#B45309' }}>The people taking part have changed since names were drawn, so that draw no longer fits.</p>}
@@ -410,6 +519,7 @@ const hint = { margin: '0.25rem 0 0.6rem', fontSize: '0.78rem', color: '#6B7280'
 const subhead = { fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280', margin: '0.5rem 0 0.35rem' };
 const th = { textAlign: 'left', padding: '0.4rem 0.6rem', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280', borderBottom: '1px solid #FECACA', whiteSpace: 'nowrap' };
 const td = { padding: '0.3rem 0.6rem', borderBottom: '1px solid #FEE2E2', verticalAlign: 'middle' };
+const addInput = { flex: '1 1 150px', minWidth: 0, padding: '0.3rem 0.5rem', border: '1px solid #E5E7EB', borderRadius: '8px', background: '#fff', fontFamily: 'inherit', fontSize: '0.84rem' };
 const rowBtn = (busy) => ({
   padding: '0.2rem 0.6rem', border: '1px solid #B91C1C', borderRadius: '999px', background: '#fff', color: '#B91C1C',
   fontFamily: 'inherit', fontSize: '0.74rem', fontWeight: 600, whiteSpace: 'nowrap', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1,

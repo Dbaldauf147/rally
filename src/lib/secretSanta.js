@@ -23,7 +23,7 @@
 //   users/{uid}.secretSantaDraws.{eventId} = [{ id, name }]
 // and each keeps its years beside the main one's, under its own key:
 //   users/{uid}.secretSanta.{eventId~drawId}.{year}
-// An extra exchange starts with nobody in it; the organizer ticks who is.
+// An extra exchange starts with nobody in it; the organizer adds who is.
 //
 // This file is imported by the browser and by api/secret-santa.js, so it stays
 // free of Firebase and DOM imports.

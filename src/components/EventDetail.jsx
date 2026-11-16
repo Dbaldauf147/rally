@@ -3027,6 +3027,7 @@ export function EventDetail() {
               event={event}
               eventId={eventId}
               user={user}
+              friends={friends}
               onOpenHistory={() => setActiveTab('santa')}
               year={event.occurrenceYear ?? date.getFullYear()}
               date={event.dateTBD ? null : date}
