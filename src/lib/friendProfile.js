@@ -1,4 +1,5 @@
-// What a friend is into, and what you appreciate about them — kept on the
+// What a friend is into, what you appreciate about them, and what they're
+// dealing with — kept on the
 // friend doc as `profile`.
 //
 // Each section ("Likes", "Things I appreciate") is an outline: categories with
@@ -15,7 +16,19 @@ export const MAX_DEPTH = 3;
 
 // What a friend with nothing recorded starts with. Offered in the editor, and
 // only stored once something is written under one.
-export const DEFAULT_SECTIONS = ['Likes', 'Things I appreciate', 'Foods', 'Drinks', 'Desserts', 'Places'];
+export const DEFAULT_SECTIONS = ['Likes', 'Things I appreciate', 'Foods', 'Drinks', 'Desserts', 'Places', 'Pains'];
+
+// What an empty line asks for, where "Category" would be the wrong question.
+// Pains is a log of what someone is dealing with — a bad back, a rough stretch
+// at work, a parent in hospital — with the particulars nested under each.
+const LINE_HINTS = {
+  pains: ['Something they’re dealing with', 'Detail, or how it’s going'],
+};
+
+export function lineHint(sectionTitle, depth) {
+  const [top, nested] = LINE_HINTS[String(sectionTitle ?? '').trim().toLowerCase()] || ['Category', 'Detail'];
+  return depth === 0 ? top : nested;
+}
 
 let seq = 0;
 export function makeId() {
