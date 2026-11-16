@@ -75,7 +75,11 @@ function ProtectedRoute({ children }) {
 
 export default function App() {
   const { user, loading } = useAuth();
+  const { pathname } = useLocation();
   useShareDeepLink();
+  // The Secret Santa reveal page stands alone: a guest who happens to be
+  // signed in gets no menu, tab bar or install prompt around their pick.
+  const chrome = !!user && pathname !== '/santa';
 
   if (loading) {
     return (
@@ -91,13 +95,13 @@ export default function App() {
 
   return (
     <PagePrivacyProvider>
-      {user && <NavBar />}
-      {user && <BottomTabBar />}
+      {chrome && <NavBar />}
+      {chrome && <BottomTabBar />}
       {user && <GoogleCalendarAutoSyncRunner />}
       {user && <ReachOutBadgeRunner />}
       {user && <PushRegistrationRunner />}
       {user && <NativeLandingRunner />}
-      {user && <InstallPrompt />}
+      {chrome && <InstallPrompt />}
       <UpdateBanner />
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
