@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   insertItem, setItemText, indentItem, outdentItem, removeItem, moveItem,
-  parseOutline, mergeParsed, makeId, normalizeItems,
+  parseOutline, mergeParsed, makeId, normalizeItems, lineHint,
 } from '../lib/friendProfile';
 import styles from './FriendProfileEditor.module.css';
 
-/* The Likes / Things I appreciate / Foods / Drinks / … outlines on the friend pop-up.
+/* The Likes / Things I appreciate / Foods / Drinks / … / Pains outlines on the friend pop-up.
 
    Works like a notes app: Enter starts the next line, Tab and Shift+Tab nest
    and un-nest, Backspace on an empty line removes it. Every one of those also
@@ -164,7 +164,7 @@ export function FriendProfileEditor({ value, onChange }) {
                   onChange={(e) => setItems(s.id, setItemText(s.items, i, e.target.value))}
                   onKeyDown={(e) => onKeyDown(e, s, i)}
                   onPaste={(e) => onPaste(e, s, i)}
-                  placeholder={item.depth === 0 ? 'Category' : 'Detail'}
+                  placeholder={lineHint(s.title, item.depth)}
                   aria-label={`${s.title} line ${i + 1}`}
                 />
                 {/* mousedown is swallowed so a tap keeps the cursor in the row:

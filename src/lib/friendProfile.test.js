@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeItems, profileForEditing, profileForSaving, hasProfile,
   insertItem, indentItem, outdentItem, removeItem, moveItem,
-  parseOutline, mergeParsed, DEFAULT_SECTIONS,
+  parseOutline, mergeParsed, DEFAULT_SECTIONS, lineHint,
 } from './friendProfile';
 
 const rows = (...spec) => spec.map(([text, depth], i) => ({ id: `r${i}`, text, depth }));
@@ -17,7 +17,7 @@ describe('normalizeItems', () => {
 describe('profileForEditing / profileForSaving', () => {
   it('opens a friend with nothing on the default sections', () => {
     expect(profileForEditing(undefined).map((s) => s.title)).toEqual(DEFAULT_SECTIONS);
-    expect(DEFAULT_SECTIONS).toEqual(['Likes', 'Things I appreciate', 'Foods', 'Drinks', 'Desserts', 'Places']);
+    expect(DEFAULT_SECTIONS).toEqual(['Likes', 'Things I appreciate', 'Foods', 'Drinks', 'Desserts', 'Places', 'Pains']);
   });
 
   it('offers the defaults a friend with a stored profile is missing, after their own', () => {
@@ -25,9 +25,22 @@ describe('profileForEditing / profileForSaving', () => {
       { id: 'x', title: 'Sizes', items: rows(['Shoes 9', 0]) },
       { id: 'f', title: 'foods', items: rows(['Omakase', 0]) },
     ]);
-    expect(opened.map((s) => s.title)).toEqual(['Sizes', 'foods', 'Likes', 'Things I appreciate', 'Drinks', 'Desserts', 'Places']);
+    expect(opened.map((s) => s.title)).toEqual(['Sizes', 'foods', 'Likes', 'Things I appreciate', 'Drinks', 'Desserts', 'Places', 'Pains']);
     // Opening and saving untouched stores nothing new.
     expect(profileForSaving(opened).map((s) => s.title)).toEqual(['Sizes', 'foods']);
+  });
+
+  it('keeps a Pains section once something is logged in it, and drops it while empty', () => {
+    const opened = profileForEditing(undefined);
+    expect(profileForSaving(opened)).toEqual([]);
+    const logged = opened.map((s) => (s.title === 'Pains' ? { ...s, items: rows(['Bad back', 0], ['Physio on Tuesdays', 1]) } : s));
+    expect(profileForSaving(logged).map((s) => [s.title, shape(s.items)])).toEqual([['Pains', ['Bad back', '-Physio on Tuesdays']]]);
+  });
+
+  it('asks for what they are dealing with on a Pains line, and a category elsewhere', () => {
+    expect(lineHint('Pains', 0)).toMatch(/dealing with/);
+    expect(lineHint(' pains ', 1)).toMatch(/Detail/);
+    expect([lineHint('Likes', 0), lineHint('Likes', 2), lineHint(undefined, 0)]).toEqual(['Category', 'Detail', 'Category']);
   });
 
   it('saves only what was written, dropping blank lines and untouched defaults', () => {
