@@ -116,7 +116,9 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
   async function send(onlyKeys = null) {
     const targets = (onlyKeys || participants).filter((k) => members[k]?.email);
     if (targets.length === 0) { setStatus({ type: 'error', message: 'Nobody in the draw has an email address.' }); return; }
-    if (!window.confirm(`Email ${targets.length} ${targets.length === 1 ? 'person' : 'people'} the name they drew?`)) return;
+    const again = targets.every((k) => sentMap[k]);
+    const whom = targets.length === 1 ? personLabel(members[targets[0]]) : `${targets.length} people`;
+    if (!window.confirm(`Email ${whom} the name they drew${again ? ' again' : ''}?`)) return;
     await run(async () => {
       if (noteDraft !== null) await saveYear(year, { ...record, note });
       const token = await user.getIdToken();
@@ -147,6 +149,8 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
   const noEmail = participants.filter((k) => !members[k]?.email);
   const unsent = participants.filter((k) => members[k]?.email && !sentMap[k]);
   const sentCount = participants.filter((k) => sentMap[k]).length;
+  // Emailing is possible once there is a draw that fits the people and the rules.
+  const canSend = drawCurrent && problems.length === 0;
 
   return (
     <div data-testid="secret-santa" style={box}>
@@ -162,36 +166,74 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
       ) : (
         <>
           <div style={subhead}>Who’s in ({participants.length})</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginBottom: '0.75rem' }}>
-            {everyone.map(([key, m]) => {
-              const isIn = !outKeys.has(key);
-              const partnerNames = [...(partners.get(key) || [])].map((p) => personLabel(members[p]));
-              return (
-                <div key={key} data-testid={`ss-row-${key}`} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.85rem', minWidth: 0 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', flex: '1 1 150px', minWidth: 0, opacity: isIn ? 1 : 0.5 }}>
-                    <input type="checkbox" checked={isIn} disabled={busy} onChange={() => toggleParticipant(key)} style={{ width: '16px', height: '16px', accentColor: '#B91C1C', flexShrink: 0 }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{personLabel(m)}</span>
-                    {partnerNames.length > 0 && <span style={tag}>with {partnerNames.join(', ')}</span>}
-                    {isIn && !m.email && <span style={{ ...tag, color: '#B45309' }}>no email</span>}
-                  </label>
-                  {isIn && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.74rem', color: '#6B7280' }}>
-                      had last time
-                      <select
-                        value={last.map[key] || ''}
-                        disabled={busy}
-                        onChange={(e) => setLastYear(key, e.target.value)}
-                        aria-label={`Who ${personLabel(m)} had last time`}
-                        style={{ padding: '0.15rem 0.3rem', border: '1px solid #E5E7EB', borderRadius: '6px', background: '#fff', color: '#1F2937', fontFamily: 'inherit', fontSize: '0.76rem', maxWidth: '9.5rem' }}
-                      >
-                        <option value="">—</option>
-                        {everyone.filter(([k]) => k !== key).map(([k, o]) => <option key={k} value={k}>{personLabel(o)}</option>)}
-                      </select>
-                    </label>
-                  )}
-                </div>
-              );
-            })}
+          <div style={{ overflowX: 'auto', marginBottom: '0.75rem', background: '#fff', border: '1px solid #FECACA', borderRadius: '8px' }}>
+            <table data-testid="ss-table" style={{ width: '100%', minWidth: canSend ? '640px' : '480px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, width: '2.2rem' }}>In</th>
+                  <th style={th}>Name</th>
+                  <th style={th}>Comes with</th>
+                  <th style={th}>Had last time</th>
+                  {canSend && showPairs && <th style={th}>Has this year</th>}
+                  {canSend && <th style={th}>Email</th>}
+                  {canSend && <th style={{ ...th, textAlign: 'right' }} aria-label="Send" />}
+                </tr>
+              </thead>
+              <tbody>
+                {everyone.map(([key, m]) => {
+                  const isIn = !outKeys.has(key);
+                  const partnerNames = [...(partners.get(key) || [])].map((p) => personLabel(members[p]));
+                  return (
+                    <tr key={key} data-testid={`ss-row-${key}`} style={{ opacity: isIn ? 1 : 0.5 }}>
+                      <td style={td}>
+                        <input type="checkbox" checked={isIn} disabled={busy} onChange={() => toggleParticipant(key)} aria-label={`${personLabel(m)} is in the draw`} style={{ width: '16px', height: '16px', accentColor: '#B91C1C', display: 'block' }} />
+                      </td>
+                      <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{personLabel(m)}</td>
+                      <td style={{ ...td, color: '#6B7280', whiteSpace: 'nowrap' }}>{partnerNames.join(', ') || '—'}</td>
+                      <td style={td}>
+                        {isIn ? (
+                          <select
+                            value={last.map[key] || ''}
+                            disabled={busy}
+                            onChange={(e) => setLastYear(key, e.target.value)}
+                            aria-label={`Who ${personLabel(m)} had last time`}
+                            style={{ padding: '0.15rem 0.3rem', border: '1px solid #E5E7EB', borderRadius: '6px', background: '#fff', color: '#1F2937', fontFamily: 'inherit', fontSize: '0.78rem', maxWidth: '10.5rem' }}
+                          >
+                            <option value="">—</option>
+                            {everyone.filter(([k]) => k !== key).map(([k, o]) => <option key={k} value={k}>{personLabel(o)}</option>)}
+                          </select>
+                        ) : '—'}
+                      </td>
+                      {canSend && showPairs && (
+                        <td style={{ ...td, whiteSpace: 'nowrap' }} data-testid={`ss-has-${key}`}>{isIn && drawn[key] ? personLabel(members[drawn[key]]) : '—'}</td>
+                      )}
+                      {canSend && (
+                        <td style={{ ...td, whiteSpace: 'nowrap', fontSize: '0.78rem' }} data-testid={`ss-email-${key}`}>
+                          {!isIn ? '—'
+                            : !m.email ? <span style={{ color: '#B45309' }}>No email — tell them yourself</span>
+                              : sentMap[key] ? <span style={{ color: '#166534' }}>Sent {format(new Date(sentMap[key]), 'MMM d')}</span>
+                                : <span style={{ color: '#6B7280' }}>Not sent yet</span>}
+                        </td>
+                      )}
+                      {canSend && (
+                        <td style={{ ...td, textAlign: 'right' }}>
+                          {isIn && m.email && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => send([key])}
+                              data-testid={`ss-resend-${key}`}
+                              title={sentMap[key] ? `Email ${personLabel(m)} their person again` : `Email ${personLabel(m)} their person`}
+                              style={rowBtn(busy)}
+                            >{sentMap[key] ? '✉ Resend' : '✉ Send'}</button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
           {participants.length < MIN_PARTICIPANTS ? (
@@ -215,25 +257,7 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
                 </button>
                 <button type="button" onClick={draw} disabled={busy} data-testid="ss-redraw" style={link}>Draw again</button>
               </div>
-              {!showPairs && <p style={hint}>The names stay hidden until you choose to review them, so you can keep your own a surprise.</p>}
-
-              {showPairs && (
-                <div data-testid="ss-pairs" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '0.75rem', padding: '0.6rem 0.75rem', background: '#fff', border: '1px solid #FECACA', borderRadius: '8px' }}>
-                  {participants.map((g) => (
-                    <div key={g} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', fontSize: '0.85rem' }}>
-                      <span style={{ fontWeight: 600 }}>{personLabel(members[g])}</span>
-                      <span style={{ color: '#9CA3AF' }}>→</span>
-                      <span>{personLabel(members[drawn[g]])}</span>
-                      {sentMap[g]
-                        ? <span style={{ ...tag, color: '#166534' }}>emailed {format(new Date(sentMap[g]), 'MMM d')}</span>
-                        : !members[g]?.email && <span style={{ ...tag, color: '#B45309' }}>no email — tell them yourself</span>}
-                      {members[g]?.email && sentMap[g] && (
-                        <button type="button" disabled={busy} onClick={() => send([g])} style={{ ...link, fontSize: '0.72rem' }}>send again</button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <p style={hint}>{showPairs ? 'Who each person has is in the “Has this year” column above.' : 'The names stay hidden until you choose to review them, so you can keep your own a surprise.'}</p>
 
               <label style={{ display: 'block', fontSize: '0.76rem', color: '#6B7280', marginBottom: '0.6rem' }}>
                 Note to include in the email (optional)
@@ -261,6 +285,9 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
                     </span>
                   )}
                   {sentCount > 0 && unsent.length > 0 && <span style={{ fontSize: '0.78rem', color: '#6B7280' }}>{sentCount} already sent</span>}
+                  {sentCount > 0 && (
+                    <button type="button" onClick={() => send(null)} disabled={busy} data-testid="ss-resend-all" style={link}>Resend to everyone</button>
+                  )}
                 </div>
               )}
               {noEmail.length > 0 && (
@@ -292,7 +319,12 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
 const box = { marginBottom: '1.5rem', padding: '0.85rem 1rem', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 'var(--radius-md)' };
 const hint = { margin: '0.25rem 0 0.6rem', fontSize: '0.78rem', color: '#6B7280', lineHeight: 1.45 };
 const subhead = { fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280', margin: '0.5rem 0 0.35rem' };
-const tag = { fontSize: '0.68rem', color: '#6B7280', whiteSpace: 'nowrap' };
+const th = { textAlign: 'left', padding: '0.4rem 0.6rem', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280', borderBottom: '1px solid #FECACA', whiteSpace: 'nowrap' };
+const td = { padding: '0.3rem 0.6rem', borderBottom: '1px solid #FEE2E2', verticalAlign: 'middle' };
+const rowBtn = (busy) => ({
+  padding: '0.2rem 0.6rem', border: '1px solid #B91C1C', borderRadius: '999px', background: '#fff', color: '#B91C1C',
+  fontFamily: 'inherit', fontSize: '0.74rem', fontWeight: 600, whiteSpace: 'nowrap', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1,
+});
 const link = { padding: 0, border: 'none', background: 'none', fontFamily: 'inherit', fontSize: '0.8rem', fontWeight: 600, color: '#B91C1C', cursor: 'pointer', textDecoration: 'underline' };
 const primary = (busy) => ({
   padding: '0.5rem 1rem', border: 'none', borderRadius: 'var(--radius-md)', background: '#B91C1C', color: '#fff',
