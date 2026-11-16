@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   insertItem, setItemText, indentItem, outdentItem, removeItem, moveItem,
   parseOutline, mergeParsed, makeId, normalizeItems, lineHint,
+  offersFollowUp, setItemFollowUp,
 } from '../lib/friendProfile';
+import { DateField } from './DateField';
 import styles from './FriendProfileEditor.module.css';
 
 /* The Likes / Things I appreciate / Foods / Drinks / … / Pains outlines on the friend pop-up.
@@ -10,7 +12,10 @@ import styles from './FriendProfileEditor.module.css';
    Works like a notes app: Enter starts the next line, Tab and Shift+Tab nest
    and un-nest, Backspace on an empty line removes it. Every one of those also
    has a button on the row, because a phone has no Tab key. Pasting several
-   lines into a row turns them into rows, keeping their indentation. */
+   lines into a row turns them into rows, keeping their indentation.
+
+   A line under Pains also takes a follow-up date — the day to check back in on
+   it — which the Reach Out page flags once it arrives. */
 export function FriendProfileEditor({ value, onChange }) {
   const sections = value || [];
   const inputs = useRef(new Map());
@@ -167,6 +172,16 @@ export function FriendProfileEditor({ value, onChange }) {
                   placeholder={lineHint(s.title, item.depth)}
                   aria-label={`${s.title} line ${i + 1}`}
                 />
+                {offersFollowUp(s.title) && (item.followUp || item.text.trim()) && (
+                  <DateField
+                    className={`${styles.followUp} ${item.followUp ? styles.followUpSet : ''}`}
+                    value={item.followUp || ''}
+                    onChange={(e) => setItems(s.id, setItemFollowUp(s.items, i, e.target.value))}
+                    placeholder="Follow up"
+                    title="When to follow up — it's flagged on Reach Out from that day"
+                    ariaLabel={`Follow-up date for ${item.text.trim() || 'this line'}`}
+                  />
+                )}
                 {/* mousedown is swallowed so a tap keeps the cursor in the row:
                     on a phone these only show while it's there. */}
                 <span className={styles.rowTools} onMouseDown={(e) => e.preventDefault()}>

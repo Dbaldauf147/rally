@@ -257,6 +257,32 @@
   display: inline-flex; align-items: center; justify-content: center;
   border-color: #0ea5e9; color: #075985; text-decoration: none;
 }
+/* Follow-ups on a friend's Pains — teal, calmer than the celebrations. */
+.followHero {
+  background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%);
+  border-color: #14b8a6;
+  box-shadow: 0 6px 18px rgba(20, 184, 166, 0.25);
+}
+.followHero .bdayHeroCake { animation: none; }
+.followHero .bdayHeroKicker, .followHero .bdayMeta, .followHero .bdayNote { color: #115e59; }
+.followHero .bdayName { color: #134e4a; text-decoration: none; }
+.followHero .bdayCard + .bdayCard { border-top-color: #14b8a6; }
+.followHero .bdayBtn { background: #0f766e; border-color: #0f766e; }
+.followHero .bdayBtnGhost {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-color: #14b8a6; color: #115e59; text-decoration: none;
+}
+.followList { list-style: none; margin: 0.4rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.followItem { display: flex; align-items: center; gap: 0.6rem; }
+.followText { flex: 1; min-width: 0; font-size: 0.9rem; font-weight: 600; color: #134e4a; overflow-wrap: anywhere; }
+.followUnder { font-weight: 500; color: #115e59; }
+.followWhen { font-weight: 500; color: #0f766e; white-space: nowrap; }
+.followDone {
+  flex-shrink: 0; padding: 0.3rem 0.7rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid #14b8a6; background: rgba(255, 255, 255, 0.8); color: #115e59;
+  font: inherit; font-size: 0.78rem; font-weight: 700;
+}
+.followDone:hover { background: #fff; }
 /* Mother's / Father's Day — violet, a sibling of the cards above. */
 .parentHero {
   background: linear-gradient(135deg, #f5f3ff 0%, #ddd6fe 100%);

@@ -90,3 +90,19 @@
   font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer;
 }
 .addBtn:disabled { opacity: 0.4; cursor: default; }
+
+/* The follow-up date on a Pains line. Quiet until a date is set — most lines
+   won't have one — then it reads as a tag on the row. */
+.followUp {
+  flex-shrink: 0; width: auto; min-height: 0;
+  padding: 0.2rem 0.45rem; margin: 0.15rem 0;
+  border: 1px dashed var(--color-border); border-radius: 999px;
+  background: none; font-size: 0.75rem; font-weight: 600; line-height: 1.2;
+  color: var(--color-text-muted);
+  text-transform: none; letter-spacing: normal;
+}
+.followUp:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.followUpSet {
+  border-style: solid; border-color: var(--color-accent);
+  background: var(--color-accent-light); color: var(--color-accent);
+}
