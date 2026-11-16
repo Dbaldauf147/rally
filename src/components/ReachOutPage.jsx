@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { doc, collection, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, collection, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { REACH_OUT_SEED } from '../reachOutSeed';
@@ -13,6 +13,7 @@ import { kidsWithBirthdayToday, kidBirthdayLine } from '../lib/friendKids';
 import { parentHolidayOn, parentsFor } from '../lib/parentHolidays';
 import { holidayReachOutsOn, holidayTagsOf } from '../lib/holidayReachOut';
 import { loadHolidays } from '../lib/holidayStore';
+import { dueFollowUps, clearFollowUp, followUpWhen } from '../lib/friendProfile';
 
 const normalizeName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -370,6 +371,7 @@ export function ReachOutPage() {
           kids: Array.isArray(d.data().kids) ? d.data().kids : [],
           isMom: d.data().isMom === true, isDad: d.data().isDad === true,
           holidayTags: holidayTagsOf(d.data()),
+          profile: Array.isArray(d.data().profile) ? d.data().profile : [],
         }))
         .sort((a, b) => a.name.localeCompare(b.name)));
     }, () => setFriendsList([]));
@@ -649,6 +651,36 @@ export function ReachOutPage() {
       .filter(g => g.people.length > 0);
   }, [friendsList, decorated, today]);
 
+  // Follow-ups set on a friend's Pains (their Friends pop-up) that have come
+  // due, with the reach-out row they're linked to when there is one. Unlike the
+  // cards above, a retired row doesn't hide these: retiring stops the standing
+  // nudges, and this is a date someone picked on purpose. It stays until it's
+  // marked done or the date is moved.
+  const followUpsDue = useMemo(() => {
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const rowByFriend = new Map();
+    for (const c of decorated) {
+      if (c.friendId && !rowByFriend.has(c.friendId)) rowByFriend.set(c.friendId, c);
+    }
+    return dueFollowUps(friendsList, iso).map(x => ({
+      ...x,
+      contact: rowByFriend.get(x.friend.id) || null,
+      items: x.items.map(it => ({ ...it, when: followUpWhen(it.date, iso) })),
+    }));
+  }, [friendsList, decorated, today]);
+  const followUpCount = followUpsDue.reduce((n, x) => n + x.items.length, 0);
+
+  // "Done": take the date off that line. The pain itself stays on the friend.
+  async function finishFollowUp(friend, itemId) {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'friends', friend.id), { profile: clearFollowUp(friend.profile, itemId) });
+    } catch (err) {
+      console.error('Could not clear the follow-up:', err);
+      window.alert('Could not mark that follow-up done. Please try again.');
+    }
+  }
+
   // Fuzzy-predicted Friends match for each unlinked person (id -> friend).
   const predictions = useMemo(() => {
     const map = {};
@@ -857,6 +889,48 @@ export function ReachOutPage() {
           {people.map(holidayPersonCard)}
         </section>
       ))}
+
+      {/* Follow-ups on what someone is dealing with, set on their Friends pop-up
+          (Pains). Shown from the day picked until marked done. */}
+      {followUpsDue.length > 0 && (
+        <section className={`${styles.bdayHero} ${styles.followHero}`} aria-label="Follow-ups due">
+          <div className={styles.bdayHeroTop}>
+            <span className={styles.bdayHeroCake} aria-hidden="true">🩹</span>
+            <span className={styles.bdayHeroKicker}>
+              {followUpCount === 1 ? '1 follow-up to check in on' : `${followUpCount} follow-ups to check in on`}
+            </span>
+          </div>
+          {followUpsDue.map(({ friend, items, contact }) => (
+            <div key={friend.id} className={styles.bdayCard}>
+              {contact
+                ? <button className={styles.bdayName} onClick={() => openDetails(contact)}>{friend.name}</button>
+                : <Link className={styles.bdayName} to={`/friends?open=${friend.id}`}>{friend.name}</Link>}
+              <ul className={styles.followList}>
+                {items.map(it => (
+                  <li key={it.itemId} className={styles.followItem}>
+                    <span className={styles.followText}>
+                      {it.under && <span className={styles.followUnder}>{it.under} › </span>}
+                      {it.text}
+                      <span className={styles.followWhen}> · {it.when}</span>
+                    </span>
+                    <button
+                      className={styles.followDone}
+                      onClick={() => finishFollowUp(friend, it.itemId)}
+                      aria-label={`Mark the follow-up on ${it.text} for ${friend.name} done`}
+                    >Done</button>
+                  </li>
+                ))}
+              </ul>
+              <div className={styles.bdayActions}>
+                {contact && (contact.lastReachOut === todayK
+                  ? <span className={styles.bdayDone}>✅ Reached out today</span>
+                  : <button className={styles.bdayBtn} onClick={() => setConfirmReach(contact)}>Reach out now</button>)}
+                <Link className={styles.bdayBtnGhost} to={`/friends?open=${friend.id}`}>Open in Contacts</Link>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* The daily 9am nudge only reaches a device that registered for push, and
           every way that fails is silent on the phone — so say so here. */}

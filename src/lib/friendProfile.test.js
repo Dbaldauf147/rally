@@ -3,6 +3,7 @@ import {
   normalizeItems, profileForEditing, profileForSaving, hasProfile,
   insertItem, indentItem, outdentItem, removeItem, moveItem,
   parseOutline, mergeParsed, DEFAULT_SECTIONS, lineHint,
+  setItemFollowUp, offersFollowUp, followUpsOf, dueFollowUps, clearFollowUp, followUpWhen,
 } from './friendProfile';
 
 const rows = (...spec) => spec.map(([text, depth], i) => ({ id: `r${i}`, text, depth }));
@@ -112,5 +113,71 @@ describe('parseOutline', () => {
       ['Things I appreciate', ['Her brain']],
       ['Sizes', ['Shoes 9']],
     ]);
+  });
+});
+
+describe('follow-up dates on Pains', () => {
+  const pains = (items) => [{ id: 'p', title: 'Pains', items }];
+  const back = [
+    { id: 'a', text: 'Bad back', depth: 0 },
+    { id: 'b', text: 'Physio on Tuesdays', depth: 1, followUp: '2026-11-20' },
+    { id: 'c', text: 'Job hunt', depth: 0, followUp: '2026-11-10' },
+  ];
+
+  it('is offered on Pains lines only', () => {
+    expect([offersFollowUp('Pains'), offersFollowUp(' pains '), offersFollowUp('Likes'), offersFollowUp(undefined)]).toEqual([true, true, false, false]);
+  });
+
+  it('sets, changes and clears a date without leaving an empty field behind', () => {
+    const set = setItemFollowUp(back, 0, '2026-12-01');
+    expect(set[0].followUp).toBe('2026-12-01');
+    const cleared = setItemFollowUp(set, 0, '');
+    expect('followUp' in cleared[0]).toBe(false);
+    expect(setItemFollowUp(back, 9, '2026-12-01')).toEqual(normalizeItems(back));
+  });
+
+  it('keeps a date through editing and saving, and drops one that is not a real day', () => {
+    expect(indentItem(outdentItem(back, 1), 1)[1].followUp).toBe('2026-11-20');
+    expect(moveItem(back, 2, -1)[0]).toMatchObject({ text: 'Job hunt', followUp: '2026-11-10' });
+    expect(profileForSaving(pains(back))[0].items.map((i) => i.followUp)).toEqual([undefined, '2026-11-20', '2026-11-10']);
+    const junk = normalizeItems([{ id: 'x', text: 'A', depth: 0, followUp: '2026-02-30' }, { id: 'y', text: 'B', depth: 0, followUp: 'soon' }]);
+    expect(junk.some((i) => 'followUp' in i)).toBe(false);
+  });
+
+  it('lists dated lines soonest first, saying what a nested one is under', () => {
+    expect(followUpsOf(pains(back))).toEqual([
+      { itemId: 'c', text: 'Job hunt', under: '', date: '2026-11-10' },
+      { itemId: 'b', text: 'Physio on Tuesdays', under: 'Bad back', date: '2026-11-20' },
+    ]);
+    expect(followUpsOf(undefined)).toEqual([]);
+  });
+
+  it('flags a follow-up from its day onward, longest-waiting friend first', () => {
+    const friends = [
+      { id: '1', name: 'Zed', profile: pains(back) },
+      { id: '2', name: 'Amy', profile: pains([{ id: 'k', text: 'Knee surgery', depth: 0, followUp: '2026-11-16' }]) },
+      { id: '3', name: 'Bo', profile: pains([{ id: 'm', text: 'Move', depth: 0, followUp: '2026-11-17' }]) },
+      { id: '4', name: 'Cy' },
+    ];
+    const due = dueFollowUps(friends, '2026-11-16');
+    expect(due.map((x) => [x.friend.name, x.items.map((i) => i.text)])).toEqual([['Zed', ['Job hunt']], ['Amy', ['Knee surgery']]]);
+    expect(dueFollowUps(friends, '2026-11-09')).toEqual([]);
+    expect(dueFollowUps(friends, '2026-11-20').map((x) => x.friend.name)).toEqual(['Zed', 'Amy', 'Bo']);
+  });
+
+  it('marks one done by taking only its date off the stored profile', () => {
+    const stored = [{ id: 'p', title: 'Pains', items: back, extra: 1 }, { id: 'l', title: 'Likes', items: [{ id: 'c', text: 'Sauna', depth: 0 }] }];
+    const after = clearFollowUp(stored, 'c');
+    expect(after[0].items).toEqual([back[0], back[1], { id: 'c', text: 'Job hunt', depth: 0 }]);
+    expect(after[0].extra).toBe(1);
+    expect(after[1]).toEqual(stored[1]);
+    expect(dueFollowUps([{ id: '1', name: 'Zed', profile: after }], '2026-11-16')).toEqual([]);
+    expect(clearFollowUp(undefined, 'c')).toEqual([]);
+  });
+
+  it('says when it came due', () => {
+    expect(followUpWhen('2026-11-16', '2026-11-16')).toBe('today');
+    expect(followUpWhen('2026-11-02', '2026-11-16')).toBe('since Nov 2');
+    expect(followUpWhen('2025-12-30', '2026-01-03')).toBe('since Dec 30, 2025');
   });
 });

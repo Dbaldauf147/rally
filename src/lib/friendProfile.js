@@ -39,6 +39,14 @@ export function makeId() {
   return `p${Date.now().toString(36)}${seq}`;
 }
 
+// A follow-up date is a real 'YYYY-MM-DD' day, or it isn't kept.
+function cleanFollowUp(raw) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw ?? '').trim());
+  if (!m) return '';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? m[0] : '';
+}
+
 const clampDepth = (d) => Math.max(0, Math.min(MAX_DEPTH, Math.floor(Number(d) || 0)));
 
 /* The rows of one outline, with depths repaired.
@@ -52,11 +60,16 @@ export function normalizeItems(raw) {
     const text = String(r?.text ?? '');
     const prev = out[out.length - 1];
     const cap = prev ? prev.depth + 1 : 0;
-    out.push({
+    const item = {
       id: String(r?.id ?? '').trim() || makeId(),
       text,
       depth: Math.min(clampDepth(r?.depth), cap),
-    });
+    };
+    // Only when there is one: Firestore refuses an undefined field, and a row
+    // without a date shouldn't carry an empty one around.
+    const followUp = cleanFollowUp(r?.followUp);
+    if (followUp) item.followUp = followUp;
+    out.push(item);
   });
   return out;
 }
@@ -121,6 +134,13 @@ export function setItemText(items, index, text) {
   return rows.map((r, i) => (i === index ? { ...r, text } : r));
 }
 
+// Set, change or (with '') clear the day to follow up on a row.
+export function setItemFollowUp(items, index, date) {
+  const rows = normalizeItems(items);
+  if (!rows[index]) return rows;
+  return normalizeItems(rows.map((r, i) => (i === index ? { ...r, followUp: date } : r)));
+}
+
 /* Indent a row under the one above it. What's nested under it comes along, so
    indenting "Coffee" doesn't leave "Cold brew" behind under "Drinking". */
 export function indentItem(items, index) {
@@ -168,6 +188,75 @@ export function moveItem(items, index, delta) {
   if (end >= rows.length || rows[end].depth !== depth) return rows;
   const nextEnd = subtreeEnd(rows, end);
   return normalizeItems([...rows.slice(0, index), ...rows.slice(end, nextEnd), ...block, ...rows.slice(nextEnd)]);
+}
+
+// --- follow-ups --------------------------------------------------------------
+//
+// A line under Pains can carry a day to check back in — "Knee surgery",
+// follow up on the 20th. From that day on it's flagged on the Reach Out page,
+// and stays flagged until it's marked done there or the date is moved: a
+// follow-up that quietly vanished the day after would be the one that got
+// missed.
+
+const isPains = (title) => String(title ?? '').trim().toLowerCase() === 'pains';
+
+// Whether a section's lines are offered a follow-up date in the editor.
+export const offersFollowUp = (sectionTitle) => isPains(sectionTitle);
+
+/* Every dated line on a profile: [{ itemId, text, under, date }], soonest
+   first. `under` is the line it's nested beneath ("Bad back" for "Physio on
+   Tuesdays"), so a dated detail still says what it's about. Read off any
+   section rather than only Pains — if the section was renamed after the date
+   was set, the reminder was still asked for. */
+export function followUpsOf(profile) {
+  const out = [];
+  normalizeProfile(profile).forEach((s) => {
+    s.items.forEach((item, i) => {
+      if (!item.followUp || !item.text.trim()) return;
+      let under = '';
+      for (let p = i - 1; p >= 0; p -= 1) {
+        if (s.items[p].depth < item.depth) { under = s.items[p].text.trim(); break; }
+      }
+      out.push({ itemId: item.id, text: item.text.trim(), under, date: item.followUp });
+    });
+  });
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// The friends with a follow-up that has come due (on or before `todayIso`),
+// as [{ friend, items }]: the longest-waiting first, then by name.
+export function dueFollowUps(friends, todayIso) {
+  return (friends || [])
+    .map((friend) => ({ friend, items: followUpsOf(friend?.profile).filter((f) => f.date <= todayIso) }))
+    .filter((x) => x.items.length > 0)
+    .sort((a, b) => a.items[0].date.localeCompare(b.items[0].date)
+      || (a.friend.name || '').localeCompare(b.friend.name || ''));
+}
+
+/* The profile with one line's follow-up date taken off — "done". Works on the
+   profile as stored and touches nothing else, so marking a follow-up done from
+   the Reach Out page can't reshape what the pop-up wrote. */
+export function clearFollowUp(profile, itemId) {
+  return (Array.isArray(profile) ? profile : []).map((s) => ({
+    ...s,
+    items: (Array.isArray(s?.items) ? s.items : []).map((item) => {
+      if (item?.id !== itemId || !('followUp' in item)) return item;
+      const rest = { ...item };
+      delete rest.followUp;
+      return rest;
+    }),
+  }));
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// "today", or "since Nov 12" for one that has been waiting ("since Nov 12,
+// 2025" once it's a different year).
+export function followUpWhen(date, todayIso) {
+  if (date === todayIso) return 'today';
+  const [y, m, d] = date.split('-').map(Number);
+  const year = String(todayIso).startsWith(`${y}-`) ? '' : `, ${y}`;
+  return `since ${MONTHS[m - 1]} ${d}${year}`;
 }
 
 // --- pasting a list in -------------------------------------------------------
