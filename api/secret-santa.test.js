@@ -61,6 +61,18 @@ describe('POST /api/secret-santa', () => {
     expect(state.sentMail[1].html).toContain('$50 limit');
   });
 
+  it('names an extra exchange in the subject and on the reveal page', async () => {
+    const res = await call({ eventId: 'e1', pairs, drawName: '  Sibs   Secret Santa ' });
+    expect(res.code).toBe(200);
+    expect(state.sentMail[0].subject).toContain('Sibs Secret Santa · Family Christmas');
+    const picked = decodeReveal(state.sentMail[0].html.match(/\/santa\?k=([\w-]+)/)[1]);
+    expect(picked.eventTitle).toBe('Sibs Secret Santa · Family Christmas');
+    // Without a name the main exchange reads exactly as before.
+    state.sentMail = [];
+    await call({ eventId: 'e1', pairs });
+    expect(state.sentMail[0].subject).toBe('🎅 Your Secret Santa pick for Family Christmas');
+  });
+
   it('reports a failed send without stopping the rest', async () => {
     state.mailOk = false;
     const res = await call({ eventId: 'e1', pairs });

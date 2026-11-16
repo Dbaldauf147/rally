@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   looksLikeGiftExchange, secretSantaEnabled, resolvePerson, partnersOf, defaultParticipants, lastDraw,
   buildExclusions, drawNames, drawProblems, drawMatchesParticipants, planSecretSantaSend,
+  drawStoreKey, cleanDraws, cleanDrawName, exchangeTitle, MAX_EXTRA_DRAWS,
 } from './secretSanta';
 import { secretSantaEmail } from './secretSantaEmail';
 import { encodeReveal, decodeReveal, revealLink } from './secretSantaLink';
@@ -223,5 +224,43 @@ describe('looksLikeGiftExchange', () => {
   it('spots a gift-exchange title and leaves other events alone', () => {
     for (const t of ['Secret Santa', 'Family Christmas 2026', 'Xmas Round 2', 'Office white elephant', 'secretsanta']) expect(looksLikeGiftExchange(t), t).toBe(true);
     for (const t of ['Guys night', 'Santa Fe trip', 'July 4th BBQ', '', null]) expect(looksLikeGiftExchange(t), String(t)).toBe(false);
+  });
+});
+
+describe('more than one exchange on an event', () => {
+  it('keeps the main exchange where it always was, and each extra one beside it', () => {
+    expect(drawStoreKey('e1')).toBe('e1');
+    expect(drawStoreKey('e1', '')).toBe('e1');
+    expect(drawStoreKey('e1', 'sibs1')).toBe('e1~sibs1');
+    expect(drawStoreKey('e1', 'sibs1')).not.toBe(drawStoreKey('e1', 'sibs2'));
+  });
+
+  it('tidies a name and caps its length', () => {
+    expect(cleanDrawName('  Sibs   Secret  Santa ')).toBe('Sibs Secret Santa');
+    expect(cleanDrawName('x'.repeat(200))).toHaveLength(60);
+    expect(cleanDrawName(null)).toBe('');
+  });
+
+  it('drops malformed, unnamed and repeated entries from the saved list', () => {
+    expect(cleanDraws([
+      { id: 'a1', name: ' Sibs Secret Santa ' },
+      { id: 'a1', name: 'Same id again' },
+      { id: 'b2', name: '   ' },
+      { id: '', name: 'No id' },
+      null,
+      'nonsense',
+      { id: 'c~3.', name: 'Cousins' },
+    ])).toEqual([{ id: 'a1', name: 'Sibs Secret Santa' }, { id: 'c3', name: 'Cousins' }]);
+    expect(cleanDraws(undefined)).toEqual([]);
+    expect(cleanDraws({ id: 'a', name: 'not a list' })).toEqual([]);
+    const many = Array.from({ length: 30 }, (_, i) => ({ id: `d${i}`, name: `Draw ${i}` }));
+    expect(cleanDraws(many)).toHaveLength(MAX_EXTRA_DRAWS);
+  });
+
+  it('titles an extra exchange with its own name ahead of the event', () => {
+    expect(exchangeTitle('Family Christmas', 'Sibs Secret Santa')).toBe('Sibs Secret Santa · Family Christmas');
+    expect(exchangeTitle('Family Christmas', '')).toBe('Family Christmas');
+    expect(exchangeTitle('Family Christmas', undefined)).toBe('Family Christmas');
+    expect(exchangeTitle('', 'Sibs Secret Santa')).toBe('Sibs Secret Santa');
   });
 });
