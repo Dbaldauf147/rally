@@ -17,6 +17,7 @@ vi.mock('../lib/mailer.js', () => ({
 }));
 
 const { default: handler } = await import('./secret-santa.js');
+const { decodeReveal } = await import('../src/lib/secretSantaLink.js');
 
 function call(body, { token = 'good', method = 'POST' } = {}) {
   const res = { code: 0, body: null, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; } };
@@ -51,9 +52,12 @@ describe('POST /api/secret-santa', () => {
     expect(res.code).toBe(200);
     expect(res.body).toEqual({ sent: ['dan', 'bob'], failed: [], noEmail: ['eve'] });
     expect(state.sentMail.map((m) => m.to)).toEqual(['dan@x.com', 'bob@x.com']);
-    expect(state.sentMail[0].html).toContain('🎁 Bob');
+    // The name is not in the email — only behind the link's Reveal button.
+    expect(state.sentMail[0].html).not.toContain('Bob');
     expect(state.sentMail[0].html).not.toContain('Eve');
-    expect(state.sentMail[1].html).toContain('🎁 Eve');
+    const picked = (html) => decodeReveal(html.match(/\/santa\?k=([\w-]+)/)[1]);
+    expect(picked(state.sentMail[0].html)).toMatchObject({ giverName: 'Dan', receiverName: 'Bob', eventTitle: 'Family Christmas', note: '$50 limit', when: 'Friday, December 25, 2026', location: 'Home', fromName: 'Dan' });
+    expect(picked(state.sentMail[1].html).receiverName).toBe('Eve');
     expect(state.sentMail[1].html).toContain('$50 limit');
   });
 

@@ -8,6 +8,7 @@ import { CalendarView } from './components/CalendarView';
 import { Plans } from './components/Plans';
 import { InvitePage } from './components/InvitePage';
 import { PollPage } from './components/PollPage';
+import { SecretSantaReveal } from './components/SecretSantaReveal';
 import { BoatDayPage } from './components/BoatDayPage';
 import { FoodPage } from './components/FoodPage';
 import { FriendsPage } from './components/FriendsPage';
@@ -102,6 +103,7 @@ export default function App() {
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
         <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/poll/:eventId" element={<PollPage />} />
+        <Route path="/santa" element={<SecretSantaReveal />} />
         <Route path="/boat/:eventId" element={<BoatDayPage />} />
         <Route path="/food/:eventId" element={<FoodPage />} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
