@@ -12,6 +12,8 @@ import {
   drawProblems,
   drawMatchesParticipants,
   resolvePerson,
+  cleanDrawName,
+  MAX_EXTRA_DRAWS,
 } from '../lib/secretSanta';
 import { drawYears } from '../lib/secretSantaImport';
 import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
@@ -20,8 +22,12 @@ import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
 // (lib/secretSanta.js): pick who is in, draw, review, then email everyone the
 // name they drew. The pairs are saved on the organizer's own user doc, never
 // on the event, so no guest can read them.
-export function SecretSanta({ event, eventId, user, year, date, onOpenHistory }) {
-  const { history, loadError, saveYear } = useSecretSantaHistory(user, eventId);
+//
+// `draw` ({ id, name }) makes this the panel of an extra exchange on the same
+// event: its own people, its own draw and history. Nobody is in one of those
+// until ticked — it exists because it is for only some of the guests.
+export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, draw: extra = null, onRename, onRemove }) {
+  const { history, loadError, saveYear } = useSecretSantaHistory(user, eventId, extra?.id || '');
   const [showPairs, setShowPairs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null); // { type: 'ok' | 'error', message }
@@ -40,9 +46,10 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
   // Until the organizer has chosen, everyone who hasn't said no is in.
   const outKeys = useMemo(() => {
     if (record?.out) return new Set(record.out);
+    if (extra) return new Set(Object.keys(members));
     const inByDefault = new Set(defaultParticipants(members));
     return new Set(Object.keys(members).filter((k) => !inByDefault.has(k)));
-  }, [record, members]);
+  }, [record, members, extra]);
   const participants = useMemo(() => everyone.map(([k]) => k).filter((k) => !outKeys.has(k)), [everyone, outKeys]);
 
   const last = useMemo(() => lastDraw(history || {}, year, members), [history, year, members]);
@@ -130,6 +137,7 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
           pairs: Object.entries(drawn).map(([giver, receiver]) => ({ giver, receiver })),
           only: onlyKeys || undefined,
           note,
+          drawName: extra?.name || undefined,
           when: date ? format(date, 'EEEE, MMMM d, yyyy') : '',
         }),
       });
@@ -153,9 +161,18 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
   const canSend = drawCurrent && problems.length === 0;
 
   return (
-    <div data-testid="secret-santa" style={box}>
-      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#991B1B' }}>🎅 Secret Santa {year}</div>
+    <div data-testid={extra ? `secret-santa-${extra.id}` : 'secret-santa'} style={box}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div data-testid="ss-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#991B1B' }}>🎅 {extra ? extra.name : 'Secret Santa'} {year}</div>
+        {extra && (
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
+            <button type="button" style={link} data-testid="ss-rename" disabled={busy} onClick={onRename}>Rename</button>
+            <button type="button" style={{ ...link, color: '#6B7280' }} data-testid="ss-remove" disabled={busy} onClick={onRemove}>Remove</button>
+          </span>
+        )}
+      </div>
       <p style={hint}>
+        {extra ? 'A separate draw on this event — tick the people it is for. ' : ''}
         Nobody draws themselves, their partner (the guest they come with), or the person they had last time.
         Guests can’t see the draw.
       </p>
@@ -315,6 +332,78 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
     </div>
   );
 }
+
+// Every Secret Santa on the event: the main one, any extra ones for a smaller
+// group ("Sibs Secret Santa"), and the way to add another.
+export function SecretSantaPanels(props) {
+  const { user, eventId } = props;
+  const { draws, saveDraws, removeDraw } = useSecretSantaHistory(user, eventId);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+
+  const guard = (fn) => async () => {
+    setError('');
+    try { await fn(); } catch (err) { setError(err.message || String(err)); }
+  };
+  const taken = (n, exceptId) => draws.some((d) => d.id !== exceptId && d.name.toLowerCase() === n.toLowerCase());
+
+  const add = guard(async () => {
+    const clean = cleanDrawName(name);
+    if (!clean) { setError('Give it a name.'); return; }
+    if (taken(clean)) { setError(`There is already one called “${clean}”.`); return; }
+    const id = newDrawId();
+    await saveDraws([...draws, { id, name: clean }]);
+    setName('');
+    setAdding(false);
+  });
+  const rename = (d) => guard(async () => {
+    const clean = cleanDrawName(window.prompt('Name of this Secret Santa', d.name));
+    if (!clean || clean === d.name) return;
+    if (taken(clean, d.id)) { setError(`There is already one called “${clean}”.`); return; }
+    await saveDraws(draws.map((x) => (x.id === d.id ? { ...x, name: clean } : x)));
+  });
+  const remove = (d) => guard(async () => {
+    if (!window.confirm(`Remove “${d.name}” from this event? Its draw and its past years are deleted. The event’s other Secret Santa is not touched.`)) return;
+    await removeDraw(d.id);
+  });
+
+  return (
+    <>
+      <SecretSanta {...props} />
+      {draws.map((d) => (
+        <SecretSanta key={d.id} {...props} draw={d} onRename={rename(d)} onRemove={remove(d)} />
+      ))}
+      <div data-testid="ss-add-draw" style={{ margin: '-0.9rem 0 1.5rem', fontSize: '0.8rem' }}>
+        {!adding ? (
+          draws.length < MAX_EXTRA_DRAWS && (
+            <button type="button" style={link} data-testid="ss-add-draw-open" onClick={() => { setAdding(true); setError(''); }}>
+              + Add another Secret Santa for some of these guests
+            </button>
+          )
+        ) : (
+          <form onSubmit={(e) => { e.preventDefault(); add(); }} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={60}
+              placeholder="e.g. Sibs Secret Santa"
+              aria-label="Name of the new Secret Santa"
+              data-testid="ss-add-draw-name"
+              style={{ flex: '1 1 14rem', maxWidth: '20rem', padding: '0.4rem 0.55rem', border: '1px solid #FECACA', borderRadius: '8px', fontFamily: 'inherit', fontSize: '0.85rem' }}
+            />
+            <button type="submit" data-testid="ss-add-draw-save" style={primary(false)}>Add</button>
+            <button type="button" style={{ ...link, color: '#6B7280' }} onClick={() => { setAdding(false); setName(''); setError(''); }}>Cancel</button>
+          </form>
+        )}
+        {error && <p data-testid="ss-add-draw-error" style={{ margin: '0.4rem 0 0', color: '#B91C1C' }}>{error}</p>}
+      </div>
+    </>
+  );
+}
+
+const newDrawId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 const box = { marginBottom: '1.5rem', padding: '0.85rem 1rem', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 'var(--radius-md)' };
 const hint = { margin: '0.25rem 0 0.6rem', fontSize: '0.78rem', color: '#6B7280', lineHeight: 1.45 };

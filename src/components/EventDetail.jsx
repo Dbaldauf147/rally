@@ -28,7 +28,7 @@ import { isRecurring, repeatBadgeLabel } from '../lib/recurrence';
 import { normalizeGuestListReview, guestListReviewYear } from '../lib/guestListReview';
 import { GuestListReview } from './GuestListReview';
 import { secretSantaEnabled, looksLikeGiftExchange } from '../lib/secretSanta';
-import { SecretSanta } from './SecretSanta';
+import { SecretSantaPanels } from './SecretSanta';
 import { RemindersPopup } from './RemindersPopup';
 import { remindersOn } from '../lib/rsvpReminders';
 import { SecretSantaHistoryTab } from './SecretSantaHistory';
@@ -3023,7 +3023,7 @@ export function EventDetail() {
           )}
 
           {isOwner && secretSantaEnabled(event) && !event.cancelled && (
-            <SecretSanta
+            <SecretSantaPanels
               event={event}
               eventId={eventId}
               user={user}

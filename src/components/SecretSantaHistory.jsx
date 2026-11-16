@@ -17,7 +17,7 @@ export function SecretSantaHistoryTab({ event, eventId, user, friends, year }) {
   const readOnly = !!ownerUid && ownerUid !== user?.uid;
   const ownerName = event.members?.[ownerUid]?.name || 'the organizer';
   const source = useMemo(() => ({ uid: ownerUid }), [ownerUid]);
-  const { history, loadError, saveYear } = useSecretSantaHistory(source, eventId);
+  const { draws } = useSecretSantaHistory(source, eventId);
   const members = useMemo(
     () => Object.fromEntries(Object.entries(event.members || {}).filter(([, m]) => m && typeof m === 'object')),
     [event.members],
@@ -30,6 +30,21 @@ export function SecretSantaHistoryTab({ event, eventId, user, friends, year }) {
           ? `Who has whom, this year and before, from ${ownerName}’s draws. You’re seeing this as the admin; only ${ownerName} can change it.`
           : `Who has whom this year, and who picked whom before. Guests can’t see this. The most recent earlier year is the one nobody can repeat in the ${year} draw.`}
       </p>
+      <DrawHistory source={source} eventId={eventId} members={members} friends={friends} year={year} readOnly={readOnly} />
+      {/* An event's extra exchanges each keep their own years. */}
+      {draws.map((d) => (
+        <DrawHistory key={d.id} draw={d} source={source} eventId={eventId} members={members} friends={friends} year={year} readOnly={readOnly} />
+      ))}
+    </div>
+  );
+}
+
+// One exchange's draws: this year's, then the earlier ones.
+function DrawHistory({ draw = null, source, eventId, members, friends, year, readOnly }) {
+  const { history, loadError, saveYear } = useSecretSantaHistory(source, eventId, draw?.id || '');
+  return (
+    <div data-testid={draw ? `ss-history-${draw.id}` : 'ss-history-main'}>
+      {draw && <h4 style={{ margin: '1.5rem 0 0.5rem', fontSize: '0.95rem', fontWeight: 700, color: '#991B1B' }}>🎅 {draw.name}</h4>}
       {loadError && <p style={{ ...hint, color: '#B91C1C' }}>Couldn’t load the history: {loadError}</p>}
       {history === null && !loadError
         ? <p style={hint}>Loading…</p>

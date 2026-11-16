@@ -17,12 +17,48 @@
 //   }
 // The event itself only carries the switch: `secretSanta: { enabled: true }`.
 //
+// One event can hold more than one exchange — the whole family's, and a
+// smaller one among the siblings. The extra ones are listed on the organizer's
+// user doc too, so a guest can't even see that they exist:
+//   users/{uid}.secretSantaDraws.{eventId} = [{ id, name }]
+// and each keeps its years beside the main one's, under its own key:
+//   users/{uid}.secretSanta.{eventId~drawId}.{year}
+// An extra exchange starts with nobody in it; the organizer ticks who is.
+//
 // This file is imported by the browser and by api/secret-santa.js, so it stays
 // free of Firebase and DOM imports.
 
 const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 export const MIN_PARTICIPANTS = 3;
+
+export const MAX_EXTRA_DRAWS = 10;
+
+/** Where one exchange's years are kept under `secretSanta` on the user doc. */
+export const drawStoreKey = (eventId, drawId = '') => (drawId ? `${eventId}~${drawId}` : String(eventId));
+
+export const cleanDrawName = (s) => String(s || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+
+/** The saved list of an event's extra exchanges, with anything malformed dropped. */
+export function cleanDraws(list) {
+  const seen = new Set();
+  const out = [];
+  for (const d of Array.isArray(list) ? list : []) {
+    const id = String(d?.id || '').replace(/[^a-z0-9]/gi, '').slice(0, 20);
+    const name = cleanDrawName(d?.name);
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name });
+  }
+  return out.slice(0, MAX_EXTRA_DRAWS);
+}
+
+/** What an email calls the exchange: the event, led by the extra exchange's own name. */
+export function exchangeTitle(eventTitle, drawName) {
+  const name = cleanDrawName(drawName);
+  const title = String(eventTitle || '').trim();
+  return name && title ? `${name} · ${title}` : name || title;
+}
 
 export function secretSantaEnabled(event) {
   return event?.secretSanta?.enabled === true;

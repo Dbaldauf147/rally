@@ -1,17 +1,18 @@
 // Secret Santa (see src/lib/secretSanta.js).
 //
-// POST { eventId, pairs: [{ giver, receiver }], note?, when?, only?: [giverKey] }
+// POST { eventId, pairs: [{ giver, receiver }], note?, when?, only?: [giverKey], drawName? }
 // with the organizer's Firebase ID token. Emails each giver the name of the
 // person they are buying for. Only the event's organizer may call it, and the
 // names and addresses come from the event doc, so it can only ever write to
-// that event's own guests.
+// that event's own guests. `drawName` names an extra exchange on the same
+// event ("Sibs Secret Santa"), so someone in two of them can tell the emails apart.
 //
 // Nothing is stored here: the draw itself lives on the organizer's user doc,
 // written by the browser, so the pairs never sit anywhere a guest can read.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { planSecretSantaSend, personLabel } from '../src/lib/secretSanta.js';
+import { planSecretSantaSend, personLabel, exchangeTitle } from '../src/lib/secretSanta.js';
 import { secretSantaEmail } from '../src/lib/secretSantaEmail.js';
 import { revealLink } from '../src/lib/secretSantaLink.js';
 import { sendOne, mailConfigured } from '../lib/mailer.js';
@@ -62,7 +63,7 @@ export default async function handler(req, res) {
     const details = {
       giverName: m.giverName,
       receiverName: m.receiverName,
-      eventTitle: event.title,
+      eventTitle: exchangeTitle(event.title, req.body?.drawName),
       when: clip(req.body?.when, 80),
       location: event.location,
       note: clip(req.body?.note, 1000),
