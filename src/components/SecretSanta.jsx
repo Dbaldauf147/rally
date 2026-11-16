@@ -153,7 +153,7 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory })
       <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#991B1B' }}>🎅 Secret Santa {year}</div>
       <p style={hint}>
         Nobody draws themselves, their partner (the guest they come with), or the person they had last time.
-        Only you can see the draw.
+        Guests can’t see the draw.
       </p>
       {loadError && <p style={{ ...hint, color: '#B91C1C' }}>Couldn’t load the saved draw: {loadError}</p>}
 

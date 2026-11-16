@@ -10,7 +10,14 @@ import { DateField } from './DateField';
 // Rally by pasting them in. The most recent earlier year is what the draw's
 // "had last time" rule reads from.
 export function SecretSantaHistoryTab({ event, eventId, user, friends, year }) {
-  const { history, loadError, saveYear } = useSecretSantaHistory(user, eventId);
+  // The draws live on the organizer's own account. The organizer reads and
+  // edits their own; the app's admin can open anyone's, to look only (the
+  // rules let the admin read every account and write none but their own).
+  const ownerUid = Object.entries(event.members || {}).find(([, m]) => m?.role === 'owner')?.[0] || event.createdBy || user?.uid;
+  const readOnly = !!ownerUid && ownerUid !== user?.uid;
+  const ownerName = event.members?.[ownerUid]?.name || 'the organizer';
+  const source = useMemo(() => ({ uid: ownerUid }), [ownerUid]);
+  const { history, loadError, saveYear } = useSecretSantaHistory(source, eventId);
   const members = useMemo(
     () => Object.fromEntries(Object.entries(event.members || {}).filter(([, m]) => m && typeof m === 'object')),
     [event.members],
@@ -19,12 +26,73 @@ export function SecretSantaHistoryTab({ event, eventId, user, friends, year }) {
     <div data-testid="ss-history-tab" style={{ maxWidth: '760px' }}>
       <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#991B1B' }}>🎅 Secret Santa history</h3>
       <p style={hint}>
-        Who picked whom in earlier years. Only you can see this. The most recent year is the one nobody can repeat in the {year} draw.
+        {readOnly
+          ? `Who has whom, this year and before, from ${ownerName}’s draws. You’re seeing this as the admin; only ${ownerName} can change it.`
+          : `Who has whom this year, and who picked whom before. Guests can’t see this. The most recent earlier year is the one nobody can repeat in the ${year} draw.`}
       </p>
       {loadError && <p style={{ ...hint, color: '#B91C1C' }}>Couldn’t load the history: {loadError}</p>}
       {history === null && !loadError
         ? <p style={hint}>Loading…</p>
-        : <SecretSantaHistory history={history || {}} members={members} friends={friends} year={year} saveYear={saveYear} />}
+        : (
+          <>
+            <ThisYear record={(history || {})[year]} year={year} members={members} readOnly={readOnly} />
+            <SecretSantaHistory history={history || {}} members={members} friends={friends} year={year} saveYear={saveYear} readOnly={readOnly} />
+          </>
+        )}
+    </div>
+  );
+}
+
+// This year's draw: who has whom, and who has been emailed theirs. Kept
+// folded until asked for, so the organizer can keep their own a surprise.
+function ThisYear({ record, year, members, readOnly }) {
+  const [open, setOpen] = useState(false);
+  const pairs = record?.pairs || [];
+  const label = (ref) => {
+    const key = resolvePerson(ref, members);
+    return key ? personLabel(members[key]) : (ref?.name || ref?.email || 'Someone');
+  };
+  const sentAt = (ref) => record?.sent?.[resolvePerson(ref, members)] || record?.sent?.[ref?.key] || '';
+  const stamp = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : format(d, 'MMM d'); };
+  const sentCount = pairs.filter((p) => sentAt(p.giver)).length;
+  const rows = [...pairs].sort((a, b) => label(a.giver).localeCompare(label(b.giver)));
+  return (
+    <div data-testid="ss-this-year" style={{ ...card, borderColor: '#F87171' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '1rem', fontWeight: 700, color: '#1F2937' }}>{year}</span>
+        <span style={{ fontSize: '0.84rem', color: '#4B5563' }}>This year’s draw</span>
+        {pairs.length > 0 && (
+          <button type="button" style={{ ...link, marginLeft: 'auto' }} data-testid="ss-this-year-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+            {open ? 'Hide who has whom' : 'Show who has whom'}
+          </button>
+        )}
+      </div>
+      {pairs.length === 0 ? (
+        <p style={{ ...hint, margin: '0.2rem 0 0' }}>
+          No names drawn for {year} yet.{readOnly ? '' : ' Draw them in the Secret Santa panel on People & Poll.'}
+        </p>
+      ) : (
+        <>
+          <div style={{ fontSize: '0.78rem', color: '#6B7280', margin: '0.15rem 0 0.4rem' }}>
+            {[`${pairs.length} people`, record.drawnAt && !isNaN(new Date(record.drawnAt)) ? `drawn ${format(new Date(record.drawnAt), 'MMM d, yyyy')}` : '',
+              sentCount === 0 ? 'nobody emailed yet' : `${sentCount} of ${pairs.length} emailed their person`].filter(Boolean).join(' · ')}
+          </div>
+          {!open ? (
+            <p style={{ ...hint, margin: 0 }}>The names stay hidden until you ask for them.</p>
+          ) : (
+            <div data-testid="ss-this-year-pairs" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '0.15rem 1rem' }}>
+              {rows.map((p, i) => (
+                <div key={i} style={{ fontSize: '0.86rem', padding: '0.1rem 0', minWidth: 0 }}>
+                  <span style={{ fontWeight: 600 }}>{label(p.giver)}</span> <span style={{ color: '#9CA3AF' }}>→</span> {label(p.receiver)}
+                  <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', color: sentAt(p.giver) ? '#166534' : '#9CA3AF', whiteSpace: 'nowrap' }}>
+                    {sentAt(p.giver) ? `emailed ${stamp(sentAt(p.giver))}` : 'not emailed'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -32,7 +100,7 @@ export function SecretSantaHistoryTab({ event, eventId, user, friends, year }) {
 const blankRow = () => ({ id: Math.random().toString(36).slice(2), giver: '', receiver: '' });
 
 // One year's draw: the picks, and an edit mode for changing any of it.
-function YearCard({ y, record, isLatest, label, candidates, year, takenYears, saveYear, startEditing = false, onDone }) {
+function YearCard({ y, record, isLatest, label, candidates, year, takenYears, saveYear, startEditing = false, onDone, readOnly = false }) {
   const [editing, setEditing] = useState(startEditing);
   const isNew = y === null;
   const initialRows = () => (record?.pairs || []).map((p) => ({
@@ -99,10 +167,12 @@ function YearCard({ y, record, isLatest, label, candidates, year, takenYears, sa
             <span style={{ fontSize: '1rem', fontWeight: 700, color: '#1F2937' }}>{y}</span>
             {record.title && <span style={{ fontSize: '0.84rem', color: '#4B5563' }}>{record.title}</span>}
             {isLatest && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#991B1B', background: '#FEE2E2', borderRadius: '999px', padding: '0.1rem 0.5rem' }}>used as “last time”</span>}
-            <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
-              <button type="button" style={link} data-testid={`ss-edit-${y}`} onClick={begin}>Edit</button>
-              <button type="button" style={{ ...link, color: '#6B7280' }} onClick={removeYear}>Delete</button>
-            </span>
+            {!readOnly && (
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
+                <button type="button" style={link} data-testid={`ss-edit-${y}`} onClick={begin}>Edit</button>
+                <button type="button" style={{ ...link, color: '#6B7280' }} onClick={removeYear}>Delete</button>
+              </span>
+            )}
           </div>
           <div data-testid={`ss-when-${y}`} style={{ fontSize: '0.78rem', color: '#6B7280', margin: '0.15rem 0 0.5rem' }}>
             {[when || `Year ${y}`, `${record.pairs.length} picks`, source, record.editedAt ? `edited ${stamp(record.editedAt)}` : ''].filter(Boolean).join(' · ')}
@@ -155,7 +225,7 @@ function YearCard({ y, record, isLatest, label, candidates, year, takenYears, sa
   );
 }
 
-function SecretSantaHistory({ history, members, friends, year, saveYear }) {
+function SecretSantaHistory({ history, members, friends, year, saveYear, readOnly = false }) {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [text, setText] = useState('');
@@ -226,7 +296,7 @@ function SecretSantaHistory({ history, members, friends, year, saveYear }) {
 
   return (
     <div data-testid="ss-history">
-      {pastYears.length === 0 && !adding && <p style={hint}>Nothing saved yet. Load earlier years, or add one by hand, so nobody gets the same person twice running.</p>}
+      {pastYears.length === 0 && !adding && <p style={hint}>{readOnly ? 'No earlier years saved.' : 'Nothing saved yet. Load earlier years, or add one by hand, so nobody gets the same person twice running.'}</p>}
       {pastYears.map((y) => (
         <YearCard
           key={y}
@@ -238,16 +308,17 @@ function SecretSantaHistory({ history, members, friends, year, saveYear }) {
           year={year}
           takenYears={pastYears}
           saveYear={saveYear}
+          readOnly={readOnly}
         />
       ))}
       {adding && (
         <YearCard y={null} record={null} label={label} candidates={candidates} year={year} takenYears={pastYears} saveYear={saveYear} startEditing onDone={() => setAdding(false)} />
       )}
-      {!adding && !importing && (
+      {!readOnly && !adding && !importing && (
         <button type="button" style={{ ...link, marginRight: '1rem' }} data-testid="ss-add-year" onClick={() => setAdding(true)}>+ Add a year by hand</button>
       )}
 
-      {!importing ? (
+      {readOnly ? null : !importing ? (
         <button type="button" style={link} data-testid="ss-import-open" onClick={() => { setImporting(true); setMessage(null); }}>
           + Load past draws
         </button>
