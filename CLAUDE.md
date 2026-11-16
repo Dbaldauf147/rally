@@ -34,4 +34,4 @@ Vercel builds `main` on every merge: the static site, the `api/` routes and the 
 What that build does **not** ship:
 
 - `firestore.rules` — released with `firebase deploy --only firestore:rules` (project `rally-bd41a`). A rule written and never published reads, on a fresh load, like a user with no data.
-- **The iOS app.** `.github/workflows/ios.yml` runs on a `ios-v*` tag or a manual dispatch, so merging changes the web app and nothing in the App Store. Shipping the app is a deliberate, separate act — don't describe a merge as having released it.
+- **The iOS app.** `.github/workflows/ios.yml` runs on a `ios-v*` tag, a manual dispatch, or its monthly schedule (the 1st, which only exists to stop the TestFlight build hitting its 90-day expiry), so merging changes the web app and nothing in the App Store. Shipping the app is a deliberate, separate act — don't describe a merge as having released it.

@@ -6,8 +6,14 @@ name: iOS → TestFlight
 # repository secrets.
 #
 # Trigger: run manually from the Actions tab, or push a tag like ios-v1.0.0.
+# It also runs by itself on the 1st of each month: a TestFlight build stops
+# opening 90 days after upload ("Rally Beta has expired"), so a monthly build
+# keeps the installed app alive with two spare runs if one fails. Scheduled
+# runs always build the default branch.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 14 1 * *'
   push:
     tags:
       - 'ios-v*'

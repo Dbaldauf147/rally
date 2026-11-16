@@ -59,6 +59,10 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 ### 6. Run the build
 - Repo → **Actions → "iOS → TestFlight" → Run workflow** (or push a tag like `ios-v1.0.0`).
 - It builds on a macOS runner, signs via your API key, and uploads to **TestFlight**.
+- It also runs by itself on the 1st of each month. TestFlight builds stop opening
+  90 days after upload ("Rally Beta has expired"), so the monthly build keeps the
+  installed app working. GitHub pauses scheduled workflows after 60 days with no
+  repository activity — if the repo goes quiet, re-enable it from the Actions tab.
 - First run may take ~15 min. If signing fails, see Troubleshooting below.
 - Install the **TestFlight** app on your iPhone to test the build.
 
