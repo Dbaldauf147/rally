@@ -13,6 +13,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { planSecretSantaSend, personLabel } from '../src/lib/secretSanta.js';
 import { secretSantaEmail } from '../src/lib/secretSantaEmail.js';
+import { revealLink } from '../src/lib/secretSantaLink.js';
 import { sendOne, mailConfigured } from '../lib/mailer.js';
 
 if (!getApps().length) {
@@ -58,7 +59,7 @@ export default async function handler(req, res) {
   const sent = [];
   const failed = [];
   for (const m of plan.mail) {
-    const { subject, html } = secretSantaEmail({
+    const details = {
       giverName: m.giverName,
       receiverName: m.receiverName,
       eventTitle: event.title,
@@ -66,7 +67,9 @@ export default async function handler(req, res) {
       location: event.location,
       note: clip(req.body?.note, 1000),
       fromName,
-    });
+    };
+    // The email says a pick is ready; the name is only on the page its button opens.
+    const { subject, html } = secretSantaEmail({ ...details, link: revealLink(details) });
     const r = await sendOne({ to: m.to, subject, html, fromName: 'Rally' });
     if (r.ok) sent.push(m.key);
     else failed.push({ key: m.key, error: r.error || 'send failed' });

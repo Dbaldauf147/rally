@@ -4,6 +4,7 @@ import {
   buildExclusions, drawNames, drawProblems, drawMatchesParticipants, planSecretSantaSend,
 } from './secretSanta';
 import { secretSantaEmail } from './secretSantaEmail';
+import { encodeReveal, decodeReveal, revealLink } from './secretSantaLink';
 
 // A small deterministic generator so a failing draw can be replayed.
 function rngFrom(seed) {
@@ -186,14 +187,35 @@ describe('planSecretSantaSend', () => {
 });
 
 describe('secretSantaEmail', () => {
-  it('names the person in the body but not the subject', () => {
-    const { subject, html } = secretSantaEmail({ giverName: 'Dan B', receiverName: 'Bob <b>', eventTitle: 'Xmas', note: '$50 limit', when: 'Friday', location: 'Home', fromName: 'Dan' });
+  it('links to the reveal page and never names the person', () => {
+    const details = { giverName: 'Dan B', receiverName: 'Bob <b>', eventTitle: 'Xmas', note: '$50 limit', when: 'Friday', location: 'Home', fromName: 'Dan' };
+    const { subject, html } = secretSantaEmail({ ...details, link: revealLink(details) });
     expect(subject).toBe('🎅 Your Secret Santa pick for Xmas');
-    expect(subject).not.toContain('Bob');
     expect(html).toContain('Hey Dan!');
-    expect(html).toContain('Bob &lt;b&gt;');
+    expect(html).not.toContain('Bob');
+    expect(html).toContain('See who you have');
+    expect(html).toMatch(/href="https:\/\/[^"]+\/santa\?k=[\w-]+"/);
     expect(html).toContain('$50 limit');
     expect(html).toContain('Friday');
+  });
+});
+
+describe('the reveal link', () => {
+  it('round-trips everything the page shows, accents and emoji included', () => {
+    const details = { giverName: 'Zoë', receiverName: 'José Núñez 🎄', eventTitle: 'Noël', when: 'Fri', location: 'Café', note: 'Under $50 — no gag gifts', fromName: 'Dan' };
+    const code = encodeReveal(details);
+    expect(code).toMatch(/^[\w-]+$/);
+    expect(code).not.toContain('Jos');
+    expect(decodeReveal(code)).toEqual(details);
+    expect(revealLink(details)).toBe(`https://rally-seven-theta.vercel.app/santa?k=${code}`);
+  });
+
+  it('gives null for a link that is cut short, empty, or not ours', () => {
+    const code = encodeReveal({ giverName: 'A', receiverName: 'B' });
+    expect(decodeReveal(code.slice(0, 10))).toBeNull();
+    expect(decodeReveal('')).toBeNull();
+    expect(decodeReveal('not-a-link')).toBeNull();
+    expect(decodeReveal(encodeReveal({ giverName: 'A', receiverName: '' }))).toBeNull();
   });
 });
 
