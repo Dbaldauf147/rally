@@ -32,6 +32,7 @@ import { SecretSantaPanels } from './SecretSanta';
 import { RemindersPopup } from './RemindersPopup';
 import { remindersOn } from '../lib/rsvpReminders';
 import { SecretSantaHistoryTab } from './SecretSantaHistory';
+import { GiftsTab } from './GiftsTab';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
 import { EventForm } from './EventForm';
@@ -132,7 +133,7 @@ export function EventDetail() {
   const [showReminders, setShowReminders] = useState(false);
   const [activeTab, setActiveTab] = useState(() => {
     const t = searchParams.get('tab');
-    return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat', 'santa'].includes(t) ? t : null;
+    return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat', 'santa', 'gifts'].includes(t) ? t : null;
   });
   const initialTabPickedRef = useRef(false);
   const [result, setResult] = useState(null);
@@ -2142,6 +2143,8 @@ export function EventDetail() {
     // The draws are on the organizer's own account: the tab is theirs, and the
     // app's admin can open it to look.
     ...((isOwner || isAppOwner) && secretSantaEnabled(event) ? [{ key: 'santa', label: '🎅 Secret Santa' }] : []),
+    // Wish lists, for everyone on an event with a gift exchange.
+    ...(secretSantaEnabled(event) ? [{ key: 'gifts', label: '🎁 Gifts' }] : []),
     ...(tripPlanning ? [{ key: 'itinerary', label: 'Itinerary' }] : []),
     ...(optionalTabs.day ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
@@ -4843,6 +4846,12 @@ export function EventDetail() {
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {activeTab === 'gifts' && secretSantaEnabled(event) && (
+        <div className={styles.content}>
+          <GiftsTab event={event} eventId={eventId} user={user} updateEvent={updateEvent} />
         </div>
       )}
 
