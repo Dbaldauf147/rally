@@ -9,7 +9,7 @@ import {
   recurrenceFromDate,
 } from '../lib/recurrence';
 import { normalizeGuestListReview, guestListReviewForSave } from '../lib/guestListReview';
-import { CADENCES, normalizePollSeries, addMonthsYmd, sendDateLabel, pollWindow, windowLabel, previewDate } from '../lib/pollSeries';
+import { CADENCES, normalizePollSeries, sendDateLabel, pollWindow } from '../lib/pollSeries';
 import { DEFAULT_REMINDER_INTERVALS } from '../lib/autoReminders';
 import { DEFAULT_EVENT_REMINDER_DAYS } from '../lib/eventReminders';
 import { OPTIONAL_TABS, shownTabs, tabsForSave } from '../lib/eventTabs';
@@ -140,17 +140,17 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
   const [confirmGuests, setConfirmGuests] = useState(!!normalizeGuestListReview(event?.guestListReview));
 
   // --- Poll-based repeat: the same event every so often, its date picked by a
-  // poll each round (lib/pollSeries.js). Offered while the date is to be
-  // decided, and on any round already in a series.
+  // poll each round (lib/pollSeries.js). The form no longer starts one; a round
+  // already in a series keeps its cadence and send date, and can be stopped.
   const savedSeries = normalizePollSeries(event?.pollSeries);
   const [pollRepeat, setPollRepeat] = useState(!!savedSeries);
-  const [everyMonths, setEveryMonths] = useState(savedSeries?.everyMonths || 1);
+  const everyMonths = savedSeries?.everyMonths || 1;
   // The day this round's poll is emailed out; later rounds follow on the same
   // day of the month. Once it has gone, it's history and can't be moved.
   const todayYmd = dayValue(new Date());
-  const [pollSendDate, setPollSendDate] = useState(event?.pollSendDate || todayYmd);
-  const [sendDateMissing, setSendDateMissing] = useState(false);
+  const pollSendDate = event?.pollSendDate || todayYmd;
   const pollAlreadySent = !!event?.pollSentAt;
+  const cadenceLabel = CADENCES.find(c => c.months === everyMonths)?.label || `Every ${everyMonths} months`;
 
   // Automatic email reminders to people who haven't voted. Chosen here only
   // when creating; an existing event has the full control on its page.
@@ -224,8 +224,6 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
     const start = dateTBD ? null : startAsDate();
     if (!dateTBD && !start) { setDateMissing(true); return; }
     setDateMissing(false);
-    if (pollRepeat && !pollAlreadySent && !pollSendDate) { setSendDateMissing(true); return; }
-    setSendDateMissing(false);
     // Held back past the event itself, it would never be seen in time.
     // (A yearly window isn't tied to this one date, so it's exempt.)
     if (showFrom && !showWindow && !dateTBD && showFrom > startDay) { setShowFromLate(true); return; }
@@ -405,54 +403,29 @@ export function EventForm({ event, onSave, onCancel, focusRepeat = false, onCanc
         </div>
       )}
 
-      {(dateTBD || pollRepeat || savedSeries) && (
+      {/* A poll series is no longer something this form starts: the date is
+          either set above or left to a poll, and that is the whole choice. An
+          event already in a series keeps one line here, so it can be stopped. */}
+      {savedSeries && (
         <div className={styles.repeatBox} ref={repeatRef} style={repeatFocusStyle} data-testid="repeat-poll">
-          {focusRepeat && dateTBD && !pollRepeat && (
-            <p className={styles.repeatHint} style={{ marginBottom: '0.4rem' }}>
-              This event’s date is still to be decided, so it can repeat with a poll picking the date each
-              time. To repeat on a fixed date every year instead, untick “to be determined” above and set the date.
-            </p>
-          )}
           <label className={styles.repeatToggle} style={{ color: pollRepeat ? '#4f46e5' : '#6b7280' }}>
             <input type="checkbox" checked={pollRepeat} onChange={e => setPollRepeat(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#4f46e5' }} />
             <span aria-hidden="true">🔁</span>
             Repeats — poll for a new date each time
           </label>
-          {pollRepeat && (
-            <div className={styles.repeatBody}>
-              <label className={styles.repeatOption}>
-                <span className={styles.repeatOptionLabel}>How often</span>
-                <select className={styles.repeatSelect} value={everyMonths} onChange={e => setEveryMonths(Number(e.target.value))} aria-label="How often it repeats">
-                  {CADENCES.map(c => <option key={c.months} value={c.months}>{c.label}</option>)}
-                </select>
-              </label>
-              {pollAlreadySent ? (
-                <p className={styles.repeatHint}>📨 This round’s poll went out {sendDateLabel(event.pollSendDate || String(event.pollSentAt).slice(0, 10), todayYmd)}.</p>
-              ) : (
-                <label className={styles.repeatOption}>
-                  <span className={styles.repeatOptionLabel}>Poll goes out on</span>
-                  <DateField
-                    className={styles.repeatSelect}
-                    value={pollSendDate}
-                    min={todayYmd}
-                    onChange={e => { setPollSendDate(e.target.value); if (e.target.value) setSendDateMissing(false); }}
-                    aria-label="Date the poll goes out"
-                  />
-                  {sendDateMissing && <span className={styles.fieldError}>Pick the day the poll goes out.</span>}
-                </label>
-              )}
-              {!pollAlreadySent && pollSendDate && (
-                <>
-                  <p className={styles.repeatPreview}>
-                    Poll emails go out {sendDateLabel(pollSendDate, todayYmd)}, then {sendDateLabel(addMonthsYmd(pollSendDate, everyMonths), todayYmd)}, {sendDateLabel(addMonthsYmd(pollSendDate, 2 * everyMonths), todayYmd)}…
-                  </p>
-                  <p className={styles.repeatHint}>
-                    A week before ({previewDate(pollSendDate) < todayYmd ? 'the next morning, for this one' : sendDateLabel(previewDate(pollSendDate), todayYmd)}) you get a heads-up email: who it’s going to, the dates on it, and the email itself. Then that morning (about 7am ET) your guests get it, asking them to suggest dates and vote — this round on dates {windowLabel(pollWindow(pollSendDate, everyMonths))}. Each new round opens a week before its send date with the same guests, its poll starting with dates on the same days of the week this round’s options used.
-                  </p>
-                </>
-              )}
-            </div>
-          )}
+          <p className={styles.repeatHint} style={{ margin: '0.4rem 0 0' }}>
+            {pollRepeat
+              ? `${cadenceLabel} a new poll is emailed to the same guests${pollAlreadySent ? '' : ` — this round’s goes out ${sendDateLabel(pollSendDate, todayYmd)}`}. Untick and save to stop it.`
+              : 'Saving stops the repeat: no more polls are sent for this event. It can’t be switched back on here.'}
+          </p>
+        </div>
+      )}
+
+      {focusRepeat && dateTBD && !savedSeries && (
+        <div className={styles.repeatBox} ref={repeatRef} style={repeatFocusStyle} data-testid="repeat-needs-date">
+          <p className={styles.repeatHint} style={{ margin: 0 }}>
+            To repeat this event every year, untick “to be determined” above and set its date.
+          </p>
         </div>
       )}
 
