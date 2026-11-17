@@ -2143,8 +2143,9 @@ export function EventDetail() {
     // The draws are on the organizer's own account: the tab is theirs, and the
     // app's admin can open it to look.
     ...((isOwner || isAppOwner) && secretSantaEnabled(event) ? [{ key: 'santa', label: '🎅 Secret Santa' }] : []),
-    // Wish lists, for everyone on an event with a gift exchange.
-    ...(secretSantaEnabled(event) ? [{ key: 'gifts', label: '🎁 Gifts' }] : []),
+    // The app owner's own gift list. It names who they drew, so nobody else
+    // gets the tab — not guests, not another organizer.
+    ...(isAppOwner && secretSantaEnabled(event) ? [{ key: 'gifts', label: `🎁 ${(user?.displayName || '').trim().split(/\s+/)[0] || 'My'}${(user?.displayName || '').trim() ? '’s' : ''} Gifts` }] : []),
     ...(tripPlanning ? [{ key: 'itinerary', label: 'Itinerary' }] : []),
     ...(optionalTabs.day ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
@@ -4849,9 +4850,9 @@ export function EventDetail() {
         </div>
       )}
 
-      {activeTab === 'gifts' && secretSantaEnabled(event) && (
+      {activeTab === 'gifts' && isAppOwner && secretSantaEnabled(event) && (
         <div className={styles.content}>
-          <GiftsTab event={event} eventId={eventId} user={user} updateEvent={updateEvent} />
+          <GiftsTab event={event} eventId={eventId} user={user} friends={friends} year={event.occurrenceYear ?? date.getFullYear()} />
         </div>
       )}
 
