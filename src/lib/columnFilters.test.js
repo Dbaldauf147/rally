@@ -34,3 +34,40 @@ describe('applyColumnFilters', () => {
     expect(activeColumnFilters({ name: '', group: 'x' })).toEqual([['group', 'x']]);
   });
 });
+
+describe('picking values', async () => {
+  const { applyColumnPicks, columnValues, togglePick, activePicks } = await import('./columnFilters');
+  const rows = [
+    { status: 'Toured', area: 'nyc' },
+    { status: 'Quote received', area: 'li' },
+    { status: 'Researching', area: '' },
+    { status: 'Toured', area: 'li' },
+  ];
+  const valueOf = (r, k) => r[k];
+
+  it('keeps rows whose value is one of those ticked, in every ticked column', () => {
+    expect(applyColumnPicks(rows, { status: ['Toured', 'Quote received'] }, valueOf)).toEqual([rows[0], rows[1], rows[3]]);
+    expect(applyColumnPicks(rows, { status: ['Toured', 'Quote received'], area: ['li'] }, valueOf)).toEqual([rows[1], rows[3]]);
+    expect(applyColumnPicks(rows, { area: [''] }, valueOf)).toEqual([rows[2]]);
+    expect(applyColumnPicks(rows, { status: [] }, valueOf)).toBe(rows);
+    expect(applyColumnPicks(rows, {}, valueOf)).toBe(rows);
+  });
+
+  it('lists a column’s values with counts, blanks first, numbers in order', () => {
+    expect(columnValues(rows, 'status', valueOf)).toEqual([
+      { value: 'Quote received', count: 1 }, { value: 'Researching', count: 1 }, { value: 'Toured', count: 2 },
+    ]);
+    expect(columnValues(rows, 'area', valueOf)[0]).toEqual({ value: '', count: 1 });
+    expect(columnValues([{ c: '150' }, { c: '20' }, { c: ' 20 ' }], 'c', valueOf)).toEqual([{ value: '20', count: 2 }, { value: '150', count: 1 }]);
+  });
+
+  it('ticks and unticks one value, dropping a column left with none', () => {
+    let p = togglePick({}, 'status', 'Toured');
+    p = togglePick(p, 'status', 'Booked');
+    expect(p).toEqual({ status: ['Toured', 'Booked'] });
+    p = togglePick(p, 'status', 'Toured');
+    expect(p).toEqual({ status: ['Booked'] });
+    expect(togglePick(p, 'status', 'Booked')).toEqual({});
+    expect(activePicks({ a: [], b: ['x'], c: null })).toEqual([['b', ['x']]]);
+  });
+});
