@@ -432,8 +432,11 @@ describe('drafting venue replies', () => {
     expect(raw).toContain('To: twilson@pridwin.test');
     expect(raw).toContain('In-Reply-To: <m2@x>');
     expect(raw).toMatch(/Subject: =\?UTF-8\?B\?/);
-    const body = raw.split('\r\n\r\n')[1];
-    expect(Buffer.from(body.replace(/\r\n/g, ''), 'base64').toString('utf8')).toBe('Hi!\r\nThanks');
+    expect(raw).toContain('Content-Type: multipart/alternative;');
+    const boundary = raw.match(/boundary="([^"]+)"/)[1];
+    const [plain, html] = raw.split(`--${boundary}`).slice(1, 3).map((p) => Buffer.from(p.split('\r\n\r\n')[1].replace(/\s+/g, ''), 'base64').toString('utf8'));
+    expect(plain).toBe('Hi!\r\nThanks');
+    expect(html).toBe('<div dir="ltr">Hi!<br>\nThanks</div>');
     expect(docs.get('users/u1').weddingGmail.canDraft).toBe(true);
   });
 
