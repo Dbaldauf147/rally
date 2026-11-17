@@ -1,6 +1,6 @@
 /* global Buffer */
 import { describe, it, expect } from 'vitest';
-import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut } from './weddingVenues';
+import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, gmailDraftsUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut } from './weddingVenues';
 import { buildGmailQuery, dropQuoted, messageBody, threadText } from '../../lib/weddingVenueScan.js';
 
 describe('venueNameKey / sameVenue', () => {
@@ -125,7 +125,12 @@ describe('sortVenues / gmailThreadUrl', () => {
     expect(out.map((v) => v.name)).toEqual(['C', 'A', 'B']);
   });
   it('links to the thread in the right account', () => {
-    expect(gmailThreadUrl('abc', 'jo@gmail.com')).toBe('https://mail.google.com/mail/u/jo%40gmail.com/#all/abc');
+    expect(gmailThreadUrl('abc', 'jo@gmail.com')).toBe('https://mail.google.com/mail/?authuser=jo%40gmail.com#all/abc');
+    expect(gmailThreadUrl('abc')).toBe('https://mail.google.com/mail/u/0/#all/abc');
+  });
+  it('links to drafts in the right account', () => {
+    expect(gmailDraftsUrl('jo@gmail.com')).toBe('https://mail.google.com/mail/?authuser=jo%40gmail.com#drafts');
+    expect(gmailDraftsUrl()).toBe('https://mail.google.com/mail/u/0/#drafts');
   });
 });
 

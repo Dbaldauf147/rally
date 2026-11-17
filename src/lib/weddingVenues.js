@@ -334,7 +334,18 @@ export function sortVenues(list) {
   });
 }
 
+// Gmail can't route an encoded address in the /mail/u/<n>/ slot (it 404s), so
+// pick the account with ?authuser=, which also prompts sign-in if needed.
+function gmailBase(account) {
+  return account
+    ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(account)}`
+    : 'https://mail.google.com/mail/u/0/';
+}
+
 export function gmailThreadUrl(threadId, account) {
-  const who = account ? encodeURIComponent(account) : '0';
-  return `https://mail.google.com/mail/u/${who}/#all/${encodeURIComponent(threadId)}`;
+  return `${gmailBase(account)}#all/${encodeURIComponent(threadId)}`;
+}
+
+export function gmailDraftsUrl(account) {
+  return `${gmailBase(account)}#drafts`;
 }

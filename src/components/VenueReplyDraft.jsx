@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
+import { gmailDraftsUrl } from '../lib/weddingVenues';
 
 /* An email to one venue: one of the Reply email tab's drafts (the first,
    until another is picked here) filled in for it by the server (api/wedding-venues.js, draftOutreach), edited
@@ -56,7 +57,7 @@ export function VenueReplyDraft({ venue, gmail, callApi, onReconnect, onClose, o
     }
   };
 
-  const draftsUrl = `https://mail.google.com/mail/u/${encodeURIComponent(gmail?.email || '0')}/#drafts`;
+  const draftsUrl = gmailDraftsUrl(gmail?.email);
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
