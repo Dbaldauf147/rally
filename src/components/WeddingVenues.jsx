@@ -13,7 +13,8 @@ import {
   canDeleteColumn, deleteBuiltinColumn, deletedColumns, restoreColumn, dropColumn, moveColumn, normalizeColumnConfig, toggleFavoriteColumn, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
   toggleColumn, venueSearchUrl, withCellValue, foldGuestYesNoColumn,
 } from '../lib/venueTable';
-import { applyColumnFilters } from '../lib/columnFilters';
+import { applyColumnFilters, applyColumnPicks, columnValues, togglePick as toggleColumnPick, activePicks } from '../lib/columnFilters';
+import { ColumnPickFilter } from './ColumnPickFilter';
 import { parsePastedCells } from '../lib/weddingGuestImport';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
@@ -317,6 +318,9 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   // The table's columns: order, hidden, and the ones added by hand.
   const [colConfig, setColConfig] = useState(() => normalizeColumnConfig(null));
   const [colFilters, setColFilters] = useState({});
+  // Values ticked in a column's filter, as many per column as you like:
+  // { [column key]: [value…] }. Status and Area are filtered this way only.
+  const [colPicks, setColPicks] = useState({});
   // Which venues the table shows: the hidden ones on the Hidden subtab; on
   // All venues the ones not hidden, or every one with the first column's All.
   const showing = hiddenOnly ? 'hidden' : colFilters.shown === 'all' ? 'all' : '';
@@ -687,6 +691,17 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   const clickSort = (key) => { if (justResized.current) return; doSort(key); };
   const doSort = (key) => setSort((s) => (s?.key !== key ? { key, dir: 'asc' } : s.dir === 'asc' ? { key, dir: 'desc' } : null));
 
+  // The value a column is picked by: the status, the location's id, or
+  // the text the cell shows.
+  const pickValue = useCallback((v, key) => {
+    if (key === 'status') return v.status || '';
+    if (key === 'area') {
+      const r = venueArea(v, areas);
+      return r.area?.id || (r.how === 'unmapped' ? 'unmapped' : r.how === 'none' ? NO_AREA : '');
+    }
+    if (key === 'lastContactDate') return fmtDate(v.lastContactDate);
+    return cellValue(v, key);
+  }, [areas]);
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
     let rows = sortVenueRows(venues, sort, { valueFor: (v, key) => (key === 'area' ? areaName(v, areas) : cellValue(v, key)) });
@@ -694,28 +709,39 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
       rows = rows.filter((v) => [v.name, v.contactName, v.email, v.location, areaName(v, areas), v.notes, v.summary, ...Object.values(v.custom || {})]
         .some((x) => (x || '').toLowerCase().includes(term)));
     }
-    const { shown: _shown, status, area, visit, reached, ...text } = colFilters;
+    const { shown: _shown, visit, reached, ...text } = colFilters;
     // Hidden venues have their own subtab; All venues leaves them out unless
     // the first column's filter says All.
     if (showing === 'hidden') rows = rows.filter((v) => v.hidden);
     else if (showing !== 'all') rows = rows.filter((v) => !v.hidden);
-    if (status) rows = rows.filter((v) => v.status === status);
     if (visit) rows = rows.filter((v) => v.toVisit);
     if (reached) rows = rows.filter((v) => v.reachedOut === (reached === 'yes'));
-    if (area) {
-      rows = rows.filter((v) => {
-        const r = venueArea(v, areas);
-        return area === 'unmapped' ? r.how === 'unmapped' : area === NO_AREA ? r.how === 'none' : r.area?.id === area;
-      });
-    }
     const textOf = (v, key) => (key === 'lastContactDate' ? `${v.lastContactDate} ${fmtDate(v.lastContactDate)}` : cellValue(v, key));
-    return applyColumnFilters(rows, text, textOf, ['phone']);
-  }, [venues, search, sort, colFilters, areas, showing]);
+    return applyColumnPicks(applyColumnFilters(rows, text, textOf, ['phone']), colPicks, pickValue);
+  }, [venues, search, sort, colFilters, colPicks, areas, showing, pickValue]);
+
+  // What a column's pop-up offers: each value among the venues the hide
+  // filter lets through, with how many have it. Status lists every status.
+  const pickOptions = (key) => {
+    const pool = showing === 'all' ? venues : venues.filter((v) => (showing === 'hidden' ? v.hidden : !v.hidden));
+    const found = columnValues(pool, key, pickValue);
+    const count = new Map(found.map((o) => [o.value, o.count]));
+    if (key === 'status') return VENUE_STATUSES.map((st) => ({ value: st, label: st, count: count.get(st) || 0 }));
+    if (key === 'area') {
+      return [
+        ...areas.map((a) => ({ value: a.id, label: a.name, count: count.get(a.id) || 0 })),
+        ...(areas.length ? [{ value: 'unmapped', label: '⚠ Can’t map', count: count.get('unmapped') || 0 }, { value: NO_AREA, label: 'None of these', count: count.get(NO_AREA) || 0 }] : []),
+      ];
+    }
+    // Ticked values stay listed even when no venue has them any more.
+    for (const v of colPicks[key] || []) if (!count.has(v)) found.push({ value: v, count: 0 });
+    return found.map((o) => ({ ...o, label: o.value }));
+  };
   // The venues on the table that match none of the locations.
   const unmapped = useMemo(() => unmappedVenues(venues.filter((v) => !v.hidden), areas), [venues, areas]);
   // The locations are edited on their own tab, Wedding → Locations.
   const openLocations = () => setSearchParams({ view: 'locations' });
-  const filtersOn = Object.values(colFilters).some((x) => String(x || '').trim());
+  const filtersOn = Object.values(colFilters).some((x) => String(x || '').trim()) || activePicks(colPicks).length > 0;
   const hiddenCount = venues.filter((v) => v.hidden).length;
   // Hidden ones aren't counted: the button's number is the rows it leads to.
   const toVisitCount = venues.filter((v) => v.toVisit && !v.hidden).length;
@@ -731,11 +757,14 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
     for (const v of pool) if (counts.has(v.status)) counts.set(v.status, counts.get(v.status) + 1);
     return [
       { value: '', label: 'All', count: pool.length },
-      ...VENUE_STATUSES.filter((st) => counts.get(st) > 0 || colFilters.status === st)
+      ...VENUE_STATUSES.filter((st) => counts.get(st) > 0 || (colPicks.status || []).includes(st))
         .map((st) => ({ value: st, label: st, count: counts.get(st) })),
     ];
-  }, [venues, colFilters.status, showing]);
-  const activeStatusTab = colFilters.status || '';
+  }, [venues, colPicks.status, showing]);
+  // A tab is the Status filter with one status ticked (or none, for All).
+  // With several ticked, no single tab is the filter, so none is lit.
+  const pickedStatuses = colPicks.status || [];
+  const activeStatusTab = pickedStatuses.length === 0 ? '' : pickedStatuses.length === 1 ? pickedStatuses[0] : null;
 
   /* ── Pasting a spreadsheet range ── */
   const openPaste = (text = '') => {
@@ -1056,7 +1085,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
       {unmapped.length > 0 && (
         <p className={vs.areaBanner} role="status" title={unmapped.map((v) => v.name).join(', ')}>
           ⚠ {unmapped.length} venue{unmapped.length === 1 ? '' : 's'} can&apos;t be mapped to any of your locations.{' '}
-          <button type="button" className={styles.tierLegendEdit} onClick={() => setColFilters((f) => ({ ...f, area: 'unmapped', shown: '' }))}>Show them</button>{' · '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => { setColFilters((f) => ({ ...f, shown: '' })); setColPicks((p) => ({ ...p, area: ['unmapped'] })); }}>Show them</button>{' · '}
           <button type="button" className={styles.tierLegendEdit} onClick={openLocations}>Edit locations</button>
         </p>
       )}
@@ -1070,7 +1099,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
               role="tab"
               aria-selected={activeStatusTab === t.value}
               className={activeStatusTab === t.value ? styles.categoryTabActive : styles.categoryTab}
-              onClick={() => setColFilters((f) => ({ ...f, status: t.value }))}
+              onClick={() => setColPicks((p) => { const next = { ...p }; if (t.value) next.status = [t.value]; else delete next.status; return next; })}
             >
               {t.label}
               <span className={styles.categoryTabCount}>{t.count}</span>
@@ -1107,7 +1136,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
             </span>
           </button>
         )}
-        {filtersOn && <button type="button" className={styles.toolButton} onClick={() => setColFilters({})}>Clear filters</button>}
+        {filtersOn && <button type="button" className={styles.toolButton} onClick={() => { setColFilters({}); setColPicks({}); }}>Clear filters</button>}
         <div className={styles.colMenu} ref={colMenuRef}>
           <button type="button" className={styles.toolButton} onClick={() => setColMenuOpen((o) => !o)} aria-expanded={colMenuOpen}>Columns ▾</button>
           {colMenuOpen && (
@@ -1308,21 +1337,18 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
                   </th>
                   {visible.map((col) => (
                     <th key={col.key}>
-                      {col.key === 'status' ? (
-                        <select className={styles.filterSelect} value={colFilters.status || ''} onChange={(e) => setColFilters((f) => ({ ...f, status: e.target.value }))} aria-label="Filter by status">
-                          <option value="">All</option>
-                          {VENUE_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
-                        </select>
-                      ) : col.key === 'area' ? (
-                        <select className={styles.filterSelect} value={colFilters.area || ''} onChange={(e) => setColFilters((f) => ({ ...f, area: e.target.value }))} aria-label="Filter by area">
-                          <option value="">All</option>
-                          {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                          {areas.length > 0 && <option value="unmapped">⚠ Can’t map{unmapped.length ? ` (${unmapped.length})` : ''}</option>}
-                          {areas.length > 0 && <option value={NO_AREA}>None of these</option>}
-                        </select>
-                      ) : (
-                        <input className={styles.filterInput} value={colFilters[col.key] || ''} onChange={(e) => setColFilters((f) => ({ ...f, [col.key]: e.target.value }))} placeholder="Filter…" aria-label={`Filter ${col.label}`} />
-                      )}
+                      <ColumnPickFilter
+                        label={col.label}
+                        options={pickOptions(col.key)}
+                        picked={colPicks[col.key] || []}
+                        onPick={(value) => setColPicks((p) => toggleColumnPick(p, col.key, value))}
+                        onSetPicked={(list) => setColPicks((p) => { const next = { ...p }; if (list.length) next[col.key] = list; else delete next[col.key]; return next; })}
+                        // Status and Area are picked only; every other column can be typed into too.
+                        {...(col.key === 'status' || col.key === 'area' ? {} : {
+                          text: colFilters[col.key] || '',
+                          onText: (value) => setColFilters((f) => ({ ...f, [col.key]: value })),
+                        })}
+                      />
                     </th>
                   ))}
                 </tr>
