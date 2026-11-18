@@ -265,3 +265,21 @@
 .reachMenuIcon { display: inline-flex; color: #16a34a; }
 .reachMenuClear { margin-top: 0.2rem; padding-top: 0.5rem; border-top: 1px solid var(--color-border-light); border-radius: 0 0 var(--radius-sm) var(--radius-sm); color: var(--color-text-muted); font-size: 0.8rem; }
 .reachedVia { margin-left: 0.4rem; padding: 0.2rem 0.4rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font: inherit; font-size: 0.82rem; color: var(--color-text); }
+
+/* Bulk bar → Email drafts, and its pop-up. */
+.bulkDraftsBtn { padding: 0.4rem 0.75rem; background: var(--color-surface); color: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 500; cursor: pointer; }
+.bulkDraftsBtn:hover { background: var(--color-accent-light); }
+.bulkDraftOpts { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem 1.25rem; margin-bottom: 0.75rem; }
+.bulkDraftCheck { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; padding-bottom: 0.35rem; }
+.bulkDraftList { list-style: none; margin: 0 0 0.75rem; padding: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 16rem; overflow-y: auto; }
+.bulkDraftRow { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.15rem 1rem; padding: 0.45rem 0.7rem; font-size: 0.85rem; }
+.bulkDraftRow + .bulkDraftRow { border-top: 1px solid var(--color-border-light, var(--color-border)); }
+.bulkDraftName { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.bulkDraftRow > span:last-child { overflow-wrap: anywhere; }
+.bulkDraftOk { color: #15803d; font-weight: 600; }
+.bulkDraftErr { color: var(--color-danger); font-weight: 600; }
+.bulkDraftSkip { color: var(--color-text-muted); font-style: italic; }
+.bulkDraftPreview { margin-bottom: 0.75rem; font-size: 0.85rem; }
+.bulkDraftPreview summary { cursor: pointer; font-weight: 600; color: var(--color-accent); }
+.bulkDraftSubject { margin: 0.5rem 0 0.35rem; }
+.bulkDraftBody { margin: 0; padding: 0.7rem 0.8rem; background: var(--color-surface-alt); border-radius: var(--radius-md); font: inherit; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 18rem; overflow-y: auto; }

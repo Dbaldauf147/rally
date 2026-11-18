@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bulkSetField, exportColumns, rowsToTsv, venueExportRows } from './venueBulk';
+import { bulkDraftPlan, bulkSetField, exportColumns, rowsToTsv, venueExportRows } from './venueBulk';
 import { addCustomColumn, autoMapVenueHeaders, cellValue, looksLikeVenueHeader, normalizeColumnConfig, planVenuePaste, sortVenueRows } from './venueTable';
 import { normalizeVenue } from './weddingVenues';
 import { parsePastedCells } from './weddingGuestImport';
@@ -173,5 +173,27 @@ describe('how we reached out, in bulk and through a sheet', () => {
     expect(planVenuePaste(list, rows.slice(1), mapping, { areas })).toMatchObject({ added: [], updated: [] });
     rows[3][col] = 'via their website';
     expect(planVenuePaste(list, rows.slice(1), mapping, { areas }).list[2]).toMatchObject({ reachedOut: true, reachedOutVia: 'website' });
+  });
+});
+
+describe('bulkDraftPlan', () => {
+  const list = [
+    { id: 'a', name: 'Bogart House', email: 'hi@bogart.com' },
+    { id: 'b', name: 'Oheka Castle', email: '' },
+    { id: 'c', name: 'Nowhere Barn', email: 'barn@nowhere.com', reachedOut: true },
+    { id: 'd', name: 'No Address, Reached', reachedOut: true },
+  ];
+  const states = (plan) => plan.map((r) => `${r.venue.id}:${r.state}`);
+
+  it('drafts to venues with an address, leaving out ones already reached', () => {
+    expect(states(bulkDraftPlan(list))).toEqual(['a:ready', 'b:noEmail', 'c:reached', 'd:noEmail']);
+  });
+
+  it('includes the already-reached ones when asked, but never one with no address', () => {
+    expect(states(bulkDraftPlan(list, { skipReached: false }))).toEqual(['a:ready', 'b:noEmail', 'c:ready', 'd:noEmail']);
+  });
+
+  it('is empty for nothing', () => {
+    expect(bulkDraftPlan(undefined)).toEqual([]);
   });
 });
