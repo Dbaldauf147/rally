@@ -200,6 +200,13 @@ function compareRows(a, b, key, dir) {
   return dir === 'asc' ? cmp : -cmp;
 }
 
+// "Every N days" as typed → a whole number of days (at least 1), or null for
+// blank / unusable input, which means no cadence.
+function parseCadence(text) {
+  const n = parseInt(String(text ?? '').trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 const BLANK_FORM = { name: '', category: 'Family', method: 'Text', cadenceDays: '', lastReachOut: todayKey(), note: '', birthday: '', ...detailDraftFrom(null) };
 
 // Columns the user can show/hide (Person and the actions column are always on).
@@ -323,6 +330,7 @@ export function ReachOutPage() {
   const [confirmReach, setConfirmReach] = useState(null); // contact pending the tap "Reached out?" popup
   const [detailsContact, setDetailsContact] = useState(null); // contact whose details popup (long-press) is open
   const [detailsDraft, setDetailsDraft] = useState(null); // in-progress edits inside that popup
+  const [detailsCadence, setDetailsCadence] = useState(''); // the popup's "Every N days" box, as typed
   const detailsSavedRef = useRef(null); // last values written for the open contact, so re-saves are no-ops
   const contactsRef = useRef(null); // always-current list, so blur/close saves never write a stale snapshot
   const [colVis, setColVis] = useState(loadColVis);
@@ -422,7 +430,7 @@ export function ReachOutPage() {
       name: form.name.trim(),
       category: form.category.trim() || 'Family',
       method: form.method || 'Text',
-      cadenceDays: form.cadenceDays === '' ? null : Math.max(1, parseInt(form.cadenceDays, 10) || 0) || null,
+      cadenceDays: parseCadence(form.cadenceDays),
       lastReachOut: form.lastReachOut || '',
       note: form.note.trim(),
       birthday: form.birthday || '',
@@ -465,7 +473,19 @@ export function ReachOutPage() {
     const draft = detailDraftFrom(c);
     detailsSavedRef.current = draft;
     setDetailsDraft(draft);
+    setDetailsCadence(c._hasCadence ? String(c.cadenceDays) : '');
     setDetailsContact(c);
+  }
+
+  // The popup's "Every N days" box. Blank clears the cadence (no more nudges);
+  // anything else is a whole number of days, at least 1 — same rule as the form.
+  async function saveDetailsCadence(text) {
+    const id = detailsContact?.id;
+    if (!id) return;
+    const cadenceDays = parseCadence(text);
+    const cur = (contactsRef.current || []).find(c => c.id === id);
+    if (!cur || (cur.cadenceDays ?? null) === cadenceDays) return;
+    await persist((contactsRef.current || []).map(c => c.id === id ? { ...c, cadenceDays } : c));
   }
 
   async function saveDetailsDraft(draft) {
@@ -480,6 +500,7 @@ export function ReachOutPage() {
 
   function closeDetails() {
     saveDetailsDraft(detailsDraft);
+    saveDetailsCadence(detailsCadence);
     setDetailsContact(null);
     setDetailsDraft(null);
     detailsSavedRef.current = null;
@@ -1216,10 +1237,15 @@ export function ReachOutPage() {
         const draft = detailsDraft;
         const setField = (key, value) => setDetailsDraft(d => ({ ...d, [key]: value }));
         const friendName = friendsList.find(f => f.id === c.friendId)?.name;
-        const overdueText = c._overdue == null ? null
-          : c._overdue > 0 ? `${c._overdue} day${c._overdue === 1 ? '' : 's'} overdue`
-          : c._overdue === 0 ? 'due today'
-          : `${-c._overdue} day${c._overdue === -1 ? '' : 's'} to go`;
+        // Worked out from the box as typed, so the countdown follows the edit.
+        const cadence = parseCadence(detailsCadence);
+        const overdue = c._last && cadence ? c._daysSince - cadence : null;
+        const plural = (n) => `${n} day${n === 1 ? '' : 's'}`;
+        const overdueText = overdue == null ? null
+          : overdue > 0 ? `${plural(overdue)} overdue`
+          : overdue === 0 ? 'due today'
+          : `${plural(-overdue)} to go`;
+        const nextText = c._last && cadence ? fmtMDY(addDays(c._last, cadence)) : null;
         return (
           <div className={styles.overlay} onClick={closeDetails}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -1228,8 +1254,24 @@ export function ReachOutPage() {
                 {c.category && (<><dt>Category</dt><dd>{c.category}</dd></>)}
                 {c.note && (<><dt>What's going on</dt><dd>{c.note}</dd></>)}
                 <dt>Last reach out</dt>
-                <dd>{c._last ? fmtMDY(c._last) : '—'}{overdueText ? ` · ${overdueText}` : ''}</dd>
-                <dt>Every</dt><dd>{c._hasCadence ? `${c.cadenceDays} days` : '—'}</dd>
+                <dd>{c._last ? `${fmtMDY(c._last)} · ${c._daysSince === 0 ? 'today' : `${plural(c._daysSince)} ago`}` : '—'}</dd>
+                <dt>Reach out every</dt>
+                <dd className={styles.cadenceEdit}>
+                  <input
+                    className={`${styles.detailInput} ${styles.cadenceInput}`}
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    value={detailsCadence}
+                    onChange={e => setDetailsCadence(e.target.value)}
+                    onBlur={() => saveDetailsCadence(detailsCadence)}
+                    placeholder="—"
+                    aria-label="Reach out every (days)"
+                  />
+                  <span>days</span>
+                </dd>
+                <dt>Next reach out</dt>
+                <dd>{nextText ? `${nextText} · ${overdueText}` : (cadence ? '—' : 'No schedule set')}</dd>
                 {c.method && (<><dt>Method</dt><dd>{c.method}</dd></>)}
                 {c._bday && (<><dt>Birthday</dt><dd>{c._bdayToday ? `🎂 ${fmtMDY(c._bday)}` : fmtMDY(c._bday)}</dd></>)}
                 {c._anniv && (
