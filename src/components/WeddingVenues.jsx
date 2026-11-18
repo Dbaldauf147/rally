@@ -432,7 +432,11 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
       if (added.length) parts.push(`${added.length} new: ${added.join(', ')}`);
       if (updated.length) parts.push(`${updated.length} updated`);
       if (!added.length && !updated.length) parts.push('nothing new');
-      setMessage({ type: 'ok', text: `${parts.join(' · ')}.` });
+      // The AI reader couldn't be used: those threads came back as plain rows.
+      const basic = res.ai
+        ? ` AI reading wasn’t available (${res.ai.error}), so ${res.ai.threads === 1 ? 'that thread was' : `${res.ai.threads} threads were`} added as basic rows — name, contact and any amounts found, for you to check. Once it’s back, “Rescan all” fills in the rest.`
+        : '';
+      setMessage({ type: res.ai ? 'error' : 'ok', text: `${parts.join(' · ')}.${basic}` });
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally {
@@ -1035,6 +1039,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
               <span className={styles.muted}>
                 {gmail.lastScanAt ? `Last scanned ${fmtWhen(gmail.lastScanAt)}` : 'Not scanned yet'}
                 {gmail.lastAutoScan?.error ? ` · Daily scan failed: ${gmail.lastAutoScan.error}`
+                  : gmail.lastAutoScan?.aiError ? ` · Daily scan ran without AI (${gmail.lastAutoScan.aiError})${gmail.lastAutoScan.added?.length ? ` and added ${gmail.lastAutoScan.added.join(', ')}` : ''}`
                   : gmail.lastAutoScan?.added?.length ? ` · Daily scan added ${gmail.lastAutoScan.added.join(', ')}` : ''}
               </span>
               <label className={vs.autoScan} title="Rally scans this inbox for you every morning at 9 AM (Eastern) and adds what it finds">

@@ -99,9 +99,23 @@ describe('api/wedding-venues', () => {
     const res = await call({ action: 'scan' });
     expect(res.code).toBe(200);
     expect(res.body).toMatchObject({ venues: [{ name: 'The Foundry' }], threadCount: 4, account: 'jo@gmail.com' });
-    expect(scanInbox).toHaveBeenCalledWith('access-1', { since: new Date('2026-10-01T00:00:00Z') });
+    expect(scanInbox).toHaveBeenCalledWith('access-1', { since: new Date('2026-10-01T00:00:00Z'), ownEmail: 'jo@gmail.com' });
     expect(docs.get('users/u1').weddingGmail.email).toBe('jo@gmail.com');
     expect(docs.get('users/u1').weddingGmail.lastScanAt.toDate()).toEqual(new Date('2026-11-01T00:00:00Z'));
+  });
+
+  it('says when the AI reader could not be used and the rows are basic ones', async () => {
+    docs.set('weddingGmailTokens/u1', { refreshToken: 'r1', email: 'jo@gmail.com' });
+    docs.set('users/u1', { weddingGmail: { email: 'jo@gmail.com' } });
+    scanInbox.mockResolvedValue({ venues: [{ name: 'Pridwin' }], threadCount: 2, ai: { error: 'Rally’s AI credit has run out', threads: 2 } });
+    const res = await call({ action: 'scan' });
+    expect(res.code).toBe(200);
+    expect(res.body.ai).toEqual({ error: 'Rally’s AI credit has run out', threads: 2 });
+    // The scan still counts: the next one starts from here.
+    expect(docs.get('users/u1').weddingGmail.lastScanAt).toBeTruthy();
+    // With the reader working, the field is there and empty.
+    scanInbox.mockResolvedValue({ venues: [], threadCount: 0 });
+    expect((await call({ action: 'scan' })).body.ai).toBeNull();
   });
 
   it('a full rescan ignores the last scan date', async () => {
@@ -109,7 +123,7 @@ describe('api/wedding-venues', () => {
     docs.set('users/u1', { weddingGmail: { email: 'jo@gmail.com', lastScanAt: { toDate: () => new Date('2026-10-01') } } });
     scanInbox.mockResolvedValue({ venues: [], threadCount: 0 });
     await call({ action: 'scan', full: true });
-    expect(scanInbox).toHaveBeenCalledWith('access-1', { since: null });
+    expect(scanInbox).toHaveBeenCalledWith('access-1', { since: null, ownEmail: 'jo@gmail.com' });
   });
 
   it('an expired or revoked connection is forgotten', async () => {
@@ -336,6 +350,19 @@ describe('daily scheduled scan', () => {
     const again = await get(new Date('2026-11-11T15:00:00Z'));
     expect(again.body.scanned).toBe(0);
     expect(scanInbox).not.toHaveBeenCalled();
+  });
+
+  it('notes on the user doc when the daily scan ran without the AI reader', async () => {
+    docs.set('weddingGmailTokens/u1', { refreshToken: 'r1', email: 'a@b.com' });
+    docs.set('users/u1', { weddingGmail: { email: 'a@b.com' } });
+    scanInbox.mockResolvedValue({
+      threadCount: 1, ai: { error: 'Rally’s AI credit has run out', threads: 1 },
+      venues: [{ name: 'Pridwin', email: 'hello@pridwin.com', status: 'Inquired', threadIds: ['t1'] }],
+    });
+    await get(new Date('2026-11-11T14:05:00Z'));
+    const u = docs.get('users/u1');
+    expect(u.weddingVenues.map((v) => v.name)).toEqual(['Pridwin']);
+    expect(u.weddingGmail.lastAutoScan).toMatchObject({ added: ['Pridwin'], aiError: 'Rally’s AI credit has run out' });
   });
 
   it('notes a failure on the user doc rather than throwing', async () => {

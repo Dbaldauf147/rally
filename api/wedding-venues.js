@@ -6,8 +6,10 @@
 //                 The sign-in comes back through /api/google-callback (the
 //                 redirect URI the Calendar connection already registered),
 //                 which recognises it by its `gmail.<nonce>` state.
-//   scan        → { venues, threadCount, account }: reads the venue threads
+//   scan        → { venues, threadCount, account, ai }: reads the venue threads
 //                 since the last scan (or two years, with { full: true }).
+//                 `ai` is null, or { error, threads } when the AI reader could
+//                 not be used and those threads came back as basic rows.
 //   disconnect  → revokes the token and forgets the connection.
 //   draftOutreach → { to, subject, body, threadId: '', templateId, templates, … }
 //                 for { venueId, templateId? }: a new email to the venue —
@@ -93,9 +95,9 @@ async function scanFor(db, uid, { full = false } = {}) {
   const last = userSnap.data()?.weddingGmail?.lastScanAt;
   const since = !full && last?.toDate ? last.toDate() : null;
   try {
-    const { venues, threadCount } = await scanInbox(access, { since });
+    const { venues, threadCount, ai = null } = await scanInbox(access, { since, ownEmail: email });
     await userRef.set({ weddingGmail: { lastScanAt: FieldValue.serverTimestamp() } }, { merge: true });
-    return { venues, threadCount, account: email, since: since ? since.toISOString() : null };
+    return { venues, threadCount, account: email, since: since ? since.toISOString() : null, ai };
   } catch (err) {
     if (err.status === 403) throw fail(502, 'Gmail refused the request — is the Gmail API enabled for this Google Cloud project?');
     throw fail(500, err.message || 'Scan failed');
@@ -141,7 +143,10 @@ async function scheduledScan(req, res, db, now = new Date()) {
       const fresh = (await userRef.get()).data() || {};
       const existing = Array.isArray(fresh.weddingVenues) ? fresh.weddingVenues.map((v) => normalizeVenue(v)) : [];
       const { list, added, updated } = mergeScannedVenues(existing, scan.venues, fresh.weddingVenueDismissed || []);
-      const summary = { day, threadCount: scan.threadCount, added, updatedCount: updated.length, at: now.toISOString() };
+      const summary = {
+        day, threadCount: scan.threadCount, added, updatedCount: updated.length, at: now.toISOString(),
+        ...(scan.ai ? { aiError: scan.ai.error } : {}),
+      };
       await userRef.set({
         ...(added.length || updated.length ? { weddingVenues: list } : {}),
         weddingGmail: { lastAutoScan: summary },
