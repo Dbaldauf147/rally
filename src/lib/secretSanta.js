@@ -25,6 +25,11 @@
 //   users/{uid}.secretSanta.{eventId~drawId}.{year}
 // An extra exchange starts with nobody in it; the organizer adds who is.
 //
+// The note that goes in the email is a standing one, kept per exchange rather
+// than per year, so it carries over to next year's draw until it is changed:
+//   users/{uid}.secretSantaNotes.{eventId or eventId~drawId} = text
+// Each year's record still keeps a copy of the note it was emailed with.
+//
 // This file is imported by the browser and by api/secret-santa.js, so it stays
 // free of Firebase and DOM imports.
 
@@ -137,6 +142,20 @@ export function lastDraw(history, year, members) {
     if (g && r && g !== r) map[g] = r;
   }
   return { year: years[0], map };
+}
+
+/**
+ * The note an exchange's email starts with: the standing note once one has
+ * been saved (even an empty one — clearing it is a choice), otherwise the
+ * newest note on any year's record, so a note written before notes carried
+ * over isn't lost.
+ */
+export function standingNote(saved, history) {
+  if (typeof saved === 'string') return saved;
+  const h = history && typeof history === 'object' ? history : {};
+  const years = Object.keys(h).map(Number).filter((y) => Number.isFinite(y) && typeof h[y]?.note === 'string' && h[y].note.trim())
+    .sort((a, b) => b - a);
+  return years.length ? h[years[0]].note : '';
 }
 
 /** giverKey → Set of keys they may not draw. */

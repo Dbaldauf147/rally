@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   looksLikeGiftExchange, secretSantaEnabled, resolvePerson, partnersOf, defaultParticipants, lastDraw,
   buildExclusions, drawNames, drawProblems, drawMatchesParticipants, planSecretSantaSend,
-  drawStoreKey, cleanDraws, cleanDrawName, exchangeTitle, MAX_EXTRA_DRAWS,
+  drawStoreKey, cleanDraws, cleanDrawName, exchangeTitle, MAX_EXTRA_DRAWS, standingNote,
 } from './secretSanta';
 import { secretSantaEmail } from './secretSantaEmail';
 import { encodeReveal, decodeReveal, revealLink } from './secretSantaLink';
@@ -262,5 +262,18 @@ describe('more than one exchange on an event', () => {
     expect(exchangeTitle('Family Christmas', '')).toBe('Family Christmas');
     expect(exchangeTitle('Family Christmas', undefined)).toBe('Family Christmas');
     expect(exchangeTitle('', 'Sibs Secret Santa')).toBe('Sibs Secret Santa');
+  });
+});
+
+describe('standingNote', () => {
+  it('uses the saved standing note, even when it was cleared', () => {
+    const history = { 2025: { note: '$50 limit' } };
+    expect(standingNote('$75 limit', history)).toBe('$75 limit');
+    expect(standingNote('', history)).toBe('');
+  });
+  it('falls back to the newest year that had a note', () => {
+    expect(standingNote(null, { 2023: { note: 'old' }, 2025: { note: '$50 limit' }, 2026: { note: '  ' } })).toBe('$50 limit');
+    expect(standingNote(undefined, { 2026: { pairs: [] } })).toBe('');
+    expect(standingNote(null, null)).toBe('');
   });
 });

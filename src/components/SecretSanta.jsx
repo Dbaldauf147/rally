@@ -14,6 +14,7 @@ import {
   resolvePerson,
   cleanDrawName,
   MAX_EXTRA_DRAWS,
+  standingNote,
 } from '../lib/secretSanta';
 import { drawYears } from '../lib/secretSantaImport';
 import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
@@ -30,7 +31,7 @@ import { planMemberUpserts } from '../lib/members';
 // event: its own people, its own draw and history. Nobody is in one of those
 // until added — it exists because it is for only some of the guests.
 export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, friends = [], draw: extra = null, onRename, onRemove }) {
-  const { history, loadError, saveYear } = useSecretSantaHistory(user, eventId, extra?.id || '');
+  const { history, loadError, saveYear, savedNote, saveNote } = useSecretSantaHistory(user, eventId, extra?.id || '');
   const [showPairs, setShowPairs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null); // { type: 'ok' | 'error', message }
@@ -85,7 +86,16 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, f
   const drawCurrent = !!drawn && drawMatchesParticipants(drawn, participants);
   const problems = drawCurrent ? drawProblems(drawn, participants, exclusions) : [];
   const sentMap = record?.sent || {};
-  const note = noteDraft ?? record?.note ?? '';
+  // The note is the exchange's standing one, not this year's alone, so it
+  // shows up again next year until it is changed (lib/secretSanta.js).
+  const savedStanding = standingNote(savedNote, history);
+  const note = noteDraft ?? savedStanding;
+
+  async function commitNote() {
+    if (noteDraft === null) return;
+    if (noteDraft !== savedStanding || savedNote === null) await saveNote(noteDraft);
+    setNoteDraft(null);
+  }
 
   async function run(fn) {
     setBusy(true);
@@ -169,7 +179,8 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, f
     const whom = targets.length === 1 ? personLabel(members[targets[0]]) : `${targets.length} people`;
     if (!window.confirm(`Email ${whom} the name they drew${again ? ' again' : ''}?`)) return;
     await run(async () => {
-      if (noteDraft !== null) await saveYear(year, { ...record, note });
+      await commitNote();
+      if (record?.note !== note) await saveYear(year, { ...record, note });
       const token = await user.getIdToken();
       const res = await fetch('/api/secret-santa', {
         method: 'POST',
@@ -188,7 +199,6 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, f
       const stamp = new Date().toISOString();
       const sent = { ...sentMap, ...Object.fromEntries((body.sent || []).map((k) => [k, stamp])) };
       await saveYear(year, { ...record, note, sent, sentAt: stamp });
-      setNoteDraft(null);
       const failed = body.failed || [];
       setStatus(failed.length
         ? { type: 'error', message: `Sent to ${body.sent.length}. Couldn't reach: ${failed.map((f) => `${personLabel(members[f.key])} (${f.error})`).join(', ')}` }
@@ -386,10 +396,12 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, f
               <p style={hint}>{showPairs ? 'Who each person has is in the “Has this year” column above.' : 'The names stay hidden until you choose to review them, so you can keep your own a surprise.'}</p>
 
               <label style={{ display: 'block', fontSize: '0.76rem', color: '#6B7280', marginBottom: '0.6rem' }}>
-                Note to include in the email (optional)
+                Note to include in the email (optional — kept for next year until you change it)
                 <textarea
                   value={note}
                   onChange={(e) => setNoteDraft(e.target.value)}
+                  onBlur={() => run(commitNote)}
+                  data-testid="ss-note"
                   rows={2}
                   maxLength={1000}
                   placeholder="e.g. $50 limit. Gifts get opened after dinner."
