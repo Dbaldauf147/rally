@@ -1,6 +1,6 @@
 /* global Buffer */
 import { describe, it, expect } from 'vitest';
-import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, gmailDraftsUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut } from './weddingVenues';
+import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, gmailDraftsUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut, matchVenue, planEmailVenue, applyEmailVenue } from './weddingVenues';
 import { buildGmailQuery, dropQuoted, messageBody, threadText } from '../../lib/weddingVenueScan.js';
 
 describe('venueNameKey / sameVenue', () => {
@@ -238,5 +238,50 @@ describe('the Champlin’s reply reaches the reader', () => {
     const text = threadText(thread);
     expect(text).toContain('We really max out at 170 for an event with arranged seating.');
     expect(text).toContain('Absolutely! I have September 25th available!');
+  });
+});
+
+describe('an email dropped onto the page', () => {
+  const found = {
+    name: 'The Foundry', contactName: 'Jane Smith', email: 'jane@thefoundry.com', phone: '(212) 555-0100',
+    price: '$18k site fee + $165–$185/pp', venueFeeLow: 18000, venueFeeHigh: 18000, perPersonLow: 165, perPersonHigh: 185,
+    status: 'Quote received', nextStep: 'Tour Sat at 2pm', summary: 'Sent Saturday pricing.', lastContactDate: '2026-11-17', threadIds: [],
+  };
+  const mine = normalizeVenue({ id: 'v1', name: 'Foundry', status: 'Inquired', phone: '212 555 9999', email: '', lastContactDate: '2026-10-01' });
+
+  it('matches the saved venue it is about', () => {
+    expect(matchVenue([mine], found)?.id).toBe('v1');
+    expect(matchVenue([mine], { name: 'Oheka Castle' })).toBeNull();
+  });
+
+  it('plans the update: blanks filled, status moved on, pricing captured, typed values kept', () => {
+    const { venue, changes } = planEmailVenue(found, mine);
+    expect(venue).toMatchObject({
+      id: 'v1', name: 'Foundry', contactName: 'Jane Smith', email: 'jane@thefoundry.com', phone: '212 555 9999',
+      status: 'Quote received', venueFeeLow: '$18,000', perPersonLow: '$165', perPersonHigh: '$185', lastContactDate: '2026-11-17',
+    });
+    const byKey = Object.fromEntries(changes.map((c) => [c.key, c]));
+    expect(byKey.status).toMatchObject({ label: 'Status', from: 'Inquired', to: 'Quote received' });
+    expect(byKey.perPersonHigh).toMatchObject({ from: '', to: '$185' });
+    expect(byKey.phone).toBeUndefined();
+    expect(byKey.name).toBeUndefined();
+  });
+
+  it('adds a new venue, listing only what it has', () => {
+    const { venue, changes } = planEmailVenue({ name: 'Oheka Castle', status: 'bogus', price: '$30,000 minimum' }, null);
+    expect(venue.status).toBe('Replied');
+    expect(venue.source).toBe('gmail');
+    expect(changes.map((c) => c.key)).toEqual(['name', 'status', 'price', 'venueFeeLow', 'venueFeeHigh']);
+  });
+
+  it('saves into the venue picked, or adds one', () => {
+    const other = normalizeVenue({ id: 'v2', name: 'Pridwin' });
+    const r = applyEmailVenue([mine, other], found, 'v2');
+    expect(r.added).toBe(false);
+    expect(r.list.map((v) => v.id)).toEqual(['v1', 'v2']);
+    expect(r.list[1]).toMatchObject({ name: 'Pridwin', contactName: 'Jane Smith', status: 'Quote received' });
+    const n = applyEmailVenue([mine], found, '');
+    expect(n.added).toBe(true);
+    expect(n.list).toHaveLength(2);
   });
 });

@@ -281,6 +281,40 @@ function laterStatus(current, scanned) {
   return statusRank(scanned) > statusRank(current) ? scanned : current;
 }
 
+// A venue as a scan (or a dropped email) found it: tidied, fillers cleared.
+const SCAN_KEYS = [...TEXT_KEYS, ...MONEY_KEYS];
+function scannedVenue(raw) {
+  const found = normalizeVenue({ ...raw, source: 'gmail' });
+  for (const k of SCAN_KEYS) if (isFiller(found[k])) found[k] = '';
+  return found;
+}
+
+// A found venue that isn't on the list yet, remembering what the scan wrote.
+const asNewVenue = (found) => ({ ...found, scanned: Object.fromEntries(SCAN_KEYS.filter((k) => found[k]).map((k) => [k, found[k]])) });
+
+/* What one found venue does to the saved one it matches: blank cells take
+   what was found, the status moves forward, and when the email is newer its
+   details replace older scanned ones — never ones typed over them. */
+function foldVenue(cur, found) {
+  const next = { ...cur, scanned: { ...cur.scanned } };
+  const take = (k) => { next[k] = found[k]; next.scanned[k] = found[k]; };
+  // Blank cells (or ones a scan left a filler in) take what was found.
+  for (const k of SCAN_KEYS) if ((!next[k] || isFiller(next[k])) && found[k]) take(k);
+  next.status = laterStatus(cur.status, found.status);
+  if (found.lastContactDate > (cur.lastContactDate || '')) {
+    // A newer email's details replace older scanned ones, never typed ones.
+    for (const k of SCAN_UPDATABLE) {
+      if (found[k] && found[k] !== next[k] && cur.scanned?.[k] !== undefined && cur[k] === cur.scanned[k]) take(k);
+    }
+    next.lastContactDate = found.lastContactDate;
+    // A newer email's next step and summary are the current ones.
+    if (found.nextStep && cur.source === 'gmail') next.nextStep = found.nextStep;
+    if (found.summary) next.summary = found.summary;
+  }
+  next.threadIds = [...new Set([...cur.threadIds, ...found.threadIds])];
+  return next;
+}
+
 /* Fold scan results into the saved list. Returns the new list and the names
    added and updated, for the message after a scan. */
 export function mergeScannedVenues(existing, scanned, dismissed = []) {
@@ -289,41 +323,61 @@ export function mergeScannedVenues(existing, scanned, dismissed = []) {
   const added = [];
   const updated = [];
   for (const raw of Array.isArray(scanned) ? scanned : []) {
-    const found = normalizeVenue({ ...raw, source: 'gmail' });
+    const found = scannedVenue(raw);
     if (!found.name) continue;
     if (gone.has(venueNameKey(found.name))) continue;
-    const keys = [...TEXT_KEYS, ...MONEY_KEYS];
-    for (const k of keys) if (isFiller(found[k])) found[k] = '';
     const at = list.findIndex((v) => sameVenue(v, found));
     if (at < 0) {
-      found.scanned = Object.fromEntries(keys.filter((k) => found[k]).map((k) => [k, found[k]]));
-      list.push(found);
+      list.push(asNewVenue(found));
       added.push(found.name);
       continue;
     }
     const cur = list[at];
-    const next = { ...cur, scanned: { ...cur.scanned } };
-    const take = (k) => { next[k] = found[k]; next.scanned[k] = found[k]; };
-    // Blank cells (or ones a scan left a filler in) take what was found.
-    for (const k of keys) if ((!next[k] || isFiller(next[k])) && found[k]) take(k);
-    next.status = laterStatus(cur.status, found.status);
-    if (found.lastContactDate > (cur.lastContactDate || '')) {
-      // A newer email's details replace older scanned ones, never typed ones.
-      for (const k of SCAN_UPDATABLE) {
-        if (found[k] && found[k] !== next[k] && cur.scanned?.[k] !== undefined && cur[k] === cur.scanned[k]) take(k);
-      }
-      next.lastContactDate = found.lastContactDate;
-      // A newer email's next step and summary are the current ones.
-      if (found.nextStep && cur.source === 'gmail') next.nextStep = found.nextStep;
-      if (found.summary) next.summary = found.summary;
-    }
-    next.threadIds = [...new Set([...cur.threadIds, ...found.threadIds])];
+    const next = foldVenue(cur, found);
     if (JSON.stringify(next) !== JSON.stringify(cur)) {
       list[at] = next;
       updated.push(next.name);
     }
   }
   return { list, added, updated };
+}
+
+/* ── One email dropped onto the page ──
+   The same fold as a scan, but the user picks which saved venue the email
+   is about (the one it matches, to start with) or adds it as a new one, and
+   sees what will change first. A venue that was deleted is matched like any
+   other name: dropping its email on purpose brings it back. */
+
+// The saved venue a found one is about, if any.
+export function matchVenue(list, raw) {
+  const found = scannedVenue(raw);
+  return (Array.isArray(list) ? list : []).find((v) => sameVenue(v, found)) || null;
+}
+
+const CHANGE_FIELDS = [...VENUE_FIELDS.filter((f) => f.key !== 'availableDates'), { key: 'summary', label: 'Summary' }];
+const shown = (k, v) => (k === 'lastContactDate' ? v || '' : String(v ?? ''));
+
+/* What dropping this email onto `target` (a saved venue, or null for a new
+   one) would do: the venue as it would be saved, and the cells that change
+   — { key, label, from, to }. */
+export function planEmailVenue(raw, target = null) {
+  const found = scannedVenue(raw);
+  const cur = target ? normalizeVenue(target) : null;
+  const next = cur ? foldVenue(cur, found) : asNewVenue({ ...found, status: VENUE_STATUSES.includes(raw?.status) ? found.status : 'Replied' });
+  const changes = CHANGE_FIELDS
+    .map(({ key, label }) => ({ key, label, from: cur ? shown(key, cur[key]) : '', to: shown(key, next[key]) }))
+    .filter((c) => c.to !== c.from && (cur || c.to));
+  return { venue: next, changes };
+}
+
+// The list with the planned venue saved in place of `targetId` (or added).
+export function applyEmailVenue(list, raw, targetId = '') {
+  const saved = (Array.isArray(list) ? list : []).map((v) => normalizeVenue(v));
+  const at = targetId ? saved.findIndex((v) => v.id === targetId) : -1;
+  const { venue, changes } = planEmailVenue(raw, at < 0 ? null : saved[at]);
+  if (at < 0) saved.push(venue);
+  else saved[at] = venue;
+  return { list: saved, venue, changes, added: at < 0 };
 }
 
 // Newest contact first; venues with no date after, by name.

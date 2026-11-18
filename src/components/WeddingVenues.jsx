@@ -6,8 +6,10 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeScannedVenues, newVenueId,
   cleanMoney, formatAvailableDate, normalizeDateList, normalizeVenue, venueNameKey,
-  REACH_VIAS, reachedLabel, withReachedOut,
+  REACH_VIAS, reachedLabel, withReachedOut, applyEmailVenue,
 } from '../lib/weddingVenues';
+import { dropPayload } from '../lib/emailDrop';
+import { VenueEmailDrop } from './VenueEmailDrop';
 import {
   addCustomColumn, allVenueColumns, autoMapVenueHeaders, cellValue, guessVenueColumns, looksLikeVenueHeader,
   canDeleteColumn, deleteBuiltinColumn, deletedColumns, restoreColumn, dropColumn, moveColumn, normalizeColumnConfig, toggleFavoriteColumn, setColumnWidth, planVenuePaste, removeCustomColumn, renameCustomColumn, sortVenueRows,
@@ -781,6 +783,91 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   };
   const closePaste = () => setPasteText(null);
 
+  /* ── From an email ──
+     Drag an email (its selected text, a saved .eml, or a link to it) from
+     Gmail anywhere onto the tab, or paste one into the dialog; the dialog
+     reads it and shows what it would change. Drags that start on this page
+     (moving a column) aren't emails, so they're left alone. */
+  const [emailDrop, setEmailDrop] = useState(null); // { drop } — drop null for the paste box — or null when closed
+  const [dragOver, setDragOver] = useState(false);
+  const closeEmailDrop = useCallback(() => setEmailDrop(null), []);
+  const ownDrag = useRef(false);
+  const dragDepth = useRef(0);
+  const blockedRef = useRef(false);
+  // Another dialog is open: a drop there isn't meant for this.
+  const dropBlocked = pasteText !== null || editing !== null || replyTo !== null || bulkDrafting || noFitFor !== null;
+  useEffect(() => { blockedRef.current = dropBlocked; }, [dropBlocked]);
+  useEffect(() => {
+    const external = (e) => !ownDrag.current && !blockedRef.current && [...(e.dataTransfer?.types || [])].some((t) => ['Files', 'text/html', 'text/plain', 'text/uri-list'].includes(t));
+    const onStart = () => { ownDrag.current = true; };
+    const onEnd = () => { ownDrag.current = false; dragDepth.current = 0; setDragOver(false); };
+    const onEnter = (e) => { if (!external(e)) return; dragDepth.current += 1; setDragOver(true); };
+    const onLeave = (e) => { if (!external(e)) return; dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragOver(false); };
+    const onOver = (e) => { if (!external(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
+    const onDrop = async (e) => {
+      const mine = ownDrag.current;
+      ownDrag.current = false;
+      dragDepth.current = 0;
+      setDragOver(false);
+      if (mine || blockedRef.current) return;
+      // Into a text box: let it land there as typing would.
+      if (isTyping(e.target)) return;
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      e.preventDefault();
+      const html = dt.getData('text/html');
+      const plain = dt.getData('text/plain');
+      const uri = dt.getData('text/uri-list');
+      const files = await Promise.all([...(dt.files || [])].slice(0, 5).map(async (f) => ({
+        name: f.name, type: f.type, text: f.size <= 8 * 1024 * 1024 && !/\.(msg|pdf|docx?|png|jpe?g|gif|heic)$/i.test(f.name) ? await f.text().catch(() => null) : null,
+      })));
+      setEmailDrop({ drop: dropPayload({ files, html, plain, uri }) });
+    };
+    document.addEventListener('dragstart', onStart);
+    document.addEventListener('dragend', onEnd);
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      document.removeEventListener('dragstart', onStart);
+      document.removeEventListener('dragend', onEnd);
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []);
+  // What the dialog settled on: each venue updated in place, or added.
+  const applyFromEmail = async (picks) => {
+    setEmailDrop(null);
+    let list = venuesRef.current;
+    const added = [];
+    const updated = [];
+    for (const { raw, targetId } of picks) {
+      const r = applyEmailVenue(list, raw, targetId);
+      list = r.list;
+      if (r.added) added.push(r.venue.name);
+      else if (r.changes.length) {
+        const status = r.changes.find((c) => c.key === 'status');
+        const rest = r.changes.filter((c) => c !== status && c.key !== 'summary' && c.key !== 'lastContactDate').map((c) => c.label.toLowerCase());
+        const what = [status && `status → ${status.to}`, ...rest.slice(0, 4), rest.length > 4 && `${rest.length - 4} more`].filter(Boolean);
+        updated.push(`${r.venue.name}${what.length ? ` (${what.join(', ')})` : ''}`);
+      }
+    }
+    if (!added.length && !updated.length) { setMessage({ type: 'ok', text: 'Nothing in that email was new.' }); return; }
+    // A venue deleted before and now added on purpose isn't one to keep out of scans.
+    const back = new Set(added.map(venueNameKey));
+    const stillGone = dismissed.filter((k) => !back.has(k));
+    try {
+      await persist(list, stillGone.length !== dismissed.length ? { weddingVenueDismissed: stillGone } : {});
+      const parts = [];
+      if (added.length) parts.push(`Added ${added.join(', ')}`);
+      if (updated.length) parts.push(`Updated ${updated.join('; ')}`);
+      setMessage({ type: 'ok', text: `${parts.join(' · ')} from the email.` });
+    } catch (err) { saveError(err); }
+  };
+
   /* ── From Google Maps ── */
   const [mapsText, setMapsText] = useState(null); // the links to start with, or null when closed
   const closeMaps = useCallback(() => setMapsText(null), []);
@@ -1065,6 +1152,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
                   Rescan all
                 </button>
               )}
+              <button type="button" className={`${styles.modalSecondary} ${vs.emailDropBtn}`} onClick={() => setEmailDrop({ drop: null })} disabled={!!busy} title="Drag an email from Gmail onto this page, or paste one, to fill in the venue’s contact, status and pricing">📧 From an email</button>
               <button type="button" className={vs.textBtn} onClick={disconnect} disabled={!!busy}>Disconnect</button>
             </div>
           </>
@@ -1078,6 +1166,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
               <button type="button" className={styles.modalPrimary} onClick={connect} disabled={!!busy}>
                 {busy === 'connect' ? 'Waiting for Google…' : 'Connect Gmail'}
               </button>
+              <button type="button" className={`${styles.modalSecondary} ${vs.emailDropBtn}`} onClick={() => setEmailDrop({ drop: null })} disabled={!!busy} title="Drag an email from Gmail onto this page, or paste one, to fill in the venue’s contact, status and pricing">📧 From an email</button>
             </div>
           </>
         )}
@@ -1641,6 +1730,17 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
               <button className={styles.modalPrimary} type="submit">Done</button>
             </div>
           </form>
+        </div>
+      )}
+      {emailDrop && (
+        <VenueEmailDrop venues={venues} callApi={callApi} drop={emailDrop.drop} gmailConnected={!!gmail} onApply={applyFromEmail} onClose={closeEmailDrop} />
+      )}
+      {dragOver && (
+        <div className={vs.dropOverlay} aria-hidden="true">
+          <div className={vs.dropOverlayInner}>
+            <strong>📧 Drop the email</strong>
+            Rally reads it for the venue’s contact, status and pricing, and shows you what it would change.
+          </div>
         </div>
       )}
       {mapsText !== null && (

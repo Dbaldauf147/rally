@@ -17,6 +17,13 @@
 //                 filled in for it, to the venue's address. Nothing is saved
 //                 to Gmail yet. (`draftReply` is the old name, kept so a page
 //                 still open from before this change keeps working.)
+//   readEmail   → { venues, threadId, from } for { text?, url?, subject? }:
+//                 one email dragged (or pasted) onto the Venues page, read by
+//                 the same AI reader as a scan. With enough text it's read as
+//                 it is (`from: 'text'`); with only a Gmail link or a subject,
+//                 that thread is fetched from the linked inbox (`from:
+//                 'gmail'`). Nothing is saved: the page shows what was found
+//                 and the user decides what to update.
 //   saveDraft   → { draftId } for { to, subject, body, threadId?, inReplyTo?,
 //                 references? }: a Gmail draft (never sent) in that thread.
 //                 Needs the compose scope; without it, 409 needs_compose.
@@ -33,7 +40,7 @@ import { randomBytes } from 'node:crypto';
 import { getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { refreshAccessToken, scanInbox } from '../lib/weddingVenueScan.js';
+import { aiFailureReason, findThread, gmailRefFromUrl, readEmail, refreshAccessToken, scanInbox, threadText } from '../lib/weddingVenueScan.js';
 import { GMAIL_SCOPES } from '../lib/weddingGmailAuth.js';
 import { buildRawEmail, createDraft } from '../lib/weddingVenueDraft.js';
 import { draftOf, fillTemplate, replySettingsFor, subjectOf, templateOf } from '../src/lib/weddingVenueReply.js';
@@ -119,6 +126,54 @@ async function draftOutreach(db, uid, venueId, templateId) {
     templates: settings.drafts.map((d) => ({ id: d.id, name: d.name })),
     threadId: '', inReplyTo: '', references: '', tailored: false,
   };
+}
+
+// Under this much text a drop is a link or a subject line, not an email.
+export const MIN_EMAIL_TEXT = 120;
+
+/* One email dropped onto the page: read the text that came with it, or —
+   when all that came is a Gmail link or a subject — find that thread in the
+   linked inbox and read it. */
+async function readDroppedEmail(db, uid, body) {
+  const fail = (status, message, code) => Object.assign(new Error(message), { status, code });
+  const text = String(body.text || '').trim();
+  const url = String(body.url || '').trim();
+  const user = (await db.doc(`users/${uid}`).get()).data() || {};
+  const { day: today } = localParts(new Date(), user.weddingGmail?.timezone);
+  const ref = gmailRefFromUrl(url);
+  let source = text;
+  let threadId = '';
+  if (text.length < MIN_EMAIL_TEXT) {
+    const subject = String(body.subject || '').trim() || (!url && text && !text.includes('\n') ? text : '');
+    if (!ref && !subject) {
+      throw fail(400, url ? 'That link doesn’t say which email it is. Open the email, select its text, and drag that in — or copy and paste it.' : 'There was no email text in that. Open the email, select its text, and drag that in — or copy and paste it.', 'no_email');
+    }
+    let access;
+    try {
+      ({ access } = await accessFor(db, uid));
+    } catch (err) {
+      if (err.code !== 'not_connected') throw err;
+      throw fail(409, `Only the email’s ${ref ? 'link' : 'subject'} came through. Connect Gmail above so Rally can fetch the rest — or open the email, select its text, and drag that in.`, 'not_connected');
+    }
+    let thread;
+    try {
+      thread = await findThread(access, { ...(ref || {}), subject });
+    } catch (err) {
+      throw fail(502, `Gmail couldn’t find it: ${err.message}`);
+    }
+    if (!thread) throw fail(404, 'Couldn’t find that email in the linked inbox. Open it, select its text, and drag that in instead.', 'not_found');
+    source = threadText(thread);
+    threadId = thread.id;
+  }
+  try {
+    const venues = await readEmail(source, { today, threadId });
+    // A link that names its thread ties the venue to it even when the text was read.
+    if (!threadId && ref?.threadId) for (const v of venues) v.threadIds = [ref.threadId];
+    return { venues, threadId: threadId || ref?.threadId || '', from: threadId ? 'gmail' : 'text' };
+  } catch (err) {
+    console.error('wedding venues: reading a dropped email failed', err?.status || '', err?.message || err);
+    throw fail(502, `Couldn’t read the email: ${aiFailureReason(err)}`, 'ai_failed');
+  }
 }
 
 async function scheduledScan(req, res, db, now = new Date()) {
@@ -248,6 +303,14 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: 'Reconnect Gmail and allow Rally to create drafts', code: 'needs_compose' });
       }
       return res.status(err.status && err.status < 600 ? err.status : 500).json({ error: err.message || 'Could not save the draft', ...(err.code ? { code: err.code } : {}) });
+    }
+  }
+
+  if (action === 'readEmail') {
+    try {
+      return res.status(200).json(await readDroppedEmail(db, uid, req.body || {}));
+    } catch (err) {
+      return res.status(err.status || 500).json({ error: err.message || 'Could not read that email', ...(err.code ? { code: err.code } : {}) });
     }
   }
 
