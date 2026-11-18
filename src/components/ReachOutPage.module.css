@@ -187,6 +187,9 @@
 }
 .detailInput:focus { outline: none; border-color: var(--color-accent); }
 .noteInput { resize: vertical; line-height: 1.35; }
+/* "Reach out every [ 30 ] days" — the one stat in the list you can change. */
+.cadenceEdit { display: flex; align-items: center; gap: 0.4rem; }
+.cadenceInput { width: 4.5rem; padding: 0.3rem 0.45rem; text-align: right; }
 
 /* Phone hero card: whoever's birthday is today sits at the very top of the
    page, loud enough that it reads before anything else on screen. */
