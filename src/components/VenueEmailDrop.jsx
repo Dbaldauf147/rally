@@ -19,6 +19,7 @@ export function VenueEmailDrop({ venues, callApi, drop, gmailConnected, onApply,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [rows, setRows] = useState(null); // [{ id, raw, targetId, include }]
+  const [aiError, setAiError] = useState(''); // why the AI reader wasn't used, when it wasn't
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); onClose(); } };
@@ -36,6 +37,7 @@ export function VenueEmailDrop({ venues, callApi, drop, gmailConnected, onApply,
     setBusy(true);
     setError('');
     setRows(null);
+    setAiError('');
     try {
       const res = await callApi({ action: 'readEmail', text: payload.text || '', url: payload.url || '', subject: payload.subject || '' });
       const found = (res.venues || []).filter((v) => String(v?.name || '').trim());
@@ -43,6 +45,7 @@ export function VenueEmailDrop({ venues, callApi, drop, gmailConnected, onApply,
         setError('Rally didn’t find a wedding venue in that email. If it is one, paste the whole email below and try again.');
         if (payload.text) setText(payload.text);
       } else {
+        setAiError(res.ai?.error || '');
         setRows(found.map((raw, i) => ({ id: i, raw, targetId: matchVenue(venues, raw)?.id || NEW, include: true })));
       }
     } catch (err) {
@@ -104,6 +107,12 @@ export function VenueEmailDrop({ venues, callApi, drop, gmailConnected, onApply,
             </>
           )}
           {error && <p className={styles.digestErrMsg} role="alert">{error}</p>}
+          {rows && !busy && aiError && (
+            <p className={vs.mapsWarn} role="status">
+              AI reading isn’t available right now ({aiError}), so this is only what the email says outright — the sender, signature, address and any dollar amounts.
+              Prices written out in words or kept in attachments aren’t picked up; check it over, or try again once the AI is back.
+            </p>
+          )}
           {rows && !busy && (
             <ul className={vs.mapsRows} aria-label="Venues in the email">
               {plans.map(({ r, changes }) => {

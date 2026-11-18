@@ -48,6 +48,7 @@ const findThread = vi.fn();
 vi.mock('../lib/weddingVenueScan.js', async (orig) => ({
   gmailRefFromUrl: (await orig()).gmailRefFromUrl,
   aiFailureReason: () => 'Rally’s AI credit has run out',
+  basicEmailVenue: (await orig()).basicEmailVenue,
   readEmail: (...a) => readEmail(...a),
   findThread: (...a) => findThread(...a),
   scanInbox: (...a) => scanInbox(...a),
@@ -497,7 +498,7 @@ describe('reading one dropped email', () => {
     readEmail.mockResolvedValue([{ name: 'The Foundry', status: 'Quote received' }]);
     const res = await call({ action: 'readEmail', text: EMAIL });
     expect(res.code).toBe(200);
-    expect(res.body).toEqual({ venues: [{ name: 'The Foundry', status: 'Quote received' }], threadId: '', from: 'text' });
+    expect(res.body).toEqual({ venues: [{ name: 'The Foundry', status: 'Quote received' }], threadId: '', from: 'text', ai: null });
     expect(readEmail).toHaveBeenCalledWith(EMAIL, { today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), threadId: '' });
     expect(docs.get('users/u1')).toEqual({ weddingVenues: [] });
   });
@@ -542,10 +543,17 @@ describe('reading one dropped email', () => {
     expect(readEmail).not.toHaveBeenCalled();
   });
 
-  it('a failed AI read is a 502 that says why', async () => {
+  it('without the AI reader, falls back to a basic read and says why', async () => {
+    docs.set('users/u1', { weddingGmail: { email: 'jo@gmail.com' } });
     readEmail.mockRejectedValue(new Error('400 credit balance too low'));
-    const res = await call({ action: 'readEmail', text: EMAIL });
-    expect(res.code).toBe(502);
-    expect(res.body).toEqual({ error: 'Couldn’t read the email: Rally’s AI credit has run out', code: 'ai_failed' });
+    const text = 'From: "Jane Smith" <jane@x.discussions.tripleseat.com>\nTo: jo@gmail.com\nSubject: The Foundry - Wedding Pricing\n\nHi Jo, our Saturday site fee is $18,000.\n\nJane Smith\njane@thefoundry.com\n(212) 555-0100';
+    const res = await call({ action: 'readEmail', text });
+    expect(res.code).toBe(200);
+    expect(res.body.ai).toEqual({ error: 'Rally’s AI credit has run out' });
+    expect(res.body.venues[0]).toMatchObject({ name: 'The Foundry', contactName: 'Jane Smith', email: 'jane@thefoundry.com', phone: '(212) 555-0100', status: 'Quote received' });
+    // With nothing to go on, it still says why.
+    const bare = await call({ action: 'readEmail', text: 'x'.repeat(200) });
+    expect(bare.code).toBe(502);
+    expect(bare.body).toEqual({ error: 'Couldn’t read the email: Rally’s AI credit has run out', code: 'ai_failed' });
   });
 });

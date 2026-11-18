@@ -17,13 +17,15 @@
 //                 filled in for it, to the venue's address. Nothing is saved
 //                 to Gmail yet. (`draftReply` is the old name, kept so a page
 //                 still open from before this change keeps working.)
-//   readEmail   → { venues, threadId, from } for { text?, url?, subject? }:
+//   readEmail   → { venues, threadId, from, ai } for { text?, url?, subject? }:
 //                 one email dragged (or pasted) onto the Venues page, read by
 //                 the same AI reader as a scan. With enough text it's read as
 //                 it is (`from: 'text'`); with only a Gmail link or a subject,
 //                 that thread is fetched from the linked inbox (`from:
 //                 'gmail'`). Nothing is saved: the page shows what was found
-//                 and the user decides what to update.
+//                 and the user decides what to update. When the AI reader
+//                 can't be used, `ai` is { error } and the venue is a basic
+//                 read of what the email says outright (basicEmailVenue).
 //   saveDraft   → { draftId } for { to, subject, body, threadId?, inReplyTo?,
 //                 references? }: a Gmail draft (never sent) in that thread.
 //                 Needs the compose scope; without it, 409 needs_compose.
@@ -40,7 +42,7 @@ import { randomBytes } from 'node:crypto';
 import { getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { aiFailureReason, findThread, gmailRefFromUrl, readEmail, refreshAccessToken, scanInbox, threadText } from '../lib/weddingVenueScan.js';
+import { aiFailureReason, basicEmailVenue, findThread, gmailRefFromUrl, readEmail, refreshAccessToken, scanInbox, threadText } from '../lib/weddingVenueScan.js';
 import { GMAIL_SCOPES } from '../lib/weddingGmailAuth.js';
 import { buildRawEmail, createDraft } from '../lib/weddingVenueDraft.js';
 import { draftOf, fillTemplate, replySettingsFor, subjectOf, templateOf } from '../src/lib/weddingVenueReply.js';
@@ -165,15 +167,22 @@ async function readDroppedEmail(db, uid, body) {
     source = threadText(thread);
     threadId = thread.id;
   }
+  let venues;
+  let ai = null;
   try {
-    const venues = await readEmail(source, { today, threadId });
-    // A link that names its thread ties the venue to it even when the text was read.
-    if (!threadId && ref?.threadId) for (const v of venues) v.threadIds = [ref.threadId];
-    return { venues, threadId: threadId || ref?.threadId || '', from: threadId ? 'gmail' : 'text' };
+    venues = await readEmail(source, { today, threadId });
   } catch (err) {
-    console.error('wedding venues: reading a dropped email failed', err?.status || '', err?.message || err);
-    throw fail(502, `Couldn’t read the email: ${aiFailureReason(err)}`, 'ai_failed');
+    // Without the reader, what the email says outright: who, where, how to
+    // reach them, any amounts — the same stand-in the inbox scan falls back on.
+    console.error('wedding venues: reading a dropped email failed, using a basic read', err?.status || '', err?.message || err);
+    ai = { error: aiFailureReason(err) };
+    const basic = basicEmailVenue(source, { today, ownEmail: user.weddingGmail?.email || '' });
+    if (!basic.name) throw fail(502, `Couldn’t read the email: ${ai.error}`, 'ai_failed');
+    venues = [{ ...basic, threadIds: threadId ? [threadId] : [] }];
   }
+  // A link that names its thread ties the venue to it even when the text was read.
+  if (!threadId && ref?.threadId) for (const v of venues) v.threadIds = [ref.threadId];
+  return { venues, threadId: threadId || ref?.threadId || '', from: threadId ? 'gmail' : 'text', ai };
 }
 
 async function scheduledScan(req, res, db, now = new Date()) {
