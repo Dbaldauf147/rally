@@ -42,7 +42,7 @@ import { randomBytes } from 'node:crypto';
 import { getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { aiFailureReason, basicEmailVenue, findThread, gmailRefFromUrl, readEmail, refreshAccessToken, scanInbox, threadText } from '../lib/weddingVenueScan.js';
+import { aiFailureDetail, aiFailureReason, basicEmailVenue, findThread, gmailRefFromUrl, readEmail, refreshAccessToken, scanInbox, threadText } from '../lib/weddingVenueScan.js';
 import { GMAIL_SCOPES } from '../lib/weddingGmailAuth.js';
 import { buildRawEmail, createDraft } from '../lib/weddingVenueDraft.js';
 import { draftOf, fillTemplate, replySettingsFor, subjectOf, templateOf } from '../src/lib/weddingVenueReply.js';
@@ -175,9 +175,9 @@ async function readDroppedEmail(db, uid, body) {
     // Without the reader, what the email says outright: who, where, how to
     // reach them, any amounts — the same stand-in the inbox scan falls back on.
     console.error('wedding venues: reading a dropped email failed, using a basic read', err?.status || '', err?.message || err);
-    ai = { error: aiFailureReason(err) };
+    ai = { error: aiFailureReason(err), detail: aiFailureDetail(err) };
     const basic = basicEmailVenue(source, { today, ownEmail: user.weddingGmail?.email || '' });
-    if (!basic.name) throw fail(502, `Couldn’t read the email: ${ai.error}`, 'ai_failed');
+    if (!basic.name) throw fail(502, `Couldn’t read the email: ${ai.error} (Anthropic: ${ai.detail})`, 'ai_failed');
     venues = [{ ...basic, threadIds: threadId ? [threadId] : [] }];
   }
   // A link that names its thread ties the venue to it even when the text was read.
@@ -209,7 +209,7 @@ async function scheduledScan(req, res, db, now = new Date()) {
       const { list, added, updated } = mergeScannedVenues(existing, scan.venues, fresh.weddingVenueDismissed || []);
       const summary = {
         day, threadCount: scan.threadCount, added, updatedCount: updated.length, at: now.toISOString(),
-        ...(scan.ai ? { aiError: scan.ai.error } : {}),
+        ...(scan.ai ? { aiError: scan.ai.error, aiDetail: scan.ai.detail || '' } : {}),
       };
       await userRef.set({
         ...(added.length || updated.length ? { weddingVenues: list } : {}),
