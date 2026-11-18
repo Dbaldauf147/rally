@@ -48,6 +48,7 @@ const findThread = vi.fn();
 vi.mock('../lib/weddingVenueScan.js', async (orig) => ({
   gmailRefFromUrl: (await orig()).gmailRefFromUrl,
   aiFailureReason: () => 'Rally’s AI credit has run out',
+  aiFailureDetail: () => '400 · Your credit balance is too low · key …WXYZ',
   basicEmailVenue: (await orig()).basicEmailVenue,
   readEmail: (...a) => readEmail(...a),
   findThread: (...a) => findThread(...a),
@@ -549,11 +550,11 @@ describe('reading one dropped email', () => {
     const text = 'From: "Jane Smith" <jane@x.discussions.tripleseat.com>\nTo: jo@gmail.com\nSubject: The Foundry - Wedding Pricing\n\nHi Jo, our Saturday site fee is $18,000.\n\nJane Smith\njane@thefoundry.com\n(212) 555-0100';
     const res = await call({ action: 'readEmail', text });
     expect(res.code).toBe(200);
-    expect(res.body.ai).toEqual({ error: 'Rally’s AI credit has run out' });
+    expect(res.body.ai).toEqual({ error: 'Rally’s AI credit has run out', detail: '400 · Your credit balance is too low · key …WXYZ' });
     expect(res.body.venues[0]).toMatchObject({ name: 'The Foundry', contactName: 'Jane Smith', email: 'jane@thefoundry.com', phone: '(212) 555-0100', status: 'Quote received' });
     // With nothing to go on, it still says why.
     const bare = await call({ action: 'readEmail', text: 'x'.repeat(200) });
     expect(bare.code).toBe(502);
-    expect(bare.body).toEqual({ error: 'Couldn’t read the email: Rally’s AI credit has run out', code: 'ai_failed' });
+    expect(bare.body).toEqual({ error: 'Couldn’t read the email: Rally’s AI credit has run out (Anthropic: 400 · Your credit balance is too low · key …WXYZ)', code: 'ai_failed' });
   });
 });

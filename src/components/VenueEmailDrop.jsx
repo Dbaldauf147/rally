@@ -45,7 +45,7 @@ export function VenueEmailDrop({ venues, callApi, drop, gmailConnected, onApply,
         setError('Rally didn’t find a wedding venue in that email. If it is one, paste the whole email below and try again.');
         if (payload.text) setText(payload.text);
       } else {
-        setAiError(res.ai?.error || '');
+        setAiError(res.ai ? `${res.ai.error}${res.ai.detail ? ` — Anthropic said: ${res.ai.detail}` : ''}` : '');
         setRows(found.map((raw, i) => ({ id: i, raw, targetId: matchVenue(venues, raw)?.id || NEW, include: true })));
       }
     } catch (err) {
