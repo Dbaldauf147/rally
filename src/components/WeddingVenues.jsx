@@ -27,7 +27,7 @@ import { VenueMapsImport } from './VenueMapsImport';
 import { extractMapsLinks, mapsSearchUrl } from '../lib/venueMaps';
 import { bulkNoFitReasons, formatReasons, noFitReasonList, noFitReasonOptions, normalizeReasonList, renameReasons, standardReason } from '../lib/venueNoFit';
 import { NO_AREA, areaName, normalizeAreas, unmappedVenues, venueArea } from '../lib/venueAreas';
-import { HIDDEN, REACHED_OUT, TO_VISIT, bulkSetField, rowsToTsv, venueExportRows } from '../lib/venueBulk';
+import { HIDDEN, REACHED_OUT, TO_VISIT, bulkSetField, rowsToTsv, venueExportRows, venueTemplateSheets } from '../lib/venueBulk';
 
 // The bulk bar's Reasons-not-a-fit choice (add / remove / clear one reason).
 const NO_FIT_REASONS = { key: 'noFitReasons', label: 'Reasons not a fit' };
@@ -1106,6 +1106,25 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
     }
   };
 
+  // A blank sheet to fill with many venues, headed the way an import reads it.
+  const downloadTemplate = async () => {
+    try {
+      const XLSX = await import('xlsx');
+      const { venues: head, howTo } = venueTemplateSheets(colConfig);
+      const ws = XLSX.utils.aoa_to_sheet(head);
+      ws['!cols'] = head[0].map((h) => ({ wch: Math.max(14, h.length + 2) }));
+      const notes = XLSX.utils.aoa_to_sheet(howTo);
+      notes['!cols'] = [{ wch: 18 }, { wch: 90 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Venues');
+      XLSX.utils.book_append_sheet(wb, notes, 'How to fill in');
+      XLSX.writeFile(wb, 'wedding-venues-template.xlsx');
+      setMessage({ type: 'ok', text: 'Downloaded the template. Add one venue per row, then Import it here.' });
+    } catch (err) {
+      setMessage({ type: 'error', text: `Could not make the template: ${err.message}` });
+    }
+  };
+
   if (loading) return <div className={styles.page}><p className={styles.muted}>Loading…</p></div>;
 
   return (
@@ -1528,6 +1547,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
               <p className={vs.importFile}>
                 <button type="button" className={styles.modalSecondary} onClick={() => fileRef.current?.click()}>Choose a file…</button>
                 <span className={styles.muted}>.xlsx, .xls or .csv</span>
+                <button type="button" className={vs.templateLink} onClick={downloadTemplate} title="A blank Excel sheet with every column, ready to fill with venues and import">⬇ Download a template</button>
                 <input
                   ref={fileRef}
                   type="file"
