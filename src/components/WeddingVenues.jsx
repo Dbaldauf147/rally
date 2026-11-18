@@ -19,6 +19,7 @@ import { parsePastedCells } from '../lib/weddingGuestImport';
 import styles from './WeddingPage.module.css';
 import vs from './WeddingVenues.module.css';
 import { VenueReplyDraft } from './VenueReplyDraft';
+import { VenueBulkDrafts } from './VenueBulkDrafts';
 import { VenueNoFitPrompt } from './VenueNoFitPrompt';
 import { VenueMapsImport } from './VenueMapsImport';
 import { extractMapsLinks, mapsSearchUrl } from '../lib/venueMaps';
@@ -308,6 +309,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null); // a venue draft, or null
   const [replyTo, setReplyTo] = useState(null); // the venue a reply is being drafted for
+  const [bulkDrafting, setBulkDrafting] = useState(false); // email drafts for the ticked rows
   // The couple's list of locations, and whether its editor is open.
   const [areas, setAreas] = useState([]);
   // The reasons offered for "Not a fit", as the user has edited them.
@@ -380,6 +382,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
 
   const callApi = useCallback((body) => callVenuesApi(user, body), [user]);
   const closeReply = useCallback(() => setReplyTo(null), []);
+  const closeBulkDrafts = useCallback(() => setBulkDrafting(false), []);
 
   /* ── Gmail ── */
   const connect = async () => {
@@ -1276,6 +1279,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
             />
           )}
           <button type="button" className={styles.bulkApply} onClick={applyBulk}>Apply to {n}</button>
+          <button type="button" className={vs.bulkDraftsBtn} onClick={() => setBulkDrafting(true)} title="Save your outreach email to Gmail’s Drafts for each selected venue — nothing is sent">✉ Email drafts…</button>
           <button type="button" className={styles.bulkDelete} onClick={deletePicked}>Delete</button>
           <button type="button" className={styles.bulkClear} onClick={clearPicked}>Clear selection</button>
         </div>
@@ -1664,6 +1668,15 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
           callApi={callApi}
           onReconnect={connect}
           onClose={closeReply}
+        />
+      )}
+      {bulkDrafting && picked.length > 0 && (
+        <VenueBulkDrafts
+          venues={picked}
+          gmail={gmail}
+          callApi={callApi}
+          onReconnect={connect}
+          onClose={closeBulkDrafts}
         />
       )}
     </div>

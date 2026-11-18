@@ -63,3 +63,16 @@ export function bulkSetField(venues, ids, key, value) {
     return JSON.stringify(next) === JSON.stringify(v) ? v : next;
   });
 }
+
+/* Email drafts for the ticked venues: which get one. A venue with no email
+   address can't be drafted to, and one already reached out to is left alone
+   unless asked for (a second "hello, we're getting married" isn't wanted).
+   Returns [{ venue, state }] in the order given, state being 'ready',
+   'noEmail' or 'reached'. */
+export function bulkDraftPlan(venues, { skipReached = true } = {}) {
+  return (venues || []).map((venue) => ({
+    venue,
+    state: !String(venue?.email || '').includes('@') ? 'noEmail'
+      : skipReached && venue.reachedOut ? 'reached' : 'ready',
+  }));
+}
