@@ -28,7 +28,13 @@ export function VenueBulkDrafts({ venues, gmail, callApi, onReconnect, onClose }
   const [running, setRunning] = useState(false);
   const [stopped, setStopped] = useState(null); // { text, code } when the run had to stop
   const cancelled = useRef(false);
-  useEffect(() => () => { cancelled.current = true; }, []);
+  // Closing the pop-up stops the run before the next venue. Reset on mount:
+  // StrictMode mounts twice in development, and the first unmount would
+  // otherwise leave every run cancelled before it began.
+  useEffect(() => {
+    cancelled.current = false;
+    return () => { cancelled.current = true; };
+  }, []);
 
   // The first venue's email, to read before making the rest — and the list
   // of saved emails to choose between, which comes back with it.
