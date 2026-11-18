@@ -8,7 +8,7 @@
 
 import { allVenueColumns, cellValue, withCellValue } from './venueTable.js';
 import { areaName } from './venueAreas.js';
-import { reachedCell } from './weddingVenues.js';
+import { VENUE_STATUSES, reachedCell } from './weddingVenues.js';
 
 export const TO_VISIT = { key: 'toVisit', label: 'To visit' };
 export const HIDDEN = { key: 'hidden', label: 'Hidden' };
@@ -75,4 +75,42 @@ export function bulkDraftPlan(venues, { skipReached = true } = {}) {
     state: !String(venue?.email || '').includes('@') ? 'noEmail'
       : skipReached && venue.reachedOut ? 'reached' : 'ready',
   }));
+}
+
+/* A blank sheet for adding many venues at once: the headings an export
+   writes (so an import maps every column by itself), with no rows. Area is
+   left off — it's worked out from Location, not typed. A second sheet says
+   what goes in each column; an import only reads the first. */
+const TEMPLATE_HINTS = {
+  name: 'Required. The venue’s name — a row without one is skipped. A name already on your list updates that venue.',
+  toVisit: 'Yes or No — flags it as a place to visit.',
+  reachedOut: 'Yes, No, Emailed or Website.',
+  status: `One of: ${VENUE_STATUSES.join(', ')}. Blank means Researching.`,
+  email: 'Also used to match a venue already on your list.',
+  website: 'Full link, e.g. https://example.com',
+  mapsUrl: 'A Google Maps link to the venue.',
+  location: 'Town, city or address — the Area is worked out from it.',
+  price: 'Pricing as the venue describes it, in words.',
+  venueFeeLow: 'Dollars, e.g. 12000 or $12,000.',
+  venueFeeHigh: 'Dollars.',
+  perPersonLow: 'Dollars per guest.',
+  perPersonHigh: 'Dollars per guest.',
+  allInclusive: 'Yes or No.',
+  capacity: 'Most guests it holds, e.g. 180.',
+  availableDates: 'Dates it’s free, separated by semicolons, e.g. Jun 12, 2027; Jun 19, 2027.',
+  lastContactDate: 'A date, e.g. 2026-11-18.',
+  noFit: 'Only for a venue that’s Not a fit: the reasons, separated by " · ".',
+};
+
+export function venueTemplateSheets(config) {
+  const cols = exportColumns(config, []);
+  return {
+    venues: [cols.map((c) => c.label)],
+    howTo: [
+      ['Column', 'What to put in it'],
+      ...cols.map((c) => [c.label, TEMPLATE_HINTS[c.key] || (c.key.startsWith('c_') ? 'Your own column.' : 'Optional.')]),
+      [],
+      ['', 'Fill in one venue per row on the Venues sheet, then Wedding → Venues → Import → Choose a file. Blank cells are fine.'],
+    ],
+  };
 }

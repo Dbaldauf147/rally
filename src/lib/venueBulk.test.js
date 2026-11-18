@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bulkDraftPlan, bulkSetField, exportColumns, rowsToTsv, venueExportRows } from './venueBulk';
+import { bulkDraftPlan, bulkSetField, exportColumns, rowsToTsv, venueExportRows, venueTemplateSheets } from './venueBulk';
 import { addCustomColumn, autoMapVenueHeaders, cellValue, looksLikeVenueHeader, normalizeColumnConfig, planVenuePaste, sortVenueRows } from './venueTable';
 import { normalizeVenue } from './weddingVenues';
 import { parsePastedCells } from './weddingGuestImport';
@@ -195,5 +195,32 @@ describe('bulkDraftPlan', () => {
 
   it('is empty for nothing', () => {
     expect(bulkDraftPlan(undefined)).toEqual([]);
+  });
+});
+
+describe('the import template', () => {
+  const { venues: sheet, howTo } = venueTemplateSheets(config);
+
+  it('is the headings alone, and an import maps every one of them', () => {
+    expect(sheet).toHaveLength(1);
+    expect(sheet[0]).not.toContain('Area');
+    expect(looksLikeVenueHeader(sheet)).toBe(true);
+    expect(autoMapVenueHeaders(sheet[0], config.custom)).toEqual(exportColumns(config, []).map((c) => c.key));
+  });
+
+  it('fills in rows that import as new venues', () => {
+    const name = sheet[0].indexOf('Venue');
+    const row = sheet[0].map(() => '');
+    row[name] = 'The Foundry';
+    row[sheet[0].indexOf('Vibe')] = 'Loft';
+    const rows = roundTrip([sheet[0], row]);
+    const plan = planVenuePaste([], rows.slice(1), autoMapVenueHeaders(rows[0], config.custom));
+    expect(plan.added).toEqual(['The Foundry']);
+    expect(plan.list.find((v) => v.name === 'The Foundry').custom.c_vibe).toBe('Loft');
+  });
+
+  it('says what goes in each column', () => {
+    expect(howTo.slice(1, sheet[0].length + 1).map((r) => r[0])).toEqual(sheet[0]);
+    expect(howTo.every((r) => r.length === 0 || r[1])).toBe(true);
   });
 });
