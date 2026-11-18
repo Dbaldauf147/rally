@@ -43,7 +43,13 @@ vi.mock('firebase-admin/auth', () => ({
 vi.mock('firebase-admin/firestore', () => ({ getFirestore: () => db, FieldValue: { delete: () => DELETE, serverTimestamp: () => STAMP } }));
 const scanInbox = vi.fn();
 let refreshResult = async () => 'access-1';
-vi.mock('../lib/weddingVenueScan.js', () => ({
+const readEmail = vi.fn();
+const findThread = vi.fn();
+vi.mock('../lib/weddingVenueScan.js', async (orig) => ({
+  gmailRefFromUrl: (await orig()).gmailRefFromUrl,
+  aiFailureReason: () => 'Rally’s AI credit has run out',
+  readEmail: (...a) => readEmail(...a),
+  findThread: (...a) => findThread(...a),
   scanInbox: (...a) => scanInbox(...a),
   refreshAccessToken: (...a) => refreshResult(...a),
   threadText: (t) => `<thread id="${t.id}"></thread>`,
@@ -63,6 +69,8 @@ const call = async (body, token = 'good') => {
 beforeEach(() => {
   docs.clear();
   scanInbox.mockReset();
+  readEmail.mockReset();
+  findThread.mockReset();
   refreshResult = async () => 'access-1';
   process.env.GOOGLE_CLIENT_ID = 'cid';
   process.env.GOOGLE_CLIENT_SECRET = 'secret';
@@ -478,5 +486,66 @@ describe('drafting venue replies', () => {
   it('won\'t save a draft with no address or no body', async () => {
     expect((await call({ action: 'saveDraft', to: '', body: 'x' })).code).toBe(400);
     expect((await call({ action: 'saveDraft', to: 'a@b.test', body: '  ' })).code).toBe(400);
+  });
+});
+
+describe('reading one dropped email', () => {
+  const EMAIL = 'Jane Smith <jane@thefoundry.com>\nTue, Nov 17\nto me\n\nHi Jo, our Saturday site fee is $18,000 and dinner is $165 per person. We have June 12 open. Let me know when you could tour!';
+
+  it('reads the dropped text without needing Gmail, and saves nothing', async () => {
+    docs.set('users/u1', { weddingVenues: [] });
+    readEmail.mockResolvedValue([{ name: 'The Foundry', status: 'Quote received' }]);
+    const res = await call({ action: 'readEmail', text: EMAIL });
+    expect(res.code).toBe(200);
+    expect(res.body).toEqual({ venues: [{ name: 'The Foundry', status: 'Quote received' }], threadId: '', from: 'text' });
+    expect(readEmail).toHaveBeenCalledWith(EMAIL, { today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), threadId: '' });
+    expect(docs.get('users/u1')).toEqual({ weddingVenues: [] });
+  });
+
+  it('ties the venue to the thread a dropped link names', async () => {
+    readEmail.mockResolvedValue([{ name: 'The Foundry', threadIds: [] }]);
+    const res = await call({ action: 'readEmail', text: EMAIL, url: 'https://mail.google.com/mail/u/0/#inbox/18c2f3a9b0d1e2f3' });
+    expect(res.body.venues[0].threadIds).toEqual(['18c2f3a9b0d1e2f3']);
+    expect(res.body.threadId).toBe('18c2f3a9b0d1e2f3');
+  });
+
+  it('with only a link, fetches that thread from the linked inbox', async () => {
+    docs.set('weddingGmailTokens/u1', { refreshToken: 'r1', email: 'jo@gmail.com' });
+    findThread.mockResolvedValue({ id: '18c2f3a9b0d1e2f3', messages: [] });
+    readEmail.mockResolvedValue([{ name: 'The Foundry', threadIds: ['18c2f3a9b0d1e2f3'] }]);
+    const res = await call({ action: 'readEmail', url: 'https://mail.google.com/mail/u/0/#inbox/18c2f3a9b0d1e2f3' });
+    expect(res.code).toBe(200);
+    expect(findThread).toHaveBeenCalledWith('access-1', { threadId: '18c2f3a9b0d1e2f3', subject: '' });
+    expect(readEmail).toHaveBeenCalledWith('<thread id="18c2f3a9b0d1e2f3"></thread>', expect.objectContaining({ threadId: '18c2f3a9b0d1e2f3' }));
+    expect(res.body.from).toBe('gmail');
+  });
+
+  it('a subject line alone is looked up by subject', async () => {
+    docs.set('weddingGmailTokens/u1', { refreshToken: 'r1', email: 'jo@gmail.com' });
+    findThread.mockResolvedValue(null);
+    const res = await call({ action: 'readEmail', text: 'Re: Wedding inquiry — The Foundry' });
+    expect(findThread).toHaveBeenCalledWith('access-1', { subject: 'Re: Wedding inquiry — The Foundry' });
+    expect(res.code).toBe(404);
+    expect(res.body.code).toBe('not_found');
+  });
+
+  it('says what to do when there is nothing to read, or no inbox to look in', async () => {
+    const empty = await call({ action: 'readEmail', text: '' });
+    expect(empty.code).toBe(400);
+    expect(empty.body.code).toBe('no_email');
+    const modern = await call({ action: 'readEmail', url: 'https://mail.google.com/mail/u/0/#inbox/FMfcgzQXJWDsKmzzvlPdkTbWqfHcTHtB' });
+    expect(modern.code).toBe(400);
+    expect(modern.body.error).toMatch(/select its text/);
+    const noInbox = await call({ action: 'readEmail', url: 'https://mail.google.com/mail/u/0/#inbox/18c2f3a9b0d1e2f3' });
+    expect(noInbox.code).toBe(409);
+    expect(noInbox.body.error).toMatch(/Connect Gmail/);
+    expect(readEmail).not.toHaveBeenCalled();
+  });
+
+  it('a failed AI read is a 502 that says why', async () => {
+    readEmail.mockRejectedValue(new Error('400 credit balance too low'));
+    const res = await call({ action: 'readEmail', text: EMAIL });
+    expect(res.code).toBe(502);
+    expect(res.body).toEqual({ error: 'Couldn’t read the email: Rally’s AI credit has run out', code: 'ai_failed' });
   });
 });

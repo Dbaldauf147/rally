@@ -283,3 +283,20 @@
 .bulkDraftPreview summary { cursor: pointer; font-weight: 600; color: var(--color-accent); }
 .bulkDraftSubject { margin: 0.5rem 0 0.35rem; }
 .bulkDraftBody { margin: 0; padding: 0.7rem 0.8rem; background: var(--color-surface-alt); border-radius: var(--radius-md); font: inherit; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 18rem; overflow-y: auto; }
+
+/* ── An email dropped onto the page ── */
+.emailChanges { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.emailChanges th { text-align: left; font-weight: 600; color: var(--color-text-secondary); padding: 0.15rem 0.6rem 0.15rem 0; white-space: nowrap; vertical-align: top; width: 1%; }
+.emailChanges td { padding: 0.15rem 0; overflow-wrap: anywhere; }
+.emailFrom { color: var(--color-text-muted); }
+.emailDropBtn { white-space: nowrap; }
+.dropOverlay {
+  position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: rgba(15, 23, 42, 0.35); pointer-events: none;
+}
+.dropOverlayInner {
+  max-width: 420px; padding: 1.6rem 1.8rem; text-align: center; font-size: 0.95rem;
+  border: 2px dashed var(--color-accent); border-radius: var(--radius-lg, 14px); background: var(--color-surface); color: var(--color-text);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+.dropOverlayInner strong { display: block; font-size: 1.1rem; margin-bottom: 0.3rem; }
