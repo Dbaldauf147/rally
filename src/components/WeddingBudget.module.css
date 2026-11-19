@@ -267,3 +267,32 @@
 .sheetMsg, .sheetMsgErr { flex-basis: 100%; margin: 0.25rem 0 0; font-size: 0.8rem; line-height: 1.4; }
 .sheetMsg { color: #15803d; }
 .sheetMsgErr { color: var(--color-danger); }
+
+/* Venue cost comparison: dropping a spreadsheet, and the preview before it's saved. */
+.sheetDropHint { font-size: 0.78rem; color: var(--color-text-muted); }
+.dropZone {
+  position: fixed; inset: 0.75rem; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  border: 3px dashed var(--color-accent); border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent); pointer-events: none;
+}
+.dropZone span { padding: 0.7rem 1.1rem; border-radius: 10px; background: var(--color-surface); color: var(--color-accent); font-weight: 650; box-shadow: var(--shadow-sm); }
+.importPreview { box-sizing: border-box; flex-basis: 100%; min-width: 0; margin-top: 0.5rem; padding: 0.85rem 0.95rem; border: 1px solid var(--color-accent); border-radius: var(--radius-lg); background: var(--color-bg); }
+.importTitle { margin: 0 0 0.3rem; font-size: 0.98rem; font-weight: 650; overflow-wrap: anywhere; }
+.importSection { margin: 0.6rem 0 0; }
+.importHead { margin: 0 0 0.3rem; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.importVenue { margin: 0 0 0.5rem; font-size: 0.85rem; }
+.importCells { margin: 0.15rem 0 0; padding-left: 1.1rem; font-size: 0.8rem; line-height: 1.5; color: var(--color-text-secondary); }
+.importCol { color: var(--color-text); }
+.importFrom { color: var(--color-text-muted); }
+.importMapTable { border-collapse: collapse; font-size: 0.82rem; }
+.importMapTable td { padding: 0.2rem 0.6rem 0.2rem 0; vertical-align: middle; }
+.importSelect { max-width: 22rem; padding: 0.25rem 0.35rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-text); font-family: inherit; font-size: 0.8rem; }
+.importSuggested { margin-left: 0.4rem; font-size: 0.72rem; color: var(--color-accent); }
+.importActs { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.importGo { padding: 0.4rem 0.9rem; border: none; border-radius: 8px; background: var(--color-accent); color: #fff; font-family: inherit; font-size: 0.82rem; font-weight: 650; cursor: pointer; }
+.importGo:disabled { opacity: 0.45; cursor: default; }
+.compareAvail { font-size: 0.78rem; line-height: 1.35; color: var(--color-text-secondary); white-space: normal; min-width: 9rem; vertical-align: top; }
+@media (max-width: 600px) {
+  .importMapTable, .importMapTable tbody, .importMapTable tr, .importMapTable td { display: block; }
+  .importSelect { box-sizing: border-box; width: 100%; max-width: 100%; }
+}

@@ -26,11 +26,12 @@ describe('reading a cell', () => {
 });
 
 describe('the template', () => {
-  it('has a Venue column and one per budget line, every label distinct', () => {
+  it('has a Venue column, one per budget line and Availability, every label distinct', () => {
     const { venues } = quoteSheetRows(cats, []);
     expect(venues).toHaveLength(1);
     expect(venues[0][0]).toBe('Venue');
-    expect(venues[0].length).toBe(lines.length + 1);
+    expect(venues[0].at(-1)).toBe('Availability');
+    expect(venues[0].length).toBe(lines.length + 2);
     expect(new Set(venues[0]).size).toBe(venues[0].length);
   });
 

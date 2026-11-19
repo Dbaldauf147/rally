@@ -687,7 +687,9 @@ export function formatRate(n) {
    The calculator's amounts, saved under a venue's name so several venues can
    be held side by side (Budget → Venue cost comparison):
 
-     venueQuotes: [{ id, name, amounts: { [line id]: dollars }, included, perPerson, savedAt }]
+     venueQuotes: [{ id, name, amounts: { [line id]: dollars }, included, perPerson, availability, savedAt }]
+
+   `availability` is free text ("Saturdays in June open"), not a price.
 
    Amounts are keyed by budget line, like the calculator's, so every venue is
    priced against the same lines and the same sales-tax ticks. */
@@ -700,12 +702,14 @@ function normalizeVenueQuotes(raw) {
     const id = str(q.id) || newId('v');
     if (!name || seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, name, ...normalizeCalculator(q), savedAt: str(q.savedAt) });
+    out.push({ id, name, ...normalizeCalculator(q), availability: str(q.availability).trim(), savedAt: str(q.savedAt) });
   }
   return out;
 }
 
-const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+// Same venue whatever the capitals or spacing ("Stamford  yacht club ").
+const nameKey = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+const sameName = (a, b) => nameKey(a) === nameKey(b);
 
 export function findVenueQuote(quotes, name) {
   return (quotes || []).find((q) => sameName(q.name, name)) || null;
@@ -721,7 +725,7 @@ export function saveVenueQuote(quotes, name, calc, now = new Date()) {
   const entry = { name: clean, ...normalizeCalculator(whole), savedAt: now.toISOString() };
   const existing = findVenueQuote(quotes, clean);
   if (existing) return quotes.map((q) => (q.id === existing.id ? { ...q, ...entry } : q));
-  return [...(quotes || []), { id: newId('v'), ...entry }];
+  return [...(quotes || []), { id: newId('v'), availability: '', ...entry }];
 }
 
 /* True when the calculator holds exactly what a saved venue holds — nothing
@@ -825,7 +829,7 @@ export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0
   const venues = list.map((q, qi) => {
     const t = calculatorTotals(categories, dollars[qi], rate, inc[qi]);
     return {
-      id: q.id, name: q.name, savedAt: q.savedAt, ...t,
+      id: q.id, name: q.name, savedAt: q.savedAt, availability: q.availability || '', ...t,
       foodPerPerson: guestN > 0 && t.foodLines > 0 ? t.food / guestN : null,
       venuePerPerson: (() => {
         const g = venueGroupOf(calculatorGroupTotals(categories, dollars[qi], rate, inc[qi]));

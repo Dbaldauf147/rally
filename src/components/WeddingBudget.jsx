@@ -11,7 +11,7 @@ import {
   categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
   saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf,
 } from '../lib/weddingBudgetPlan';
-import { planQuoteImport, quoteSheetRows } from '../lib/venueQuoteSheet';
+import { IMPORT_ACCEPT, planQuoteImport, quoteSheetLines, quoteSheetRows, readVenueFile } from '../lib/venueQuoteSheet';
 import styles from './WeddingBudget.module.css';
 import navStyles from './WeddingDreamVenue.module.css';
 
@@ -1028,15 +1028,81 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
 /* Budget → Venue cost comparison: every saved venue's pricing side by side,
    on the budget's own lines, with the split's figure beside them. */
 /* Many venues at once: download a sheet (one row per venue, one column per
-   budget line, the saved venues already in it) and import it back. */
-function VenueSheetTools({ plan, update, categories, msg, setMsg }) {
+   budget line, the saved venues already in it) and import it back — by the
+   button or by dropping the file anywhere on the tab. Importing shows what
+   would change first; nothing is saved until it's confirmed. */
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function useVenueImport({ plan, update, categories, setMsg }) {
+  const [pending, setPending] = useState(null); // { fileName, rows, mapping }
+  const [dragging, setDragging] = useState(false);
+
+  const openFile = useCallback(async (file) => {
+    if (!file) return;
+    setPending(null);
+    try {
+      const XLSX = await import('xlsx');
+      const excel = /\.xlsx?$/i.test(file.name);
+      const rows = readVenueFile(file.name, excel ? await file.arrayBuffer() : await file.text(), XLSX);
+      const first = planQuoteImport(categories, plan.venueQuotes, rows); // throws on no Venue column / no rows
+      // Headings that match no line start on the line they most likely mean, if any.
+      const mapping = {};
+      for (const c of first.columns) if (c.kind === 'unknown' && c.suggestion) mapping[c.index] = c.suggestion;
+      setMsg(null);
+      setPending({ fileName: file.name, rows, mapping });
+    } catch (err) {
+      setMsg({ type: 'error', text: `Couldn’t import ${file.name}: ${err.message}. Nothing was changed.` });
+    }
+  }, [categories, plan.venueQuotes, setMsg]);
+
+  // The whole tab takes a dropped file; without this a stray drop would open the file in the browser.
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+    const enter = (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth += 1; setDragging(true); };
+    const over = (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
+    const leave = (e) => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (depth === 0) setDragging(false); };
+    const drop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragging(false);
+      openFile(e.dataTransfer.files?.[0]);
+    };
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop);
+    };
+  }, [openFile]);
+
+  const confirm = () => {
+    const { rows, mapping } = pending;
+    const r = planQuoteImport(categories, plan.venueQuotes, rows, new Date(), { mapping });
+    update((p) => ({ ...p, venueQuotes: planQuoteImport(categories, p.venueQuotes, rows, new Date(), { mapping }).quotes }));
+    setPending(null);
+    const did = [r.added.length ? `added ${plural(r.added.length, 'venue')}` : '', r.updated.length ? `updated ${plural(r.updated.length, 'venue')}` : ''].filter(Boolean).join(' and ');
+    const cells = Object.values(r.changes).reduce((n, c) => n + c.length, 0);
+    const left = [r.bad.length ? `${plural(r.bad.length, 'cell')} left out` : '', r.unknown.length ? `${plural(r.unknown.length, 'column')} skipped` : ''].filter(Boolean).join(', ');
+    setMsg({ type: 'ok', text: `Imported ${pending.fileName}: ${did} (${plural(cells, 'cell')} set)${left ? ` — ${left}` : ''}.` });
+  };
+  const setMapping = (index, id) => setPending((p) => ({ ...p, mapping: { ...p.mapping, [index]: id } }));
+  return { pending, dragging, openFile, confirm, cancel: () => setPending(null), setMapping };
+}
+
+function VenueSheetTools({ plan, categories, msg, setMsg, importer }) {
   const fileRef = useRef(null);
   const download = async () => {
     try {
       const XLSX = await import('xlsx');
       const { venues, howTo } = quoteSheetRows(categories, plan.venueQuotes);
       const ws = XLSX.utils.aoa_to_sheet(venues);
-      ws['!cols'] = venues[0].map((h, i) => ({ wch: i === 0 ? 28 : Math.min(30, Math.max(12, String(h).length + 2)) }));
+      ws['!cols'] = venues[0].map((h, i) => ({ wch: i === 0 ? 28 : i === venues[0].length - 1 ? 44 : Math.min(30, Math.max(12, String(h).length + 2)) }));
       ws['!freeze'] = { xSplit: 1, ySplit: 1 };
       const notes = XLSX.utils.aoa_to_sheet(howTo);
       notes['!cols'] = [{ wch: 46 }, { wch: 52 }];
@@ -1045,45 +1111,105 @@ function VenueSheetTools({ plan, update, categories, msg, setMsg }) {
       XLSX.utils.book_append_sheet(wb, notes, 'How to fill in');
       XLSX.writeFile(wb, 'venue-pricing-template.xlsx');
       const n = plan.venueQuotes.length;
-      setMsg({ type: 'ok', text: `Downloaded the template${n ? ` with your ${n} saved venue${n === 1 ? '' : 's'} in it` : ''}. Add one venue per row, then import it here.` });
+      setMsg({ type: 'ok', text: `Downloaded the template${n ? ` with your ${n} saved venue${n === 1 ? '' : 's'} in it` : ''}. Add one venue per row, then drop it here.` });
     } catch (err) {
       setMsg({ type: 'error', text: `Could not make the template: ${err.message}` });
-    }
-  };
-  const importFile = async (file) => {
-    if (!file) return;
-    try {
-      const XLSX = await import('xlsx');
-      const isText = /\.(csv|tsv|txt)$/i.test(file.name);
-      const wb = isText ? XLSX.read(await file.text(), { type: 'string', raw: true }) : XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '', blankrows: false });
-      const r = planQuoteImport(categories, plan.venueQuotes, rows);
-      if (!r.added.length && !r.updated.length) {
-        setMsg({ type: 'error', text: r.unchanged.length ? `Nothing to change — every venue in ${file.name} matches what's saved.` : `No venues found in ${file.name}. Put each venue's name in the Venue column.` });
-        return;
-      }
-      const notes = [
-        r.unknown.length ? `Columns not matching a budget line (ignored): ${r.unknown.join(', ')}.` : '',
-        r.bad.length ? `Cells that couldn't be read (left out): ${r.bad.slice(0, 5).map((b) => `${b.venue} · ${b.column} “${b.value}”`).join('; ')}${r.bad.length > 5 ? ` and ${r.bad.length - 5} more` : ''}.` : '',
-        r.skipped ? `${r.skipped} row${r.skipped === 1 ? '' : 's'} without a venue name skipped.` : '',
-      ].filter(Boolean);
-      const venuesN = (k) => `${k} venue${k === 1 ? '' : 's'}`;
-      const said = (add, upd) => [r.added.length ? `${add} ${venuesN(r.added.length)}` : '', r.updated.length ? `${upd} ${r.updated.length} (${r.updated.join(', ')})` : ''].filter(Boolean).join(' and ');
-      const summary = said('add', 'update');
-      if (!window.confirm(`Import ${file.name}: ${summary}?${notes.length ? `\n\n${notes.join('\n')}` : ''}`)) return;
-      update((p) => ({ ...p, venueQuotes: planQuoteImport(categories, p.venueQuotes, rows).quotes }));
-      setMsg({ type: notes.length ? 'error' : 'ok', text: `Imported: ${said('added', 'updated')}.${notes.length ? ` ${notes.join(' ')}` : ''}` });
-    } catch (err) {
-      setMsg({ type: 'error', text: `Could not read ${file.name}: ${err.message}` });
     }
   };
   return (
     <div className={styles.sheetTools} data-testid="venue-sheet-tools">
       <button type="button" className={styles.sheetBtn} onClick={download} title="An Excel sheet with one row per venue and a column for each budget line — your saved venues are already in it">⬇ Download Excel template</button>
       <button type="button" className={styles.sheetBtn} onClick={() => fileRef.current?.click()} title="Add or update many venues from a filled-in template (.xlsx or .csv)">⬆ Import venues from Excel</button>
-      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" hidden aria-label="Venue pricing spreadsheet to import"
-        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; importFile(f); }} />
+      <span className={styles.sheetDropHint}>or drop a filled-in .xlsx or .csv anywhere on this tab</span>
+      <input ref={fileRef} type="file" accept={IMPORT_ACCEPT} hidden aria-label="Venue pricing spreadsheet to import" data-testid="venue-import-input"
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; importer.openFile(f); }} />
       {msg && <p className={msg.type === 'error' ? styles.sheetMsgErr : styles.sheetMsg} role="status">{msg.text}</p>}
+      {importer.pending && <VenueImportPreview plan={plan} categories={categories} importer={importer} />}
+    </div>
+  );
+}
+
+function VenueImportPreview({ plan, categories, importer }) {
+  const { pending, confirm, cancel, setMapping } = importer;
+  const r = planQuoteImport(categories, plan.venueQuotes, pending.rows, new Date(), { mapping: pending.mapping });
+  const groups = calculatorGroups(categories);
+  const lines = quoteSheetLines(categories);
+  const labelOf = new Map(lines.map((l) => [l.id, l.label]));
+  const toMap = r.columns.filter((c) => c.kind !== 'line');
+  const nothing = !r.added.length && !r.updated.length;
+  const changeList = (name, isNew) => (
+    <ul className={styles.importCells}>
+      {r.changes[name].map((ch) => (
+        <li key={ch.column}>
+          <span className={styles.importCol}>{ch.column}</span>{isNew ? ': ' : ' '}
+          {!isNew && <><span className={styles.importFrom}>{ch.from}</span> → </>}<strong>{ch.to}</strong>
+        </li>
+      ))}
+      {r.changes[name].length === 0 && <li className={styles.importFrom}>Name only — no prices yet</li>}
+    </ul>
+  );
+  return (
+    <div className={styles.importPreview} role="dialog" aria-label={`Import ${pending.fileName}`} data-testid="venue-import-preview">
+      <h3 className={styles.importTitle}>Import {pending.fileName}?</h3>
+      <p className={styles.cardHint}>
+        {nothing ? 'Nothing would change — every venue in the file matches what’s saved.' : [r.added.length ? `${plural(r.added.length, 'venue')} to add` : '', r.updated.length ? `${plural(r.updated.length, 'venue')} to update` : ''].filter(Boolean).join(', ') + '. Nothing is saved until you import.'}
+        {' '}Blank cells leave what’s saved as it is.
+      </p>
+
+      {toMap.length > 0 && (
+        <div className={styles.importSection} data-testid="venue-import-mapping">
+          <h4 className={styles.importHead}>Columns that don’t match a budget line</h4>
+          <p className={styles.cardHint}>Pick the line each one is for, or skip it.</p>
+          <table className={styles.importMapTable}>
+            <tbody>
+              {toMap.map((c) => (
+                <tr key={c.index}>
+                  <td className={styles.importCol}>{c.header}</td>
+                  <td>
+                    <select className={styles.importSelect} aria-label={`Budget line for the “${c.header}” column`} value={c.id || ''} onChange={(e) => setMapping(c.index, e.target.value)}>
+                      <option value="">Skip this column</option>
+                      {groups.map((g) => (
+                        <optgroup key={g.id} label={g.name || 'Untitled'}>
+                          {g.lines.map((l) => <option key={l.id} value={l.id}>{labelOf.get(l.id)}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                    {c.suggestion && c.id === c.suggestion && <span className={styles.importSuggested}>suggested</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {r.added.length > 0 && (
+        <div className={styles.importSection} data-testid="venue-import-added">
+          <h4 className={styles.importHead}>New venues</h4>
+          {r.added.map((n) => <div key={n} className={styles.importVenue}><strong>{n}</strong>{changeList(n, true)}</div>)}
+        </div>
+      )}
+      {r.updated.length > 0 && (
+        <div className={styles.importSection} data-testid="venue-import-updated">
+          <h4 className={styles.importHead}>Venues to update</h4>
+          {r.updated.map((n) => <div key={n} className={styles.importVenue}><strong>{n}</strong>{changeList(n)}</div>)}
+        </div>
+      )}
+      {r.unchanged.length > 0 && <p className={styles.cardHint}>Already up to date: {r.unchanged.join(', ')}.</p>}
+      {(r.unknown.length > 0 || r.bad.length > 0 || r.skipped > 0) && (
+        <div className={styles.importSection} data-testid="venue-import-problems">
+          <h4 className={styles.importHead}>Left out</h4>
+          <ul className={styles.importCells}>
+            {r.unknown.length > 0 && <li>Skipped columns: {r.unknown.join(', ')}</li>}
+            {r.bad.map((b, i) => <li key={i}>Couldn’t read <strong>{b.venue}</strong> · {b.column}: “{b.value}”</li>)}
+            {r.skipped > 0 && <li>{plural(r.skipped, 'row')} without a venue name</li>}
+          </ul>
+        </div>
+      )}
+      <div className={styles.importActs}>
+        <button type="button" className={styles.importGo} onClick={confirm} disabled={nothing}>Import</button>
+        <button type="button" className={styles.sheetBtn} onClick={cancel}>Cancel</button>
+      </div>
     </div>
   );
 }
@@ -1096,6 +1222,12 @@ function VenueCompare({ plan, update, counts, onOpen }) {
   const c = venueComparison(cats, plan.venueQuotes, rate, budget, guestN);
   // Kept here, not in the tools, so it survives the switch from the empty card to the table.
   const [sheetMsg, setSheetMsg] = useState(null);
+  const importer = useVenueImport({ plan, update, categories: cats, setMsg: setSheetMsg });
+  const dropZone = importer.dragging && (
+    <div className={styles.dropZone} data-testid="venue-drop-zone" aria-hidden="true">
+      <span>Drop your .xlsx or .csv to import venues</span>
+    </div>
+  );
   const cell = (v) => (v == null ? <span className={styles.dash}>—</span> : formatMoney(v) || '$0');
   const remove = (v) => {
     if (!window.confirm(`Delete the saved pricing for ${v.name}?`)) return;
@@ -1120,7 +1252,8 @@ function VenueCompare({ plan, update, counts, onOpen }) {
         </p>
         <button type="button" className={styles.link} onClick={onOpen}>Go to the calculator →</button>
         <p className={styles.cardHint}>Or, for lots of venues at once, fill in the Excel template and import it.</p>
-        <VenueSheetTools plan={plan} update={update} categories={cats} msg={sheetMsg} setMsg={setSheetMsg} />
+        <VenueSheetTools plan={plan} categories={cats} msg={sheetMsg} setMsg={setSheetMsg} importer={importer} />
+        {dropZone}
       </section>
     );
   }
@@ -1132,7 +1265,8 @@ function VenueCompare({ plan, update, counts, onOpen }) {
         Each venue's saved pricing on the same budget lines. Sales tax{rate > 0 ? ` (${formatRate(rate)})` : ''} is added to the lines ticked for it in the split
         {guestN > 0 ? <>, and per person divides by {guestN} guests</> : null}. The lowest price on a line is in green.
       </p>
-      <VenueSheetTools plan={plan} update={update} categories={cats} msg={sheetMsg} setMsg={setSheetMsg} />
+      <VenueSheetTools plan={plan} categories={cats} msg={sheetMsg} setMsg={setSheetMsg} importer={importer} />
+      {dropZone}
       <div className={styles.scroll}>
         <table className={styles.compareTable}>
           <thead>
@@ -1234,6 +1368,13 @@ function VenueCompare({ plan, update, counts, onOpen }) {
               <td />
               {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.filled} of {v.lines}{v.included > 0 ? ` (${v.included} incl.)` : ''}</td>)}
             </tr>
+            {c.venues.some((v) => v.availability) && (
+              <tr className={styles.compareSub}>
+                <td className={styles.footLabel}>Availability</td>
+                <td />
+                {c.venues.map((v) => <td key={v.id} className={styles.compareAvail} data-testid={`compare-avail-${v.name}`}>{v.availability || <span className={styles.dash}>—</span>}</td>)}
+              </tr>
+            )}
           </tfoot>
         </table>
       </div>
