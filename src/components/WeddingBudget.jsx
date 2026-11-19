@@ -11,6 +11,7 @@ import {
   categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
   saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf,
 } from '../lib/weddingBudgetPlan';
+import { planQuoteImport, quoteSheetRows } from '../lib/venueQuoteSheet';
 import styles from './WeddingBudget.module.css';
 import navStyles from './WeddingDreamVenue.module.css';
 
@@ -1026,12 +1027,75 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
 
 /* Budget → Venue cost comparison: every saved venue's pricing side by side,
    on the budget's own lines, with the split's figure beside them. */
+/* Many venues at once: download a sheet (one row per venue, one column per
+   budget line, the saved venues already in it) and import it back. */
+function VenueSheetTools({ plan, update, categories, msg, setMsg }) {
+  const fileRef = useRef(null);
+  const download = async () => {
+    try {
+      const XLSX = await import('xlsx');
+      const { venues, howTo } = quoteSheetRows(categories, plan.venueQuotes);
+      const ws = XLSX.utils.aoa_to_sheet(venues);
+      ws['!cols'] = venues[0].map((h, i) => ({ wch: i === 0 ? 28 : Math.min(30, Math.max(12, String(h).length + 2)) }));
+      ws['!freeze'] = { xSplit: 1, ySplit: 1 };
+      const notes = XLSX.utils.aoa_to_sheet(howTo);
+      notes['!cols'] = [{ wch: 46 }, { wch: 52 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Venues');
+      XLSX.utils.book_append_sheet(wb, notes, 'How to fill in');
+      XLSX.writeFile(wb, 'venue-pricing-template.xlsx');
+      const n = plan.venueQuotes.length;
+      setMsg({ type: 'ok', text: `Downloaded the template${n ? ` with your ${n} saved venue${n === 1 ? '' : 's'} in it` : ''}. Add one venue per row, then import it here.` });
+    } catch (err) {
+      setMsg({ type: 'error', text: `Could not make the template: ${err.message}` });
+    }
+  };
+  const importFile = async (file) => {
+    if (!file) return;
+    try {
+      const XLSX = await import('xlsx');
+      const isText = /\.(csv|tsv|txt)$/i.test(file.name);
+      const wb = isText ? XLSX.read(await file.text(), { type: 'string', raw: true }) : XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '', blankrows: false });
+      const r = planQuoteImport(categories, plan.venueQuotes, rows);
+      if (!r.added.length && !r.updated.length) {
+        setMsg({ type: 'error', text: r.unchanged.length ? `Nothing to change — every venue in ${file.name} matches what's saved.` : `No venues found in ${file.name}. Put each venue's name in the Venue column.` });
+        return;
+      }
+      const notes = [
+        r.unknown.length ? `Columns not matching a budget line (ignored): ${r.unknown.join(', ')}.` : '',
+        r.bad.length ? `Cells that couldn't be read (left out): ${r.bad.slice(0, 5).map((b) => `${b.venue} · ${b.column} “${b.value}”`).join('; ')}${r.bad.length > 5 ? ` and ${r.bad.length - 5} more` : ''}.` : '',
+        r.skipped ? `${r.skipped} row${r.skipped === 1 ? '' : 's'} without a venue name skipped.` : '',
+      ].filter(Boolean);
+      const venuesN = (k) => `${k} venue${k === 1 ? '' : 's'}`;
+      const said = (add, upd) => [r.added.length ? `${add} ${venuesN(r.added.length)}` : '', r.updated.length ? `${upd} ${r.updated.length} (${r.updated.join(', ')})` : ''].filter(Boolean).join(' and ');
+      const summary = said('add', 'update');
+      if (!window.confirm(`Import ${file.name}: ${summary}?${notes.length ? `\n\n${notes.join('\n')}` : ''}`)) return;
+      update((p) => ({ ...p, venueQuotes: planQuoteImport(categories, p.venueQuotes, rows).quotes }));
+      setMsg({ type: notes.length ? 'error' : 'ok', text: `Imported: ${said('added', 'updated')}.${notes.length ? ` ${notes.join(' ')}` : ''}` });
+    } catch (err) {
+      setMsg({ type: 'error', text: `Could not read ${file.name}: ${err.message}` });
+    }
+  };
+  return (
+    <div className={styles.sheetTools} data-testid="venue-sheet-tools">
+      <button type="button" className={styles.sheetBtn} onClick={download} title="An Excel sheet with one row per venue and a column for each budget line — your saved venues are already in it">⬇ Download Excel template</button>
+      <button type="button" className={styles.sheetBtn} onClick={() => fileRef.current?.click()} title="Add or update many venues from a filled-in template (.xlsx or .csv)">⬆ Import venues from Excel</button>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" hidden aria-label="Venue pricing spreadsheet to import"
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; importFile(f); }} />
+      {msg && <p className={msg.type === 'error' ? styles.sheetMsgErr : styles.sheetMsg} role="status">{msg.text}</p>}
+    </div>
+  );
+}
+
 function VenueCompare({ plan, update, counts, onOpen }) {
   const { amount: budget } = effectiveTotal(plan);
   const guestN = headcount(plan.guests, counts);
   const cats = resolveCategories(plan.categories, budget, guestN);
   const rate = plan.salesTax.rate;
   const c = venueComparison(cats, plan.venueQuotes, rate, budget, guestN);
+  // Kept here, not in the tools, so it survives the switch from the empty card to the table.
+  const [sheetMsg, setSheetMsg] = useState(null);
   const cell = (v) => (v == null ? <span className={styles.dash}>—</span> : formatMoney(v) || '$0');
   const remove = (v) => {
     if (!window.confirm(`Delete the saved pricing for ${v.name}?`)) return;
@@ -1055,6 +1119,8 @@ function VenueCompare({ plan, update, counts, onOpen }) {
           “Save this pricing for a venue”, and it will show up here beside the others.
         </p>
         <button type="button" className={styles.link} onClick={onOpen}>Go to the calculator →</button>
+        <p className={styles.cardHint}>Or, for lots of venues at once, fill in the Excel template and import it.</p>
+        <VenueSheetTools plan={plan} update={update} categories={cats} msg={sheetMsg} setMsg={setSheetMsg} />
       </section>
     );
   }
@@ -1066,6 +1132,7 @@ function VenueCompare({ plan, update, counts, onOpen }) {
         Each venue's saved pricing on the same budget lines. Sales tax{rate > 0 ? ` (${formatRate(rate)})` : ''} is added to the lines ticked for it in the split
         {guestN > 0 ? <>, and per person divides by {guestN} guests</> : null}. The lowest price on a line is in green.
       </p>
+      <VenueSheetTools plan={plan} update={update} categories={cats} msg={sheetMsg} setMsg={setSheetMsg} />
       <div className={styles.scroll}>
         <table className={styles.compareTable}>
           <thead>
