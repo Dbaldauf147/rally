@@ -269,7 +269,7 @@ describe('venue pricing', async () => {
       { id: 'v2', name: ' ', amounts: {} },
       null,
     ] });
-    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: {}, perPerson: {}, subs: {}, savedAt: 's' }]);
+    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: {}, perPerson: {}, subs: {}, availability: '', savedAt: 's' }]);
     expect(normalizePlan(null).venueQuotes).toEqual([]);
   });
 
