@@ -9,7 +9,7 @@ import {
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
   formatRate, guestCounts, headcount, plateAmount, resolveCategories,
   categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
-  saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf,
+  saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf, setVenueAvailable,
 } from '../lib/weddingBudgetPlan';
 import { IMPORT_ACCEPT, planQuoteImport, quoteSheetLines, quoteSheetRows, readVenueFile } from '../lib/venueQuoteSheet';
 import styles from './WeddingBudget.module.css';
@@ -344,20 +344,12 @@ function PlateRow({ item, guestN, onChange }) {
   );
 }
 
-/* A markup's settings — rate % of the lines ticked — in a pop-up beside the
-   line, opened by clicking its % or its % button. Any line in the same
-   category can be ticked, other markups included (tax on the service charge).
-   Closes on a click outside, Escape, or Done. */
-function MarkupPopover({ item, cat, total, anchor, onChange, onOff, onClose }) {
-  const m = item.markup;
-  const others = cat.items.filter((i) => i.id !== item.id);
-  const base = cat.items.filter((i) => m.of.includes(i.id)).reduce((s, i) => s + i.pct, 0);
-  const toggle = (id) => onChange({ ...m, of: m.of.includes(id) ? m.of.filter((x) => x !== id) : [...m.of, id] });
+/* A pop-up pinned to the button that opened it: below it, right-aligned,
+   flipped above when there's no room underneath, kept on screen and
+   following the page as it scrolls. Closes on a click outside or Escape. */
+function useAnchoredPop(anchor, onClose, deps = []) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
-
-  // Below the line, right-aligned to the button, flipped above when there's
-  // no room underneath, and kept on screen. Follows the page as it scrolls.
   useLayoutEffect(() => {
     const place = () => {
       const r = anchor?.getBoundingClientRect?.();
@@ -374,10 +366,10 @@ function MarkupPopover({ item, cat, total, anchor, onChange, onOff, onClose }) {
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place);
     return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place); };
-  }, [anchor, m.of.length, others.length]);
+  }, [anchor, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    // A rate still being typed is saved by its box losing focus, so let it
+    // A value still being typed is saved by its box losing focus, so let it
     // go first: closing pulls the box out from under it.
     const close = () => {
       const a = document.activeElement;
@@ -393,6 +385,19 @@ function MarkupPopover({ item, cat, total, anchor, onChange, onOff, onClose }) {
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [anchor, onClose]);
+  return { ref, pos };
+}
+
+/* A markup's settings — rate % of the lines ticked — in a pop-up beside the
+   line, opened by clicking its % or its % button. Any line in the same
+   category can be ticked, other markups included (tax on the service charge).
+   Closes on a click outside, Escape, or Done. */
+function MarkupPopover({ item, cat, total, anchor, onChange, onOff, onClose }) {
+  const m = item.markup;
+  const others = cat.items.filter((i) => i.id !== item.id);
+  const base = cat.items.filter((i) => m.of.includes(i.id)).reduce((s, i) => s + i.pct, 0);
+  const toggle = (id) => onChange({ ...m, of: m.of.includes(id) ? m.of.filter((x) => x !== id) : [...m.of, id] });
+  const { ref, pos } = useAnchoredPop(anchor, onClose, [m.of.length, others.length]);
 
   return createPortal(
     <div
@@ -1215,6 +1220,43 @@ function VenueImportPreview({ plan, categories, importer }) {
   );
 }
 
+/* A venue's availability: its notes (free text, from the Excel import) and
+   the couple's own yes / no, set here. Opened from the Available? pill. */
+function AvailabilityPopover({ venue, anchor, onSet, onClose }) {
+  const { ref, pos } = useAnchoredPop(anchor, onClose, [venue.availability]);
+  const choice = (val, label) => (
+    <button type="button" className={venue.available === val ? styles.availChoiceOn : styles.availChoice} aria-pressed={venue.available === val} onClick={() => onSet(venue.available === val ? null : val)}>
+      {label}
+    </button>
+  );
+  return createPortal(
+    <div
+      ref={ref}
+      className={`${styles.markupPop} ${styles.availPop}`}
+      role="dialog"
+      aria-label={`${venue.name} availability`}
+      data-testid="venue-avail-pop"
+      style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden', top: 0, left: 0 }}
+    >
+      <div className={styles.markupPopHead}>
+        <strong>{venue.name}</strong>
+        <button type="button" className={styles.markupPopClose} onClick={onClose} aria-label="Close">×</button>
+      </div>
+      <h4 className={styles.importHead}>Availability notes</h4>
+      {venue.availability
+        ? <p className={styles.availNotes} data-testid="venue-avail-notes">{venue.availability}</p>
+        : <p className={styles.cardHint}>No notes yet. They come from the Availability column of the Excel template.</p>}
+      <h4 className={styles.importHead}>Available for your date?</h4>
+      <div className={styles.availChoices}>
+        {choice(true, 'Yes')}
+        {choice(false, 'No')}
+      </div>
+      {venue.available != null && <button type="button" className={styles.markupPopOff} onClick={() => onSet(null)}>Clear — not decided</button>}
+    </div>,
+    document.body,
+  );
+}
+
 function VenueCompare({ plan, update, counts, onOpen }) {
   const { amount: budget } = effectiveTotal(plan);
   const guestN = headcount(plan.guests, counts);
@@ -1230,6 +1272,10 @@ function VenueCompare({ plan, update, counts, onOpen }) {
     </div>
   );
   const cell = (v) => (v == null ? <span className={styles.dash}>—</span> : formatMoney(v) || '$0');
+  // The venue whose availability pop-up is open, and the pill it hangs off.
+  const [availFor, setAvailFor] = useState(null);
+  const closeAvail = useCallback(() => setAvailFor(null), []);
+  const availVenue = availFor && plan.venueQuotes.find((q) => q.id === availFor.id);
   // Venues are the rows; the budget's lines (and their sub-items) are the
   // columns, under their category. A category with no items is one column.
   const groups = [];
@@ -1258,8 +1304,23 @@ function VenueCompare({ plan, update, counts, onOpen }) {
         <span className={v.diff >= 0 ? styles.calcUnder : styles.calcOver}>{v.diff >= 0 ? `${formatMoney(v.diff) || '$0'} under` : `${formatMoney(-v.diff)} over`}</span>
       ), `compare-diff-${v.name}`) },
     { key: 'lines', label: 'Lines priced', venue: (v) => td('lines', styles.compareFoot, `${v.filled} of ${v.lines}${v.included > 0 ? ` (${v.included} incl.)` : ''}`) },
-    ...(c.venues.some((v) => v.availability) ? [{ key: 'avail', label: 'Availability',
-      venue: (v) => td('avail', styles.compareAvail, v.availability || <span className={styles.dash}>—</span>, `compare-avail-${v.name}`) }] : []),
+    { key: 'avail', label: 'Available?',
+      venue: (v) => {
+        const word = v.available === true ? 'Yes' : v.available === false ? 'No' : 'Set';
+        const cls = v.available === true ? styles.availYes : v.available === false ? styles.availNo : styles.availUnset;
+        return td('avail', styles.compareAvailCell, (
+          <button
+            type="button"
+            className={cls}
+            aria-haspopup="dialog"
+            aria-expanded={availFor?.id === v.id}
+            aria-label={`${v.name} available: ${v.available == null ? 'not set' : word}${v.availability ? ', has notes' : ''}. Show notes`}
+            onClick={(e) => { const a = e.currentTarget; setAvailFor((o) => (o?.id === v.id ? null : { id: v.id, anchor: a })); }}
+          >
+            {word}{v.availability && <span className={styles.availNote} aria-hidden="true" />}
+          </button>
+        ), `compare-avail-${v.name}`);
+      } },
   ];
   // What decides between venues sits next to the name; the tax arithmetic follows the lines.
   const LEAD = ['total', 'pp', 'diff', 'lines', 'avail'];
@@ -1355,6 +1416,14 @@ function VenueCompare({ plan, update, counts, onOpen }) {
           </tbody>
         </table>
       </div>
+      {availVenue && (
+        <AvailabilityPopover
+          venue={availVenue}
+          anchor={availFor.anchor}
+          onSet={(val) => update((p) => ({ ...p, venueQuotes: setVenueAvailable(p.venueQuotes, availVenue.id, val) }))}
+          onClose={closeAvail}
+        />
+      )}
       <p className={styles.calcNote}>
         A venue with fewer lines priced will look cheaper than it is — check “Lines priced” before comparing totals.
       </p>

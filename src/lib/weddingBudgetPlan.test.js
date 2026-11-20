@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  setVenueAvailable,
   seedCategories, normalizePlan, categoryPct, totalPct, contributorTotals, effectiveTotal,
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, formatRate,
   guestCounts, headcount, plateAmount, resolveCategories, resolveMarkups,
@@ -269,8 +270,37 @@ describe('venue pricing', async () => {
       { id: 'v2', name: ' ', amounts: {} },
       null,
     ] });
-    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: {}, perPerson: {}, subs: {}, availability: '', savedAt: 's' }]);
+    expect(plan.venueQuotes).toEqual([{ id: 'v1', name: 'Barn', amounts: { a: 1 }, included: {}, perPerson: {}, subs: {}, availability: '', available: null, savedAt: 's' }]);
     expect(normalizePlan(null).venueQuotes).toEqual([]);
+  });
+
+  it('keeps a venue’s yes / no availability, and nothing else as one', () => {
+    const plan = normalizePlan({ venueQuotes: [
+      { id: 'v1', name: 'Barn', available: true },
+      { id: 'v2', name: 'Inn', available: false },
+      { id: 'v3', name: 'Club', available: 'yes' },
+      { id: 'v4', name: 'Loft' },
+    ] });
+    expect(plan.venueQuotes.map((q) => q.available)).toEqual([true, false, null, null]);
+  });
+
+  it('sets, changes and clears one venue’s yes / no, leaving the rest and the notes alone', () => {
+    const at = new Date('2026-11-20T00:00:00Z');
+    let q = saveVenueQuote([], 'Barn', { a: 1 }, at);
+    q = saveVenueQuote(q, 'Inn', { a: 2 }, at).map((x) => ({ ...x, availability: 'Fridays only' }));
+    expect(q.map((x) => x.available)).toEqual([null, null]);
+    const [barn, inn] = q;
+    q = setVenueAvailable(q, inn.id, false);
+    expect(q.map((x) => x.available)).toEqual([null, false]);
+    expect(q[1].availability).toBe('Fridays only');
+    q = setVenueAvailable(q, inn.id, true);
+    expect(q[1].available).toBe(true);
+    q = setVenueAvailable(q, inn.id, null);
+    expect(q[1].available).toBeNull();
+    expect(q[0]).toBe(barn);
+    // Re-saving a venue's prices keeps its answer.
+    q = saveVenueQuote(setVenueAvailable(q, inn.id, true), 'inn', { a: 3 }, at);
+    expect(q[1]).toMatchObject({ amounts: { a: 3 }, available: true, availability: 'Fridays only' });
   });
 
   it('knows when two sets of amounts are the same', () => {

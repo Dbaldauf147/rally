@@ -235,6 +235,13 @@ describe('merging into saved venues', () => {
     expect(r.quotes[0].amounts[FOOD]).toBe(60000);
   });
 
+  it('keeps the yes / no a venue was given in the app when importing over it', () => {
+    const before = saved().map((q) => ({ ...q, available: false }));
+    const r = planQuoteImport(cats, before, readFixture(), now);
+    expect(r.quotes[0]).toMatchObject({ availability: YACHT_AVAIL, available: false });
+    expect(r.quotes[1].available).toBeNull();
+  });
+
   it('changes nothing in the venues it was handed', () => {
     const before = saved();
     const copy = structuredClone(before);
