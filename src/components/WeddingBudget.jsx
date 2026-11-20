@@ -12,6 +12,7 @@ import {
   saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf, setVenueAvailable,
 } from '../lib/weddingBudgetPlan';
 import { areaForName, areasByVenueName } from '../lib/venueAreas';
+import { venueNameKey } from '../lib/weddingVenues';
 import { IMPORT_ACCEPT, planQuoteImport, quoteSheetLines, quoteSheetRows, readVenueFile } from '../lib/venueQuoteSheet';
 import styles from './WeddingBudget.module.css';
 import navStyles from './WeddingDreamVenue.module.css';
@@ -39,6 +40,8 @@ function usePlan(userId) {
   const [venueNames, setVenueNames] = useState([]);
   // Venue name → its location on the Venues tab, for the comparison's Area column.
   const [venueAreas, setVenueAreas] = useState(() => new Map());
+  // Venues the wedding calendar leaves off (Not a fit or hidden on the Venues tab), by venueNameKey.
+  const [offCalendar, setOffCalendar] = useState(() => new Set());
   const localEdits = useRef(0);
   const syncedEdits = useRef(0);
   const appliedJson = useRef(null);
@@ -69,6 +72,8 @@ function usePlan(userId) {
       setVenueNames((prev) => (prev.join('\n') === names.join('\n') ? prev : names));
       const nextAreas = areasByVenueName(rawVenues, snap.exists() ? snap.data()?.weddingVenueAreas : []);
       setVenueAreas((prev) => (JSON.stringify([...prev]) === JSON.stringify([...nextAreas]) ? prev : nextAreas));
+      const nextOff = new Set(rawVenues.filter((v) => v && (v.hidden || v.status === 'Not a fit')).map((v) => venueNameKey(v.name)).filter(Boolean));
+      setOffCalendar((prev) => ([...prev].sort().join('\n') === [...nextOff].sort().join('\n') ? prev : nextOff));
       // Not skipped on hasPendingWrites: another field's write to this doc
       // (e.g. on sign-in) would hide the first load, and the server ack is a
       // metadata-only change that never fires here. Our own echo matches
@@ -105,7 +110,7 @@ function usePlan(userId) {
     });
   }, [flushWrite]);
 
-  return { plan, update, saved, counts, venueNames, venueAreas };
+  return { plan, update, saved, counts, venueNames, venueAreas, offCalendar };
 }
 
 /* A number field ("$12,000", "7.5%") that only commits when you leave it or
@@ -1043,7 +1048,8 @@ function Calculator({ plan, update, counts, venueNames, onCompare }) {
    would change first; nothing is saved until it's confirmed. */
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function useVenueImport({ plan, update, categories, setMsg }) {
+function useVenueImport({ plan, update, categories, setMsg, offCalendar }) {
+  const isOff = useCallback((name) => !!offCalendar?.has(venueNameKey(name)), [offCalendar]);
   const [pending, setPending] = useState(null); // { fileName, rows, mapping }
   const [dragging, setDragging] = useState(false);
 
@@ -1090,16 +1096,17 @@ function useVenueImport({ plan, update, categories, setMsg }) {
 
   const confirm = () => {
     const { rows, mapping } = pending;
-    const r = planQuoteImport(categories, plan.venueQuotes, rows, new Date(), { mapping });
+    const r = planQuoteImport(categories, plan.venueQuotes, rows, new Date(), { mapping, offCalendar: isOff });
     update((p) => ({ ...p, venueQuotes: planQuoteImport(categories, p.venueQuotes, rows, new Date(), { mapping }).quotes }));
     setPending(null);
     const did = [r.added.length ? `added ${plural(r.added.length, 'venue')}` : '', r.updated.length ? `updated ${plural(r.updated.length, 'venue')}` : ''].filter(Boolean).join(' and ');
     const cells = Object.values(r.changes).reduce((n, c) => n + c.length, 0);
     const left = [r.bad.length ? `${plural(r.bad.length, 'cell')} left out` : '', r.unknown.length ? `${plural(r.unknown.length, 'column')} skipped` : ''].filter(Boolean).join(', ');
-    setMsg({ type: 'ok', text: `Imported ${pending.fileName}: ${did} (${plural(cells, 'cell')} set)${left ? ` — ${left}` : ''}.` });
+    const onCal = r.dates ? `; ${plural(r.dates, 'date')} on the wedding calendar` : '';
+    setMsg({ type: 'ok', text: `Imported ${pending.fileName}: ${did} (${plural(cells, 'cell')} set${onCal})${left ? ` — ${left}` : ''}.` });
   };
   const setMapping = (index, id) => setPending((p) => ({ ...p, mapping: { ...p.mapping, [index]: id } }));
-  return { pending, dragging, openFile, confirm, cancel: () => setPending(null), setMapping };
+  return { pending, dragging, openFile, confirm, cancel: () => setPending(null), setMapping, isOff };
 }
 
 function VenueSheetTools({ plan, categories, msg, setMsg, importer }) {
@@ -1138,7 +1145,7 @@ function VenueSheetTools({ plan, categories, msg, setMsg, importer }) {
 
 function VenueImportPreview({ plan, categories, importer }) {
   const { pending, confirm, cancel, setMapping } = importer;
-  const r = planQuoteImport(categories, plan.venueQuotes, pending.rows, new Date(), { mapping: pending.mapping });
+  const r = planQuoteImport(categories, plan.venueQuotes, pending.rows, new Date(), { mapping: pending.mapping, offCalendar: importer.isOff });
   const groups = calculatorGroups(categories);
   const lines = quoteSheetLines(categories);
   const labelOf = new Map(lines.map((l) => [l.id, l.label]));
@@ -1207,6 +1214,17 @@ function VenueImportPreview({ plan, categories, importer }) {
         </div>
       )}
       {r.unchanged.length > 0 && <p className={styles.cardHint}>Already up to date: {r.unchanged.join(', ')}.</p>}
+      {r.noDates.length > 0 && (
+        <div className={styles.importSection} data-testid="venue-import-nodates">
+          <h4 className={styles.importHead}>No calendar dates in</h4>
+          <p className={styles.cardHint}>
+            Saved as availability notes, but nothing goes on the calendar: a date needs its year, like “September 18, 2027” or “Saturdays in June 2027”.
+          </p>
+          <ul className={styles.importCells}>
+            {r.noDates.map((x) => <li key={x.venue}><strong>{x.venue}</strong>: “{x.text}”</li>)}
+          </ul>
+        </div>
+      )}
       {(r.unknown.length > 0 || r.bad.length > 0 || r.skipped > 0) && (
         <div className={styles.importSection} data-testid="venue-import-problems">
           <h4 className={styles.importHead}>Left out</h4>
@@ -1262,7 +1280,7 @@ function AvailabilityPopover({ venue, anchor, onSet, onClose }) {
   );
 }
 
-function VenueCompare({ plan, update, counts, venueAreas, onOpen }) {
+function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen }) {
   const { amount: budget } = effectiveTotal(plan);
   const guestN = headcount(plan.guests, counts);
   const cats = resolveCategories(plan.categories, budget, guestN);
@@ -1270,7 +1288,7 @@ function VenueCompare({ plan, update, counts, venueAreas, onOpen }) {
   const c = venueComparison(cats, plan.venueQuotes, rate, budget, guestN);
   // Kept here, not in the tools, so it survives the switch from the empty card to the table.
   const [sheetMsg, setSheetMsg] = useState(null);
-  const importer = useVenueImport({ plan, update, categories: cats, setMsg: setSheetMsg });
+  const importer = useVenueImport({ plan, update, categories: cats, setMsg: setSheetMsg, offCalendar });
   const dropZone = importer.dragging && (
     <div className={styles.dropZone} data-testid="venue-drop-zone" aria-hidden="true">
       <span>Drop your .xlsx to import venues</span>
@@ -1447,7 +1465,7 @@ function VenueCompare({ plan, update, counts, venueAreas, onOpen }) {
 
 export function WeddingBudget() {
   const { user } = useAuth();
-  const { plan, update, saved, counts, venueNames, venueAreas } = usePlan(user?.uid);
+  const { plan, update, saved, counts, venueNames, venueAreas, offCalendar } = usePlan(user?.uid);
   const [searchParams, setSearchParams] = useSearchParams();
   // Three tabs, kept in the URL: the plan (who's helping, the total, the
   // split), the calculator (what a venue actually charges), and the saved
@@ -1473,7 +1491,7 @@ export function WeddingBudget() {
         {subnav}
         <div className={styles.compareWrap}>
           {status}
-          <VenueCompare plan={plan} update={update} counts={counts} venueAreas={venueAreas} onOpen={() => setSub('calc')} />
+          <VenueCompare plan={plan} update={update} counts={counts} venueAreas={venueAreas} offCalendar={offCalendar} onOpen={() => setSub('calc')} />
         </div>
       </div>
     );

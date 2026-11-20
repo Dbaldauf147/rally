@@ -39,6 +39,8 @@ export function WeddingCalendar({ onOpenTab }) {
   const [calendar, setCalendar] = useState({ events: [] });
   const [timeline, setTimeline] = useState(null);
   const [venues, setVenues] = useState([]);
+  // Venues priced on Budget → Venue cost comparison: their Availability names dates too.
+  const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [month, setMonth] = useState(today.slice(0, 7));
@@ -53,6 +55,8 @@ export function WeddingCalendar({ onOpenTab }) {
       setCalendar(normalizeCalendar(data.weddingCalendar));
       setTimeline(data.weddingTimeline ? normalizeTimeline(data.weddingTimeline) : seedTimeline());
       setVenues(Array.isArray(data.weddingVenues) ? data.weddingVenues.map((v) => normalizeVenue(v)) : []);
+      const q = data.weddingBudgetPlan?.venueQuotes;
+      setQuotes(Array.isArray(q) ? q.filter((x) => x && typeof x === 'object').map((x) => ({ id: String(x.id || ''), name: String(x.name || ''), availability: String(x.availability || '') })) : []);
       setLoading(false);
     }, () => setLoading(false));
   }, [user]);
@@ -70,14 +74,14 @@ export function WeddingCalendar({ onOpenTab }) {
       .catch((err) => setError(`Could not save: ${err.message}`));
   };
 
-  const entries = useMemo(() => calendarEntries({ calendar, timeline, venues }, show), [calendar, timeline, venues, show]);
+  const entries = useMemo(() => calendarEntries({ calendar, timeline, venues, quotes }, show), [calendar, timeline, venues, quotes, show]);
   const byDay = useMemo(() => entriesByDay(entries), [entries]);
   const weeks = useMemo(() => { const [y, m] = month.split('-').map(Number); return monthGrid(y, m); }, [month]);
   // Venue open dates are a backdrop, not a to-do, so "coming up" leaves them out.
   const upcoming = useMemo(() => upcomingEntries(entries.filter((e) => e.source !== 'venue'), today, 8), [entries, today]);
   const weddingDate = timeline?.date || '';
   const untilWedding = daysUntil(weddingDate, today);
-  const venueDates = venues.some((v) => v.availableDates?.length);
+  const venueDates = useMemo(() => calendarEntries({ venues, quotes }).some((e) => e.source === 'venue'), [venues, quotes]);
 
   const goTo = (date) => { setMonth(date.slice(0, 7)); setSelected(date); };
   const openNew = (date) => setDraft({ id: newEventId(), date, time: '', title: '', kind: EVENT_KINDS[0], note: '', done: false, isNew: true });
@@ -128,12 +132,12 @@ export function WeddingCalendar({ onOpenTab }) {
       );
     }
     if (withDate) return <li key={e.key}><button type="button" className={cs.row} onClick={() => goTo(e.date)} title="Show this day">{body}</button></li>;
-    const tab = e.source === 'timeline' ? 'timeline' : 'venues';
+    const tab = e.source === 'timeline' ? 'timeline' : e.tab === 'budget' ? 'budget-compare' : 'venues';
     return (
       <li key={e.key}>
         <div className={cs.row}>
           {body}
-          {onOpenTab && <button type="button" className={cs.rowLink} onClick={() => onOpenTab(tab)}>{tab === 'timeline' ? 'Timeline ›' : 'Venues ›'}</button>}
+          {onOpenTab && <button type="button" className={cs.rowLink} onClick={() => onOpenTab(tab)}>{tab === 'timeline' ? 'Timeline ›' : tab === 'budget-compare' ? 'Venue costs ›' : 'Venues ›'}</button>}
         </div>
       </li>
     );
@@ -155,7 +159,7 @@ export function WeddingCalendar({ onOpenTab }) {
             <input type="checkbox" checked={show.timeline} onChange={(e) => setShow((s) => ({ ...s, timeline: e.target.checked }))} disabled={!weddingDate} />
             <span className={`${cs.dot} ${cs.kTimeline}`} aria-hidden="true" /> Timeline
           </label>
-          <label className={cs.layer} title="The dates each venue has open, from the Venues tab">
+          <label className={cs.layer} title="The dates each venue has open: from the Venues tab, and read from each priced venue’s Availability on the Budget tab. Venues marked Not a fit are left off.">
             <input type="checkbox" checked={show.venues} onChange={(e) => setShow((s) => ({ ...s, venues: e.target.checked }))} disabled={!venueDates} />
             <span className={`${cs.dot} ${cs.kVenue}`} aria-hidden="true" /> Venue open dates
           </label>

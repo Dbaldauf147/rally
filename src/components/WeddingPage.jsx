@@ -2985,7 +2985,7 @@ export function WeddingPage() {
             <h1 className={styles.title}>Wedding</h1>
           </div>
           <p className={styles.subtitle}>The wedding’s own calendar: tours, tastings and payments you add, beside the timeline and the dates venues have open.</p>
-          <WeddingCalendar onOpenTab={setView} />
+          <WeddingCalendar onOpenTab={(v) => (v === 'budget-compare' ? setSearchParams({ view: 'budget', budget: 'compare' }) : setView(v))} />
         </div>
       ) : view === 'budget' ? (
         <div className={styles.page}>
