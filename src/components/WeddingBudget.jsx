@@ -1230,6 +1230,41 @@ function VenueCompare({ plan, update, counts, onOpen }) {
     </div>
   );
   const cell = (v) => (v == null ? <span className={styles.dash}>—</span> : formatMoney(v) || '$0');
+  // Venues are the rows; the budget's lines (and their sub-items) are the
+  // columns, under their category. A category with no items is one column.
+  const groups = [];
+  for (const r of c.rows) {
+    if (r.kind === 'category') groups.push({ key: r.id, name: r.name, cols: [] });
+    else if (r.kind === 'line' && r.standalone) groups.push({ key: `g-${r.id}`, name: r.name, cols: [r], standalone: true });
+    else groups[groups.length - 1]?.cols.push(r);
+  }
+  for (const g of groups) g.single = g.standalone && g.cols.length === 1;
+  const cols = groups.flatMap((g) => g.cols);
+  const td = (key, className, content, testid) => <td key={key} className={className} data-testid={testid}>{content}</td>;
+  const venuePP = c.venues.find((v) => v.venuePerPerson)?.venuePerPerson;
+  const summary = [
+    { key: 'subtotal', label: 'Subtotal', venue: (v) => td('subtotal', styles.compareFoot, v.filled ? formatMoney(v.subtotal) || '$0' : '—') },
+    { key: 'tax', label: 'Sales tax', venue: (v) => td('tax', styles.compareFoot, v.filled ? formatMoney(v.tax) || '$0' : '—') },
+    { key: 'total', label: 'Total', budget: budget > 0 ? formatMoney(budget) : null,
+      venue: (v) => td('total', c.cheapest === v.id ? styles.compareTotalLow : styles.compareTotal, v.filled ? formatMoney(v.total) || '$0' : '—', `compare-total-${v.name}`) },
+    { key: 'pp', label: 'Per person', budget: budget > 0 && guestN > 0 ? formatMoney(budget / guestN) : null,
+      venue: (v) => td('pp', styles.compareFoot, v.perPerson == null ? '—' : formatMoney(v.perPerson)) },
+    ...(venuePP ? [{ key: 'venuePP', label: <>{venuePP.name} per person <span className={styles.compareSmall}>before tax</span></>,
+      venue: (v) => td('venuePP', styles.compareFoot, v.venuePerPerson ? formatMoney(v.venuePerPerson.subtotal) || '$0' : '—', `compare-venue-pp-${v.name}`) }] : []),
+    { key: 'food', label: <>Food per person <span className={styles.compareSmall}>before tax</span></>,
+      venue: (v) => td('food', styles.compareFoot, v.foodPerPerson == null ? '—' : formatMoney(v.foodPerPerson) || '$0', `compare-food-pp-${v.name}`) },
+    { key: 'diff', label: 'Against the budget',
+      venue: (v) => td('diff', styles.compareFoot, v.diff == null ? '—' : (
+        <span className={v.diff >= 0 ? styles.calcUnder : styles.calcOver}>{v.diff >= 0 ? `${formatMoney(v.diff) || '$0'} under` : `${formatMoney(-v.diff)} over`}</span>
+      ), `compare-diff-${v.name}`) },
+    { key: 'lines', label: 'Lines priced', venue: (v) => td('lines', styles.compareFoot, `${v.filled} of ${v.lines}${v.included > 0 ? ` (${v.included} incl.)` : ''}`) },
+    ...(c.venues.some((v) => v.availability) ? [{ key: 'avail', label: 'Availability',
+      venue: (v) => td('avail', styles.compareAvail, v.availability || <span className={styles.dash}>—</span>, `compare-avail-${v.name}`) }] : []),
+  ];
+  // What decides between venues sits next to the name; the tax arithmetic follows the lines.
+  const LEAD = ['total', 'pp', 'diff', 'lines', 'avail'];
+  const lead = LEAD.map((k) => summary.find((t) => t.key === k)).filter(Boolean);
+  const tail = summary.filter((t) => !LEAD.includes(t.key));
   const remove = (v) => {
     if (!window.confirm(`Delete the saved pricing for ${v.name}?`)) return;
     update((p) => ({ ...p, venueQuotes: p.venueQuotes.filter((x) => x.id !== v.id) }));
@@ -1268,14 +1303,38 @@ function VenueCompare({ plan, update, counts, onOpen }) {
       </p>
       <VenueSheetTools plan={plan} categories={cats} msg={sheetMsg} setMsg={setSheetMsg} importer={importer} />
       {dropZone}
+      {c.rows.length === 0 && <p className={styles.cardHint}>None of the saved venues has a price on a current budget line.</p>}
       <div className={styles.scroll}>
-        <table className={styles.compareTable}>
+        <table className={styles.compareTable} data-testid="compare-table">
           <thead>
             <tr>
-              <th>Line item</th>
-              <th className={styles.numHead}>Budgeted</th>
-              {c.venues.map((v) => (
-                <th key={v.id} className={styles.numHead} data-testid={`compare-head-${v.name}`}>
+              <th rowSpan={2} className={styles.compareCorner}>Venue</th>
+              {lead.map((t) => <th key={t.key} rowSpan={2} className={t.key === 'total' ? styles.compareTotalHead : styles.compareColHead}>{t.label}</th>)}
+              {groups.map((g) => (g.single ? (
+                <th key={g.key} rowSpan={2} className={styles.compareColHead} title={g.name}>{g.name}</th>
+              ) : (
+                <th key={g.key} colSpan={g.cols.length} className={styles.compareGroupHead}>{g.name}</th>
+              )))}
+              {tail.map((t) => <th key={t.key} rowSpan={2} className={styles.compareColHead}>{t.label}</th>)}
+            </tr>
+            <tr>
+              {groups.filter((g) => !g.single).flatMap((g) => g.cols.map((r) => (
+                <th key={r.id} className={r.kind === 'sub' ? styles.compareSubHead : styles.compareColHead} title={r.name}>{r.kind === 'sub' ? `• ${r.name}` : r.name}</th>
+              )))}
+            </tr>
+          </thead>
+          <tbody>
+            {budget > 0 && (
+              <tr className={styles.compareBudgetRow} data-testid="compare-budget-row">
+                <th scope="row" className={styles.compareRowHead}>Budgeted</th>
+                {lead.map((t) => <td key={t.key} className={styles.compareBudget}>{t.budget ?? ''}</td>)}
+                {cols.map((r) => <td key={r.id} className={styles.compareBudget}>{r.kind === 'line' ? cell(r.budgeted) : ''}</td>)}
+                {tail.map((t) => <td key={t.key} className={styles.compareBudget}>{t.budget ?? ''}</td>)}
+              </tr>
+            )}
+            {c.venues.map((v, i) => (
+              <tr key={v.id} data-testid={`compare-venue-${v.name}`}>
+                <th scope="row" className={styles.compareRowHead} data-testid={`compare-head-${v.name}`}>
                   <span className={styles.compareVenue}>{v.name}</span>
                   {c.cheapest === v.id && <span className={styles.compareBest}>Lowest total</span>}
                   <span className={styles.compareActs}>
@@ -1283,100 +1342,17 @@ function VenueCompare({ plan, update, counts, onOpen }) {
                     <button type="button" className={styles.remove} aria-label={`Delete ${v.name}`} title={`Delete ${v.name}`} onClick={() => remove(v)}>×</button>
                   </span>
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {c.rows.map((r) => (r.kind === 'category' ? (
-              <tr key={r.id} className={styles.compareCat}><td colSpan={2 + c.venues.length}>{r.name}</td></tr>
-            ) : r.kind === 'sub' ? (
-              <tr key={r.id} className={styles.compareSubItem} data-testid={`compare-sub-${r.name}`}>
-                <td className={styles.compareSubName} title={r.name}>• {r.name}</td>
-                <td />
-                {r.amounts.map((v, i) => (
-                  <td key={c.venues[i].id} className={r.low === i ? styles.compareLow : styles.compareNum}>
-                    {r.included[i] ? 'Included' : cell(v)}
-                    {r.perPerson[i] != null && <span className={styles.compareEach}>{formatMoney(r.perPerson[i]) || '$0'} each</span>}
+                {lead.map((t) => t.venue(v))}
+                {cols.map((r) => (
+                  <td key={r.id} className={`${r.low === i ? styles.compareLow : styles.compareNum} ${r.kind === 'sub' ? styles.compareSubCell : ''}`} data-testid={`compare-cell-${v.name}-${r.id}`}>
+                    {r.included[i] ? 'Included' : cell(r.amounts[i])}
+                    {r.perPerson[i] != null && <span className={styles.compareEach}>{formatMoney(r.perPerson[i]) || '$0'} {r.kind === 'sub' ? 'each' : 'per person'}</span>}
                   </td>
                 ))}
+                {tail.map((t) => t.venue(v))}
               </tr>
-            ) : (
-              <tr key={r.id} data-testid={`compare-row-${r.id}`}>
-                <td className={r.standalone ? styles.compareCatLine : styles.compareLine} title={r.name}>{r.name}</td>
-                <td className={styles.compareBudget}>{cell(r.budgeted)}</td>
-                {r.amounts.map((v, i) => (
-                  <td key={c.venues[i].id} className={r.low === i ? styles.compareLow : styles.compareNum}>
-                    {r.included[i] ? 'Included' : cell(v)}
-                    {r.perPerson[i] != null && <span className={styles.compareEach}>{formatMoney(r.perPerson[i]) || '$0'} per person</span>}
-                  </td>
-                ))}
-              </tr>
-            )))}
-            {c.rows.length === 0 && (
-              <tr><td colSpan={2 + c.venues.length} className={styles.compareLine}>None of the saved venues has a price on a current budget line.</td></tr>
-            )}
+            ))}
           </tbody>
-          <tfoot>
-            <tr>
-              <td className={styles.footLabel}>Subtotal</td>
-              <td />
-              {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.filled ? formatMoney(v.subtotal) || '$0' : '—'}</td>)}
-            </tr>
-            <tr className={styles.compareSub}>
-              <td className={styles.footLabel}>Sales tax</td>
-              <td />
-              {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.filled ? formatMoney(v.tax) || '$0' : '—'}</td>)}
-            </tr>
-            <tr className={styles.compareSub}>
-              <td className={styles.footLabel}>Total</td>
-              <td className={styles.footNumLight}>{budget > 0 ? formatMoney(budget) : '—'}</td>
-              {c.venues.map((v) => (
-                <td key={v.id} className={c.cheapest === v.id ? styles.compareTotalLow : styles.footNum} data-testid={`compare-total-${v.name}`}>{v.filled ? formatMoney(v.total) || '$0' : '—'}</td>
-              ))}
-            </tr>
-            <tr className={styles.compareSub}>
-              <td className={styles.footLabel}>Per person</td>
-              <td className={styles.footNumLight}>{budget > 0 && guestN > 0 ? formatMoney(budget / guestN) : '—'}</td>
-              {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.perPerson == null ? '—' : formatMoney(v.perPerson)}</td>)}
-            </tr>
-            {c.venues.some((v) => v.venuePerPerson) && (
-              <tr className={styles.compareSub}>
-                <td className={styles.footLabel}>{c.venues.find((v) => v.venuePerPerson).venuePerPerson.name} per person <span className={styles.compareSmall}>before tax</span></td>
-                <td />
-                {c.venues.map((v) => <td key={v.id} className={styles.footNumLight} data-testid={`compare-venue-pp-${v.name}`}>{v.venuePerPerson ? formatMoney(v.venuePerPerson.subtotal) || '$0' : '—'}</td>)}
-              </tr>
-            )}
-            <tr className={styles.compareSub}>
-              <td className={styles.footLabel}>Food per person <span className={styles.compareSmall}>before tax</span></td>
-              <td />
-              {c.venues.map((v) => <td key={v.id} className={styles.footNumLight} data-testid={`compare-food-pp-${v.name}`}>{v.foodPerPerson == null ? '—' : formatMoney(v.foodPerPerson) || '$0'}</td>)}
-            </tr>
-            <tr className={styles.compareSub}>
-              <td className={styles.footLabel}>Against the budget</td>
-              <td />
-              {c.venues.map((v) => (
-                <td key={v.id} className={styles.footNumLight} data-testid={`compare-diff-${v.name}`}>
-                  {v.diff == null ? '—' : (
-                    <span className={v.diff >= 0 ? styles.calcUnder : styles.calcOver}>
-                      {v.diff >= 0 ? `${formatMoney(v.diff) || '$0'} under` : `${formatMoney(-v.diff)} over`}
-                    </span>
-                  )}
-                </td>
-              ))}
-            </tr>
-            <tr className={styles.compareSub}>
-              <td className={styles.footLabel}>Lines priced</td>
-              <td />
-              {c.venues.map((v) => <td key={v.id} className={styles.footNumLight}>{v.filled} of {v.lines}{v.included > 0 ? ` (${v.included} incl.)` : ''}</td>)}
-            </tr>
-            {c.venues.some((v) => v.availability) && (
-              <tr className={styles.compareSub}>
-                <td className={styles.footLabel}>Availability</td>
-                <td />
-                {c.venues.map((v) => <td key={v.id} className={styles.compareAvail} data-testid={`compare-avail-${v.name}`}>{v.availability || <span className={styles.dash}>—</span>}</td>)}
-              </tr>
-            )}
-          </tfoot>
         </table>
       </div>
       <p className={styles.calcNote}>
