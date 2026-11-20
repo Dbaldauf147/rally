@@ -14,7 +14,7 @@ import {
   addField, updateField, removeField, fieldUsage, setCustomValue, customValueOf,
   columnsFor, renameColumn, setColumnHidden, moveColumn,
   dateColumns, daysSinceField, setDaysSinceSource, daysSinceLabel, upcomingVisit,
-  isCheckInEntry, isFormerEntry, setEntryFormer, formerDoctorsByType,
+  isCheckInEntry, isFormerEntry, setEntryFormer, setDoctorFormer, formerDoctorsByType,
   setCheckInRowOff, offCheckInRows,
   setDoctorCalendar, pendingAppointments, sameType, issueRecord,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
@@ -962,6 +962,8 @@ function DoctorsPanel({ list, update }) {
           }}
           title={open.name}
           onCommit={(patch) => update((l) => updateDoctor(l, open.ids, patch))}
+          former={open.former}
+          onSetFormer={(v) => update((l) => setDoctorFormer(l, open.ids, v))}
           onClose={close}
         />
       )}
@@ -1632,8 +1634,12 @@ function LinkField({ label, value, onCommit }) {
 
    Every field edits in place and saves on blur, like the tables' cells. The
    buttons along the top act on what's saved. Escape closes this and only
-   this — a speciality pop-up it sits over stays open. */
-function DoctorCard({ entry, title, onCommit, onClose }) {
+   this — a speciality pop-up it sits over stays open.
+
+   `onSetFormer`, when given, adds the "Old doctor" switch: someone you no
+   longer see. Their records and history stay; they just stop being listed
+   as current (see isFormerEntry). */
+function DoctorCard({ entry, title, onCommit, onClose, former = false, onSetFormer = null }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     window.addEventListener('keydown', onKey, true);
@@ -1658,6 +1664,16 @@ function DoctorCard({ entry, title, onCommit, onClose }) {
         <button type="button" className={styles.modalClose} aria-label="Close contact" onClick={onClose}>×</button>
         <h2 className={styles.contactTitle}>{title}</h2>
         {entry.type ? <div className={styles.sub}>{entry.type}</div> : null}
+
+        {onSetFormer && (
+          <label className={styles.formerToggle}>
+            <input type="checkbox" checked={!!former} onChange={(e) => onSetFormer(e.target.checked)} />
+            <span>
+              <strong>Old doctor</strong>
+              <span className={styles.formerHint}> — I don’t see them any more. Their records stay; they move to the bottom of the list.</span>
+            </span>
+          </label>
+        )}
 
         {(tel || mail || map || link) && (
           <div className={styles.contactActions}>
