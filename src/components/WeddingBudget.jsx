@@ -9,10 +9,11 @@ import {
   amountFor, pctFromAmount, setCategoryPct, scaleTo100, parseMoney, parsePct, formatMoney, formatPct, roundPct,
   formatRate, guestCounts, headcount, plateAmount, resolveCategories,
   categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
-  saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf, setVenueAvailable,
+  saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf, setVenueAvailable, setVenueHidden,
 } from '../lib/weddingBudgetPlan';
 import { areaForName, areasByVenueName } from '../lib/venueAreas';
 import { venueNameKey } from '../lib/weddingVenues';
+import { orderBlocks, moveBlock, nextSort, sortedIndexes, matchesSearch } from '../lib/venueCompareView';
 import { IMPORT_ACCEPT, planQuoteImport, quoteSheetLines, quoteSheetRows, readVenueFile } from '../lib/venueQuoteSheet';
 import styles from './WeddingBudget.module.css';
 import navStyles from './WeddingDreamVenue.module.css';
@@ -1285,7 +1286,17 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
   const guestN = headcount(plan.guests, counts);
   const cats = resolveCategories(plan.categories, budget, guestN);
   const rate = plan.salesTax.rate;
-  const c = venueComparison(cats, plan.venueQuotes, rate, budget, guestN);
+  // Hidden venues leave the table — and its greens — until "Show hidden" brings them back, dimmed.
+  const [showHidden, setShowHidden] = useState(false);
+  const hiddenCount = plan.venueQuotes.filter((q) => q.hidden).length;
+  const shownQuotes = showHidden ? plan.venueQuotes : plan.venueQuotes.filter((q) => !q.hidden);
+  const c = venueComparison(cats, shownQuotes, rate, budget, guestN);
+  // The search narrows the rows only; the greens still compare every shown venue.
+  const [query, setQuery] = useState('');
+  const [colsOpen, setColsOpen] = useState(false);
+  const [dragKey, setDragKey] = useState(null);
+  const view = plan.compareView || { order: [], sort: null };
+  const setView = (patch) => update((p) => ({ ...p, compareView: { order: [], sort: null, ...p.compareView, ...patch } }));
   // Kept here, not in the tools, so it survives the switch from the empty card to the table.
   const [sheetMsg, setSheetMsg] = useState(null);
   const importer = useVenueImport({ plan, update, categories: cats, setMsg: setSheetMsg, offCalendar });
@@ -1355,6 +1366,59 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
   const LEAD = ['total', 'pp', 'diff', 'lines', 'avail'];
   const lead = LEAD.map((k) => summary.find((t) => t.key === k)).filter(Boolean);
   const tail = summary.filter((t) => !LEAD.includes(t.key));
+  // Column blocks — a summary column, or a category with its lines — in the couple's order.
+  const blocks = [
+    ...lead.map((t) => ({ key: t.key, label: t.label, summary: t })),
+    ...groups.map((g) => ({ key: g.key, label: g.name, group: g })),
+    ...tail.map((t) => ({ key: t.key, label: t.label, summary: t })),
+  ];
+  const order = orderBlocks(blocks.map((b) => b.key), view.order);
+  const ordered = order.map((k) => blocks.find((b) => b.key === k));
+  const orderedCols = ordered.flatMap((b) => (b.group ? b.group.cols : []));
+  const move = (key, target) => setView({ order: moveBlock(order, key, target) });
+  // What each column sorts the venues by. Included counts as $0, as it does for the greens.
+  const sortVal = (key, i) => {
+    const v = c.venues[i];
+    switch (key) {
+      case 'name': return v.name;
+      case 'area': return areaForName(venueAreas, v.name) || '';
+      case 'total': return v.filled ? v.total : null;
+      case 'subtotal': return v.filled ? v.subtotal : null;
+      case 'tax': return v.filled ? v.tax : null;
+      case 'pp': return v.perPerson;
+      case 'diff': return v.diff;
+      case 'lines': return v.filled;
+      case 'avail': return v.available === true ? 0 : v.available === false ? 2 : 1;
+      case 'venuePP': return v.venuePerPerson?.subtotal ?? null;
+      case 'food': return v.foodPerPerson;
+      default: {
+        const r = key.startsWith('col:') && cols.find((x) => x.id === key.slice(4));
+        return r ? (r.included[i] ? 0 : r.amounts[i]) : null;
+      }
+    }
+  };
+  const sort = view.sort;
+  const rowsShown = sortedIndexes(c.venues.length, sort, (i) => sortVal(sort.key, i))
+    .filter((i) => matchesSearch(query, [c.venues[i].name, areaForName(venueAreas, c.venues[i].name), c.venues[i].availability]));
+  const ariaSort = (key) => (sort?.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined);
+  const sortBtn = (key, label, plain) => (
+    <button type="button" className={styles.sortBtn} onClick={() => setView({ sort: nextSort(sort, key) })}
+      title={`Sort by ${plain || label}`} data-testid={`compare-sort-${key}`}>
+      {label}
+      <span className={sort?.key === key ? styles.sortOn : styles.sortOff} aria-hidden="true">{sort?.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+    </button>
+  );
+  // Headers drag sideways onto another to reorder the columns.
+  const dragProps = (key) => ({
+    draggable: true,
+    onDragStart: (e) => { setDragKey(key); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', key); },
+    onDragEnd: () => setDragKey(null),
+    onDragOver: (e) => { if (dragKey && dragKey !== key) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } },
+    onDrop: (e) => { if (!dragKey) return; e.preventDefault(); move(dragKey, key); setDragKey(null); },
+    'data-testid': `compare-block-${key}`,
+  });
+  const plainLabel = (b) => (typeof b.label === 'string' ? b.label : b.key === 'food' ? 'Food per person' : b.key === 'venuePP' ? `${venuePP?.name || 'Venue'} per person` : b.key);
+  const setHidden = (v, hidden) => update((p) => ({ ...p, venueQuotes: setVenueHidden(p.venueQuotes, v.id, hidden) }));
   const remove = (v) => {
     if (!window.confirm(`Delete the saved pricing for ${v.name}?`)) return;
     update((p) => ({ ...p, venueQuotes: p.venueQuotes.filter((x) => x.id !== v.id) }));
@@ -1368,7 +1432,7 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
     onOpen();
   };
 
-  if (c.venues.length === 0) {
+  if (plan.venueQuotes.length === 0) {
     return (
       <section className={styles.card} data-testid="venue-compare-empty">
         <h2 className={styles.cardTitle}>Venue cost comparison</h2>
@@ -1386,31 +1450,81 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
 
   return (
     <section className={styles.card} data-testid="venue-compare">
-      <h2 className={styles.cardTitle}>Venue cost comparison</h2>
+      <div className={styles.compareTop}>
+        <h2 className={styles.cardTitle}>Venue cost comparison</h2>
+        <input
+          type="search"
+          className={styles.compareSearch}
+          placeholder="Search a venue, area or note…"
+          aria-label="Search venues"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          data-testid="compare-search"
+        />
+      </div>
       <p className={styles.cardHint}>
         Each venue's saved pricing on the same budget lines. Sales tax{rate > 0 ? ` (${formatRate(rate)})` : ''} is added to the lines ticked for it in the split
         {guestN > 0 ? <>, and per person divides by {guestN} guests</> : null}. The lowest price on a line is in green.
+        Click a column heading to sort by it; drag a heading sideways to move the column.
       </p>
       <VenueSheetTools plan={plan} categories={cats} msg={sheetMsg} setMsg={setSheetMsg} importer={importer} />
       {dropZone}
-      {c.rows.length === 0 && <p className={styles.cardHint}>None of the saved venues has a price on a current budget line.</p>}
+      <div className={styles.compareBar} data-testid="compare-bar">
+        <span className={styles.compareCount} data-testid="compare-count">
+          {rowsShown.length === c.venues.length ? plural(c.venues.length, 'venue') : `${rowsShown.length} of ${plural(c.venues.length, 'venue')}`}
+        </span>
+        {hiddenCount > 0 && (
+          <button type="button" className={styles.sheetBtn} aria-pressed={showHidden} onClick={() => setShowHidden((x) => !x)} data-testid="compare-show-hidden">
+            {showHidden ? `Leave out the ${hiddenCount} hidden` : `Show ${hiddenCount} hidden`}
+          </button>
+        )}
+        {sort && <button type="button" className={styles.sheetBtn} onClick={() => setView({ sort: null })} data-testid="compare-clear-sort">Clear sort</button>}
+        <button type="button" className={styles.sheetBtn} aria-expanded={colsOpen} onClick={() => setColsOpen((x) => !x)} data-testid="compare-columns-btn">Column order</button>
+      </div>
+      {colsOpen && (
+        <div className={styles.colOrder} data-testid="compare-columns">
+          <ol className={styles.colOrderList}>
+            {ordered.map((b, k) => (
+              <li key={b.key} className={styles.colOrderItem} data-testid={`compare-col-item-${b.key}`}>
+                <span className={styles.colOrderName}>{b.label}</span>
+                <button type="button" className={styles.colOrderMove} disabled={k === 0} aria-label={`Move ${plainLabel(b)} left`} onClick={() => move(b.key, -1)}>↑</button>
+                <button type="button" className={styles.colOrderMove} disabled={k === ordered.length - 1} aria-label={`Move ${plainLabel(b)} right`} onClick={() => move(b.key, 1)}>↓</button>
+              </li>
+            ))}
+          </ol>
+          <p className={styles.cardHint}>Top of the list is the leftmost column, after the venue's name.</p>
+          {view.order.length > 0 && <button type="button" className={styles.link} onClick={() => setView({ order: [] })}>Reset to the usual order</button>}
+        </div>
+      )}
+      {c.rows.length === 0 && c.venues.length > 0 && <p className={styles.cardHint}>None of the shown venues has a price on a current budget line.</p>}
       <div className={styles.scroll}>
         <table className={styles.compareTable} data-testid="compare-table">
           <thead>
             <tr>
-              {showArea && <th rowSpan={2} className={styles.compareAreaHead}>Area</th>}
-              <th rowSpan={2} className={showArea ? `${styles.compareCorner} ${styles.compareAfterArea}` : styles.compareCorner}>Venue</th>
-              {lead.map((t) => <th key={t.key} rowSpan={2} className={t.key === 'total' ? styles.compareTotalHead : styles.compareColHead}>{t.label}</th>)}
-              {groups.map((g) => (g.single ? (
-                <th key={g.key} rowSpan={2} className={styles.compareColHead} title={g.name}>{g.name}</th>
-              ) : (
-                <th key={g.key} colSpan={g.cols.length} className={styles.compareGroupHead}>{g.name}</th>
-              )))}
-              {tail.map((t) => <th key={t.key} rowSpan={2} className={styles.compareColHead}>{t.label}</th>)}
+              {showArea && <th rowSpan={2} className={styles.compareAreaHead} aria-sort={ariaSort('area')}>{sortBtn('area', 'Area')}</th>}
+              <th rowSpan={2} className={showArea ? `${styles.compareCorner} ${styles.compareAfterArea}` : styles.compareCorner} aria-sort={ariaSort('name')}>{sortBtn('name', 'Venue')}</th>
+              {ordered.map((b) => {
+                const dragCls = dragKey === b.key ? ` ${styles.compareDragging}` : '';
+                if (b.summary) {
+                  return (
+                    <th key={b.key} rowSpan={2} className={(b.key === 'total' ? styles.compareTotalHead : styles.compareColHead) + dragCls} aria-sort={ariaSort(b.key)} {...dragProps(b.key)}>
+                      {sortBtn(b.key, b.label, plainLabel(b))}
+                    </th>
+                  );
+                }
+                const g = b.group;
+                if (g.single) {
+                  const key = `col:${g.cols[0].id}`;
+                  return <th key={b.key} rowSpan={2} className={styles.compareColHead + dragCls} title={g.name} aria-sort={ariaSort(key)} {...dragProps(b.key)}>{sortBtn(key, g.name)}</th>;
+                }
+                return <th key={b.key} colSpan={g.cols.length} className={styles.compareGroupHead + dragCls} title={`${g.name} — drag to move`} {...dragProps(b.key)}>{g.name}</th>;
+              })}
             </tr>
             <tr>
-              {groups.filter((g) => !g.single).flatMap((g) => g.cols.map((r) => (
-                <th key={r.id} className={r.kind === 'sub' ? styles.compareSubHead : styles.compareColHead} title={r.name}>{r.kind === 'sub' ? `• ${r.name}` : r.name}</th>
+              {ordered.filter((b) => b.group && !b.group.single).flatMap((b) => b.group.cols.map((r) => (
+                <th key={r.id} className={r.kind === 'sub' ? styles.compareSubHead : styles.compareColHead} title={r.name} aria-sort={ariaSort(`col:${r.id}`)}>
+                  {sortBtn(`col:${r.id}`, r.kind === 'sub' ? `• ${r.name}` : r.name, r.name)}
+                </th>
               )))}
             </tr>
           </thead>
@@ -1419,32 +1533,44 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
               <tr className={styles.compareBudgetRow} data-testid="compare-budget-row">
                 {showArea && <td className={styles.compareArea} />}
                 <th scope="row" className={showArea ? `${styles.compareRowHead} ${styles.compareAfterArea}` : styles.compareRowHead}>Budgeted</th>
-                {lead.map((t) => <td key={t.key} className={styles.compareBudget}>{t.budget ?? ''}</td>)}
-                {cols.map((r) => <td key={r.id} className={styles.compareBudget}>{r.kind === 'line' ? cell(r.budgeted) : ''}</td>)}
-                {tail.map((t) => <td key={t.key} className={styles.compareBudget}>{t.budget ?? ''}</td>)}
+                {ordered.flatMap((b) => (b.summary
+                  ? [<td key={b.key} className={styles.compareBudget}>{b.summary.budget ?? ''}</td>]
+                  : b.group.cols.map((r) => <td key={r.id} className={styles.compareBudget}>{r.kind === 'line' ? cell(r.budgeted) : ''}</td>)))}
               </tr>
             )}
-            {c.venues.map((v, i) => (
-              <tr key={v.id} data-testid={`compare-venue-${v.name}`}>
-                {showArea && <td className={styles.compareArea} data-testid={`compare-area-${v.name}`}>{areaCell(v)}</td>}
-                <th scope="row" className={showArea ? `${styles.compareRowHead} ${styles.compareAfterArea}` : styles.compareRowHead} data-testid={`compare-head-${v.name}`}>
-                  <span className={styles.compareVenue}>{v.name}</span>
-                  {c.cheapest === v.id && <span className={styles.compareBest}>Lowest total</span>}
-                  <span className={styles.compareActs}>
-                    <button type="button" className={styles.link} onClick={() => open(v)} title={`Open ${v.name} in the calculator to change it`}>Edit</button>
-                    <button type="button" className={styles.remove} aria-label={`Delete ${v.name}`} title={`Delete ${v.name}`} onClick={() => remove(v)}>×</button>
-                  </span>
-                </th>
-                {lead.map((t) => t.venue(v))}
-                {cols.map((r) => (
-                  <td key={r.id} className={`${r.low === i ? styles.compareLow : styles.compareNum} ${r.kind === 'sub' ? styles.compareSubCell : ''}`} data-testid={`compare-cell-${v.name}-${r.id}`}>
-                    {r.included[i] ? 'Included' : cell(r.amounts[i])}
-                    {r.perPerson[i] != null && <span className={styles.compareEach}>{formatMoney(r.perPerson[i]) || '$0'} {r.kind === 'sub' ? 'each' : 'per person'}</span>}
-                  </td>
-                ))}
-                {tail.map((t) => t.venue(v))}
+            {rowsShown.map((i) => {
+              const v = c.venues[i];
+              return (
+                <tr key={v.id} className={v.hidden ? styles.compareHiddenRow : undefined} data-testid={`compare-venue-${v.name}`}>
+                  {showArea && <td className={styles.compareArea} data-testid={`compare-area-${v.name}`}>{areaCell(v)}</td>}
+                  <th scope="row" className={showArea ? `${styles.compareRowHead} ${styles.compareAfterArea}` : styles.compareRowHead} data-testid={`compare-head-${v.name}`}>
+                    <span className={styles.compareVenue}>{v.name}</span>
+                    {c.cheapest === v.id && <span className={styles.compareBest}>Lowest total</span>}
+                    {v.hidden && <span className={styles.compareHiddenTag}>Hidden</span>}
+                    <span className={styles.compareActs}>
+                      <button type="button" className={styles.link} onClick={() => open(v)} title={`Open ${v.name} in the calculator to change it`}>Edit</button>
+                      <button type="button" className={styles.link} onClick={() => setHidden(v, !v.hidden)} title={v.hidden ? `Put ${v.name} back in the comparison` : `Hide ${v.name} from the comparison — it stays saved`} data-testid={`compare-hide-${v.name}`}>
+                        {v.hidden ? 'Unhide' : 'Hide'}
+                      </button>
+                      <button type="button" className={styles.remove} aria-label={`Delete ${v.name}`} title={`Delete ${v.name}`} onClick={() => remove(v)}>×</button>
+                    </span>
+                  </th>
+                  {ordered.flatMap((b) => (b.summary ? [b.summary.venue(v)] : b.group.cols.map((r) => (
+                    <td key={r.id} className={`${r.low === i ? styles.compareLow : styles.compareNum} ${r.kind === 'sub' ? styles.compareSubCell : ''}`} data-testid={`compare-cell-${v.name}-${r.id}`}>
+                      {r.included[i] ? 'Included' : cell(r.amounts[i])}
+                      {r.perPerson[i] != null && <span className={styles.compareEach}>{formatMoney(r.perPerson[i]) || '$0'} {r.kind === 'sub' ? 'each' : 'per person'}</span>}
+                    </td>
+                  ))))}
+                </tr>
+              );
+            })}
+            {rowsShown.length === 0 && (
+              <tr>
+                <td colSpan={(showArea ? 2 : 1) + ordered.filter((b) => b.summary).length + orderedCols.length} className={styles.compareNone} data-testid="compare-none">
+                  {c.venues.length === 0 ? `All ${plural(hiddenCount, 'venue')} hidden — “Show ${hiddenCount} hidden” brings them back.` : `No venue matches “${query.trim()}”.`}
+                </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
