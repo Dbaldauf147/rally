@@ -80,7 +80,8 @@ export function parseQuoteCell(raw) {
   if (typeof raw === 'number') return Number.isFinite(raw) && raw >= 0 ? { amount: Math.round(raw * 100) / 100 } : { bad: true };
   const s = norm(raw);
   if (!s) return null;
-  if (/^(incl\.?|included|inclusive|yes|y)$/.test(s)) return { included: true };
+  // Only words that say "included" — a bare "yes" could mean anything, so it's reported, not guessed.
+  if (/^(incl\.?|included|inclusive)$/.test(s)) return { included: true };
   const pp = s.match(/^(.*?)\s*(?:pp|p\/p|per\s*(?:person|guest|head|plate)|\/\s*(?:person|guest|head|pp|plate)|each|a head|a person)$/);
   if (pp) {
     const n = parseMoney(pp[1]);
@@ -90,19 +91,24 @@ export function parseQuoteCell(raw) {
   return n == null ? { bad: true } : { amount: n };
 }
 
-/* A file → its rows (an array of arrays of text), ready for planQuoteImport.
-   An Excel file is read from its "Venues" sheet only (the template's other
-   sheet is instructions); a CSV is its one table. Throws, with a message fit
-   to show, for any other file or an Excel file without a Venues sheet.
+/* An .xlsx file → its rows (an array of arrays of text), ready for
+   planQuoteImport. Read from its "Venues" sheet only (the template's other
+   sheet is instructions). Throws, with a message fit to show, for any file
+   that isn't .xlsx or has no Venues sheet.
    `XLSX` is the xlsx library, passed in so the app can load it lazily. */
-export const IMPORT_ACCEPT = '.xlsx,.xls,.csv';
+export const IMPORT_ACCEPT = '.xlsx';
+export const isXlsxName = (fileName) => /\.xlsx$/i.test(String(fileName || '').trim());
 
 export function readVenueFile(fileName, data, XLSX) {
   const name = String(fileName || '');
-  const excel = /\.xlsx?$/i.test(name);
-  if (!excel && !/\.csv$/i.test(name)) throw new Error(`${name || 'That file'} isn’t an Excel (.xlsx) or CSV file`);
-  const wb = excel ? XLSX.read(data, { type: 'array' }) : XLSX.read(typeof data === 'string' ? data : new TextDecoder().decode(data), { type: 'string', raw: true });
-  const sheetName = excel ? wb.SheetNames.find((n) => norm(n) === 'venues') : wb.SheetNames[0];
+  if (!isXlsxName(name)) throw new Error(`${name || 'That file'} isn’t an Excel .xlsx file — save it as .xlsx (Excel Workbook) and try again`);
+  let wb;
+  try {
+    wb = XLSX.read(data, { type: 'array' });
+  } catch {
+    throw new Error(`${name} couldn’t be opened as an Excel workbook`);
+  }
+  const sheetName = wb.SheetNames.find((n) => norm(n) === 'venues');
   if (!sheetName) throw new Error(`${name} has no “Venues” sheet — fill in the Venues sheet of the template`);
   return XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, defval: '', blankrows: false });
 }

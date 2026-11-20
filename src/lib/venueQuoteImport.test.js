@@ -72,14 +72,18 @@ describe('reading the file', () => {
     expect(readFixture({ sheetName: ' venues ' })[1][0]).toBe('Stamford Yacht Club');
   });
 
-  it('rejects a file that is neither Excel nor CSV', () => {
-    expect(() => readVenueFile('venues.pdf', new Uint8Array([1, 2]), XLSX)).toThrow(/isn’t an Excel \(\.xlsx\) or CSV file/);
-    expect(() => readVenueFile('venues.numbers', new Uint8Array([1, 2]), XLSX)).toThrow(/isn’t an Excel/);
+  it('rejects any file that isn’t .xlsx — CSV and old .xls included', () => {
+    for (const name of ['venues.pdf', 'venues.numbers', 'venues.csv', 'venues.xls', 'venues.xlsm', 'venues']) {
+      expect(() => readVenueFile(name, new Uint8Array([1, 2]), XLSX)).toThrow(/isn’t an Excel \.xlsx file/);
+    }
+    const csvWb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(csvWb, XLSX.utils.aoa_to_sheet([['Venue'], ['Barn']]), 'Venues');
+    const csvBytes = XLSX.write(csvWb, { type: 'array', bookType: 'csv' });
+    expect(() => readVenueFile('venues.csv', csvBytes, XLSX)).toThrow(/isn’t an Excel \.xlsx file/);
   });
 
-  it('reads a CSV as its one table', () => {
-    const rows = readVenueFile('venues.csv', `Venue,${SITE_FEE},Availability\nBarn,"$9,000",Fridays\n`, XLSX);
-    expect(rows).toEqual([['Venue', SITE_FEE, 'Availability'], ['Barn', '$9,000', 'Fridays']]);
+  it('takes .xlsx whatever the capitals of its extension', () => {
+    expect(readVenueFile('VENUES.XLSX', fixtureWorkbook(), XLSX)[1][0]).toBe('Stamford Yacht Club');
   });
 
   it('rejects a sheet with no Venue column, or no venue rows', () => {
@@ -114,7 +118,7 @@ describe('reading a cell', () => {
   });
 
   it('marks what it can’t read rather than guessing', () => {
-    for (const s of ['TBD', 'call for pricing', '$12,000 - $15,000', 'about 5000', '$', 'per person', '-500']) {
+    for (const s of ['TBD', 'call for pricing', '$12,000 - $15,000', 'about 5000', '$', 'per person', '-500', 'yes', 'Y', 'n/a']) {
       expect(parseQuoteCell(s)).toEqual({ bad: true });
     }
     expect(parseQuoteCell(-5)).toEqual({ bad: true });
@@ -248,7 +252,7 @@ describe('headings that match no budget line', () => {
     expect(r.columns.find((c) => c.header === 'Helicopter')).toMatchObject({ kind: 'unknown', id: null, suggestion: null });
   });
 
-  it('suggests the line the template’s site-fee heading means on a budget that calls it “Venue site fee”', () => {
+  it('suggests — but doesn’t pick — the line the template’s site-fee heading means on a budget that calls it “Venue site fee”', () => {
     const seedLines = quoteSheetLines(seed);
     const siteId = seedLines.find((l) => l.label === 'Venue site fee').id;
     expect(suggestLine(SITE_FEE, seedLines)).toBe(siteId);
