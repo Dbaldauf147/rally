@@ -1042,14 +1042,11 @@ function useVenueImport({ plan, update, categories, setMsg }) {
     setPending(null);
     try {
       const XLSX = await import('xlsx');
-      const excel = /\.xlsx?$/i.test(file.name);
-      const rows = readVenueFile(file.name, excel ? await file.arrayBuffer() : await file.text(), XLSX);
-      const first = planQuoteImport(categories, plan.venueQuotes, rows); // throws on no Venue column / no rows
-      // Headings that match no line start on the line they most likely mean, if any.
-      const mapping = {};
-      for (const c of first.columns) if (c.kind === 'unknown' && c.suggestion) mapping[c.index] = c.suggestion;
+      const rows = readVenueFile(file.name, await file.arrayBuffer(), XLSX); // throws on a non-.xlsx file / no Venues sheet
+      planQuoteImport(categories, plan.venueQuotes, rows); // throws on no Venue column / no rows
+      // Headings that match no line start skipped; the preview offers the likely line, it doesn't pick it.
       setMsg(null);
-      setPending({ fileName: file.name, rows, mapping });
+      setPending({ fileName: file.name, rows, mapping: {} });
     } catch (err) {
       setMsg({ type: 'error', text: `Couldn’t import ${file.name}: ${err.message}. Nothing was changed.` });
     }
@@ -1119,8 +1116,8 @@ function VenueSheetTools({ plan, categories, msg, setMsg, importer }) {
   return (
     <div className={styles.sheetTools} data-testid="venue-sheet-tools">
       <button type="button" className={styles.sheetBtn} onClick={download} title="An Excel sheet with one row per venue and a column for each budget line — your saved venues are already in it">⬇ Download Excel template</button>
-      <button type="button" className={styles.sheetBtn} onClick={() => fileRef.current?.click()} title="Add or update many venues from a filled-in template (.xlsx or .csv)">⬆ Import venues from Excel</button>
-      <span className={styles.sheetDropHint}>or drop a filled-in .xlsx or .csv anywhere on this tab</span>
+      <button type="button" className={styles.sheetBtn} onClick={() => fileRef.current?.click()} title="Add or update many venues from a filled-in template (.xlsx)">⬆ Import venues from Excel</button>
+      <span className={styles.sheetDropHint}>or drop a filled-in .xlsx anywhere on this tab</span>
       <input ref={fileRef} type="file" accept={IMPORT_ACCEPT} hidden aria-label="Venue pricing spreadsheet to import" data-testid="venue-import-input"
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; importer.openFile(f); }} />
       {msg && <p className={msg.type === 'error' ? styles.sheetMsgErr : styles.sheetMsg} role="status">{msg.text}</p>}
@@ -1159,7 +1156,7 @@ function VenueImportPreview({ plan, categories, importer }) {
       {toMap.length > 0 && (
         <div className={styles.importSection} data-testid="venue-import-mapping">
           <h4 className={styles.importHead}>Columns that don’t match a budget line</h4>
-          <p className={styles.cardHint}>Pick the line each one is for, or skip it.</p>
+          <p className={styles.cardHint}>These are skipped unless you pick the budget line each one is for.</p>
           <table className={styles.importMapTable}>
             <tbody>
               {toMap.map((c) => (
@@ -1174,7 +1171,11 @@ function VenueImportPreview({ plan, categories, importer }) {
                         </optgroup>
                       ))}
                     </select>
-                    {c.suggestion && c.id === c.suggestion && <span className={styles.importSuggested}>suggested</span>}
+                    {c.suggestion && !c.id && (
+                      <button type="button" className={styles.importSuggest} onClick={() => setMapping(c.index, c.suggestion)} data-testid={`venue-import-suggest-${c.index}`}>
+                        Use “{labelOf.get(c.suggestion)}”?
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1225,7 +1226,7 @@ function VenueCompare({ plan, update, counts, onOpen }) {
   const importer = useVenueImport({ plan, update, categories: cats, setMsg: setSheetMsg });
   const dropZone = importer.dragging && (
     <div className={styles.dropZone} data-testid="venue-drop-zone" aria-hidden="true">
-      <span>Drop your .xlsx or .csv to import venues</span>
+      <span>Drop your .xlsx to import venues</span>
     </div>
   );
   const cell = (v) => (v == null ? <span className={styles.dash}>—</span> : formatMoney(v) || '$0');
