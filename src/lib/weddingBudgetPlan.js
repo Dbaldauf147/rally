@@ -249,6 +249,7 @@ export function normalizePlan(raw) {
     categories,
     calculator: normalizeCalculator(r.calculator),
     venueQuotes: normalizeVenueQuotes(r.venueQuotes),
+    compareView: normalizeCompareView(r.compareView),
   };
 }
 
@@ -691,10 +692,24 @@ export function formatRate(n) {
 
    `availability` is free text ("Saturdays in June open"), not a price.
    `available` is the couple's own call on it — true (yes), false (no) or
-   null (not decided) — never read off the text.
+   null (not decided) — never read off the text. `hidden` takes the venue
+   out of the comparison table (and its lowest-price greens) until it's shown again.
 
    Amounts are keyed by budget line, like the calculator's, so every venue is
    priced against the same lines and the same sales-tax ticks. */
+/* How the comparison table is laid out: `order` is the column blocks' keys
+   (a summary column, or a budget category with its lines) left to right,
+   `sort` the column the venues are sorted by ({ key, dir: 'asc' | 'desc' }),
+   or null for the order they were saved in. Keys that no longer name a
+   column are ignored when the table is drawn, not dropped here. */
+function normalizeCompareView(raw) {
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const order = Array.isArray(r.order) ? [...new Set(r.order.filter((k) => typeof k === 'string' && k))] : [];
+  const s = r.sort && typeof r.sort === 'object' ? r.sort : null;
+  const sort = s && typeof s.key === 'string' && s.key && (s.dir === 'asc' || s.dir === 'desc') ? { key: s.key, dir: s.dir } : null;
+  return { order, sort };
+}
+
 function normalizeVenueQuotes(raw) {
   const seen = new Set();
   const out = [];
@@ -704,7 +719,7 @@ function normalizeVenueQuotes(raw) {
     const id = str(q.id) || newId('v');
     if (!name || seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, name, ...normalizeCalculator(q), availability: str(q.availability).trim(), available: typeof q.available === 'boolean' ? q.available : null, savedAt: str(q.savedAt) });
+    out.push({ id, name, ...normalizeCalculator(q), availability: str(q.availability).trim(), available: typeof q.available === 'boolean' ? q.available : null, hidden: q.hidden === true, savedAt: str(q.savedAt) });
   }
   return out;
 }
@@ -734,6 +749,11 @@ export function saveVenueQuote(quotes, name, calc, now = new Date()) {
 export function setVenueAvailable(quotes, id, available) {
   const v = typeof available === 'boolean' ? available : null;
   return (quotes || []).map((q) => (q.id === id ? { ...q, available: v } : q));
+}
+
+/* Hide a saved venue from the comparison (true) or bring it back (false). */
+export function setVenueHidden(quotes, id, hidden) {
+  return (quotes || []).map((q) => (q.id === id ? { ...q, hidden: !!hidden } : q));
 }
 
 /* True when the calculator holds exactly what a saved venue holds — nothing
@@ -837,7 +857,7 @@ export function venueComparison(categories, quotes, rate, budget = 0, guestN = 0
   const venues = list.map((q, qi) => {
     const t = calculatorTotals(categories, dollars[qi], rate, inc[qi]);
     return {
-      id: q.id, name: q.name, savedAt: q.savedAt, availability: q.availability || '', available: typeof q.available === 'boolean' ? q.available : null, ...t,
+      id: q.id, name: q.name, savedAt: q.savedAt, availability: q.availability || '', available: typeof q.available === 'boolean' ? q.available : null, hidden: !!q.hidden, ...t,
       foodPerPerson: guestN > 0 && t.foodLines > 0 ? t.food / guestN : null,
       venuePerPerson: (() => {
         const g = venueGroupOf(calculatorGroupTotals(categories, dollars[qi], rate, inc[qi]));
