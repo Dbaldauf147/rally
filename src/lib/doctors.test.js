@@ -10,7 +10,7 @@ import {
   addType, renameType, removeType, moveType, sameType, showsStatusBadge,
   telHref, mailHref, mapHref, safeLink, linkLabel, seedDoctors,
   isCheckInEntry, isIssueEntry, isFormerEntry, setEntryFormer, laneCounts, checkInEntries,
-  formerDoctorsByType, personKey, doctorDirectory, updateDoctor,
+  formerDoctorsByType, personKey, doctorDirectory, updateDoctor, setDoctorFormer,
   addQuestion, updateQuestion, removeQuestion, toggleQuestionTag, addQuestionTag,
   removeQuestionTag, groupQuestions, questionTagCounts, questionMatches, normalizeQuestion,
   normalizeAppointments, lastAppointment, nextAppointment, upcomingVisit,
@@ -2484,5 +2484,28 @@ describe('the Doctors tab', () => {
     expect(byId.b.phone).toBe('917-555-0123');
     expect(byId.a.issue).toBe('Rash');
     expect(byId.c.phone).toBe('');
+  });
+});
+
+describe('setDoctorFormer', () => {
+  const list = normalizeList({
+    types: [],
+    entries: [
+      { id: 'a', doctor: 'Sochulak, Stephen', type: 'Skin', issue: 'Jock itch' },
+      { id: 'b', doctor: 'Dr. Sochulak Stephen', type: 'Skin', issue: 'Rash' },
+      { id: 'c', doctor: 'Matthew Kim', type: 'Ear' },
+    ],
+  });
+
+  it('marks every record of the doctor as old, keeps them listed last, and undoes', () => {
+    const d = doctorDirectory(list).find((x) => x.name.startsWith('Sochulak'));
+    const marked = setDoctorFormer(list, d.ids, true);
+    expect(marked.entries.map((e) => e.former)).toEqual([true, true, false]);
+    expect(marked.entries[0]).toMatchObject({ issue: 'Jock itch', type: 'Skin' });
+    const dir = doctorDirectory(marked);
+    expect(dir.map((x) => x.former)).toEqual([false, true]);
+    expect(dir[1].entries).toHaveLength(2);
+    expect(marked.entries.filter((e) => isCheckInEntry(e, marked.entries))).toHaveLength(1);
+    expect(setDoctorFormer(marked, d.ids, false).entries.every((e) => !e.former)).toBe(true);
   });
 });

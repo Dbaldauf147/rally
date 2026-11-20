@@ -720,6 +720,19 @@ export function setEntryFormer(list, id, former) {
   });
 }
 
+/* The same, for a whole doctor at once — what the Doctors tab's pop-up does.
+
+   A doctor there is every record filed under them, and "I don't see them any
+   more" is true of all of those, not just the first. */
+export function setDoctorFormer(list, ids, former) {
+  const wanted = new Set(ids || []);
+  const l = normalizeList(list);
+  return normalizeList({
+    ...l,
+    entries: l.entries.map((e) => (wanted.has(e.id) ? { ...e, former: !!former } : e)),
+  });
+}
+
 /* The doctors you used to see, by speciality.
  *
  * What the "Was:" line on a Check-ins row reads: a speciality whose doctor has
