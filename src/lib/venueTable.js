@@ -12,7 +12,7 @@
 
 import {
   MONEY_KEYS, VENUE_FIELDS, VENUE_STATUSES, cleanMoney, formatDateList, formatMoney, normalizeAllInclusive, normalizeVenue, parseMoney, parseMoneyRange,
-  parseReachedOut, sameVenue, sortVenues, withReachedOut,
+  parseReachedOut, sameVenue, sortVenues, statusSince, withReachedOut,
 } from './weddingVenues.js';
 import { NO_AREA, venueArea } from './venueAreas.js';
 
@@ -23,9 +23,11 @@ import { NO_AREA, venueArea } from './venueAreas.js';
 // `noFit` is why a venue was marked Not a fit — the reasons checked off and
 // the notes under them (lib/venueNoFit.js) — so it's picked in its pop-up.
 export const NO_FIT_COLUMN = { key: 'noFit', label: 'Why not a fit', readOnly: true, wide: true };
+// The day the venue moved to its current status (lib/weddingVenues.js), stamped when it changes.
+export const STATUS_DATE_COLUMN = { key: 'statusDate', label: 'Status changed', readOnly: true };
 export const BUILTIN_COLUMNS = [
   ...VENUE_FIELDS.flatMap((f) => (f.key === 'location' ? [{ ...f }, { key: 'area', label: 'Area', readOnly: true }]
-    : f.key === 'status' ? [{ ...f }, { ...NO_FIT_COLUMN }] : [{ ...f }])),
+    : f.key === 'status' ? [{ ...f }, { ...NO_FIT_COLUMN }, { ...STATUS_DATE_COLUMN }] : [{ ...f }])),
   { key: 'emails', label: 'Emails', readOnly: true },
 ];
 const BUILTIN_KEYS = BUILTIN_COLUMNS.map((c) => c.key);
@@ -34,7 +36,7 @@ const BUILTIN_KEYS = BUILTIN_COLUMNS.map((c) => c.key);
 // kept per column, clamped so it can't vanish or swallow the screen.
 export const MIN_COL_WIDTH = 60;
 export const MAX_COL_WIDTH = 800;
-const DEFAULT_WIDTHS = { name: 200, status: 140, email: 210, website: 180, lastContactDate: 140, emails: 100, area: 180, venueFeeLow: 150, venueFeeHigh: 155, perPersonLow: 155, perPersonHigh: 160, allInclusive: 120 };
+const DEFAULT_WIDTHS = { name: 200, status: 140, statusDate: 130, email: 210, website: 180, lastContactDate: 140, emails: 100, area: 180, venueFeeLow: 150, venueFeeHigh: 155, perPersonLow: 155, perPersonHigh: 160, allInclusive: 120 };
 export function defaultColumnWidth(col) {
   return DEFAULT_WIDTHS[col?.key] || (col?.wide ? 230 : 160);
 }
@@ -240,12 +242,13 @@ export function cellValue(v, key) {
   // The reasons, then the notes — blank unless the venue is Not a fit now.
   if (key === 'noFit') return v?.status === 'Not a fit' ? [(v.noFitReasons || []).join(' · '), str(v.noFitNotes)].filter(Boolean).join(' — ') : '';
   if (key === 'availableDates') return formatDateList(v?.availableDates);
+  if (key === 'statusDate') return statusSince(v);
   return typeof v?.[key] === 'string' ? v[key] : '';
 }
 
 // A venue with one cell changed, cleaned the way it'll be saved.
 export function withCellValue(v, key, value) {
-  if (key === 'emails') return v;
+  if (key === 'emails' || key === 'statusDate') return v;
   if (key === 'area') return normalizeVenue({ ...v, area: value });
   // Reasons from a sheet, as an export writes them: "Too expensive · Too far".
   if (key === 'noFit') {
@@ -417,6 +420,8 @@ export function autoMapVenueHeaders(headerRow, customColumns = []) {
     if (!key && /^(to visit|visit|place to visit)$/.test(t)) key = 'toVisit';
     if (!key && /^(reached out|contacted|outreach( sent)?)\??$/.test(t)) key = 'reachedOut';
     if (!key && t === 'area') key = 'area';
+    // Written by an export; read back as nothing, since Rally dates the changes itself.
+    if (!key && /^status (changed|date|since)$/.test(t)) key = 'statusDate';
     if (!key && /^(why )?not a fit( reasons?)?$|^reasons? not a fit$|^why not$/.test(t)) key = 'noFit';
     if (!key) key = HEADER_RULES.find(([k, re]) => !used.has(k) && re.test(t))?.[0];
     if (!key || used.has(key)) return /[a-z]/.test(t) ? 'new' : '';

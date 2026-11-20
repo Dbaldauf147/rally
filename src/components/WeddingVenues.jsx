@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   VENUE_FIELDS, VENUE_STATUSES, gmailThreadUrl, mergeScannedVenues, newVenueId,
   cleanMoney, formatAvailableDate, normalizeDateList, normalizeVenue, venueNameKey,
-  REACH_VIAS, reachedLabel, withReachedOut, applyEmailVenue,
+  REACH_VIAS, reachedLabel, withReachedOut, applyEmailVenue, stampStatusChanges, statusSince, withStatusDate,
 } from '../lib/weddingVenues';
 import { dropPayload } from '../lib/emailDrop';
 import { VenueEmailDrop } from './VenueEmailDrop';
@@ -175,6 +175,29 @@ function DateListEditor({ dates, onChange }) {
   );
 }
 
+/* The venue's status changes, newest first, under the Status picker. Each
+   date can be corrected (a tour that happened before it was logged). */
+function StatusHistory({ venue, onDate }) {
+  const history = venue.statusHistory || [];
+  if (!history.length) return <span className={vs.statusHistoryNone}>Status dates are kept from its next change.</span>;
+  return (
+    <span className={vs.statusHistory} data-testid="status-history">
+      {history.map((h, i) => ({ h, i })).reverse().map(({ h, i }) => (
+        <span key={i} className={vs.statusHistoryRow}>
+          <span className={vs.statusHistoryName}>{h.status}</span>
+          <input
+            type="date"
+            className={vs.statusHistoryDate}
+            value={h.date}
+            onChange={(e) => onDate(i, e.target.value)}
+            aria-label={`Date ${venue.name || 'the venue'} became ${h.status}`}
+          />
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /* One editable cell. Typing stays local and saves when you leave the cell or
    press Enter (Escape puts it back), so a save never lands mid-word. */
 function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, whyHasColumn = false, areas = [] }) {
@@ -200,6 +223,14 @@ function EditCell({ venue, col, gmailEmail, onCommit, onPasteGrid, onNoFitWhy, w
         {venue.noFitNotes && <span className={vs.noFitNote}>{venue.noFitNotes}</span>}
       </button>
     );
+  }
+  if (col.key === 'statusDate') {
+    const since = statusSince(venue);
+    const history = venue.statusHistory || [];
+    const title = history.length ? history.map((h) => `${h.status} — ${fmtDate(h.date)}`).join('\n') : 'Not recorded yet — dated from the next status change';
+    return since
+      ? <span className={vs.statusDate} title={title} data-testid={`status-date-${venue.name}`}>{fmtDate(since)}</span>
+      : <span className={styles.muted} title={title}>—</span>;
   }
   if (col.key === 'emails') {
     return venue.threadIds.length > 0 ? (
@@ -377,9 +408,11 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
 
   const persist = async (next, extra = {}) => {
     if (!user) return;
-    venuesRef.current = next;
-    setVenues(next);
-    await setDoc(doc(db, 'users', user.uid), { weddingVenues: next, ...extra }, { merge: true });
+    // Every status that changed gets today's date (lib/weddingVenues.js).
+    const stamped = stampStatusChanges(venuesRef.current, next);
+    venuesRef.current = stamped;
+    setVenues(stamped);
+    await setDoc(doc(db, 'users', user.uid), { weddingVenues: stamped, ...extra }, { merge: true });
   };
 
   const callApi = useCallback((body) => callVenuesApi(user, body), [user]);
@@ -497,7 +530,13 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!editing]);
-  const setField = (key, value) => setEditing((e) => (e ? { ...e, [key]: value } : e));
+  // A status picked in the pop-up is dated on the draft itself, so the
+  // draft's next autosave carries the entry rather than writing over it.
+  const setField = (key, value) => setEditing((e) => {
+    if (!e) return e;
+    if (key === 'status' && value !== e.status) return stampStatusChanges([e], [{ ...e, status: value }])[0];
+    return { ...e, [key]: value };
+  });
 
   const deleteVenue = async (v) => {
     if (!confirm(`Delete ${v.name || 'this venue'}?${v.source === 'gmail' ? ' A later scan won’t add it back.' : ''}`)) return;
@@ -583,7 +622,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
       extra.weddingVenueNoFitReasonList = nextList;
     }
     if (from === 'editor') {
-      setEditing((d) => (d ? { ...d, status: 'Not a fit', noFitReasons: reasons, noFitNotes } : d));
+      setEditing((d) => (d ? { ...stampStatusChanges([d], [{ ...d, status: 'Not a fit' }])[0], noFitReasons: reasons, noFitNotes } : d));
       if (extra.weddingVenueNoFitReasonList && user) setDoc(doc(db, 'users', user.uid), extra, { merge: true }).catch(saveError);
       return;
     }
@@ -1672,6 +1711,7 @@ export function WeddingVenues({ subnav, hiddenOnly = false } = {}) {
                         >
                           {VENUE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
+                        <StatusHistory venue={editing} onDate={(i, date) => setEditing((d) => (d ? withStatusDate(d, i, date) : d))} />
                         {editing.status === 'Not a fit' && (
                           <span className={vs.noFitDetail}>
                             {editing.noFitReasons?.length ? formatReasons(editing.noFitReasons) : 'No reason given yet.'}

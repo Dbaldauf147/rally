@@ -158,6 +158,10 @@ export function normalizeVenue(v, { id } = {}) {
   }
   out.status = VENUE_STATUSES.includes(v?.status) ? v.status : 'Researching';
   out.lastContactDate = /^\d{4}-\d{2}-\d{2}$/.test(str(v?.lastContactDate)) ? str(v.lastContactDate) : '';
+  // Each status the venue has had and the day it moved there, oldest first
+  // (stampStatusChanges adds them). A venue saved before this was kept has
+  // none until its status next changes.
+  out.statusHistory = normalizeStatusHistory(v?.statusHistory);
   out.availableDates = normalizeDateList(v?.availableDates);
   out.threadIds = [...new Set((Array.isArray(v?.threadIds) ? v.threadIds : []).map(str).filter(Boolean))];
   out.source = v?.source === 'gmail' ? 'gmail' : 'manual';
@@ -196,6 +200,49 @@ export function normalizeVenue(v, { id } = {}) {
     for (const [k, val] of Object.entries(v.scanned)) if ([...TEXT_KEYS, ...MONEY_KEYS].includes(k) && typeof val === 'string') out.scanned[k] = val;
   }
   return out;
+}
+
+/* ── When the status changed ──
+   `statusHistory: [{ status, date: 'YYYY-MM-DD' }]`, oldest first. */
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+export function normalizeStatusHistory(raw) {
+  const out = [];
+  for (const h of Array.isArray(raw) ? raw : []) {
+    if (!h || !VENUE_STATUSES.includes(h.status) || !YMD.test(str(h.date))) continue;
+    out.push({ status: h.status, date: str(h.date) });
+  }
+  return out.slice(-50);
+}
+
+// The day the venue moved to the status it has now ('' when not known).
+export function statusSince(v) {
+  const last = v?.statusHistory?.[v.statusHistory.length - 1];
+  return last && last.status === v.status ? last.date : '';
+}
+
+/* The list about to be saved, with today's date on every venue whose status
+   differs from the saved one — and on a venue new to the list, its starting
+   status. `prev` is the list as saved. A venue already stamped with the
+   status it has keeps its date. */
+export function stampStatusChanges(prev, next, today = ymd(new Date())) {
+  const before = new Map((Array.isArray(prev) ? prev : []).map((v) => [v?.id, v]));
+  return (Array.isArray(next) ? next : []).map((v) => {
+    if (!v || !VENUE_STATUSES.includes(v.status)) return v;
+    const old = before.get(v.id);
+    if (old && old.status === v.status) return v;
+    const history = normalizeStatusHistory(v.statusHistory);
+    if (history[history.length - 1]?.status === v.status) return v;
+    return { ...v, statusHistory: [...history, { status: v.status, date: today }].slice(-50) };
+  });
+}
+
+// A date in the history corrected by hand.
+export function withStatusDate(v, index, date) {
+  if (!YMD.test(str(date))) return v;
+  const history = normalizeStatusHistory(v.statusHistory);
+  if (!history[index]) return v;
+  history[index] = { ...history[index], date: str(date) };
+  return { ...v, statusHistory: history };
 }
 
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

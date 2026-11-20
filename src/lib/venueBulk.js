@@ -100,6 +100,7 @@ const TEMPLATE_HINTS = {
   availableDates: 'Dates it’s free, separated by semicolons, e.g. Jun 12, 2027; Jun 19, 2027.',
   lastContactDate: 'A date, e.g. 2026-11-18.',
   noFit: 'Only for a venue that’s Not a fit: the reasons, separated by " · ".',
+  statusDate: 'Leave blank: Rally fills in the day the status changes.',
 };
 
 export function venueTemplateSheets(config) {
