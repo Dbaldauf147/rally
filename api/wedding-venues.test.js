@@ -352,6 +352,9 @@ describe('daily scheduled scan', () => {
     expect(u.weddingVenues[0]).toMatchObject({ venueFeeLow: '$18,000', venueFeeHigh: '$21,500', perPersonLow: '$150', perPersonHigh: '$205', allInclusive: 'No', status: 'Quote received' });
     expect(u.weddingVenues[1]).toMatchObject({ venueFeeLow: '', perPersonLow: '$210', perPersonHigh: '$210' });
     expect(u.weddingVenues[1]).toMatchObject({ allInclusive: 'Yes', source: 'gmail' });
+    // The status the scan moved on, and the new venue's, are dated with the day of the scan.
+    expect(u.weddingVenues[0].statusHistory).toEqual([{ status: 'Quote received', date: '2026-11-11' }]);
+    expect(u.weddingVenues[1].statusHistory).toEqual([{ status: 'Replied', date: '2026-11-11' }]);
     expect(u.weddingGmail).toMatchObject({ lastAutoScanDate: '2026-11-11', lastAutoScan: { added: ['Pridwin'], updatedCount: 1 } });
     expect(u.weddingGmail.lastScanAt).toBeTruthy();
 

@@ -46,7 +46,7 @@ import { aiFailureDetail, aiFailureReason, basicEmailVenue, findThread, gmailRef
 import { GMAIL_SCOPES } from '../lib/weddingGmailAuth.js';
 import { buildRawEmail, createDraft } from '../lib/weddingVenueDraft.js';
 import { draftOf, fillTemplate, replySettingsFor, subjectOf, templateOf } from '../src/lib/weddingVenueReply.js';
-import { mergeScannedVenues, normalizeVenue } from '../src/lib/weddingVenues.js';
+import { mergeScannedVenues, normalizeVenue, stampStatusChanges } from '../src/lib/weddingVenues.js';
 import { lookupMapsLink } from '../lib/venueMapsLookup.js';
 
 export const config = { maxDuration: 300 };
@@ -206,7 +206,10 @@ async function scheduledScan(req, res, db, now = new Date()) {
       // Re-read: the scan takes a while and the page may have saved meanwhile.
       const fresh = (await userRef.get()).data() || {};
       const existing = Array.isArray(fresh.weddingVenues) ? fresh.weddingVenues.map((v) => normalizeVenue(v)) : [];
-      const { list, added, updated } = mergeScannedVenues(existing, scan.venues, fresh.weddingVenueDismissed || []);
+      const merged = mergeScannedVenues(existing, scan.venues, fresh.weddingVenueDismissed || []);
+      const { added, updated } = merged;
+      // Statuses the scan moved on are dated with the couple's own day.
+      const list = stampStatusChanges(existing, merged.list, day);
       const summary = {
         day, threadCount: scan.threadCount, added, updatedCount: updated.length, at: now.toISOString(),
         ...(scan.ai ? { aiError: scan.ai.error, aiDetail: scan.ai.detail || '' } : {}),

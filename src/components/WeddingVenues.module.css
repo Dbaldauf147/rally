@@ -301,3 +301,11 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
 }
 .dropOverlayInner strong { display: block; font-size: 1.1rem; margin-bottom: 0.3rem; }
+
+/* When the status changed: the table's date, and the history under the pop-up's picker. */
+.statusDate { font-size: 0.85rem; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: help; }
+.statusHistory { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.4rem; }
+.statusHistoryRow { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; color: var(--color-text-secondary); }
+.statusHistoryName { min-width: 0; }
+.statusHistoryDate { padding: 0.1rem 0.3rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 0.8rem; }
+.statusHistoryNone { display: block; margin-top: 0.35rem; font-size: 0.75rem; color: var(--color-text-muted); }

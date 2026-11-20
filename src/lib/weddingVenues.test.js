@@ -1,6 +1,7 @@
 /* global Buffer */
 import { describe, it, expect } from 'vitest';
-import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, gmailDraftsUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut, matchVenue, planEmailVenue, applyEmailVenue } from './weddingVenues';
+import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, gmailDraftsUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut, matchVenue, planEmailVenue, applyEmailVenue, stampStatusChanges, statusSince, withStatusDate } from './weddingVenues';
+import { cellValue, withCellValue } from './venueTable';
 import { buildGmailQuery, dropQuoted, messageBody, threadText } from '../../lib/weddingVenueScan.js';
 
 describe('venueNameKey / sameVenue', () => {
@@ -283,5 +284,35 @@ describe('an email dropped onto the page', () => {
     const n = applyEmailVenue([mine], found, '');
     expect(n.added).toBe(true);
     expect(n.list).toHaveLength(2);
+  });
+});
+
+describe('status dates', () => {
+  const base = (over = {}) => normalizeVenue({ id: 'v1', name: 'Barn', status: 'Researching', ...over });
+  it('dates a changed status and a new venue, and leaves an unchanged one alone', () => {
+    const saved = [base(), base({ id: 'v2', name: 'Inn' })];
+    const next = [{ ...saved[0], status: 'Toured' }, saved[1], base({ id: 'v3', name: 'Loft', status: 'Inquired' })];
+    const out = stampStatusChanges(saved, next, '2026-11-20');
+    expect(out[0].statusHistory).toEqual([{ status: 'Toured', date: '2026-11-20' }]);
+    expect(out[1]).toBe(saved[1]);
+    expect(out[2].statusHistory).toEqual([{ status: 'Inquired', date: '2026-11-20' }]);
+    expect(statusSince(out[0])).toBe('2026-11-20');
+    expect(statusSince(out[1])).toBe('');
+  });
+  it('adds on to the history, and does not stamp twice', () => {
+    const v = base({ status: 'Inquired', statusHistory: [{ status: 'Inquired', date: '2026-11-01' }] });
+    const moved = stampStatusChanges([v], [{ ...v, status: 'Replied' }], '2026-11-05')[0];
+    expect(moved.statusHistory.map((h) => h.status)).toEqual(['Inquired', 'Replied']);
+    // A draft already dated (the pop-up) saved over the old status keeps its date.
+    expect(stampStatusChanges([v], [moved], '2026-11-09')[0]).toBe(moved);
+    expect(statusSince({ ...moved, status: 'Inquired' })).toBe('');
+  });
+  it('keeps the history through normalizing, dropping bad entries, and corrects a date', () => {
+    const v = normalizeVenue({ name: 'Barn', status: 'Toured', statusHistory: [{ status: 'Toured', date: '2026-10-02' }, { status: 'Nope', date: '2026-10-03' }, { status: 'Toured', date: 'soon' }] });
+    expect(v.statusHistory).toEqual([{ status: 'Toured', date: '2026-10-02' }]);
+    expect(withStatusDate(v, 0, '2026-09-30').statusHistory[0].date).toBe('2026-09-30');
+    expect(withStatusDate(v, 0, 'bad')).toBe(v);
+    expect(cellValue(v, 'statusDate')).toBe('2026-10-02');
+    expect(withCellValue(v, 'statusDate', '2020-01-01')).toBe(v);
   });
 });
