@@ -219,15 +219,9 @@
 .compareBest { display: inline-block; margin-top: 0.15rem; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--color-success-light, #dcfce7); color: var(--color-success, #15803d); font-size: 0.66rem; }
 .compareActs { display: flex; justify-content: flex-end; align-items: center; gap: 0.2rem; text-transform: none; letter-spacing: 0; }
 .compareTable td { padding: 0.28rem 0.5rem; border-bottom: 1px solid var(--color-border); }
-.compareCat td { padding-top: 0.7rem; font-weight: 650; border-bottom: none; }
-.compareLine { padding-left: 1.2rem !important; max-width: 20rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); }
-.compareCatLine { font-weight: 650; max-width: 20rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compareNum, .compareLow, .compareBudget { padding-right: 0.75rem !important; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .compareBudget { color: var(--color-text-muted); }
 .compareLow { color: var(--color-success, #15803d); font-weight: 700; }
-.compareTable tfoot td { padding-right: 0.75rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; border-bottom: none; padding-top: 0.3rem; padding-bottom: 0.2rem; }
-.compareTable tfoot td:first-child { text-align: left; }
-.compareTable tfoot tr:first-child td { border-top: 2px solid var(--color-border); padding-top: 0.5rem; }
 .compareTotalLow { font-weight: 750; color: var(--color-success, #15803d); }
 .compareSmall { font-weight: 500; font-size: 0.72rem; color: var(--color-text-muted); }
 
@@ -256,9 +250,6 @@
 .calcSubRemove { flex: 0 0 auto; width: 18px; height: 18px; padding: 0; border: none; background: none; color: var(--color-text-muted); font-size: 0.95rem; line-height: 1; cursor: pointer; }
 .calcSubRemove:hover { color: var(--color-danger, #b91c1c); }
 .calcPpBtn:disabled, .calcPpOn:disabled { opacity: 0.15; cursor: default; }
-.compareSubItem td { border-bottom: none; padding-top: 0.1rem; padding-bottom: 0.1rem; font-size: 0.8rem; }
-.compareSubName { padding-left: 2.1rem !important; max-width: 20rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); }
-.compareSubItem .compareNum { color: var(--color-text-secondary); }
 
 /* Venue cost comparison: download the Excel template, import it back. */
 .sheetTools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 1rem; }
@@ -296,3 +287,21 @@
   .importMapTable, .importMapTable tbody, .importMapTable tr, .importMapTable td { display: block; }
   .importSelect { box-sizing: border-box; width: 100%; max-width: 100%; }
 }
+
+/* Venue cost comparison, one row per venue: the name column stays put while the lines scroll. */
+.compareTable th.compareCorner, .compareTable .compareRowHead { position: sticky; left: 0; z-index: 1; background: var(--color-surface); text-align: left; min-width: 11rem; max-width: 15rem; box-shadow: 1px 0 0 var(--color-border); }
+.compareTable .compareRowHead { vertical-align: top; padding: 0.45rem 0.6rem 0.45rem 0.5rem; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--color-text); white-space: normal; }
+.compareRowHead .compareActs { justify-content: flex-start; margin-top: 0.1rem; }
+.compareTable th.compareGroupHead { text-align: left; vertical-align: bottom; height: 1.6rem; color: var(--color-text); border-bottom: 1px solid var(--color-border); white-space: normal; border-left: 1px solid var(--color-border); }
+.compareTable th.compareColHead, .compareTable th.compareSubHead, .compareTable th.compareTotalHead { text-align: right; text-transform: none; letter-spacing: 0; font-size: 0.74rem; font-weight: 650; color: var(--color-text-secondary); min-width: 6.5rem; max-width: 9.5rem; white-space: normal; line-height: 1.25; }
+.compareTable th.compareSubHead { font-weight: 500; color: var(--color-text-muted); }
+.compareTable th.compareTotalHead { color: var(--color-text); font-weight: 750; }
+.compareTable td { vertical-align: top; }
+.compareSubCell { font-size: 0.8rem; color: var(--color-text-secondary); }
+.compareFoot, .compareTotal { padding-right: 0.75rem !important; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--color-text-secondary); }
+.compareTotal { font-weight: 700; color: var(--color-text); }
+.compareTotalLow { padding-right: 0.75rem !important; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.compareBudgetRow td, .compareBudgetRow th { background: var(--color-surface-alt, transparent); }
+.compareBudgetRow .compareRowHead { color: var(--color-text-muted); font-size: 0.78rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
+.compareTable .compareTotalHead, .compareTable td.compareTotal, .compareTable td.compareTotalLow { background: var(--color-surface-alt, transparent); }
+.compareTable td.compareAvail { min-width: 12rem; max-width: 18rem; }
