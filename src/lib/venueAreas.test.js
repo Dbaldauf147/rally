@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NO_AREA, areaName, areaTerms, normalizeAreas, parseKeywords, unmappedVenues, venueArea } from './venueAreas';
+import { NO_AREA, areaForName, areaName, areaTerms, areasByVenueName, normalizeAreas, parseKeywords, unmappedVenues, venueArea } from './venueAreas';
 import { normalizeVenue } from './weddingVenues';
 import { allVenueColumns, normalizeColumnConfig, sortVenueRows, withCellValue } from './venueTable';
 
@@ -75,5 +75,44 @@ describe('location pros and cons', () => {
     expect(a).toEqual({ id: 'n', name: 'North Fork', keywords: ['Greenport'], pros: 'Wineries\nWater views', cons: '' });
     expect(normalizeAreas([{ id: 'x', name: 'X' }])[0]).toMatchObject({ pros: '', cons: '' });
     expect(venueArea({ location: 'Wineries Rd' }, [a]).area).toBe(null);
+  });
+});
+
+describe('areasByVenueName', () => {
+  const locs = [
+    { id: 'a1', name: 'Montauk', keywords: ['Montauk'] },
+    { id: 'a2', name: 'Connecticut shore', keywords: ['Stamford', 'Old Saybrook'] },
+  ];
+  const venues = [
+    { name: 'Mavericks Montauk', location: '' },
+    { name: 'Stamford Yacht Club', location: '97 Ocean Dr W, Stamford, CT' },
+    { name: 'The Candlewood Inn', area: 'a2' },
+    { name: 'Somewhere Else', location: 'Boston, MA' },
+    { name: 'Boathouse', area: NO_AREA },
+  ];
+
+  it('gives each venue its location, picked by hand or matched', () => {
+    const m = areasByVenueName(venues, locs);
+    expect(areaForName(m, 'Mavericks Montauk')).toBe('Montauk');
+    expect(areaForName(m, 'stamford  yacht club')).toBe('Connecticut shore');
+    expect(areaForName(m, 'The Candlewood Inn')).toBe('Connecticut shore');
+  });
+
+  it('finds a venue the way the Venues tab matches names ("The", "&", capitals)', () => {
+    const m = areasByVenueName(venues, locs);
+    expect(areaForName(m, 'Candlewood Inn')).toBe('Connecticut shore');
+    expect(areaForName(m, 'CANDLEWOOD INN')).toBe('Connecticut shore');
+  });
+
+  it('tells a venue in no location (\'\') from one not on the Venues tab (null)', () => {
+    const m = areasByVenueName(venues, locs);
+    expect(areaForName(m, 'Somewhere Else')).toBe('');
+    expect(areaForName(m, 'Boathouse')).toBe('');
+    expect(areaForName(m, 'Amarante’s Sea Cliff')).toBeNull();
+  });
+
+  it('is empty when no locations are set up', () => {
+    expect(areasByVenueName(venues, []).size).toBe(0);
+    expect(areasByVenueName(null, null).size).toBe(0);
   });
 });

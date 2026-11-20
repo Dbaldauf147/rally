@@ -11,6 +11,7 @@ import {
   categoryTaxPct, totalTaxPct, grossPct, calculatorGroups, calculatorTotals,
   saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf, setVenueAvailable,
 } from '../lib/weddingBudgetPlan';
+import { areaForName, areasByVenueName } from '../lib/venueAreas';
 import { IMPORT_ACCEPT, planQuoteImport, quoteSheetLines, quoteSheetRows, readVenueFile } from '../lib/venueQuoteSheet';
 import styles from './WeddingBudget.module.css';
 import navStyles from './WeddingDreamVenue.module.css';
@@ -36,6 +37,8 @@ function usePlan(userId) {
   const [counts, setCounts] = useState(() => guestCounts([]));
   // Names off the Venues tab on the same document, offered when saving a venue's pricing.
   const [venueNames, setVenueNames] = useState([]);
+  // Venue name → its location on the Venues tab, for the comparison's Area column.
+  const [venueAreas, setVenueAreas] = useState(() => new Map());
   const localEdits = useRef(0);
   const syncedEdits = useRef(0);
   const appliedJson = useRef(null);
@@ -64,6 +67,8 @@ function usePlan(userId) {
       const rawVenues = snap.exists() && Array.isArray(snap.data()?.weddingVenues) ? snap.data().weddingVenues : [];
       const names = [...new Set(rawVenues.filter((v) => v && !v.hidden).map((v) => String(v.name || '').trim()).filter(Boolean))].sort();
       setVenueNames((prev) => (prev.join('\n') === names.join('\n') ? prev : names));
+      const nextAreas = areasByVenueName(rawVenues, snap.exists() ? snap.data()?.weddingVenueAreas : []);
+      setVenueAreas((prev) => (JSON.stringify([...prev]) === JSON.stringify([...nextAreas]) ? prev : nextAreas));
       // Not skipped on hasPendingWrites: another field's write to this doc
       // (e.g. on sign-in) would hide the first load, and the server ack is a
       // metadata-only change that never fires here. Our own echo matches
@@ -100,7 +105,7 @@ function usePlan(userId) {
     });
   }, [flushWrite]);
 
-  return { plan, update, saved, counts, venueNames };
+  return { plan, update, saved, counts, venueNames, venueAreas };
 }
 
 /* A number field ("$12,000", "7.5%") that only commits when you leave it or
@@ -1257,7 +1262,7 @@ function AvailabilityPopover({ venue, anchor, onSet, onClose }) {
   );
 }
 
-function VenueCompare({ plan, update, counts, onOpen }) {
+function VenueCompare({ plan, update, counts, venueAreas, onOpen }) {
   const { amount: budget } = effectiveTotal(plan);
   const guestN = headcount(plan.guests, counts);
   const cats = resolveCategories(plan.categories, budget, guestN);
@@ -1272,6 +1277,12 @@ function VenueCompare({ plan, update, counts, onOpen }) {
     </div>
   );
   const cell = (v) => (v == null ? <span className={styles.dash}>—</span> : formatMoney(v) || '$0');
+  // Area, from the Venues tab: shown when locations are set up there.
+  const showArea = venueAreas?.size > 0;
+  const areaCell = (v) => {
+    const a = areaForName(venueAreas, v.name);
+    return a ? a : <span className={styles.dash} title={a === null ? 'Not on the Venues tab under this name' : 'In none of your locations'}>—</span>;
+  };
   // The venue whose availability pop-up is open, and the pill it hangs off.
   const [availFor, setAvailFor] = useState(null);
   const closeAvail = useCallback(() => setAvailFor(null), []);
@@ -1369,7 +1380,8 @@ function VenueCompare({ plan, update, counts, onOpen }) {
         <table className={styles.compareTable} data-testid="compare-table">
           <thead>
             <tr>
-              <th rowSpan={2} className={styles.compareCorner}>Venue</th>
+              {showArea && <th rowSpan={2} className={styles.compareAreaHead}>Area</th>}
+              <th rowSpan={2} className={showArea ? `${styles.compareCorner} ${styles.compareAfterArea}` : styles.compareCorner}>Venue</th>
               {lead.map((t) => <th key={t.key} rowSpan={2} className={t.key === 'total' ? styles.compareTotalHead : styles.compareColHead}>{t.label}</th>)}
               {groups.map((g) => (g.single ? (
                 <th key={g.key} rowSpan={2} className={styles.compareColHead} title={g.name}>{g.name}</th>
@@ -1387,7 +1399,8 @@ function VenueCompare({ plan, update, counts, onOpen }) {
           <tbody>
             {budget > 0 && (
               <tr className={styles.compareBudgetRow} data-testid="compare-budget-row">
-                <th scope="row" className={styles.compareRowHead}>Budgeted</th>
+                {showArea && <td className={styles.compareArea} />}
+                <th scope="row" className={showArea ? `${styles.compareRowHead} ${styles.compareAfterArea}` : styles.compareRowHead}>Budgeted</th>
                 {lead.map((t) => <td key={t.key} className={styles.compareBudget}>{t.budget ?? ''}</td>)}
                 {cols.map((r) => <td key={r.id} className={styles.compareBudget}>{r.kind === 'line' ? cell(r.budgeted) : ''}</td>)}
                 {tail.map((t) => <td key={t.key} className={styles.compareBudget}>{t.budget ?? ''}</td>)}
@@ -1395,7 +1408,8 @@ function VenueCompare({ plan, update, counts, onOpen }) {
             )}
             {c.venues.map((v, i) => (
               <tr key={v.id} data-testid={`compare-venue-${v.name}`}>
-                <th scope="row" className={styles.compareRowHead} data-testid={`compare-head-${v.name}`}>
+                {showArea && <td className={styles.compareArea} data-testid={`compare-area-${v.name}`}>{areaCell(v)}</td>}
+                <th scope="row" className={showArea ? `${styles.compareRowHead} ${styles.compareAfterArea}` : styles.compareRowHead} data-testid={`compare-head-${v.name}`}>
                   <span className={styles.compareVenue}>{v.name}</span>
                   {c.cheapest === v.id && <span className={styles.compareBest}>Lowest total</span>}
                   <span className={styles.compareActs}>
@@ -1433,7 +1447,7 @@ function VenueCompare({ plan, update, counts, onOpen }) {
 
 export function WeddingBudget() {
   const { user } = useAuth();
-  const { plan, update, saved, counts, venueNames } = usePlan(user?.uid);
+  const { plan, update, saved, counts, venueNames, venueAreas } = usePlan(user?.uid);
   const [searchParams, setSearchParams] = useSearchParams();
   // Three tabs, kept in the URL: the plan (who's helping, the total, the
   // split), the calculator (what a venue actually charges), and the saved
@@ -1459,7 +1473,7 @@ export function WeddingBudget() {
         {subnav}
         <div className={styles.compareWrap}>
           {status}
-          <VenueCompare plan={plan} update={update} counts={counts} onOpen={() => setSub('calc')} />
+          <VenueCompare plan={plan} update={update} counts={counts} venueAreas={venueAreas} onOpen={() => setSub('calc')} />
         </div>
       </div>
     );

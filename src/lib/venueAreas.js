@@ -16,6 +16,7 @@
    nothing is flagged. Pure, so it can be tested without React. */
 
 import { cleanBulletText } from './bulletText.js';
+import { venueNameKey } from './weddingVenues.js';
 
 export const NO_AREA = '__none';
 
@@ -91,3 +92,21 @@ export const unmappedVenues = (venues, areas) => (areas?.length ? (venues || [])
 
 // The location's name for sorting and searching ('' when there's none).
 export const areaName = (venue, areas) => venueArea(venue, areas).area?.name || '';
+
+/* Each venue on the Venues tab → the name of the location it's in ('' when
+   none), keyed by venueNameKey so another list of the same venues ("The
+   Candlewood Inn" priced on the Budget tab) can look it up by name. Hidden
+   venues count too. The first venue of a name wins. */
+export function areasByVenueName(venues, rawAreas) {
+  const areas = normalizeAreas(rawAreas);
+  const out = new Map();
+  if (!areas.length) return out;
+  for (const v of Array.isArray(venues) ? venues : []) {
+    const key = venueNameKey(v?.name);
+    if (key && !out.has(key)) out.set(key, areaName(v, areas));
+  }
+  return out;
+}
+
+// One name looked up in that map: the location's name, '' for a venue in none, null for one not on the Venues tab.
+export const areaForName = (map, name) => (map?.has(venueNameKey(name)) ? map.get(venueNameKey(name)) : null);
