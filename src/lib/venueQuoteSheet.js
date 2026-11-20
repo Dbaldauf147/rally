@@ -14,6 +14,7 @@
    download wrote is left alone, so a line priced from sub-items keeps them.
    Pure, so it can be tested without React. */
 
+import { datesFromAvailability, summarizeDates } from './availabilityDates.js';
 import { calculatorGroups, effectiveCalc, findVenueQuote, formatMoney, lineFromSubs, parseMoney, saveVenueQuote } from './weddingBudgetPlan.js';
 
 const norm = (s) => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -150,10 +151,15 @@ function sameAsSaved(q, lineId, v) {
      skipped:  rows with cells but no venue name
      unknown:  headings that match no budget line and weren't mapped (ignored)
      bad:      [{ venue, column, value }] cells that couldn't be read
+     noDates:  [{ venue, text }] Availability written in but naming no date
+               the calendar can show (kept as text all the same)
+     dates:    how many calendar dates the written Availability adds
    `mapping` is { [column index]: line id | '' }: a heading the lines don't
    name, pointed at one by hand ('' skips it).
+   `offCalendar(name)` is true for a venue the calendar leaves off (Not a fit
+   or hidden on the Venues tab): its dates are shown as such and not counted.
    Throws when there's no Venue column or no venue rows. */
-export function planQuoteImport(categories, quotes, rows, now = new Date(), { mapping = {} } = {}) {
+export function planQuoteImport(categories, quotes, rows, now = new Date(), { mapping = {}, offCalendar = () => false } = {}) {
   const lines = quoteSheetLines(categories);
   const lineIds = new Set(lines.map((l) => l.id));
   const labelOf = new Map(lines.map((l) => [l.id, l.label]));
@@ -227,6 +233,8 @@ export function planQuoteImport(categories, quotes, rows, now = new Date(), { ma
 
   // Each touched venue against what was saved before the import.
   const changes = {};
+  const noDates = [];
+  let dates = 0;
   for (const n of [...added, ...updated]) {
     const after = findVenueQuote(list, n);
     const was = before.get(after.id) || null;
@@ -236,8 +244,19 @@ export function planQuoteImport(categories, quotes, rows, now = new Date(), { ma
       const to = quoteCell(after, l.id);
       if (from !== to) out.push({ column: labelOf.get(l.id), from: from || '—', to: to || '—' });
     }
-    if ((was?.availability || '') !== (after.availability || '')) out.push({ column: 'Availability', from: was?.availability || '—', to: after.availability || '—' });
+    if ((was?.availability || '') !== (after.availability || '')) {
+      out.push({ column: 'Availability', from: was?.availability || '—', to: after.availability || '—' });
+      const from = datesFromAvailability(was?.availability);
+      const to = datesFromAvailability(after.availability);
+      const off = offCalendar(n);
+      if (to.length && !off) dates += to.length;
+      else if (!to.length) noDates.push({ venue: n, text: after.availability });
+      if (from.join() !== to.join()) {
+        const shown = summarizeDates(to) || '—';
+        out.push({ column: 'Calendar dates', from: summarizeDates(from) || '—', to: off && to.length ? `${shown} — not on the calendar: Not a fit or hidden on the Venues tab` : shown });
+      }
+    }
     changes[n] = out;
   }
-  return { quotes: list, added, updated, unchanged: unchanged.filter((n) => !updated.includes(n)), changes, columns, skipped, unknown, bad };
+  return { quotes: list, added, updated, unchanged: unchanged.filter((n) => !updated.includes(n)), changes, columns, skipped, unknown, bad, noDates, dates };
 }

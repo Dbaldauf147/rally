@@ -153,8 +153,33 @@ describe('importing the fixture', () => {
       { column: TEMPLATE_LINES[2], from: '—', to: 'Included' },
       { column: TEMPLATE_LINES[4], from: '—', to: 'Included' },
       { column: 'Availability', from: '—', to: YACHT_AVAIL },
+      { column: 'Calendar dates', from: '—', to: 'Sat, Jun 5, 2027; Sat, Jun 12, 2027; Sat, Jun 19, 2027; Sat, Jun 26, 2027; Sat, Sep 18, 2027' },
     ]);
     expect(r.changes["Amarante's Sea Cliff"][0]).toEqual({ column: SITE_FEE, from: '—', to: '$250 per person' });
+  });
+});
+
+describe('availability dates for the calendar', () => {
+  it('shows the dates each row’s Availability names, and counts them', () => {
+    const r = planQuoteImport(cats, [], readFixture(), now);
+    expect(r.changes['Stamford Yacht Club']).toContainEqual({ column: 'Calendar dates', from: '—', to: 'Sat, Jun 5, 2027; Sat, Jun 12, 2027; Sat, Jun 19, 2027; Sat, Jun 26, 2027; Sat, Sep 18, 2027' });
+    expect(r.changes["Amarante's Sea Cliff"]).toContainEqual({ column: 'Calendar dates', from: '—', to: '53 dates, Sun, May 2, 2027 – Sun, Oct 31, 2027' });
+    expect(r.dates).toBe(58);
+    expect(r.noDates).toEqual([]);
+  });
+
+  it('doesn’t count a venue the calendar leaves off, and says why', () => {
+    const r = planQuoteImport(cats, [], readFixture(), now, { offCalendar: (n) => n === "Amarante's Sea Cliff" });
+    expect(r.dates).toBe(5);
+    expect(r.changes["Amarante's Sea Cliff"]).toContainEqual({ column: 'Calendar dates', from: '—', to: '53 dates, Sun, May 2, 2027 – Sun, Oct 31, 2027 — not on the calendar: Not a fit or hidden on the Venues tab' });
+  });
+
+  it('lists Availability that names no date, and still saves it', () => {
+    const text = 'Seasonal venue; September and early October 2027 only, Saturdays booked through June';
+    const r = planQuoteImport(cats, [], [['Venue', 'Availability'], ['Candlewood', text]], now);
+    expect(r.noDates).toEqual([{ venue: 'Candlewood', text }]);
+    expect(r.quotes[0].availability).toBe(text);
+    expect(r.changes.Candlewood.some((c) => c.column === 'Calendar dates')).toBe(false);
   });
 });
 
@@ -194,6 +219,7 @@ describe('merging into saved venues', () => {
       { column: TEMPLATE_LINES[2], from: '—', to: 'Included' },
       { column: TEMPLATE_LINES[4], from: '$4,000', to: 'Included' },
       { column: 'Availability', from: 'Ask again in March', to: YACHT_AVAIL },
+      { column: 'Calendar dates', from: '—', to: 'Sat, Jun 5, 2027; Sat, Jun 12, 2027; Sat, Jun 19, 2027; Sat, Jun 26, 2027; Sat, Sep 18, 2027' },
     ]);
     expect(r.quotes[0].amounts[RENTALS]).toBeUndefined();
     expect(r.quotes[0].included[RENTALS]).toBe(true);

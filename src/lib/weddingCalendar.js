@@ -5,13 +5,19 @@
        the user doc as `weddingCalendar: { events: [...] }`;
      • the Timeline's items, on their real days once the wedding has a date
        (read from `weddingTimeline`; edited on the Timeline tab);
-     • the dates each venue has open (`availableDates` on `weddingVenues`;
-       edited on the Venues tab).
+     • the dates each venue has open: `availableDates` on `weddingVenues`
+       (edited on the Venues tab), and the dates named in each priced venue's
+       Availability on the Budget tab (`weddingBudgetPlan.venueQuotes`, read
+       by lib/availabilityDates.js). A venue on both is one venue (matched by
+       name, as the Venues tab matches them); one marked Not a fit or hidden
+       on the Venues tab shows no dates at all.
 
    Days are "YYYY-MM-DD" strings throughout, so nothing shifts with the
    viewer's time zone. Pure, so the page and the tests share it. */
 
 import { cleanDate, itemDate } from './weddingTimeline.js';
+import { datesFromAvailability } from './availabilityDates.js';
+import { venueNameKey } from './weddingVenues.js';
 
 export const EVENT_KINDS = ['Appointment', 'Venue tour', 'Tasting', 'Fitting', 'Payment due', 'Deadline', 'Travel', 'Other'];
 
@@ -78,7 +84,7 @@ export const removeEvent = (calendar, id) => ({ events: calendar.events.filter((
      { key, date, time, title, kind, source: 'event' | 'timeline' | 'venue', done, note, ... }
    in day order — within a day: the wedding itself, then all-day entries,
    then timed ones by the clock. `show` turns the two borrowed layers off. */
-export function calendarEntries({ calendar, timeline, venues } = {}, show = {}) {
+export function calendarEntries({ calendar, timeline, venues, quotes } = {}, show = {}) {
   const out = [];
   for (const e of calendar?.events || []) {
     out.push({ key: `event:${e.id}`, source: 'event', date: e.date, time: e.time, title: e.title, kind: e.kind, note: e.note, done: e.done, event: e });
@@ -94,11 +100,30 @@ export function calendarEntries({ calendar, timeline, venues } = {}, show = {}) 
     }
   }
   if (show.venues !== false) {
+    const seen = new Set();
+    const add = (id, name, date, note, tab) => {
+      const key = `venue:${id}:${date}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ key, source: 'venue', date, time: '', title: `${name} is open`, kind: 'Venue open', note, done: false, tab });
+    };
+    const byName = new Map();
     for (const v of venues || []) {
+      const k = venueNameKey(v?.name);
+      if (k && !byName.has(k)) byName.set(k, v);
       if (v?.hidden || v?.status === 'Not a fit' || !str(v?.name)) continue;
       for (const d of Array.isArray(v.availableDates) ? v.availableDates : []) {
         const date = cleanDate(d);
-        if (date) out.push({ key: `venue:${v.id}:${date}`, source: 'venue', date, time: '', title: `${v.name} is open`, kind: 'Venue open', note: '', done: false });
+        if (date) add(v.id, v.name, date, '', 'venues');
+      }
+    }
+    for (const q of quotes || []) {
+      const name = str(q?.name);
+      if (!name) continue;
+      const v = byName.get(venueNameKey(name));
+      if (v && (v.hidden || v.status === 'Not a fit')) continue;
+      for (const date of datesFromAvailability(q.availability)) {
+        add(v ? v.id : `quote-${q.id}`, v ? v.name : name, date, str(q.availability), v ? 'venues' : 'budget');
       }
     }
   }

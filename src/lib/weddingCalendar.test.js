@@ -75,6 +75,31 @@ describe('what lands on the calendar', () => {
     expect(calendarEntries()).toEqual([]);
   });
 
+  it('adds the dates named in each priced venue’s Availability, skipping venues not a fit or hidden', () => {
+    const quotes = [
+      { id: 'q1', name: 'Stamford Yacht Club', availability: 'Saturdays in June 2027 open; September 18, 2027 on hold until Dec 1' },
+      { id: 'q2', name: 'The Gone Barn', availability: 'September 18, 2027' }, // Not a fit on the Venues tab ("The" ignored)
+      { id: 'q3', name: 'hidden hall', availability: 'September 18, 2027' }, // hidden there
+      { id: 'q4', name: 'Oheka Castle', availability: 'June 12, 2027 and June 26, 2027' }, // on both: one entry a day
+      { id: 'q5', name: 'Seaside', availability: 'Call to ask' }, // nothing to read
+    ];
+    const entries = calendarEntries({ venues, quotes }).filter((e) => e.source === 'venue');
+    expect(entries.map((e) => `${e.date} ${e.title}`)).toEqual([
+      '2027-06-05 Stamford Yacht Club is open',
+      '2027-06-12 Oheka Castle is open',
+      '2027-06-12 Stamford Yacht Club is open',
+      '2027-06-19 Oheka Castle is open',
+      '2027-06-19 Stamford Yacht Club is open',
+      '2027-06-26 Oheka Castle is open',
+      '2027-06-26 Stamford Yacht Club is open',
+      '2027-09-18 Stamford Yacht Club is open',
+    ]);
+    const yacht = entries.find((e) => e.date === '2027-09-18');
+    expect(yacht).toMatchObject({ note: quotes[0].availability, tab: 'budget' });
+    expect(entries.find((e) => e.date === '2027-06-26' && e.title.startsWith('Oheka'))).toMatchObject({ tab: 'venues' });
+    expect(calendarEntries({ venues, quotes }, { venues: false }).some((e) => e.source === 'venue')).toBe(false);
+  });
+
   it('lists what is ahead, without what is done or past', () => {
     const entries = calendarEntries({ calendar, timeline, venues: [] });
     expect(upcomingEntries(entries, '2027-06-01').map((e) => e.title)).toEqual(['Rehearsal', 'The wedding', 'Breakfast', 'Hair', 'Thank-you notes']);
