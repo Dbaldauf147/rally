@@ -1,0 +1,435 @@
+/* /wishlist/:eventId — the Secret Santa wishlist page. A winter night: pine
+   green, falling snow, a string of lights, and a present for every guest. */
+
+.page {
+  --pine: #0b3d2e;
+  --pine-deep: #06261d;
+  --berry: #b91c1c;
+  --berry-deep: #7f1d1d;
+  --gold: #e6b84c;
+  --cream: #fffaf0;
+  --ink: #2b2118;
+  --muted: #7a6a58;
+
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  padding: 0 1rem 4rem;
+  box-sizing: border-box;
+  color: var(--cream);
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(230, 184, 76, 0.18), transparent 55%),
+    linear-gradient(180deg, var(--pine) 0%, var(--pine-deep) 100%);
+}
+
+/* Snow: two layers of dots drifting down at different speeds. */
+.snow,
+.snow::after {
+  content: '';
+  position: absolute;
+  inset: -200px 0 0 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(3px 3px at 20px 30px, rgba(255, 255, 255, 0.9), transparent 60%),
+    radial-gradient(2px 2px at 90px 110px, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(4px 4px at 150px 60px, rgba(255, 255, 255, 0.8), transparent 60%),
+    radial-gradient(2px 2px at 60px 170px, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(3px 3px at 180px 150px, rgba(255, 255, 255, 0.75), transparent 60%);
+  background-size: 200px 200px;
+  animation: snowfall 14s linear infinite;
+}
+.snow::after {
+  background-size: 320px 320px;
+  opacity: 0.55;
+  animation-duration: 24s;
+}
+@keyframes snowfall {
+  to { transform: translate3d(30px, 200px, 0); }
+}
+.snow::after { animation-name: snowfallFar; }
+@keyframes snowfallFar {
+  to { transform: translate3d(-40px, 320px, 0); }
+}
+
+/* The string of lights across the top. */
+.lights {
+  position: relative;
+  display: flex;
+  justify-content: space-around;
+  max-width: 900px;
+  height: 34px;
+  margin: 0 auto;
+  border-top: 2px solid rgba(0, 0, 0, 0.55);
+  border-radius: 0 0 50% 50% / 0 0 14px 14px;
+}
+.bulb {
+  width: 11px;
+  height: 16px;
+  margin-top: 3px;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  background: var(--c);
+  box-shadow: 0 0 10px 2px var(--c);
+  animation: twinkle 2.4s ease-in-out infinite;
+}
+.bulb:nth-child(4n + 1) { --c: #ef4444; }
+.bulb:nth-child(4n + 2) { --c: #facc15; animation-delay: 0.6s; }
+.bulb:nth-child(4n + 3) { --c: #4ade80; animation-delay: 1.2s; }
+.bulb:nth-child(4n) { --c: #60a5fa; animation-delay: 1.8s; }
+.bulb:nth-child(n + 13) { display: none; }
+@keyframes twinkle {
+  50% { opacity: 0.45; box-shadow: 0 0 3px 0 var(--c); }
+}
+
+.inner {
+  position: relative;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.header {
+  text-align: center;
+  padding: 1.25rem 0 1.5rem;
+}
+.tree { font-size: 2.6rem; line-height: 1; }
+.eyebrow {
+  margin: 0.6rem 0 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.title {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.7rem, 6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+.lede {
+  max-width: 34rem;
+  margin: 0.6rem auto 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: rgba(255, 250, 240, 0.82);
+}
+
+/* A cream card with a candy-cane edge. */
+.card {
+  position: relative;
+  margin-bottom: 2rem;
+  padding: 1.5rem 1.25rem 1.25rem;
+  border-radius: 16px;
+  background: var(--cream);
+  color: var(--ink);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 8px;
+  background: repeating-linear-gradient(135deg, var(--berry) 0 12px, #fff 12px 24px);
+}
+.cardTitle {
+  margin: 0 0 0.2rem;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--berry-deep);
+}
+.cardHint {
+  margin: 0 0 1rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.linkBtn {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--berry);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* "Who are you?" */
+.names {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+.nameBtn {
+  padding: 0.65rem 0.75rem;
+  border: 2px solid #ead9bd;
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.nameBtn:hover,
+.nameBtn:focus-visible {
+  border-color: var(--berry);
+  background: #fef2f2;
+  outline: none;
+}
+
+/* Your own list. */
+.wishes {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+.wish {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px dashed #e6d5b8;
+}
+.wishDot { flex: none; line-height: 1.4; }
+.wishBody { flex: 1; min-width: 0; }
+.wishText {
+  font-size: 0.95rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.wishLink {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #166534;
+  text-decoration: underline;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.removeBtn {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: #a8957c;
+  cursor: pointer;
+}
+.removeBtn:hover { background: #fde8e8; color: var(--berry); }
+.empty {
+  margin: 0 0 1rem;
+  padding: 0.9rem;
+  border: 1px dashed #e0cba6;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.addForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 2px solid #ead9bd;
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  box-sizing: border-box;
+}
+.input:focus { border-color: var(--berry); outline: none; }
+.addBtn {
+  flex: 0 0 auto;
+  padding: 0.65rem 1.25rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--berry);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+}
+.addBtn:disabled { opacity: 0.5; cursor: default; }
+.status {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  color: #166534;
+}
+.statusError { color: var(--berry); }
+
+/* Everyone's presents. */
+.sectionTitle {
+  margin: 0 0 0.25rem;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  text-align: center;
+}
+.sectionHint {
+  margin: 0 0 1.25rem;
+  font-size: 0.88rem;
+  text-align: center;
+  color: rgba(255, 250, 240, 0.75);
+}
+.presents {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1.5rem 1rem;
+  padding-top: 0.75rem;
+}
+
+/* A wrapped box: paper, a ribbon cross, a bow, and a name tag. */
+.present {
+  --wrap: #b91c1c;
+  --ribbon: #e6b84c;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 150px;
+  padding: 0.75rem 0.6rem 0.8rem;
+  border: none;
+  border-radius: 10px;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  background:
+    linear-gradient(var(--ribbon), var(--ribbon)) center / 22px 100% no-repeat,
+    linear-gradient(var(--ribbon), var(--ribbon)) center 38% / 100% 22px no-repeat,
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.09) 0 10px, transparent 10px 20px),
+    var(--wrap);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), inset 0 -10px 18px rgba(0, 0, 0, 0.15);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.present:hover,
+.present:focus-visible {
+  transform: translateY(-4px) rotate(-1.5deg);
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.4), inset 0 -10px 18px rgba(0, 0, 0, 0.15);
+  outline: none;
+}
+.present:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+.wrap1 { --wrap: #b91c1c; --ribbon: #e6b84c; }
+.wrap2 { --wrap: #15803d; --ribbon: #fca5a5; }
+.wrap3 { --wrap: #f5f0e6; --ribbon: #b91c1c; }
+.wrap4 { --wrap: #1e3a8a; --ribbon: #e5e7eb; }
+.wrap5 { --wrap: #c2410c; --ribbon: #14532d; }
+.bow {
+  position: absolute;
+  top: -0.95rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.9rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
+}
+.tag {
+  position: relative;
+  max-width: 100%;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  background: var(--cream);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  text-align: center;
+  box-sizing: border-box;
+}
+.tagName {
+  display: block;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.tagHint {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* The same present, opened: the list on a sheet of paper, the full row wide. */
+.opened {
+  grid-column: 1 / -1;
+  position: relative;
+  padding: 1.1rem 1.1rem 0.9rem;
+  border-radius: 12px;
+  border-top: 6px solid var(--ribbon, #e6b84c);
+  background: var(--cream);
+  color: var(--ink);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  animation: unwrap 0.28s ease-out;
+}
+@keyframes unwrap {
+  from { opacity: 0; transform: scale(0.94) translateY(8px); }
+}
+.openedHead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+.openedName {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--berry-deep);
+  overflow-wrap: anywhere;
+}
+.opened .wishes { margin-bottom: 0.25rem; }
+.opened .wish:last-child { border-bottom: none; }
+.openedEmpty {
+  margin: 0.25rem 0 0.4rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.footer {
+  margin-top: 2.5rem;
+  font-size: 0.78rem;
+  text-align: center;
+  color: rgba(255, 250, 240, 0.55);
+}
+
+/* Not found / not switched on. */
+.notice {
+  max-width: 440px;
+  margin: 3rem auto 0;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snow,
+  .snow::after,
+  .bulb,
+  .opened { animation: none; }
+  .present { transition: none; }
+  .present:hover,
+  .present:focus-visible { transform: none; }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { decodeReveal } from '../lib/secretSantaLink';
+import { wishlistPath } from '../lib/wishlist';
 
 // /santa?k=… — where a Secret Santa email's button lands. No sign-in: the
 // link carries what to show (lib/secretSantaLink.js). The name starts covered
@@ -70,6 +71,16 @@ export function SecretSantaReveal() {
             >
               {shown ? 'Hide it again' : 'Reveal who I have'}
             </button>
+
+            {pick.eventId && (
+              <a
+                data-testid="reveal-wishlists"
+                href={wishlistPath(pick.eventId, pick.giverKey)}
+                style={{ display: 'block', marginTop: '0.75rem', padding: '0.75rem 1rem', border: '1px solid #BBF7D0', borderRadius: '10px', background: '#F0FDF4', color: '#166534', fontSize: '0.92rem', fontWeight: 700, textDecoration: 'none' }}
+              >
+                🎄 Wishlists — see theirs, write yours
+              </a>
+            )}
 
             {(pick.note || pick.when || pick.location) && (
               <div style={{ marginTop: '1.1rem', paddingTop: '0.9rem', borderTop: '1px solid #F3F4F6', textAlign: 'left', fontSize: '0.88rem', color: '#4B5563', lineHeight: 1.5 }}>

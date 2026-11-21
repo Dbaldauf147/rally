@@ -6,7 +6,7 @@
 const escapeHtml = (s) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export function secretSantaEmail({ giverName, eventTitle, when, location, note, fromName, link }) {
+export function secretSantaEmail({ giverName, eventTitle, when, location, note, fromName, link, wishlistLink }) {
   const title = eventTitle || 'Secret Santa';
   const from = fromName || 'The organizer';
   const firstName = String(giverName || '').trim().split(/\s+/)[0];
@@ -22,6 +22,7 @@ export function secretSantaEmail({ giverName, eventTitle, when, location, note, 
         <a href="${escapeHtml(link)}" style="display:inline-block;background:#b91c1c;color:#fff;padding:0.8rem 1.75rem;border-radius:8px;text-decoration:none;font-weight:700;font-size:1.05rem;">🎁 See who you have</a>
         <div style="font-size:0.8rem;color:#6b7280;margin-top:0.7rem;">The name stays hidden until you tap Reveal — so it's safe to open this with someone beside you.</div>
       </div>
+      ${wishlistLink ? `<p style="color:#1f2937;margin:0 0 1rem;">🎄 <a href="${escapeHtml(wishlistLink)}" style="color:#b91c1c;font-weight:700;">Write your wishlist</a> so your own Secret Santa isn't guessing — everyone's lists are on the same page.</p>` : ''}
       ${note ? `<p style="color:#1f2937;margin:0 0 1rem;white-space:pre-wrap;">${escapeHtml(note)}</p>` : ''}
       ${when ? `<p style="color:#525252;margin:0 0 0.2rem;">📅 ${escapeHtml(when)}</p>` : ''}
       ${location ? `<p style="color:#525252;margin:0 0 0.2rem;">📍 ${escapeHtml(location)}</p>` : ''}

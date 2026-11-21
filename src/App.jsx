@@ -9,6 +9,7 @@ import { Plans } from './components/Plans';
 import { InvitePage } from './components/InvitePage';
 import { PollPage } from './components/PollPage';
 import { SecretSantaReveal } from './components/SecretSantaReveal';
+import { WishlistPage } from './components/WishlistPage';
 import { BoatDayPage } from './components/BoatDayPage';
 import { FoodPage } from './components/FoodPage';
 import { FriendsPage } from './components/FriendsPage';
@@ -77,9 +78,9 @@ export default function App() {
   const { user, loading } = useAuth();
   const { pathname } = useLocation();
   useShareDeepLink();
-  // The Secret Santa reveal page stands alone: a guest who happens to be
-  // signed in gets no menu, tab bar or install prompt around their pick.
-  const chrome = !!user && pathname !== '/santa';
+  // The Secret Santa reveal and wishlist pages stand alone: a guest who
+  // happens to be signed in gets no menu, tab bar or install prompt around them.
+  const chrome = !!user && pathname !== '/santa' && !pathname.startsWith('/wishlist/');
 
   if (loading) {
     return (
@@ -108,6 +109,7 @@ export default function App() {
         <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/poll/:eventId" element={<PollPage />} />
         <Route path="/santa" element={<SecretSantaReveal />} />
+        <Route path="/wishlist/:eventId" element={<WishlistPage />} />
         <Route path="/boat/:eventId" element={<BoatDayPage />} />
         <Route path="/food/:eventId" element={<FoodPage />} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />

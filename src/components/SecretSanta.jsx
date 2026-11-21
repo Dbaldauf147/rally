@@ -21,6 +21,7 @@ import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { planMemberUpserts } from '../lib/members';
+import { wishlistPeople, wishlistLink, wishlistPath } from '../lib/wishlist';
 
 // The organizer's Secret Santa panel on an event with it switched on
 // (lib/secretSanta.js): pick who is in, draw, review, then email everyone the
@@ -228,6 +229,7 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, f
         Nobody draws themselves, their partner (the guest they come with), or the person they had last time.
         Guests can’t see the draw.
       </p>
+      {!extra && <WishlistShare event={event} eventId={eventId} />}
       {loadError && <p style={{ ...hint, color: '#B91C1C' }}>Couldn’t load the saved draw: {loadError}</p>}
 
       {history === null && !loadError ? (
@@ -450,6 +452,39 @@ export function SecretSanta({ event, eventId, user, year, date, onOpenHistory, f
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// The way to the guests' wishlist page (lib/wishlist.js): a link to hand out
+// and how many lists have something on them. The emailed picks carry each
+// person's own link too; this one asks whoever opens it for their name.
+function WishlistShare({ event, eventId }) {
+  const [copied, setCopied] = useState(false);
+  const people = useMemo(() => wishlistPeople(event), [event]);
+  const written = people.filter((p) => p.wishes.length > 0).length;
+  const url = wishlistLink(eventId);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Copy the wishlist link', url);
+    }
+  }
+
+  return (
+    <div data-testid="ss-wishlists" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem 0.9rem', flexWrap: 'wrap', margin: '0 0 0.75rem', padding: '0.55rem 0.75rem', background: '#fff', border: '1px solid #FECACA', borderRadius: '8px', fontSize: '0.82rem', color: '#374151' }}>
+      <span style={{ flex: '1 1 220px' }}>
+        🎁 <strong>Wishlists</strong> — a page where guests write what they’d like.{' '}
+        <span data-testid="ss-wishlists-count" style={{ color: '#6B7280' }}>
+          {written === 0 ? 'Nobody has written one yet.' : `${written} of ${people.length} have written theirs.`}
+        </span>
+      </span>
+      <button type="button" style={link} data-testid="ss-wishlists-copy" onClick={copy}>{copied ? 'Copied ✓' : 'Copy link'}</button>
+      <a href={wishlistPath(eventId)} target="_blank" rel="noopener noreferrer" data-testid="ss-wishlists-open" style={{ ...link, display: 'inline-block' }}>Open page</a>
     </div>
   );
 }
