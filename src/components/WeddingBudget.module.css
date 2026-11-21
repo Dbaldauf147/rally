@@ -318,6 +318,19 @@
 .availChoice, .availChoiceOn { flex: 1; padding: 0.35rem 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); font: inherit; font-size: 0.85rem; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; }
 .availChoiceOn { border-color: var(--color-accent); background: var(--color-accent); color: #fff; }
 
+/* Venue comparison: Status — read off the Venues tab, in its colours. */
+.compareTable td.compareStatusCell { text-align: center; vertical-align: top; }
+.compareTable td.compareStatusCell .dash { display: inline; }
+.statusPill { display: inline-block; padding: 0.15rem 0.65rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+.stResearching { background: var(--color-surface-alt); color: var(--color-text-secondary); }
+.stInquired { background: rgba(234, 179, 8, 0.2); color: #a16207; }
+.stReplied { background: rgba(59, 130, 246, 0.16); color: #1d4ed8; }
+.stTour { background: rgba(139, 92, 246, 0.18); color: #6d28d9; }
+.stToured { background: rgba(14, 165, 233, 0.18); color: #0369a1; }
+.stQuote { background: rgba(249, 115, 22, 0.18); color: #c2410c; }
+.stBooked { background: rgba(34, 197, 94, 0.2); color: #15803d; }
+.stNo { background: rgba(239, 68, 68, 0.14); color: #b91c1c; }
+
 /* Area, from the Venues tab, ahead of the venue name; both stay put while the lines scroll. */
 .compareTable th.compareAreaHead, .compareTable td.compareArea { position: sticky; left: 0; z-index: 1; background: var(--color-surface); box-sizing: border-box; width: 8rem; min-width: 8rem; max-width: 8rem; text-align: left; white-space: normal; }
 .compareTable td.compareArea { vertical-align: top; padding-top: 0.5rem; font-size: 0.8rem; color: var(--color-text-secondary); line-height: 1.3; }

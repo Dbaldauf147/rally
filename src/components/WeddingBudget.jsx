@@ -12,7 +12,7 @@ import {
   saveVenueQuote, findVenueQuote, sameCalc, toggleCalcPerPerson, venueComparison, effectiveCalc, lineFromSubs, clearedCalculator, calcHasAnswers, subDollars, calculatorGroupTotals, venueGroupOf, setVenueAvailable, setVenueHidden,
 } from '../lib/weddingBudgetPlan';
 import { areaForName, areasByVenueName } from '../lib/venueAreas';
-import { venueNameKey } from '../lib/weddingVenues';
+import { VENUE_STATUSES, statusForName, statusesByVenueName, venueNameKey } from '../lib/weddingVenues';
 import { orderBlocks, moveBlock, nextSort, sortedIndexes, matchesSearch } from '../lib/venueCompareView';
 import { IMPORT_ACCEPT, planQuoteImport, quoteSheetLines, quoteSheetRows, readVenueFile } from '../lib/venueQuoteSheet';
 import styles from './WeddingBudget.module.css';
@@ -43,6 +43,8 @@ function usePlan(userId) {
   const [venueAreas, setVenueAreas] = useState(() => new Map());
   // Venues the wedding calendar leaves off (Not a fit or hidden on the Venues tab), by venueNameKey.
   const [offCalendar, setOffCalendar] = useState(() => new Set());
+  // Venue name → its status on the Venues tab, for the comparison's Status column.
+  const [venueStatuses, setVenueStatuses] = useState(() => new Map());
   const localEdits = useRef(0);
   const syncedEdits = useRef(0);
   const appliedJson = useRef(null);
@@ -73,6 +75,8 @@ function usePlan(userId) {
       setVenueNames((prev) => (prev.join('\n') === names.join('\n') ? prev : names));
       const nextAreas = areasByVenueName(rawVenues, snap.exists() ? snap.data()?.weddingVenueAreas : []);
       setVenueAreas((prev) => (JSON.stringify([...prev]) === JSON.stringify([...nextAreas]) ? prev : nextAreas));
+      const nextStatuses = statusesByVenueName(rawVenues);
+      setVenueStatuses((prev) => (JSON.stringify([...prev]) === JSON.stringify([...nextStatuses]) ? prev : nextStatuses));
       const nextOff = new Set(rawVenues.filter((v) => v && (v.hidden || v.status === 'Not a fit')).map((v) => venueNameKey(v.name)).filter(Boolean));
       setOffCalendar((prev) => ([...prev].sort().join('\n') === [...nextOff].sort().join('\n') ? prev : nextOff));
       // Not skipped on hasPendingWrites: another field's write to this doc
@@ -111,7 +115,7 @@ function usePlan(userId) {
     });
   }, [flushWrite]);
 
-  return { plan, update, saved, counts, venueNames, venueAreas, offCalendar };
+  return { plan, update, saved, counts, venueNames, venueAreas, venueStatuses, offCalendar };
 }
 
 /* A number field ("$12,000", "7.5%") that only commits when you leave it or
@@ -1281,7 +1285,13 @@ function AvailabilityPopover({ venue, anchor, onSet, onClose }) {
   );
 }
 
-function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen }) {
+// The Venues tab's colours for each status.
+const STATUS_CLASS = {
+  Researching: styles.stResearching, Inquired: styles.stInquired, Replied: styles.stReplied, 'Tour scheduled': styles.stTour,
+  Toured: styles.stToured, 'Quote received': styles.stQuote, Booked: styles.stBooked, 'Not a fit': styles.stNo,
+};
+
+function VenueCompare({ plan, update, counts, venueAreas, venueStatuses, offCalendar, onOpen }) {
   const { amount: budget } = effectiveTotal(plan);
   const guestN = headcount(plan.guests, counts);
   const cats = resolveCategories(plan.categories, budget, guestN);
@@ -1361,9 +1371,17 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
           </button>
         ), `compare-avail-${v.name}`);
       } },
+    // Where things stand with the venue, as set on the Venues tab (matched by name).
+    { key: 'status', label: 'Status',
+      venue: (v) => {
+        const s = statusForName(venueStatuses, v.name);
+        return td('status', styles.compareStatusCell, s
+          ? <span className={`${styles.statusPill} ${STATUS_CLASS[s] || ''}`} title="Set on the Venues tab">{s}</span>
+          : <span className={styles.dash} title="Not on the Venues tab under this name">—</span>, `compare-status-${v.name}`);
+      } },
   ];
   // What decides between venues sits next to the name; the tax arithmetic follows the lines.
-  const LEAD = ['total', 'pp', 'diff', 'lines', 'avail'];
+  const LEAD = ['total', 'pp', 'diff', 'lines', 'avail', 'status'];
   const lead = LEAD.map((k) => summary.find((t) => t.key === k)).filter(Boolean);
   const tail = summary.filter((t) => !LEAD.includes(t.key));
   // Column blocks — a summary column, or a category with its lines — in the couple's order.
@@ -1389,6 +1407,7 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
       case 'diff': return v.diff;
       case 'lines': return v.filled;
       case 'avail': return v.available === true ? 0 : v.available === false ? 2 : 1;
+      case 'status': { const s = statusForName(venueStatuses, v.name); return s ? VENUE_STATUSES.indexOf(s) : null; } // in the order a venue moves through them
       case 'venuePP': return v.venuePerPerson?.subtotal ?? null;
       case 'food': return v.foodPerPerson;
       default: {
@@ -1399,7 +1418,7 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
   };
   const sort = view.sort;
   const rowsShown = sortedIndexes(c.venues.length, sort, (i) => sortVal(sort.key, i))
-    .filter((i) => matchesSearch(query, [c.venues[i].name, areaForName(venueAreas, c.venues[i].name), c.venues[i].availability]));
+    .filter((i) => matchesSearch(query, [c.venues[i].name, areaForName(venueAreas, c.venues[i].name), statusForName(venueStatuses, c.venues[i].name), c.venues[i].availability]));
   const ariaSort = (key) => (sort?.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined);
   const sortBtn = (key, label, plain) => (
     <button type="button" className={styles.sortBtn} onClick={() => setView({ sort: nextSort(sort, key) })}
@@ -1455,7 +1474,7 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
         <input
           type="search"
           className={styles.compareSearch}
-          placeholder="Search a venue, area or note…"
+          placeholder="Search a venue, area, status or note…"
           aria-label="Search venues"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -1591,7 +1610,7 @@ function VenueCompare({ plan, update, counts, venueAreas, offCalendar, onOpen })
 
 export function WeddingBudget() {
   const { user } = useAuth();
-  const { plan, update, saved, counts, venueNames, venueAreas, offCalendar } = usePlan(user?.uid);
+  const { plan, update, saved, counts, venueNames, venueAreas, venueStatuses, offCalendar } = usePlan(user?.uid);
   const [searchParams, setSearchParams] = useSearchParams();
   // Three tabs, kept in the URL: the plan (who's helping, the total, the
   // split), the calculator (what a venue actually charges), and the saved
@@ -1617,7 +1636,7 @@ export function WeddingBudget() {
         {subnav}
         <div className={styles.compareWrap}>
           {status}
-          <VenueCompare plan={plan} update={update} counts={counts} venueAreas={venueAreas} offCalendar={offCalendar} onOpen={() => setSub('calc')} />
+          <VenueCompare plan={plan} update={update} counts={counts} venueAreas={venueAreas} venueStatuses={venueStatuses} offCalendar={offCalendar} onOpen={() => setSub('calc')} />
         </div>
       </div>
     );

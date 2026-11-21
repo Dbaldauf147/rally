@@ -294,6 +294,21 @@ export function venueNameKey(name) {
     .trim();
 }
 
+/* Each venue on the Venues tab → its status, keyed by venueNameKey so
+   another list of the same venues (the ones priced on the Budget tab) can
+   look it up by name. Hidden venues count too. The first venue of a name wins. */
+export function statusesByVenueName(venues) {
+  const out = new Map();
+  for (const v of Array.isArray(venues) ? venues : []) {
+    const key = venueNameKey(v?.name);
+    if (key && !out.has(key)) out.set(key, VENUE_STATUSES.includes(v.status) ? v.status : 'Researching');
+  }
+  return out;
+}
+
+// One name looked up in that map: its status, or null for a venue not on the Venues tab.
+export const statusForName = (map, name) => map?.get(venueNameKey(name)) ?? null;
+
 // A free mail domain says nothing about which venue it is, so only the exact
 // address counts there. A listing site relays every venue's leads from the
 // same few addresses, so not even that.

@@ -1,6 +1,6 @@
 /* global Buffer */
 import { describe, it, expect } from 'vitest';
-import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, gmailDraftsUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut, matchVenue, planEmailVenue, applyEmailVenue, stampStatusChanges, statusSince, withStatusDate } from './weddingVenues';
+import { mergeScannedVenues, sameVenue, venueNameKey, normalizeVenue, sortVenues, gmailThreadUrl, gmailDraftsUrl, withReachedOut, reachedLabel, reachedCell, parseReachedOut, matchVenue, planEmailVenue, applyEmailVenue, stampStatusChanges, statusSince, withStatusDate, statusesByVenueName, statusForName } from './weddingVenues';
 import { cellValue, withCellValue } from './venueTable';
 import { buildGmailQuery, dropQuoted, messageBody, threadText } from '../../lib/weddingVenueScan.js';
 
@@ -314,5 +314,34 @@ describe('status dates', () => {
     expect(withStatusDate(v, 0, 'bad')).toBe(v);
     expect(cellValue(v, 'statusDate')).toBe('2026-10-02');
     expect(withCellValue(v, 'statusDate', '2020-01-01')).toBe(v);
+  });
+});
+
+describe('statusesByVenueName / statusForName', () => {
+  const venues = [
+    { name: 'The Candlewood Inn', status: 'Toured' },
+    { name: 'Candlewood Inn, LLC', status: 'Booked' },
+    { name: 'Oheka Castle', status: 'Not a fit', hidden: true },
+    { name: 'Old Barn', status: 'nonsense' },
+    { name: '' },
+    null,
+  ];
+  const m = statusesByVenueName(venues);
+
+  it('finds a venue by name however it is written, the first of a name winning', () => {
+    expect(statusForName(m, 'candlewood inn')).toBe('Toured');
+    expect(statusForName(m, 'The Candlewood Inn LLC')).toBe('Toured');
+  });
+
+  it('counts hidden venues, and reads an unknown status as Researching', () => {
+    expect(statusForName(m, 'Oheka Castle')).toBe('Not a fit');
+    expect(statusForName(m, 'Old Barn')).toBe('Researching');
+  });
+
+  it('is null for a venue not on the Venues tab', () => {
+    expect(statusForName(m, 'Somewhere Else')).toBeNull();
+    expect(statusForName(m, '')).toBeNull();
+    expect(statusForName(statusesByVenueName(null), 'Old Barn')).toBeNull();
+    expect(m.size).toBe(3);
   });
 });
