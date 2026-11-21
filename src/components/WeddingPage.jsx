@@ -7,6 +7,7 @@ import { API_BASE } from '../native';
 import { WeddingChecklist } from './WeddingChecklist';
 import { WeddingTimeline } from './WeddingTimeline';
 import { WeddingVenues } from './WeddingVenues';
+import { WeddingVenueQuestions } from './WeddingVenueQuestions';
 import { WeddingCalendar } from './WeddingCalendar';
 import { WeddingDreamVenue } from './WeddingDreamVenue';
 import { WeddingVenueReply } from './WeddingVenueReply';
@@ -2904,7 +2905,7 @@ export function WeddingPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawView = searchParams.get('view');
-  const view = ['checklist', 'timeline', 'calendar', 'venues', 'locations', 'budget', 'friends'].includes(rawView) ? rawView : 'guests';
+  const view = ['checklist', 'timeline', 'calendar', 'venues', 'questions', 'locations', 'budget', 'friends'].includes(rawView) ? rawView : 'guests';
   const setView = (v) => setSearchParams(v === 'guests' ? {} : { view: v });
   // Venues has four of its own: the venue table, the hidden venues, the dream-venue list, and the outreach email
   // (`venues=reply` is its old address, still honoured).
@@ -2956,6 +2957,11 @@ export function WeddingPage() {
           >Venues</button>
           <button
             type="button"
+            className={view === 'questions' ? styles.subtabActive : styles.subtab}
+            onClick={() => setView('questions')}
+          >Questions</button>
+          <button
+            type="button"
             className={view === 'locations' ? styles.subtabActive : styles.subtab}
             onClick={() => setView('locations')}
           >Locations</button>
@@ -2978,6 +2984,14 @@ export function WeddingPage() {
           </div>
           <p className={styles.subtitle}>The plan on real dates, from booking the venue to the last thank-you note.</p>
           <WeddingTimeline />
+        </div>
+      ) : view === 'questions' ? (
+        <div className={styles.page}>
+          <div className={styles.header}>
+            <h1 className={styles.title}>Wedding</h1>
+          </div>
+          <p className={styles.subtitle}>What to ask on a venue tour, ticked off and answered venue by venue.</p>
+          <WeddingVenueQuestions onOpenVenues={() => setView('venues')} />
         </div>
       ) : view === 'calendar' ? (
         <div className={styles.page}>
