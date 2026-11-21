@@ -198,6 +198,13 @@ describe('secretSantaEmail', () => {
     expect(html).toMatch(/href="https:\/\/[^"]+\/santa\?k=[\w-]+"/);
     expect(html).toContain('$50 limit');
     expect(html).toContain('Friday');
+    expect(html).not.toContain('wishlist');
+  });
+
+  it('points at the wishlist page when given its link', () => {
+    const { html } = secretSantaEmail({ giverName: 'Dan', link: 'https://x/santa?k=1', wishlistLink: 'https://x/wishlist/ev1?me=dan&a=1' });
+    expect(html).toContain('href="https://x/wishlist/ev1?me=dan&amp;a=1"');
+    expect(html).toContain('Write your wishlist');
   });
 });
 
@@ -209,6 +216,12 @@ describe('the reveal link', () => {
     expect(code).not.toContain('Jos');
     expect(decodeReveal(code)).toEqual(details);
     expect(revealLink(details)).toBe(`https://rally-seven-theta.vercel.app/santa?k=${code}`);
+  });
+
+  it('carries the way to the wishlists when the event is known', () => {
+    const code = encodeReveal({ giverName: 'A', receiverName: 'B', eventId: 'ev1', giverKey: 'a_b_com' });
+    expect(decodeReveal(code)).toMatchObject({ receiverName: 'B', eventId: 'ev1', giverKey: 'a_b_com' });
+    expect(decodeReveal(encodeReveal({ giverName: 'A', receiverName: 'B' }))).not.toHaveProperty('eventId');
   });
 
   it('gives null for a link that is cut short, empty, or not ours', () => {

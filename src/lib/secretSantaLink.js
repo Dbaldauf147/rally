@@ -14,10 +14,12 @@ import { APP_URL } from './pollSeriesEmail.js';
 const clip = (s, n) => String(s ?? '').trim().slice(0, n);
 
 /** Pack what the reveal page needs into a URL-safe string. */
-export function encodeReveal({ giverName, receiverName, eventTitle, when, location, note, fromName }) {
+export function encodeReveal({ giverName, receiverName, eventTitle, when, location, note, fromName, eventId, giverKey }) {
   const json = JSON.stringify({
     g: clip(giverName, 80), r: clip(receiverName, 80), t: clip(eventTitle, 120),
     w: clip(when, 80), l: clip(location, 160), n: clip(note, 1000), f: clip(fromName, 80),
+    // Where the wishlists are (lib/wishlist.js), and who is opening them.
+    ...(clip(eventId, 80) ? { e: clip(eventId, 80), k: clip(giverKey, 200) } : {}),
   });
   let bin = '';
   for (const byte of new TextEncoder().encode(json)) bin += String.fromCharCode(byte);
@@ -34,6 +36,8 @@ export function decodeReveal(code) {
     return {
       giverName: clip(o.g, 80), receiverName: clip(o.r, 80), eventTitle: clip(o.t, 120),
       when: clip(o.w, 80), location: clip(o.l, 160), note: clip(o.n, 1000), fromName: clip(o.f, 80),
+      // Links sent before wishlists existed carry neither.
+      ...(clip(o.e, 80) ? { eventId: clip(o.e, 80), giverKey: clip(o.k, 200) } : {}),
     };
   } catch {
     return null;
