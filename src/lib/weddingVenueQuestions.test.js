@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   SEED_CATEGORIES, CUSTOM_CATEGORY, QUESTIONS_FIELD, normalizeQuestionState, questionGroups, categoryOptions,
   answerFor, setAnswer, answerWrite, venueProgress, groupProgress,
-  addQuestion, updateQuestion, removeQuestion, pickerGroups, pickVenueId, newQuestionId,
+  addQuestion, updateQuestion, removeQuestion, resetQuestion, isBuiltIn, pickerGroups, pickVenueId, newQuestionId,
 } from './weddingVenueQuestions';
 
 const empty = () => normalizeQuestionState(null);
@@ -23,7 +23,7 @@ describe('the seed questions', () => {
 describe('normalizeQuestionState', () => {
   it('reads nothing, or junk, as an empty state', () => {
     for (const raw of [null, undefined, 'x', 7, [], { custom: 'no', answers: [] }]) {
-      expect(normalizeQuestionState(raw)).toEqual({ custom: [], answers: {} });
+      expect(normalizeQuestionState(raw)).toEqual({ custom: [], edits: {}, answers: {} });
     }
   });
 
@@ -69,8 +69,8 @@ describe('questionGroups', () => {
     s = addQuestion(s, 'Can we bring the dog?', undefined, 'q-b');
     const groups = questionGroups(s);
     const logistics = groups.find((g) => g.id === 'logistics');
-    expect(logistics.questions.at(-1)).toEqual({ id: 'q-a', text: 'Is there a generator?', custom: true });
-    expect(groups.at(-1)).toEqual({ id: CUSTOM_CATEGORY, name: 'My questions', questions: [{ id: 'q-b', text: 'Can we bring the dog?', custom: true }] });
+    expect(logistics.questions.at(-1)).toEqual({ id: 'q-a', text: 'Is there a generator?', custom: true, edited: false });
+    expect(groups.at(-1)).toEqual({ id: CUSTOM_CATEGORY, name: 'My questions', questions: [{ id: 'q-b', text: 'Can we bring the dog?', custom: true, edited: false }] });
     expect(categoryOptions()[0].id).toBe(CUSTOM_CATEGORY);
     expect(categoryOptions()).toHaveLength(7);
   });
@@ -172,6 +172,54 @@ describe('your own questions', () => {
   it('cannot delete a built-in question', () => {
     const s = setAnswer(empty(), 'v1', 'cost-total', { done: true }).state;
     expect(removeQuestion(s, 'cost-total')).toEqual({ state: s, venueIds: [] });
+  });
+});
+
+describe('editing a built-in question', () => {
+  const find = (s, id) => questionGroups(s).flatMap((g) => g.questions.map((q) => ({ ...q, group: g.id }))).find((q) => q.id === id);
+
+  it('rewords it in place and keeps its answers and its place in the count', () => {
+    let s = setAnswer(empty(), 'v1', 'cost-overtime', { notes: '$1,500 an hour' }).state;
+    s = updateQuestion(s, 'cost-overtime', { text: '  What does an extra hour cost? ' });
+    expect(s.edits).toEqual({ 'cost-overtime': { text: 'What does an extra hour cost?', category: 'cost' } });
+    expect(find(s, 'cost-overtime')).toEqual({ id: 'cost-overtime', text: 'What does an extra hour cost?', custom: false, edited: true, group: 'cost' });
+    expect(questionGroups(s)[1].questions.map((q) => q.id).indexOf('cost-overtime')).toBe(4);
+    expect(answerFor(s, 'v1', 'cost-overtime').notes).toBe('$1,500 an hour');
+    expect(venueProgress(s, 'v1')).toMatchObject({ answered: 1, total: 23 });
+    expect(isBuiltIn('cost-overtime')).toBe(true);
+    expect(isBuiltIn('q-1')).toBe(false);
+  });
+
+  it('refiles it under another category, or under My questions', () => {
+    let s = updateQuestion(empty(), 'gut-photos', { category: 'basics' });
+    expect(find(s, 'gut-photos').group).toBe('basics');
+    expect(questionGroups(s)[0].questions.at(-1).id).toBe('gut-photos');
+    expect(questionGroups(s)[5].questions.map((q) => q.id)).toEqual(['gut-wish-known']);
+    s = updateQuestion(s, 'gut-photos', { category: CUSTOM_CATEGORY });
+    expect(questionGroups(s).at(-1).id).toBe(CUSTOM_CATEGORY);
+    expect(venueProgress(s, 'v1').total).toBe(23);
+  });
+
+  it('is not an edit once it reads as it shipped, and can be put back', () => {
+    const original = SEED_CATEGORIES[1].questions[4].text;
+    let s = updateQuestion(empty(), 'cost-overtime', { text: 'Changed', category: 'food' });
+    expect(updateQuestion(s, 'cost-overtime', { text: original, category: 'cost' }).edits).toEqual({});
+    // Emptied text keeps the wording it had.
+    expect(updateQuestion(s, 'cost-overtime', { text: ' ' }).edits['cost-overtime'].text).toBe('Changed');
+    s = resetQuestion(s, 'cost-overtime');
+    expect(s.edits).toEqual({});
+    expect(find(s, 'cost-overtime')).toMatchObject({ text: original, edited: false, group: 'cost' });
+    expect(resetQuestion(s, 'cost-overtime')).toBe(s);
+  });
+
+  it('survives a save and a load, and junk edits are dropped', () => {
+    const s = updateQuestion(empty(), 'cost-overtime', { text: 'Changed' });
+    expect(normalizeQuestionState(JSON.parse(JSON.stringify(s)))).toEqual(s);
+    expect(normalizeQuestionState({ edits: { 'q-1': { text: 'x' }, nope: { text: 'x' }, 'cost-total': 'x', 'cost-minimum': { text: '', category: 'zzz' } } }).edits).toEqual({});
+    // Answering and deleting one of yours leave the edits alone.
+    const answered = setAnswer(s, 'v1', 'cost-total', { done: true }).state;
+    expect(answered.edits).toEqual(s.edits);
+    expect(removeQuestion(addQuestion(answered, 'Dog?', undefined, 'q-d'), 'q-d').state.edits).toEqual(s.edits);
   });
 });
 

@@ -4,6 +4,7 @@
    Kept on the user doc as `weddingVenueQuestions`, beside `weddingVenues`:
 
      { custom:  [{ id, text, category }],          // your own questions, for every venue
+       edits:   { [builtInId]: { text, category } }, // built-in questions you reworded or refiled
        answers: { [venueId]: { [questionId]: { done, notes } } } }
 
    Beside the venues rather than on them: the Venues tab saves its whole list
@@ -84,7 +85,8 @@ export const SEED_CATEGORIES = [
 const MAX_QUESTION = 300;
 const MAX_NOTES = 1000;
 const CUSTOM_ID = /^q-[a-z0-9-]+$/;
-const SEED_IDS = new Set(SEED_CATEGORIES.flatMap((c) => c.questions.map((q) => q.id)));
+const SEED_BY_ID = new Map(SEED_CATEGORIES.flatMap((c) => c.questions.map((q) => [q.id, { text: q.text, category: c.id }])));
+const SEED_IDS = new Set(SEED_BY_ID.keys());
 const CATEGORY_IDS = new Set([...SEED_CATEGORIES.map((c) => c.id), CUSTOM_CATEGORY]);
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
@@ -125,18 +127,42 @@ export function normalizeQuestionState(raw) {
     }
     if (Object.keys(kept).length) answers[venueId] = kept;
   }
-  return { custom, answers };
+  return { custom, edits: cleanEdits(raw?.edits), answers };
+}
+
+// The built-in questions that read differently from how they shipped. One
+// put back to its original wording and category isn't an edit any more.
+function cleanEdits(raw) {
+  const edits = {};
+  for (const [id, e] of Object.entries(isObject(raw) ? raw : {})) {
+    const seed = SEED_BY_ID.get(id);
+    if (!seed || !isObject(e)) continue;
+    const text = cleanText(e.text) || seed.text;
+    const category = CATEGORY_IDS.has(e.category) ? e.category : seed.category;
+    if (text !== seed.text || category !== seed.category) edits[id] = { text, category };
+  }
+  return edits;
 }
 
 /* The questions as the page shows them: the built-in categories in order,
    each followed by the questions you filed under it, then "My questions"
-   when there are any. Each question: { id, text, custom }. */
+   when there are any. A built-in question you edited shows your wording, in
+   the category you put it in. Each question: { id, text, custom, edited }. */
 export function questionGroups(state) {
   const custom = state?.custom || [];
-  const mine = (cat) => custom.filter((q) => q.category === cat).map((q) => ({ id: q.id, text: q.text, custom: true }));
-  const groups = SEED_CATEGORIES.map((c) => ({
-    id: c.id, name: c.name, questions: [...c.questions.map((q) => ({ ...q, custom: false })), ...mine(c.id)],
+  const edits = state?.edits || {};
+  const seeds = SEED_CATEGORIES.flatMap((c) => c.questions.map((q) => {
+    const e = edits[q.id];
+    return { id: q.id, text: e?.text || q.text, custom: false, edited: !!e, category: e?.category || c.id, home: c.id };
   }));
+  const strip = ({ id, text, custom: own, edited }) => ({ id, text, custom: own, edited });
+  // Built-in ones in their own category first, then those moved into it, then yours.
+  const mine = (cat) => [
+    ...seeds.filter((q) => q.category === cat && q.home === cat),
+    ...seeds.filter((q) => q.category === cat && q.home !== cat),
+    ...custom.filter((q) => q.category === cat).map((q) => ({ id: q.id, text: q.text, custom: true, edited: false })),
+  ].map(strip);
+  const groups = SEED_CATEGORIES.map((c) => ({ id: c.id, name: c.name, questions: mine(c.id) }));
   const own = mine(CUSTOM_CATEGORY);
   if (own.length) groups.push({ id: CUSTOM_CATEGORY, name: CUSTOM_CATEGORY_NAME, questions: own });
   return groups;
@@ -169,7 +195,7 @@ export function setAnswer(state, venueId, questionId, patch) {
   else venue[questionId] = next;
   if (Object.keys(venue).length) answers[venueId] = venue;
   else delete answers[venueId];
-  return { state: { custom: state?.custom || [], answers }, answer: next };
+  return { state: { custom: state?.custom || [], edits: state?.edits || {}, answers }, answer: next };
 }
 
 /* What to merge-write for that one answer: only its own leaf, so two phones
@@ -205,8 +231,21 @@ export function addQuestion(state, text, category = CUSTOM_CATEGORY, id = newQue
   return { ...state, custom: [...(state?.custom || []), { id, text: clean, category: cleanCategory(category) }] };
 }
 
-// Reworded or refiled. The id stays, so every venue's answer stays with it.
+/* Reworded or refiled — one of yours, or a built-in one (kept as an edit over
+   the original). The id stays, so every venue's answer stays with it. */
 export function updateQuestion(state, id, patch) {
+  const seed = SEED_BY_ID.get(id);
+  if (seed) {
+    const cur = state?.edits?.[id] || seed;
+    const edits = cleanEdits({
+      ...(state?.edits || {}),
+      [id]: {
+        text: (patch && 'text' in patch ? cleanText(patch.text) : '') || cur.text,
+        category: patch && 'category' in patch && CATEGORY_IDS.has(patch.category) ? patch.category : cur.category,
+      },
+    });
+    return { ...state, edits };
+  }
   return {
     ...state,
     custom: (state?.custom || []).map((q) => {
@@ -216,6 +255,16 @@ export function updateQuestion(state, id, patch) {
     }),
   };
 }
+
+// A built-in question put back to how it shipped. Its answers stay.
+export function resetQuestion(state, id) {
+  if (!state?.edits?.[id]) return state;
+  const edits = { ...state.edits };
+  delete edits[id];
+  return { ...state, edits };
+}
+
+export const isBuiltIn = (id) => SEED_BY_ID.has(id);
 
 /* Deleted, with its answers. Only a question of your own can go. Returns the
    new state and the venues that had an answer to it (for the write). */
@@ -231,7 +280,7 @@ export function removeQuestion(state, id) {
     delete rest[id];
     if (Object.keys(rest).length) answers[venueId] = rest;
   }
-  return { state: { custom: custom.filter((q) => q.id !== id), answers }, venueIds };
+  return { state: { custom: custom.filter((q) => q.id !== id), edits: state?.edits || {}, answers }, venueIds };
 }
 
 /* ── The venue picker ──

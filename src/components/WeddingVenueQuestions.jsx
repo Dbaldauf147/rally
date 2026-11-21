@@ -7,7 +7,7 @@ import { normalizeVenue } from '../lib/weddingVenues';
 import {
   QUESTIONS_FIELD, CUSTOM_CATEGORY, normalizeQuestionState, questionGroups, categoryOptions,
   answerFor, setAnswer, answerWrite, venueProgress, groupProgress,
-  addQuestion, updateQuestion, removeQuestion, pickerGroups, pickVenueId,
+  addQuestion, updateQuestion, removeQuestion, resetQuestion, isBuiltIn, pickerGroups, pickVenueId,
 } from '../lib/weddingVenueQuestions';
 import page from './WeddingPage.module.css';
 import styles from './WeddingVenueQuestions.module.css';
@@ -68,8 +68,9 @@ function NotesField({ saved, label, onSave, onFocusChange }) {
   );
 }
 
-// A question of your own, open for rewording or refiling.
-function QuestionEditor({ question, category, onSave, onCancel }) {
+/* A question open for rewording or refiling. A built-in one that has been
+   edited can be put back to how it came. */
+function QuestionEditor({ question, category, onSave, onCancel, onReset }) {
   const [text, setText] = useState(question.text);
   const [cat, setCat] = useState(category);
   const save = () => { if (text.trim()) onSave({ text, category: cat }); };
@@ -90,6 +91,7 @@ function QuestionEditor({ question, category, onSave, onCancel }) {
         </select>
         <button type="button" className={page.modalPrimary} onClick={save} disabled={!text.trim()}>Save</button>
         <button type="button" className={page.modalSecondary} onClick={onCancel}>Cancel</button>
+        {onReset && <button type="button" className={page.modalSecondary} onClick={onReset}>Restore original</button>}
       </div>
     </div>
   );
@@ -158,6 +160,12 @@ export function WeddingVenueQuestions({ onOpenVenues }) {
     saveCustom(addQuestion(stateRef.current, draft, draftCategory));
     setDraft('');
   };
+  // A built-in question's edit is written as its own leaf (or removed, when
+  // it reads as it shipped again); one of yours goes with the custom list.
+  const saveQuestion = (id, next) => {
+    if (!isBuiltIn(id)) { saveCustom(next); return; }
+    write(next, { [QUESTIONS_FIELD]: { edits: { [id]: next.edits[id] || deleteField() } } });
+  };
   const remove = (q) => {
     if (!confirm(`Delete “${q.text}”? Its answers for every venue go too.`)) return;
     const { state: next, venueIds } = removeQuestion(stateRef.current, q.id);
@@ -222,7 +230,8 @@ export function WeddingVenueQuestions({ onOpenVenues }) {
                         question={q}
                         category={group.id}
                         onCancel={() => setEditingId(null)}
-                        onSave={(patch) => { saveCustom(updateQuestion(stateRef.current, q.id, patch)); setEditingId(null); }}
+                        onSave={(patch) => { saveQuestion(q.id, updateQuestion(stateRef.current, q.id, patch)); setEditingId(null); }}
+                        onReset={q.edited ? () => { saveQuestion(q.id, resetQuestion(stateRef.current, q.id)); setEditingId(null); } : undefined}
                       />
                     </li>
                   );
@@ -240,12 +249,10 @@ export function WeddingVenueQuestions({ onOpenVenues }) {
                         />
                         <span className={a.done ? styles.textDone : styles.text}>{q.text}</span>
                       </label>
-                      {q.custom && (
-                        <span className={styles.tools}>
-                          <button type="button" className={styles.iconBtn} onClick={() => setEditingId(q.id)} title="Edit question" aria-label={`Edit “${q.text}”`}>✎</button>
-                          <button type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`} onClick={() => remove(q)} title="Delete question" aria-label={`Delete “${q.text}”`}>×</button>
-                        </span>
-                      )}
+                      <span className={styles.tools}>
+                        <button type="button" className={styles.iconBtn} onClick={() => setEditingId(q.id)} title="Edit question" aria-label={`Edit “${q.text}”`}>✎</button>
+                        {q.custom && <button type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`} onClick={() => remove(q)} title="Delete question" aria-label={`Delete “${q.text}”`}>×</button>}
+                      </span>
                     </div>
                     {venueId && (
                       <NotesField
@@ -280,7 +287,7 @@ export function WeddingVenueQuestions({ onOpenVenues }) {
           </select>
           <button type="submit" className={page.modalPrimary} disabled={!draft.trim()}>Add question</button>
         </div>
-        <p className={styles.addHint}>Your questions are asked at every venue.</p>
+        <p className={styles.addHint}>Your questions are asked at every venue. Any question can be reworded with ✎.</p>
       </form>
     </div>
   );
