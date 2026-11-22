@@ -4,7 +4,7 @@ import { doc, onSnapshot, updateDoc, FieldPath } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { secretSantaEnabled } from '../lib/secretSanta';
-import { wishlistPeople, whoAmI, memberKeyByEmail, cleanWish, cleanLink, MAX_WISHES, MAX_WISH_TEXT } from '../lib/wishlist';
+import { wishlistPeople, whoAmI, memberKeyByEmail, cleanWish, cleanLink, wishlistLink, wishlistPath, MAX_WISHES, MAX_WISH_TEXT } from '../lib/wishlist';
 import styles from './WishlistPage.module.css';
 
 // /wishlist/:eventId — the Secret Santa wishlist page (lib/wishlist.js).
@@ -83,14 +83,6 @@ export function WishlistPage() {
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
-  // The name tapped on this visit; '' after "not you?", which also stops the
-  // page from guessing again.
-  const [chosen, setChosen] = useState(null);
-  const [open, setOpen] = useState(() => new Set());
-  const [text, setText] = useState('');
-  const [link, setLink] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState(null); // { type: 'ok' | 'error', message }
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'events', eventId), (snap) => {
@@ -104,10 +96,79 @@ export function WishlistPage() {
     return unsub;
   }, [eventId]);
 
+  if (loading) return <Shell><p className={styles.lede} style={{ marginTop: '4rem', textAlign: 'center' }}>Loading…</p></Shell>;
+  if (missing || !event) {
+    return <Notice emoji="❄️" title="We couldn’t find that event">The link may be wrong, or the event may have been deleted. Ask whoever sent it to you for a new one.</Notice>;
+  }
+  if (!secretSantaEnabled(event) || event.cancelled) {
+    return <Notice emoji="🎅" title="No wishlists here yet">{event.title ? <><strong>{event.title}</strong> doesn’t</> : 'This event doesn’t'} have a Secret Santa set up{event.cancelled ? ' — it was cancelled' : ''}. Check back once the organizer has started one.</Notice>;
+  }
+
+  return (
+    <Shell>
+      <header className={styles.header}>
+        <div className={styles.tree} aria-hidden="true">🎄</div>
+        <p className={styles.eyebrow}>Secret Santa wishlists</p>
+        <h1 className={styles.title}>{event.title || 'Secret Santa'}</h1>
+        <p className={styles.lede}>Tell your Secret Santa what you’d love, and peek at what everyone else is hoping for.</p>
+      </header>
+
+      <Wishlists event={event} eventId={eventId} user={user} linkedMe={searchParams.get('me')} />
+
+      <p className={styles.footer}>Made with Rally · Merry everything 🎁</p>
+    </Shell>
+  );
+}
+
+// The event page's "Wishlists" tab: the same lists, inside the app, under a
+// way out to the standalone page (the one guests are sent) and its link.
+export function WishlistsTab({ event, eventId, user }) {
+  const [copied, setCopied] = useState(false);
+  const url = wishlistLink(eventId);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Copy the wishlist link', url);
+    }
+  }
+
+  return (
+    <div className={`${styles.page} ${styles.embedded}`} data-testid="wishlists-tab">
+      <div className={styles.inner}>
+        <header className={styles.header}>
+          <p className={styles.eyebrow}>🎄 Secret Santa wishlists</p>
+          <p className={styles.lede}>Write what you’d love, and peek at what everyone else is hoping for. Guests don’t need an account — send them the standalone page.</p>
+          <div className={styles.tabLinks}>
+            <a className={styles.pageLink} href={wishlistPath(eventId)} target="_blank" rel="noopener noreferrer" data-testid="wishlists-tab-open">Open the standalone page ↗</a>
+            <button type="button" className={styles.copyLink} onClick={copy} data-testid="wishlists-tab-copy">{copied ? 'Copied ✓' : 'Copy link'}</button>
+          </div>
+        </header>
+        <Wishlists event={event} eventId={eventId} user={user} />
+      </div>
+    </div>
+  );
+}
+
+// Everybody's lists for one event: yours to write, the rest wrapped. `linkedMe`
+// is the guest a link named (?me=), which outranks what was remembered.
+function Wishlists({ event, eventId, user, linkedMe = null }) {
+  // The name tapped on this visit; '' after "not you?", which also stops the
+  // page from guessing again.
+  const [chosen, setChosen] = useState(null);
+  const [open, setOpen] = useState(() => new Set());
+  const [text, setText] = useState('');
+  const [link, setLink] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(null); // { type: 'ok' | 'error', message }
+
   const people = useMemo(() => wishlistPeople(event), [event]);
   const meKey = chosen !== null
     ? whoAmI(people, [chosen])
-    : whoAmI(people, [searchParams.get('me'), remembered(eventId), user?.uid, memberKeyByEmail(event, user?.email)]);
+    : whoAmI(people, [linkedMe, remembered(eventId), user?.uid, memberKeyByEmail(event, user?.email)]);
   const me = people.find((p) => p.key === meKey) || null;
   const others = people.filter((p) => p.key !== meKey);
 
@@ -165,25 +226,10 @@ export function WishlistPage() {
     });
   }
 
-  if (loading) return <Shell><p className={styles.lede} style={{ marginTop: '4rem', textAlign: 'center' }}>Loading…</p></Shell>;
-  if (missing || !event) {
-    return <Notice emoji="❄️" title="We couldn’t find that event">The link may be wrong, or the event may have been deleted. Ask whoever sent it to you for a new one.</Notice>;
-  }
-  if (!secretSantaEnabled(event) || event.cancelled) {
-    return <Notice emoji="🎅" title="No wishlists here yet">{event.title ? <><strong>{event.title}</strong> doesn’t</> : 'This event doesn’t'} have a Secret Santa set up{event.cancelled ? ' — it was cancelled' : ''}. Check back once the organizer has started one.</Notice>;
-  }
-
   const firstName = (me?.name || '').split(/\s+/)[0];
 
   return (
-    <Shell>
-      <header className={styles.header}>
-        <div className={styles.tree} aria-hidden="true">🎄</div>
-        <p className={styles.eyebrow}>Secret Santa wishlists</p>
-        <h1 className={styles.title}>{event.title || 'Secret Santa'}</h1>
-        <p className={styles.lede}>Tell your Secret Santa what you’d love, and peek at what everyone else is hoping for.</p>
-      </header>
-
+    <>
       {!me ? (
         <section className={styles.card} data-testid="wishlist-who">
           <h2 className={styles.cardTitle}>Who are you?</h2>
@@ -280,8 +326,6 @@ export function WishlistPage() {
           </div>
         </section>
       )}
-
-      <p className={styles.footer}>Made with Rally · Merry everything 🎁</p>
-    </Shell>
+    </>
   );
 }

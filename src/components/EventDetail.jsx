@@ -32,6 +32,7 @@ import { SecretSantaPanels } from './SecretSanta';
 import { RemindersPopup } from './RemindersPopup';
 import { remindersOn } from '../lib/rsvpReminders';
 import { SecretSantaHistoryTab } from './SecretSantaHistory';
+import { WishlistsTab } from './WishlistPage';
 import { GiftsTab } from './GiftsTab';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
@@ -133,7 +134,7 @@ export function EventDetail() {
   const [showReminders, setShowReminders] = useState(false);
   const [activeTab, setActiveTab] = useState(() => {
     const t = searchParams.get('tab');
-    return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat', 'santa', 'gifts'].includes(t) ? t : null;
+    return ['details', 'itinerary', 'day', 'boat', 'notes', 'chat', 'santa', 'gifts', 'wishlists'].includes(t) ? t : null;
   });
   const initialTabPickedRef = useRef(false);
   const [result, setResult] = useState(null);
@@ -367,6 +368,8 @@ export function EventDetail() {
   // Event. Fall back to the tab every event has rather than a blank page.
   useEffect(() => {
     if (event && activeTab === 'itinerary' && !showsTripPlanning(event)) setActiveTab('details');
+    // Likewise ?tab=wishlists on an event with no Secret Santa.
+    if (event && activeTab === 'wishlists' && (!secretSantaEnabled(event) || event.cancelled)) setActiveTab('details');
   }, [event, activeTab]);
 
   // Chat and Expenses are optional tabs (lib/eventTabs.js). On an event where
@@ -2146,6 +2149,9 @@ export function EventDetail() {
     // The app owner's own gift list. It names who they drew, so nobody else
     // gets the tab — not guests, not another organizer.
     ...(isAppOwner && secretSantaEnabled(event) ? [{ key: 'gifts', label: `🎁 ${(user?.displayName || '').trim().split(/\s+/)[0] || 'My'}${(user?.displayName || '').trim() ? '’s' : ''} Gifts` }] : []),
+    // Wishlists are for every guest to read (lib/wishlist.js), so anyone who
+    // can open the event gets this one.
+    ...(secretSantaEnabled(event) && !event.cancelled ? [{ key: 'wishlists', label: '🎄 Wishlists' }] : []),
     ...(tripPlanning ? [{ key: 'itinerary', label: 'Itinerary' }] : []),
     ...(optionalTabs.day ? [{ key: 'day', label: 'Day' }] : []),
     ...(event.boatDay?.enabled ? [{ key: 'boat', label: '⛵ Boat' }] : []),
@@ -4859,6 +4865,12 @@ export function EventDetail() {
       {activeTab === 'santa' && (isOwner || isAppOwner) && secretSantaEnabled(event) && (
         <div className={styles.content}>
           <SecretSantaHistoryTab event={event} eventId={eventId} user={user} friends={friends} year={event.occurrenceYear ?? date.getFullYear()} />
+        </div>
+      )}
+
+      {activeTab === 'wishlists' && secretSantaEnabled(event) && !event.cancelled && (
+        <div className={styles.content}>
+          <WishlistsTab event={event} eventId={eventId} user={user} />
         </div>
       )}
 
