@@ -1202,6 +1202,9 @@ export function FriendsPage({ embed = null } = {}) {
       instagram: friend.instagram || '',
       // Shown in the friendly short form; normalized back on save.
       birthday: fmtBirthday(friend.birthday),
+      // Ticked: the weekly digest email lists this birthday from three weeks
+      // out, with the gift ideas below (see api/weekly-digest.js).
+      birthdayEmail: friend.birthdayEmail === true,
       dob: normalizeDob(friend.dob),
       anniversary: formatAnnualDate(friend.anniversary),
       kids: kidsForEditing(friend.kids),
@@ -2428,6 +2431,10 @@ export function FriendsPage({ embed = null } = {}) {
                 <label className={styles.label}>Guest<input className={styles.input} value={editFields.guest} onChange={e => editSet('guest', e.target.value)} /></label>
                 <label className={styles.label}>Instagram<input className={styles.input} value={editFields.instagram} onChange={e => editSet('instagram', e.target.value)} placeholder="@username or URL" /></label>
                 <label className={styles.label}>Birthday<input className={styles.input} value={editFields.birthday || ''} onChange={e => editSet('birthday', e.target.value)} onBlur={e => editSet('birthday', fmtBirthday(e.target.value) || e.target.value)} placeholder="M/D — e.g. 7/30" /></label>
+                <label className={styles.label} style={{ flexDirection: 'row', alignItems: 'center', gap: '0.4rem', fontWeight: 500, cursor: 'pointer' }} title="The weekly digest email lists their birthday starting 3 weeks ahead, with your gift ideas for them">
+                  <input type="checkbox" checked={!!editFields.birthdayEmail} onChange={e => editSet('birthdayEmail', e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
+                  Email me before their birthday
+                </label>
                 <label className={styles.label}>Date of Birth<DateField className={styles.input} value={editFields.dob || ''} onChange={e => editSet('dob', e.target.value)} /></label>
                 <label className={styles.label}><span>Anniversary<YearsNote value={editFields.anniversary} /></span><input className={styles.input} value={editFields.anniversary || ''} onChange={e => editSet('anniversary', e.target.value)} onBlur={e => editSet('anniversary', formatAnnualDate(e.target.value) || e.target.value)} placeholder="M/D/YYYY — e.g. 6/2/2015" /></label>
                 <div className={styles.label}>Kids<KidsEditor value={editFields.kids} onChange={v => editSet('kids', v)} /></div>
