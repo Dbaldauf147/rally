@@ -106,3 +106,76 @@
   border-style: solid; border-color: var(--color-accent);
   background: var(--color-accent-light); color: var(--color-accent);
 }
+
+/* --- Likes as a card that opens a pop-up --------------------------------- */
+
+.cardSection { padding-bottom: 0.75rem; }
+.cardTitle {
+  flex: 1; min-width: 8rem; text-align: left;
+  font: inherit; font-size: 1rem; font-weight: 700; color: var(--color-text);
+  background: none; border: none; padding: 0.25rem 0; cursor: pointer;
+}
+.cardTitle:hover { color: var(--color-accent); }
+.cardBody {
+  display: flex; flex-direction: column; align-items: stretch; gap: 0.5rem; width: 100%;
+  font: inherit; text-align: left; color: inherit; cursor: pointer;
+  background: var(--color-surface-alt); border: 1px solid transparent; border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.cardBody:hover { border-color: var(--color-accent); background: var(--color-accent-light); }
+.cardBody:focus-visible, .cardTitle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.cardList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.cardHead { display: flex; flex-direction: column; min-width: 0; }
+.cardHeadText { font-size: 0.9rem; font-weight: 600; color: var(--color-text); }
+.cardSubs { font-size: 0.78rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cardEmpty { font-size: 0.85rem; color: var(--color-text-muted); }
+.cardOpen { font-size: 0.78rem; font-weight: 600; color: var(--color-accent); }
+
+/* Above the Edit Contact modal (z-index 200), same layer as the family tree. */
+.popOverlay {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(15, 15, 20, 0.55);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.pop {
+  width: 100%; max-width: 640px; max-height: min(88vh, 900px);
+  display: flex; flex-direction: column;
+  background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  padding: 1.25rem 1.4rem 1rem;
+}
+.popHead { display: flex; align-items: center; gap: 0.5rem; }
+.popTitle { font-size: 1.35rem; }
+.popDone {
+  padding: 0.45rem 1rem; border: none; border-radius: var(--radius-md);
+  background: var(--color-accent); color: #fff; font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.popDone:hover { background: var(--color-accent-hover); }
+.popHint { font-size: 0.78rem; color: var(--color-text-muted); margin: 0.25rem 0 0.75rem; }
+.popBody { flex: 1; min-height: 6rem; overflow-y: auto; margin: 0 -0.4rem; padding: 0 0.4rem; }
+.popAdd { display: flex; flex-wrap: wrap; gap: 0.5rem; padding-top: 0.8rem; margin-top: 0.5rem; border-top: 1px solid var(--color-border-light); }
+
+/* Rows in the pop-up read as what they are. */
+.leveled { gap: 0.1rem; }
+.leveled .row { padding-left: 0; }
+.levelHeader { margin-top: 0.7rem; border-bottom: 1px solid var(--color-border); border-radius: 6px 6px 0 0; }
+.leveled .levelHeader:first-child { margin-top: 0; }
+.levelHeader .itemInput { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
+.levelSub { margin-top: 0.3rem; padding-left: 0.9rem !important; }
+.levelSub .itemInput { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-accent); }
+.levelItem { padding-left: calc(0.9rem + (var(--depth, 2) - 2) * 1.2rem) !important; }
+.levelItem .bullet { background: var(--color-text-secondary); }
+
+.levelSelect {
+  flex-shrink: 0; font: inherit; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted);
+  border: 1px solid var(--color-border-light); border-radius: 999px; background: var(--color-surface);
+  padding: 0.15rem 0.4rem; cursor: pointer;
+}
+.levelSelect:hover, .levelSelect:focus { border-color: var(--color-accent); color: var(--color-accent); outline: none; }
+
+@media (max-width: 600px) {
+  .popOverlay { padding: 8px; align-items: flex-end; }
+  .pop { max-height: 92vh; padding: 1rem; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+  .popAdd .addBtn { flex: 1; white-space: nowrap; padding-left: 0.4rem; padding-right: 0.4rem; }
+  .popTitle { min-width: 0; }
+}

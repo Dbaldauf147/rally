@@ -159,6 +159,43 @@ export function outdentItem(items, index) {
   return normalizeItems(rows.map((r, i) => (i >= index && i < end ? { ...r, depth: r.depth - 1 } : r)));
 }
 
+/* Put a row at a given level (0 = header, 1 = subheader, 2+ = a line in the
+   list), taking what's nested under it along by the same step. The level is
+   held to what the row above allows — at most one deeper than it, and the
+   first row is always a header — and to MAX_DEPTH for anything under it. */
+export function maxDepthAt(items, index) {
+  const rows = normalizeItems(items);
+  if (!rows[index] || index === 0) return 0;
+  return Math.min(MAX_DEPTH, rows[index - 1].depth + 1);
+}
+
+export function setItemDepth(items, index, depth) {
+  const rows = normalizeItems(items);
+  if (!rows[index]) return rows;
+  const end = subtreeEnd(rows, index);
+  const deepest = Math.max(...rows.slice(index, end).map((r) => r.depth - rows[index].depth));
+  const target = Math.max(0, Math.min(clampDepth(depth), maxDepthAt(rows, index), MAX_DEPTH - deepest));
+  const delta = target - rows[index].depth;
+  if (!delta) return rows;
+  return normalizeItems(rows.map((r, i) => (i >= index && i < end ? { ...r, depth: r.depth + delta } : r)));
+}
+
+/* A section summed up for its card: each header with the subheaders under it
+   and how many lines sit beneath it in all. Blank lines don't count. */
+export function previewOf(items) {
+  const out = [];
+  normalizeItems(items).forEach((r) => {
+    const text = r.text.trim();
+    if (!text) return;
+    if (r.depth === 0) { out.push({ id: r.id, text, subs: [], count: 0 }); return; }
+    const head = out[out.length - 1];
+    if (!head) return;
+    head.count += 1;
+    if (r.depth === 1) head.subs.push(text);
+  });
+  return out;
+}
+
 /* Remove a row. What was under it moves up a level rather than going with it —
    deleting the word "Food" shouldn't quietly delete the omakase place. */
 export function removeItem(items, index) {

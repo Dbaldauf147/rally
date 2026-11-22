@@ -4,6 +4,7 @@ import {
   insertItem, indentItem, outdentItem, removeItem, moveItem,
   parseOutline, mergeParsed, DEFAULT_SECTIONS, lineHint,
   setItemFollowUp, offersFollowUp, followUpsOf, dueFollowUps, clearFollowUp, followUpWhen,
+  setItemDepth, maxDepthAt, previewOf,
 } from './friendProfile';
 
 const rows = (...spec) => spec.map(([text, depth], i) => ({ id: `r${i}`, text, depth }));
@@ -179,5 +180,39 @@ describe('follow-up dates on Pains', () => {
     expect(followUpWhen('2026-11-16', '2026-11-16')).toBe('today');
     expect(followUpWhen('2026-11-02', '2026-11-16')).toBe('since Nov 2');
     expect(followUpWhen('2025-12-30', '2026-01-03')).toBe('since Dec 30, 2025');
+  });
+});
+
+describe('header / subheader / item levels', () => {
+  const list = () => rows(['Food', 0], ['Pasta', 1], ['Cacio e pepe', 2], ['Sushi', 1], ['Outdoors', 0]);
+
+  it('allows at most one level under the row above, and a header first', () => {
+    expect(maxDepthAt(list(), 0)).toBe(0);
+    expect(maxDepthAt(list(), 1)).toBe(1);
+    expect(maxDepthAt(list(), 3)).toBe(3);
+    expect(maxDepthAt(list(), 4)).toBe(2);
+  });
+
+  it('moves a row and what is under it to the level asked', () => {
+    const out = setItemDepth(list(), 1, 0);
+    expect(out.map((r) => [r.text, r.depth])).toEqual([['Food', 0], ['Pasta', 0], ['Cacio e pepe', 1], ['Sushi', 1], ['Outdoors', 0]]);
+  });
+
+  it('holds a level to what the row above allows', () => {
+    expect(setItemDepth(list(), 0, 2)[0].depth).toBe(0);
+    expect(setItemDepth(list(), 4, 3)[4].depth).toBe(2);
+    expect(setItemDepth(list(), 1, 1)).toEqual(normalizeItems(list()));
+  });
+
+  it("won't push a row's children past the deepest level", () => {
+    const deep = rows(['A', 0], ['B', 0], ['C', 1], ['D', 2], ['E', 3]);
+    expect(setItemDepth(deep, 1, 1).map((r) => r.depth)).toEqual([0, 0, 1, 2, 3]);
+  });
+
+  it('sums a section up as its headers and their subheaders', () => {
+    expect(previewOf([...list(), { id: 'x', text: '  ', depth: 1 }])).toEqual([
+      { id: 'r0', text: 'Food', subs: ['Pasta', 'Sushi'], count: 3 },
+      { id: 'r4', text: 'Outdoors', subs: [], count: 0 },
+    ]);
   });
 });
