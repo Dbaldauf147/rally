@@ -5,20 +5,38 @@
 //
 // It shows the owner's own Secret Santa pick, so it is theirs alone: the
 // event page offers the tab only to the app's owner. Nothing here is stored
-// on the event. The extra people are kept on the owner's user doc:
+// on the event. Joanne, Mom and Dad are always on the list; anyone added on
+// top of them is kept on the owner's user doc:
 //   giftPeople: { [eventId]: [name…] }
 
-// Who is on the list before it has ever been edited.
-export const DEFAULT_GIFT_PEOPLE = ['Sally Baldauf', 'Brian Baldauf'];
+// The people the owner buys for every year, whatever the draw: they lead the
+// list on every event and can't be taken off it. `relation` is how the list
+// names them beside their own name. A single name ("Joanne") finds the one
+// Friends contact with that first name — see findFriend.
+export const ALWAYS_GIFT_PEOPLE = [
+  { name: 'Joanne', relation: '' },
+  { name: 'Sally Baldauf', relation: 'Mom' },
+  { name: 'Brian Baldauf', relation: 'Dad' },
+];
 
 const norm = (s) => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-/** The saved extra people, tidied: no blanks, no repeats. Undefined → the defaults. */
+const alwaysEntry = (name) => ALWAYS_GIFT_PEOPLE.find((p) => norm(p.name) === norm(name));
+
+export const isAlwaysGiftPerson = (name) => !!alwaysEntry(name);
+
+/** "Mom" for Sally Baldauf; '' for anyone the list has no word for. */
+export const giftRelation = (name) => alwaysEntry(name)?.relation || '';
+
+/**
+ * Everyone the owner buys for besides their Secret Santa picks: the people
+ * they always buy for, then the extras saved for the event — tidied, with no
+ * blanks and no repeats.
+ */
 export function giftPeople(saved) {
-  const list = Array.isArray(saved) ? saved : DEFAULT_GIFT_PEOPLE;
   const seen = new Set();
   const out = [];
-  for (const raw of list) {
+  for (const raw of [...ALWAYS_GIFT_PEOPLE.map((p) => p.name), ...(Array.isArray(saved) ? saved : [])]) {
     const name = String(raw ?? '').trim().replace(/\s+/g, ' ').slice(0, 80);
     if (!name || seen.has(norm(name))) continue;
     seen.add(norm(name));
@@ -27,7 +45,14 @@ export function giftPeople(saved) {
   return out;
 }
 
-/** The Friends contact for a person: by email first, then by a name only one contact has. */
+/** The part of the list that is saved: the extras, without the always-people. */
+export const extraGiftPeople = (list) => giftPeople(list).filter((n) => !isAlwaysGiftPerson(n));
+
+/**
+ * The Friends contact for a person: by email first, then by a name only one
+ * contact has. A one-word name with no exact match falls back to the only
+ * contact with that first name, so "Joanne" finds "Joanne (Joo Yeon) Seo".
+ */
 export function findFriend(friends, person) {
   const list = (Array.isArray(friends) ? friends : []).filter((f) => f && typeof f === 'object');
   const email = norm(person?.email);
@@ -38,7 +63,10 @@ export function findFriend(friends, person) {
   const name = norm(person?.name);
   if (!name) return null;
   const hits = list.filter((f) => norm(f.name) === name);
-  return hits.length === 1 ? hits[0] : null;
+  if (hits.length > 0) return hits.length === 1 ? hits[0] : null;
+  if (name.includes(' ')) return null;
+  const first = list.filter((f) => norm(f.name).split(' ')[0] === name);
+  return first.length === 1 ? first[0] : null;
 }
 
 /** A friend's gift ideas as clean lines. */

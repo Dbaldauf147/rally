@@ -2,7 +2,8 @@
 // have a finalized date yet (where the configured recipient is the owner), the
 // Doctors check-ins with no next visit to show, and the birthdays coming up in
 // the next three weeks for friends with the birthday email ticked — each with
-// the gift ideas saved for them.
+// the gift ideas saved for them — and, once Secret Santa names are drawn for a
+// coming event, the owner's picks plus the people they always buy for.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
@@ -11,6 +12,7 @@ import { sendOne, mailConfigured } from '../lib/mailer.js';
 import { nextReminder } from '../src/lib/autoReminders.js';
 import { upcomingBirthdays, dayInZone, BIRTHDAY_LOOKAHEAD_DAYS } from '../src/lib/birthdayDigest.js';
 import { linkify } from '../src/lib/gifts.js';
+import { secretSantaGifts } from '../src/lib/giftDigest.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -140,10 +142,11 @@ export default async function handler(req, res) {
     // The Doctors list lives on the owner's own user doc (see DoctorsPage.jsx).
     // A missing or unreadable list costs this section, not the whole digest.
     let checkIns = [];
+    let userDoc = null;
     try {
       const userSnap = await db.collection('users').doc(ownerUid).get();
-      const doctors = userSnap.exists ? userSnap.data()?.doctors : null;
-      if (doctors) checkIns = checkInsNeedingScheduling(doctors);
+      userDoc = userSnap.exists ? userSnap.data() : null;
+      if (userDoc?.doctors) checkIns = checkInsNeedingScheduling(userDoc.doctors);
     } catch (err) {
       console.error('weekly-digest: doctors check-ins', err);
     }
@@ -159,8 +162,27 @@ export default async function handler(req, res) {
       console.error('weekly-digest: birthdays', err);
     }
 
-    if (unscheduled.length === 0 && checkIns.length === 0 && birthdays.length === 0) {
-      return res.status(200).json({ sent: false, reason: 'Nothing needs scheduling and no birthdays coming up', recipient });
+    // The owner's Secret Santa picks, from the draws on their own user doc,
+    // with the gift ideas on the Friends page (lib/giftDigest.js).
+    let gifts = [];
+    try {
+      const santaEvents = [...eventsById.values()].map(d => ({ id: d.id, ...d.data() })).filter(e => e.secretSanta?.enabled === true);
+      if (santaEvents.length > 0 && userDoc) {
+        const allFriends = await db.collection('users').doc(ownerUid).collection('friends').get();
+        gifts = secretSantaGifts({
+          events: santaEvents,
+          userDoc,
+          friends: allFriends.docs.map(d => ({ id: d.id, ...d.data() })),
+          me: { uid: ownerUid, email: ownerFilter },
+          today: dayInZone(now),
+        });
+      }
+    } catch (err) {
+      console.error('weekly-digest: secret santa gifts', err);
+    }
+
+    if (unscheduled.length === 0 && checkIns.length === 0 && birthdays.length === 0 && gifts.length === 0) {
+      return res.status(200).json({ sent: false, reason: 'Nothing needs scheduling, no birthdays coming up and no Secret Santa gifts to buy', recipient });
     }
 
     // Sort: events with a closest date first (soonest first), then no-date events by createdAt
@@ -297,10 +319,37 @@ export default async function handler(req, res) {
           <tbody>${birthdayRows}</tbody>
         </table>`;
 
+    const giftsSection = gifts.length === 0 ? '' : `
+        <h2 style="font-size: 1.1rem; color: #1f2937; margin: ${unscheduled.length || checkIns.length || birthdays.length ? '2rem' : '0'} 0 0.25rem;">🎁 Secret Santa gifts</h2>
+        <p style="color: #525252; margin: 0 0 1rem;">Who you drew, and everyone else you’re buying for.</p>
+        ${gifts.map(g => `
+        <p style="margin: 1rem 0 0.4rem; font-size: 0.92rem;">
+          <a href="${APP_URL}/event/${g.eventId}" style="font-weight:600; color:#1a1a1a; text-decoration:none;">${escapeHtml(g.title)}</a>
+          ${g.date ? `<span style="color:#6b7280;"> · ${escapeHtml(formatDate(g.date))} · </span>${formatDaysOut(g.daysUntil)}` : ''}
+        </p>
+        <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+          <thead>
+            <tr>
+              <th style="${headStyle}">Who</th>
+              <th style="${headStyle}">Gift ideas</th>
+            </tr>
+          </thead>
+          <tbody>${g.rows.map(r => `
+            <tr>
+              <td style="${cellStyle}">${r.name
+                ? `<span style="font-weight:600; color:#1a1a1a;">${escapeHtml(r.name)}</span>`
+                : '<span style="color:#9ca3af;">No pick yet</span>'}${muted(escapeHtml(r.role))}</td>
+              <td style="${cellStyle} color:#374151;">${!r.name
+                ? '<span style="color:#9ca3af;">Names aren’t drawn, or you aren’t in this draw</span>'
+                : r.found ? giftCell(r.ideas) : '<span style="color:#b45309;">Not on your Friends page, so no gift ideas to show</span>'}</td>
+            </tr>`).join('')}</tbody>
+        </table>`).join('')}`;
+
     const total = unscheduled.length + checkIns.length;
     const subject = 'Rally: ' + [
       total > 0 && `${total} event${total === 1 ? '' : 's'} still need${total === 1 ? 's' : ''} scheduling`,
       birthdays.length > 0 && `${birthdays.length} birthday${birthdays.length === 1 ? '' : 's'} coming up`,
+      gifts.length > 0 && 'your Secret Santa gift list',
     ].filter(Boolean).join(' · ');
 
     const html = `
@@ -309,6 +358,7 @@ export default async function handler(req, res) {
         ${eventsSection}
         ${checkInsSection}
         ${birthdaysSection}
+        ${giftsSection}
         <a href="${APP_URL}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 0.6rem 1.25rem; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 1.5rem;">Open Rally</a>
         <div style="margin-top: 1.5rem; padding: 0.9rem 1rem; background: #eef2ff; border-left: 3px solid #4f46e5; border-radius: 6px; color: #1f2937; font-size: 0.82rem; line-height: 1.45;">
           <strong>✈️ Flight booking tip:</strong> Best time to book is <strong>30–45 days out</strong> for domestic flights and <strong>3–6 months out</strong> for international.
@@ -327,7 +377,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ sent: false, error: mail.error });
     }
 
-    return res.status(200).json({ sent: true, recipient, count: unscheduled.length, checkIns: checkIns.length, birthdays: birthdays.length });
+    return res.status(200).json({ sent: true, recipient, count: unscheduled.length, checkIns: checkIns.length, birthdays: birthdays.length, gifts: gifts.length });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
