@@ -417,6 +417,45 @@
   color: rgba(255, 250, 240, 0.55);
 }
 
+/* The same lists as a tab of the event page: a panel, not a whole screen. */
+.embedded {
+  min-height: 0;
+  padding: 0 1rem 2rem;
+  border-radius: 16px;
+}
+.embedded .header { padding-top: 1.5rem; }
+.embedded .eyebrow { margin-top: 0; }
+.tabLinks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem 1.1rem;
+  margin-top: 1rem;
+}
+.pageLink {
+  padding: 0.55rem 1.1rem;
+  border-radius: 999px;
+  background: var(--gold);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--pine-deep);
+  text-decoration: none;
+}
+.pageLink:hover,
+.pageLink:focus-visible { background: #f3cf74; }
+.copyLink {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--cream);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* Not found / not switched on. */
 .notice {
   max-width: 440px;
