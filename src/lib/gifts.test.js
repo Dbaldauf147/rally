@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_GIFT_PEOPLE, giftPeople, findFriend, giftIdeasOf, myPick, linkify } from './gifts';
+import { giftPeople, extraGiftPeople, isAlwaysGiftPerson, giftRelation, findFriend, giftIdeasOf, myPick, linkify } from './gifts';
 
 const friends = [
   { id: 'f1', name: 'Sally Baldauf', email: 'sally@x.com', giftIdeas: ['  Garden gloves ', '', 'Tea'] },
@@ -10,14 +10,20 @@ const friends = [
 ];
 
 describe('giftPeople', () => {
-  it('starts from the defaults until a list has been saved', () => {
-    expect(giftPeople(undefined)).toEqual(DEFAULT_GIFT_PEOPLE);
-    expect(DEFAULT_GIFT_PEOPLE).toEqual(['Sally Baldauf', 'Brian Baldauf']);
+  it('always leads with Joanne, Mom and Dad', () => {
+    expect(giftPeople(undefined)).toEqual(['Joanne', 'Sally Baldauf', 'Brian Baldauf']);
+    expect(giftPeople([])).toEqual(['Joanne', 'Sally Baldauf', 'Brian Baldauf']);
+    expect(giftRelation('sally  baldauf')).toBe('Mom');
+    expect(giftRelation('Brian Baldauf')).toBe('Dad');
+    expect(giftRelation('Joanne')).toBe('');
   });
 
-  it('keeps a saved list, tidied — an emptied one stays empty', () => {
-    expect(giftPeople(['  Mom ', 'mom', '', null, 'Uncle  Bob'])).toEqual(['Mom', 'Uncle Bob']);
-    expect(giftPeople([])).toEqual([]);
+  it('adds the saved extras after them, tidied, without repeating anyone', () => {
+    expect(giftPeople(['  Mom ', 'mom', '', null, 'brian baldauf', 'Uncle  Bob']))
+      .toEqual(['Joanne', 'Sally Baldauf', 'Brian Baldauf', 'Mom', 'Uncle Bob']);
+    expect(extraGiftPeople(['Sally Baldauf', 'Uncle Bob', 'Joanne'])).toEqual(['Uncle Bob']);
+    expect(isAlwaysGiftPerson('JOANNE')).toBe(true);
+    expect(isAlwaysGiftPerson('Uncle Bob')).toBe(false);
   });
 });
 
@@ -29,6 +35,14 @@ describe('findFriend', () => {
     expect(findFriend(friends, { name: 'Sam Lee', email: 'sam2@x.com' }).id).toBe('f4');
     expect(findFriend(friends, { name: 'Nobody' })).toBeNull();
     expect(findFriend(null, { name: 'Sally Baldauf' })).toBeNull();
+  });
+
+  it('lets a one-word name find the only contact with that first name', () => {
+    const list = [...friends, { id: 'j', name: 'Joanne (Joo Yeon) Seo' }];
+    expect(findFriend(list, { name: 'Joanne' }).id).toBe('j');
+    expect(findFriend(list, { name: 'Sam' })).toBeNull(); // two Sams
+    expect(findFriend([...list, { id: 'j2', name: 'Joanne' }], { name: 'joanne' }).id).toBe('j2'); // exact wins
+    expect(findFriend(list, { name: 'Sally Smith' })).toBeNull();
   });
 });
 

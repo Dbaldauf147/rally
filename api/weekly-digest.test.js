@@ -97,3 +97,49 @@ describe('weekly digest birthdays', () => {
     expect(mails).toHaveLength(0);
   });
 });
+
+describe('weekly digest Secret Santa gifts', () => {
+  const pair = (g, r) => ({ giver: { key: g, name: g }, receiver: { key: r, name: r } });
+  const seed = (extra = {}) => ({
+    'events/x': {
+      title: 'Christmas', createdBy: 'dan', stage: 'finalized', secretSanta: { enabled: true }, date: '2026-12-25T17:00:00Z',
+      members: { dan: { name: 'Dan' }, milan: { name: 'Milan <S>' }, amy: { name: 'Amy' } },
+    },
+    'users/dan': {
+      secretSanta: { x: { 2026: { pairs: [pair('dan', 'milan'), pair('milan', 'amy'), pair('amy', 'dan')] } } },
+      giftPeople: { x: [] },
+    },
+    'users/dan/friends/m': { name: 'Milan <S>', giftIdeas: ['Whisky https://shop.example/w'] },
+    'users/dan/friends/j': { name: 'Joanne Seo', giftIdeas: ['Candle'] },
+    'users/dan/friends/s': { name: 'Sally Baldauf' },
+    ...extra,
+  });
+
+  it('shows my pick, then Joanne, Mom and Dad, with their gift ideas', async () => {
+    db = fakeDb(seed());
+    const res = await run();
+    expect(res.body).toMatchObject({ sent: true, count: 0, birthdays: 0, gifts: 1 });
+    const { subject, html } = mails[0];
+    expect(subject).toBe('Rally: your Secret Santa gift list');
+    expect(html).toContain('Secret Santa gifts');
+    expect(html).toContain('href="https://rally-seven-theta.vercel.app/event/x"');
+    expect(html).toContain('33 days');
+    const order = ['Milan &lt;S&gt;', 'Joanne Seo', 'Sally Baldauf', 'Brian Baldauf'].map((n) => html.indexOf(n));
+    expect(order.every((i) => i > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).toContain('>Mom<');
+    expect(html).toContain('>Dad<');
+    expect(html).toContain('<a href="https://shop.example/w" style="color:#4f46e5;">');
+    expect(html).toContain('<li>Candle</li>');
+    expect(html).toContain('No gift ideas yet'); // Sally
+    expect(html).toContain('Not on your Friends page'); // Brian
+    expect(html).not.toContain('Amy'); // someone else's pick stays out
+  });
+
+  it('says nothing before names are drawn', async () => {
+    db = fakeDb(seed({ 'users/dan': {} }));
+    const res = await run();
+    expect(res.body.sent).toBe(false);
+    expect(mails).toHaveLength(0);
+  });
+});

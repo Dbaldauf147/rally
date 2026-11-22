@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { doc, onSnapshot, setDoc, updateDoc, arrayUnion, FieldPath } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useSecretSantaHistory } from '../hooks/useSecretSantaHistory';
-import { giftPeople, findFriend, giftIdeasOf, myPick, linkify } from '../lib/gifts';
+import { giftPeople, extraGiftPeople, isAlwaysGiftPerson, giftRelation, findFriend, giftIdeasOf, myPick, linkify } from '../lib/gifts';
 
 // The owner's own gift list on an event with a Secret Santa (lib/gifts.js):
-// who they drew in each draw, plus the people they always buy for, each with
+// who they drew in each draw, plus the people they always buy for (Joanne,
+// Mom and Dad) and anyone added for this event, each with
 // the gift ideas saved for them on the Friends page. It names the owner's
 // Secret Santa pick, so the event page shows this tab to the owner alone.
 export function GiftsTab({ event, eventId, user, friends, year }) {
@@ -36,7 +37,7 @@ export function GiftsTab({ event, eventId, user, friends, year }) {
   async function savePeople(list) {
     setError('');
     try {
-      await setDoc(doc(db, 'users', user.uid), { giftPeople: { [eventId]: giftPeople(list) } }, { mergeFields: [new FieldPath('giftPeople', eventId)] });
+      await setDoc(doc(db, 'users', user.uid), { giftPeople: { [eventId]: extraGiftPeople(list) } }, { mergeFields: [new FieldPath('giftPeople', eventId)] });
     } catch (err) {
       setError(`Couldn't save: ${err.message || err}`);
     }
@@ -74,7 +75,15 @@ export function GiftsTab({ event, eventId, user, friends, year }) {
       )}
 
       {people.map((p) => (
-        <PersonCard key={p} testid={`gift-person-${p}`} label="Also buying for" person={{ name: p, email: '' }} friends={friends} user={user} onRemove={() => savePeople(people.filter((x) => x !== p))} />
+        <PersonCard
+          key={p}
+          testid={`gift-person-${p}`}
+          label={isAlwaysGiftPerson(p) ? `Always buying for${giftRelation(p) ? ` — ${giftRelation(p)}` : ''}` : 'Also buying for'}
+          person={{ name: p, email: '' }}
+          friends={friends}
+          user={user}
+          onRemove={isAlwaysGiftPerson(p) ? undefined : () => savePeople(people.filter((x) => x !== p))}
+        />
       ))}
 
       {draws.map((d, i) => (
