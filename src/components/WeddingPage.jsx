@@ -15,6 +15,7 @@ import { WeddingLocations } from './WeddingLocations';
 import dreamStyles from './WeddingDreamVenue.module.css';
 import { WeddingBudget } from './WeddingBudget';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
+import { WeddingInviteDecision } from './WeddingInviteDecision';
 import { FriendsPage } from './FriendsPage';
 import { WeddingPartyCell } from './WeddingPartyCell';
 import { makeGuestComparator, sameSortValue, statusOrder } from '../lib/weddingSort';
@@ -304,7 +305,7 @@ function renderCell(col, c) {
    Left whole rather than split up: it owns a lot of interlocking state
    (filters, selection, bulk edit, the import dialog) and none of it is
    shared with the checklist beside it. */
-function GuestList() {
+function GuestList({ subnav } = {}) {
   const { user } = useAuth();
   const [contacts, setContacts] = useState([]);
   const [friends, setFriends] = useState([]);
@@ -1932,6 +1933,7 @@ function GuestList() {
         <h1 className={styles.title}>Wedding</h1>
         <div className={styles.count}>{filtered.length} of {shownContacts.length} contacts</div>
       </div>
+      {subnav}
       <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>
 
       {/* Weekly email. Collapsed to a single line until opened — it's a setting
@@ -2923,6 +2925,17 @@ export function WeddingPage() {
         onClick={() => setSearchParams({ view: 'venues', venues: 'outreach' })}>Outreach email</button>
     </div>
   );
+  // Guest List has two: the list itself, and Invite Decision — the yes/no
+  // tree for whether someone belongs on it. Advice only; it never edits a guest.
+  const guestsSub = searchParams.get('guests') === 'decide' ? 'decide' : 'list';
+  const guestsSubnav = (
+    <div className={dreamStyles.subnav} role="tablist" aria-label="Guest List">
+      <button type="button" role="tab" aria-selected={guestsSub === 'list'} className={guestsSub === 'list' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
+        onClick={() => setSearchParams({})}>Guest list</button>
+      <button type="button" role="tab" aria-selected={guestsSub === 'decide'} className={guestsSub === 'decide' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
+        onClick={() => setSearchParams({ guests: 'decide' })}>Invite Decision</button>
+    </div>
+  );
 
   if (user?.email !== 'baldaufdan@gmail.com') return <Navigate to="/" replace />;
 
@@ -3017,7 +3030,16 @@ export function WeddingPage() {
           <p className={styles.subtitle}>Everything that has to happen, counting backward from the date.</p>
           <WeddingChecklist />
         </div>
-      ) : <GuestList />}
+      ) : guestsSub === 'decide' ? (
+        <div className={styles.page}>
+          <div className={styles.header}>
+            <h1 className={styles.title}>Wedding</h1>
+          </div>
+          {guestsSubnav}
+          <p className={styles.subtitle}>Not sure whether someone belongs on the list? Answer a few questions about them.</p>
+          <WeddingInviteDecision />
+        </div>
+      ) : <GuestList subnav={guestsSubnav} />}
     </>
   );
 }
