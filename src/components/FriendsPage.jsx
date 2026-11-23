@@ -24,7 +24,7 @@ import { parseVCards, headersFor } from '../lib/vcard';
 import { pickPhoneContacts, contactsSource, sourceLabel, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
 import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
 import { FriendProfileEditor } from './FriendProfileEditor';
-import { joinName, namePartsOf } from '../lib/friendName';
+import { joinName, namePartsOf, nameWithoutMiddle, memberRenames } from '../lib/friendName';
 import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
 import { groupTokens, bucketByGroup, removeGroup } from '../lib/peopleGroups';
@@ -1192,8 +1192,9 @@ export function FriendsPage({ embed = null } = {}) {
     const initialAddresses = getFriendAddresses(friend);
     const initial = {
       name: friend.name || '',
-      // First, middle and last: what the pop-up edits. `name` is the three
-      // joined (lib/friendName.js).
+      // First, middle and last: what the pop-up edits. `name` is the first
+      // and last joined — the middle name shows nowhere but here
+      // (lib/friendName.js).
       ...namePartsOf(friend),
       soundsLike: friend.soundsLike || '',
       company: friend.company || '',
@@ -1338,6 +1339,33 @@ export function FriendsPage({ embed = null } = {}) {
     writeComesWith(writes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [friends, loading, user, embedded]);
+
+  // A middle name shows nowhere but the pop-up (lib/friendName.js), but for a
+  // short while the pop-up saved it into `name`. Those contacts get their
+  // name back without it once the list loads, and so do event guests listed
+  // under exactly the old name. Not the contact open in the pop-up — it
+  // saves its own name.
+  const middleNameDone = useRef(new Set());
+  useEffect(() => {
+    if (!user || loading || embedded) return;
+    const openId = editFriend?.id;
+    const renames = friends
+      .filter(f => f.id !== openId && !middleNameDone.current.has(f.id))
+      .map(f => ({ id: f.id, from: f.name, to: nameWithoutMiddle(f) }))
+      .filter(r => r.to);
+    if (!renames.length) return;
+    renames.forEach(r => middleNameDone.current.add(r.id));
+    (async () => {
+      const batch = writeBatch(db);
+      for (const r of renames) batch.update(doc(db, 'users', user.uid, 'friends', r.id), { name: r.to });
+      await batch.commit();
+      const events = await getDocs(query(collection(db, 'events'), where('memberUids', 'array-contains', user.uid)));
+      for (const ev of events.docs) {
+        const updates = memberRenames(ev.data().members, renames);
+        if (Object.keys(updates).length) await updateDoc(doc(db, 'events', ev.id), updates);
+      }
+    })().catch(err => console.error('Middle name clean-up failed:', err));
+  }, [friends, loading, user, embedded, editFriend?.id]);
 
   async function notifyEmbedSaved(payload) {
     if (!embedRef.current?.onSaved) return;
