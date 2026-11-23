@@ -25,6 +25,7 @@ import { pickPhoneContacts, contactsSource, sourceLabel, NeedsFileFallback, SOUR
 import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
 import { FriendProfileEditor } from './FriendProfileEditor';
 import { joinName, namePartsOf } from '../lib/friendName';
+import { linkedinUrl, linkedinSearchUrl } from '../lib/linkedin';
 import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
 import { groupTokens, bucketByGroup, removeGroup } from '../lib/peopleGroups';
@@ -1197,6 +1198,7 @@ export function FriendsPage({ embed = null } = {}) {
       ...namePartsOf(friend),
       soundsLike: friend.soundsLike || '',
       company: friend.company || '',
+      linkedin: friend.linkedin || '',
       email: friend.email || '',
       workEmail: friend.workEmail || '',
       phone: friend.phone || '',
@@ -1271,6 +1273,7 @@ export function FriendsPage({ embed = null } = {}) {
       lastName: (fields.lastName || '').trim().replace(/\s+/g, ' '),
       soundsLike: (fields.soundsLike || '').trim(),
       company: (fields.company || '').trim().replace(/\s+/g, ' '),
+      linkedin: (fields.linkedin || '').trim(),
       email: (fields.email || '').trim().toLowerCase(),
       workEmail: (fields.workEmail || '').trim().toLowerCase(),
       birthday: normalizeBirthday(fields.birthday),
@@ -2440,6 +2443,19 @@ export function FriendsPage({ embed = null } = {}) {
                 </div>
                 <label className={styles.label}>Sounds like<input className={styles.input} value={editFields.soundsLike || ''} onChange={e => editSet('soundsLike', e.target.value)} placeholder="How to say it — e.g. AH-nya" /></label>
                 <label className={styles.label}>Company<input className={styles.input} value={editFields.company || ''} onChange={e => editSet('company', e.target.value)} autoComplete="off" placeholder="Where they work" data-testid="friend-company" /></label>
+                <div className={styles.label}>LinkedIn
+                  <div className={styles.linkedinRow}>
+                    <input className={styles.input} value={editFields.linkedin || ''} onChange={e => editSet('linkedin', e.target.value)} autoComplete="off" placeholder="Profile URL or username" aria-label="LinkedIn" data-testid="friend-linkedin" />
+                    {(() => {
+                      // Their profile once one is saved; until then, a people
+                      // search on their name and company to find it.
+                      const profile = linkedinUrl(editFields.linkedin);
+                      const href = profile || (!(editFields.linkedin || '').trim() && linkedinSearchUrl(joinName(editFields), editFields.company));
+                      if (!href) return null;
+                      return <a className={styles.linkedinOpen} href={href} target="_blank" rel="noopener noreferrer" data-testid="friend-linkedin-open">{profile ? 'Open ↗' : 'Find ↗'}</a>;
+                    })()}
+                  </div>
+                </div>
                 <label className={styles.label}>Email<input className={styles.input} type="email" value={editFields.email} onChange={e => editSet('email', e.target.value)} /></label>
                 <label className={styles.label}>Work Email<input className={styles.input} type="email" value={editFields.workEmail} onChange={e => editSet('workEmail', e.target.value)} /></label>
                 <label className={styles.label}>Phone<input className={styles.input} type="tel" value={editFields.phone} onChange={e => editSet('phone', e.target.value)} placeholder="(555) 123-4567" /></label>

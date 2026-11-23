@@ -24,6 +24,7 @@ export const SCALAR_FIELDS = [
   { key: 'email', label: 'Email' },
   { key: 'workEmail', label: 'Work email' },
   { key: 'company', label: 'Company' },
+  { key: 'linkedin', label: 'LinkedIn' },
   { key: 'phone', label: 'Phone' },
   { key: 'group', label: 'Group' },
   { key: 'guest', label: 'Guest' },
