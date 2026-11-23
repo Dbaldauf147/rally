@@ -204,7 +204,9 @@ describe('secretSantaEmail', () => {
   it('points at the wishlist page when given its link', () => {
     const { html } = secretSantaEmail({ giverName: 'Dan', link: 'https://x/santa?k=1', wishlistLink: 'https://x/wishlist/ev1?me=dan&a=1' });
     expect(html).toContain('href="https://x/wishlist/ev1?me=dan&amp;a=1"');
-    expect(html).toContain('Write your wishlist');
+    expect(html).toContain('Open the wishlists');
+    // Written out as well as linked, so it can be copied.
+    expect(html).toContain('>https://x/wishlist/ev1?me=dan&amp;a=1</a>');
   });
 });
 
