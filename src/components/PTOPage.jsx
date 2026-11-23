@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { isGoogleCalendarConnected, connectGoogleCalendar, fetchGoogleCalendarEvents } from '../googleCalendar';
 import styles from './PTOPage.module.css';
 import { DateField } from './DateField';
+import { PTOSummaryEmail } from './PTOSummaryEmail';
 
 const STORAGE_KEY = 'rally.pto.v1';
 const COLS_KEY = 'rally.pto.cols.v1';
@@ -490,6 +491,8 @@ export function PTOPage() {
         </label>
       </div>
       <p className={styles.subtitle}>Year-by-year balance. Taken &amp; Planned roll up automatically from the trip log below.</p>
+
+      <PTOSummaryEmail user={user} />
 
       <div className={styles.dashScroll}>
         <table className={styles.dash}>
