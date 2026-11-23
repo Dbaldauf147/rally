@@ -2,6 +2,10 @@
 // (api/secret-santa.js). The name itself is NOT in the email: a button opens
 // a page that keeps it covered until they tap Reveal (lib/secretSantaLink.js),
 // so reading the email beside someone gives nothing away.
+//
+// The wishlist page (lib/wishlist.js) gets a block of its own under that: a
+// button, and the address written out, so it is there to tap, copy or find
+// again later. Everyone's list is on that page, so the link names nobody.
 
 const escapeHtml = (s) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -22,7 +26,13 @@ export function secretSantaEmail({ giverName, eventTitle, when, location, note, 
         <a href="${escapeHtml(link)}" style="display:inline-block;background:#b91c1c;color:#fff;padding:0.8rem 1.75rem;border-radius:8px;text-decoration:none;font-weight:700;font-size:1.05rem;">🎁 See who you have</a>
         <div style="font-size:0.8rem;color:#6b7280;margin-top:0.7rem;">The name stays hidden until you tap Reveal — so it's safe to open this with someone beside you.</div>
       </div>
-      ${wishlistLink ? `<p style="color:#1f2937;margin:0 0 1rem;">🎄 <a href="${escapeHtml(wishlistLink)}" style="color:#b91c1c;font-weight:700;">Write your wishlist</a> so your own Secret Santa isn't guessing — everyone's lists are on the same page.</p>` : ''}
+      ${wishlistLink ? `
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:1.25rem;margin:1rem 0;text-align:center;">
+        <div style="font-size:1rem;font-weight:700;color:#14532d;margin-bottom:0.3rem;">🎄 Wishlists</div>
+        <div style="font-size:0.88rem;color:#374151;margin-bottom:0.9rem;">See what your person is hoping for, and write your own list so your Secret Santa isn't guessing.</div>
+        <a href="${escapeHtml(wishlistLink)}" style="display:inline-block;background:#166534;color:#fff;padding:0.7rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:700;font-size:0.98rem;">Open the wishlists</a>
+        <div style="font-size:0.75rem;color:#6b7280;margin-top:0.8rem;">Or copy this link:<br><a href="${escapeHtml(wishlistLink)}" style="color:#166534;word-break:break-all;">${escapeHtml(wishlistLink)}</a></div>
+      </div>` : ''}
       ${note ? `<p style="color:#1f2937;margin:0 0 1rem;white-space:pre-wrap;">${escapeHtml(note)}</p>` : ''}
       ${when ? `<p style="color:#525252;margin:0 0 0.2rem;">📅 ${escapeHtml(when)}</p>` : ''}
       ${location ? `<p style="color:#525252;margin:0 0 0.2rem;">📍 ${escapeHtml(location)}</p>` : ''}

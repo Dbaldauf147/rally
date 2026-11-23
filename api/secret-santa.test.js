@@ -61,6 +61,16 @@ describe('POST /api/secret-santa', () => {
     expect(state.sentMail[1].html).toContain('$50 limit');
   });
 
+  it('lists the wishlist link in every email, opening as that guest', async () => {
+    await call({ eventId: 'e1', pairs });
+    expect(state.sentMail).toHaveLength(2);
+    for (const [i, key] of ['dan', 'bob'].entries()) {
+      const url = `https://rally-seven-theta.vercel.app/wishlist/e1?me=${key}`;
+      expect(state.sentMail[i].html).toContain(`href="${url}"`);
+      expect(state.sentMail[i].html).toContain(`>${url}</a>`);
+    }
+  });
+
   it('names an extra exchange in the subject and on the reveal page', async () => {
     const res = await call({ eventId: 'e1', pairs, drawName: '  Sibs   Secret Santa ' });
     expect(res.code).toBe(200);
