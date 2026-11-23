@@ -24,6 +24,7 @@ import { parseVCards, headersFor } from '../lib/vcard';
 import { pickPhoneContacts, contactsSource, sourceLabel, NeedsFileFallback, SOURCE } from '../lib/phoneContacts';
 import { CustomFieldInputs, CustomFieldsModal } from './CustomFields';
 import { FriendProfileEditor } from './FriendProfileEditor';
+import { joinName, namePartsOf } from '../lib/friendName';
 import { profileForEditing, profileForSaving } from '../lib/friendProfile';
 import { DateField } from './DateField';
 import { groupTokens, bucketByGroup, removeGroup } from '../lib/peopleGroups';
@@ -1191,6 +1192,9 @@ export function FriendsPage({ embed = null } = {}) {
     const initialAddresses = getFriendAddresses(friend);
     const initial = {
       name: friend.name || '',
+      // First, middle and last: what the pop-up edits. `name` is the three
+      // joined (lib/friendName.js).
+      ...namePartsOf(friend),
       soundsLike: friend.soundsLike || '',
       email: friend.email || '',
       workEmail: friend.workEmail || '',
@@ -1260,6 +1264,10 @@ export function FriendsPage({ embed = null } = {}) {
       .filter(a => a.value);
     return {
       ...fields,
+      name: joinName(fields),
+      firstName: (fields.firstName || '').trim().replace(/\s+/g, ' '),
+      middleName: (fields.middleName || '').trim().replace(/\s+/g, ' '),
+      lastName: (fields.lastName || '').trim().replace(/\s+/g, ' '),
       soundsLike: (fields.soundsLike || '').trim(),
       email: (fields.email || '').trim().toLowerCase(),
       workEmail: (fields.workEmail || '').trim().toLowerCase(),
@@ -1461,6 +1469,10 @@ export function FriendsPage({ embed = null } = {}) {
   }
 
   function editSet(key, value) { setEditFields(prev => ({ ...prev, [key]: value })); }
+  // A name part: `name` follows, since the rest of the pop-up reads it.
+  function editSetNamePart(key, value) {
+    setEditFields(prev => { const next = { ...prev, [key]: value }; return { ...next, name: joinName(next) }; });
+  }
   function editSetCustom(fieldId, value) {
     setEditFields(prev => ({ ...prev, custom: { ...(prev.custom || {}), [fieldId]: value } }));
   }
@@ -2419,7 +2431,11 @@ export function FriendsPage({ embed = null } = {}) {
                 <div className={styles.editColumns}>
                 {/* Left: how to reach them. Right: who they are. */}
                 <div className={styles.editColumn}>
-                <label className={styles.label}>Name *<input className={styles.input} value={editFields.name} onChange={e => editSet('name', e.target.value)} autoFocus /></label>
+                <div className={styles.nameRow}>
+                  <label className={styles.label}>First name *<input className={styles.input} value={editFields.firstName || ''} onChange={e => editSetNamePart('firstName', e.target.value)} autoComplete="off" autoFocus data-testid="friend-first-name" /></label>
+                  <label className={styles.label}>Middle name<input className={styles.input} value={editFields.middleName || ''} onChange={e => editSetNamePart('middleName', e.target.value)} autoComplete="off" data-testid="friend-middle-name" /></label>
+                  <label className={styles.label}>Last name<input className={styles.input} value={editFields.lastName || ''} onChange={e => editSetNamePart('lastName', e.target.value)} autoComplete="off" data-testid="friend-last-name" /></label>
+                </div>
                 <label className={styles.label}>Sounds like<input className={styles.input} value={editFields.soundsLike || ''} onChange={e => editSet('soundsLike', e.target.value)} placeholder="How to say it — e.g. AH-nya" /></label>
                 <label className={styles.label}>Email<input className={styles.input} type="email" value={editFields.email} onChange={e => editSet('email', e.target.value)} /></label>
                 <label className={styles.label}>Work Email<input className={styles.input} type="email" value={editFields.workEmail} onChange={e => editSet('workEmail', e.target.value)} /></label>

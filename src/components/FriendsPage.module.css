@@ -75,6 +75,10 @@
 }
 .modalTitle { font-size: 1.2rem; font-weight: 700; margin: 0 0 1rem; }
 .form { display: flex; flex-direction: column; gap: 0.75rem; }
+/* First, middle, last: side by side, stacked where there's no room. */
+.nameRow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+.nameRow .input { min-width: 0; width: 100%; box-sizing: border-box; }
+@media (max-width: 480px) { .nameRow { grid-template-columns: minmax(0, 1fr); } }
 .label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
 .input { padding: 0.6rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.9rem; color: var(--color-text); outline: none; font-family: inherit; }
 .input:focus { border-color: var(--color-accent); }
