@@ -110,3 +110,40 @@ export function linkify(text) {
   if (last < s.length) out.push({ text: s.slice(last) });
   return out;
 }
+
+// Generic gift ideas: things that would suit nearly anyone, for when a pick
+// has no ideas of their own. They belong to no person and no event, so they
+// are one list on the owner's user doc — `genericGiftIdeas: [text…]` — shown
+// on the "Gift Ideas" tab of every event with a Secret Santa.
+export const MAX_GENERIC_IDEAS = 200;
+export const MAX_GENERIC_IDEA_TEXT = 300;
+
+/** One idea as it is stored: a single tidy line, or '' when it says nothing. */
+export const cleanGenericIdea = (raw) => String(raw ?? '').trim().replace(/\s+/g, ' ').slice(0, MAX_GENERIC_IDEA_TEXT);
+
+/** The saved list, tidied: no blanks, no repeats (whatever the capitals). */
+export function genericGiftIdeas(saved) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of Array.isArray(saved) ? saved : []) {
+    const idea = cleanGenericIdea(raw);
+    if (!idea || seen.has(norm(idea))) continue;
+    seen.add(norm(idea));
+    out.push(idea);
+    if (out.length >= MAX_GENERIC_IDEAS) break;
+  }
+  return out;
+}
+
+/**
+ * The list with one more idea on the end: { list } on success, { error } when
+ * there is nothing to add, it is already there, or the list is full.
+ */
+export function addGenericIdea(saved, raw) {
+  const list = genericGiftIdeas(saved);
+  const idea = cleanGenericIdea(raw);
+  if (!idea) return { error: 'Type an idea first.' };
+  if (list.some((x) => norm(x) === norm(idea))) return { error: 'That idea is already on the list.' };
+  if (list.length >= MAX_GENERIC_IDEAS) return { error: `The list is full (${MAX_GENERIC_IDEAS} ideas). Remove one first.` };
+  return { list: [...list, idea] };
+}

@@ -33,6 +33,7 @@ import { RemindersPopup } from './RemindersPopup';
 import { remindersOn } from '../lib/rsvpReminders';
 import { SecretSantaHistoryTab } from './SecretSantaHistory';
 import { WishlistsTab } from './WishlistPage';
+import { GiftIdeasTab } from './GiftIdeasTab';
 import { GiftsTab } from './GiftsTab';
 import { normalizePollSeries, cadenceLabel, monthLabel, nextSendDate, sendDateLabel, windowLabel, previewDate } from '../lib/pollSeries';
 import { formatWhen, isAllDay, timeInputValue, withTimeOfDay } from '../lib/eventTime';
@@ -2149,6 +2150,9 @@ export function EventDetail() {
     // The app owner's own gift list. It names who they drew, so nobody else
     // gets the tab — not guests, not another organizer.
     ...(isAppOwner && secretSantaEnabled(event) ? [{ key: 'gifts', label: `🎁 ${(user?.displayName || '').trim().split(/\s+/)[0] || 'My'}${(user?.displayName || '').trim() ? '’s' : ''} Gifts` }] : []),
+    // Generic gift ideas (lib/gifts.js): each person's own list on their own
+    // account, offered beside the Secret Santa tab to whoever gets that one.
+    ...((isOwner || isAppOwner) && secretSantaEnabled(event) ? [{ key: 'ideas', label: '💡 Gift Ideas' }] : []),
     // Wishlists are for every guest to read (lib/wishlist.js), so anyone who
     // can open the event gets this one.
     ...(secretSantaEnabled(event) && !event.cancelled ? [{ key: 'wishlists', label: '🎄 Wishlists' }] : []),
@@ -4859,6 +4863,12 @@ export function EventDetail() {
       {activeTab === 'gifts' && isAppOwner && secretSantaEnabled(event) && (
         <div className={styles.content}>
           <GiftsTab event={event} eventId={eventId} user={user} friends={friends} year={event.occurrenceYear ?? date.getFullYear()} />
+        </div>
+      )}
+
+      {activeTab === 'ideas' && (isOwner || isAppOwner) && secretSantaEnabled(event) && (
+        <div className={styles.content}>
+          <GiftIdeasTab user={user} />
         </div>
       )}
 
