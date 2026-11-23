@@ -83,3 +83,27 @@ describe('linkify', () => {
     expect(linkify('')).toEqual([]);
   });
 });
+
+describe('generic gift ideas', () => {
+  it('tidies the saved list: no blanks, no repeats', async () => {
+    const { genericGiftIdeas } = await import('./gifts');
+    expect(genericGiftIdeas(['  Nice   candle ', '', null, 'nice candle', 'Gift card'])).toEqual(['Nice candle', 'Gift card']);
+    expect(genericGiftIdeas(undefined)).toEqual([]);
+    expect(genericGiftIdeas('candle')).toEqual([]);
+  });
+  it('adds an idea to the end', async () => {
+    const { addGenericIdea } = await import('./gifts');
+    expect(addGenericIdea(['Candle'], ' Wool socks ')).toEqual({ list: ['Candle', 'Wool socks'] });
+  });
+  it('refuses a blank, a repeat, and a full list', async () => {
+    const { addGenericIdea, MAX_GENERIC_IDEAS } = await import('./gifts');
+    expect(addGenericIdea([], '   ').error).toMatch(/Type an idea/);
+    expect(addGenericIdea(['Candle'], 'CANDLE').error).toMatch(/already/);
+    const full = Array.from({ length: MAX_GENERIC_IDEAS }, (_, i) => `Idea ${i}`);
+    expect(addGenericIdea(full, 'One more').error).toMatch(/full/);
+  });
+  it('clips a very long idea', async () => {
+    const { cleanGenericIdea, MAX_GENERIC_IDEA_TEXT } = await import('./gifts');
+    expect(cleanGenericIdea('x'.repeat(1000))).toHaveLength(MAX_GENERIC_IDEA_TEXT);
+  });
+});
