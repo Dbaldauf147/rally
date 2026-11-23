@@ -1196,6 +1196,7 @@ export function FriendsPage({ embed = null } = {}) {
       // joined (lib/friendName.js).
       ...namePartsOf(friend),
       soundsLike: friend.soundsLike || '',
+      company: friend.company || '',
       email: friend.email || '',
       workEmail: friend.workEmail || '',
       phone: friend.phone || '',
@@ -1269,6 +1270,7 @@ export function FriendsPage({ embed = null } = {}) {
       middleName: (fields.middleName || '').trim().replace(/\s+/g, ' '),
       lastName: (fields.lastName || '').trim().replace(/\s+/g, ' '),
       soundsLike: (fields.soundsLike || '').trim(),
+      company: (fields.company || '').trim().replace(/\s+/g, ' '),
       email: (fields.email || '').trim().toLowerCase(),
       workEmail: (fields.workEmail || '').trim().toLowerCase(),
       birthday: normalizeBirthday(fields.birthday),
@@ -2437,6 +2439,7 @@ export function FriendsPage({ embed = null } = {}) {
                   <label className={styles.label}>Last name<input className={styles.input} value={editFields.lastName || ''} onChange={e => editSetNamePart('lastName', e.target.value)} autoComplete="off" data-testid="friend-last-name" /></label>
                 </div>
                 <label className={styles.label}>Sounds like<input className={styles.input} value={editFields.soundsLike || ''} onChange={e => editSet('soundsLike', e.target.value)} placeholder="How to say it — e.g. AH-nya" /></label>
+                <label className={styles.label}>Company<input className={styles.input} value={editFields.company || ''} onChange={e => editSet('company', e.target.value)} autoComplete="off" placeholder="Where they work" data-testid="friend-company" /></label>
                 <label className={styles.label}>Email<input className={styles.input} type="email" value={editFields.email} onChange={e => editSet('email', e.target.value)} /></label>
                 <label className={styles.label}>Work Email<input className={styles.input} type="email" value={editFields.workEmail} onChange={e => editSet('workEmail', e.target.value)} /></label>
                 <label className={styles.label}>Phone<input className={styles.input} type="tel" value={editFields.phone} onChange={e => editSet('phone', e.target.value)} placeholder="(555) 123-4567" /></label>
