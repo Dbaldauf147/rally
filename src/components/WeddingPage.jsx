@@ -317,10 +317,9 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const otherKey = isMain ? SECOND_LIST_KEY : MAIN_LIST_KEY;
   const [contacts, setContacts] = useState([]);
   // The other version's guests, so a group or category renamed here is
-  // renamed there too (the names themselves are shared), and so the second
-  // version can start as a copy of the first.
+  // renamed there too (the names themselves are shared), and so everyone on
+  // the main list shows up in the second version.
   const [otherContacts, setOtherContacts] = useState(null);
-  const [startingCopy, setStartingCopy] = useState(false);
   const [friends, setFriends] = useState([]);
   // Whether the guest list has had its one pass onto the Friends page
   // (lib/weddingFriendSync.js). null until the user doc has loaded.
@@ -518,6 +517,23 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     );
     return unsub;
   }, [user]);
+
+  /* Everyone on the main list is on the second version too. A guest added to
+     the main list (or there before the second version existed) is copied in
+     as they are there; after that their row here is the second version's own,
+     so edits here don't change the main list. Matched by id. */
+  const mainIds = useMemo(
+    () => new Set(!isMain && otherContacts ? otherContacts.map((c) => c.id) : []),
+    [isMain, otherContacts],
+  );
+  useEffect(() => {
+    if (isMain || loading || !user || !otherContacts?.length) return;
+    const have = new Set(contacts.map((c) => c.id));
+    const missing = otherContacts.filter((c) => !have.has(c.id));
+    if (!missing.length) return;
+    setDoc(doc(db, 'users', user.uid), { [listKey]: [...contacts, ...missing] }, { merge: true })
+      .catch((err) => console.error('Adding main-list guests to the second version failed:', err));
+  }, [isMain, loading, user, otherContacts, contacts, listKey]);
 
   /* The list is ~15 columns tall and the button can sit anywhere the toolbar
      wraps it — on a phone at the left edge, low on the screen, above the
@@ -1212,8 +1228,18 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
 
   const deleteSelected = async () => {
     if (!user || selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} contact${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) return;
-    const next = contacts.filter((c) => !selected.has(c.id));
+    // On the second version, guests from the main list can't be deleted here:
+    // they'd only be added straight back.
+    const doomed = [...selected].filter((id) => !mainIds.has(id));
+    const kept = selected.size - doomed.length;
+    if (!doomed.length) {
+      alert('Everyone selected is on the main guest list, so they stay on the second version too. Delete them from the main list to take them off both.');
+      return;
+    }
+    const keptNote = kept ? ` ${kept} on the main guest list will stay.` : '';
+    if (!confirm(`Delete ${doomed.length} contact${doomed.length === 1 ? '' : 's'}?${keptNote} This cannot be undone.`)) return;
+    const gone = new Set(doomed);
+    const next = contacts.filter((c) => !gone.has(c.id));
     await persistContacts(next);
     clearSelection();
   };
@@ -1842,6 +1868,10 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const deleteContact = async () => {
     if (!user || !editing || editing.id === null) return;
     const name = `${editing.draft.firstName} ${editing.draft.lastName}`.trim() || 'this guest';
+    if (mainIds.has(editing.id)) {
+      alert(`${name} is on the main guest list, so they stay on the second version too. Delete them from the main list to take them off both.`);
+      return;
+    }
     const friendNote = friendsById.has(editing.draft.friendId) ? ' They stay on your Friends page.' : '';
     if (!confirm(`Delete ${name} from the wedding guest list?${friendNote} This cannot be undone.`)) return;
     clearTimeout(guestSaveTimer.current);
@@ -1961,30 +1991,8 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       <p className={styles.subtitle}>
         {isMain
           ? 'Guest contact list. Select rows to bulk-edit a field.'
-          : 'A second version of the guest list to try changes on. It has its own guests; groups and categories are shared with the main list, and the weekly email and budget still count the main one.'}
+          : 'A second version of the guest list to try changes on. Everyone on the main list is here too, and you can add more; edits here don’t change the main list. Groups and categories are shared, and the weekly email and budget still count the main list.'}
       </p>
-      {!isMain && !loading && contacts.length === 0 && (
-        <div className={styles.secondStart}>
-          <p>This version is empty. Start it from a copy of the main guest list, or add guests to it from scratch.</p>
-          <button
-            type="button"
-            className={styles.secondStartBtn}
-            disabled={startingCopy || !otherContacts?.length}
-            onClick={async () => {
-              if (!user || !otherContacts?.length) return;
-              setStartingCopy(true);
-              try {
-                await setDoc(doc(db, 'users', user.uid), { [listKey]: otherContacts }, { merge: true });
-              } catch (err) {
-                console.error('Copying the guest list failed:', err);
-                alert(`Couldn’t copy the guest list: ${err.message}`);
-              } finally {
-                setStartingCopy(false);
-              }
-            }}
-          >{startingCopy ? 'Copying…' : `Copy the main list (${otherContacts?.length || 0} guests)`}</button>
-        </div>
-      )}
 
       {/* Weekly email. Collapsed to a single line until opened — it's a setting
           you touch once, and the guest list is what the page is for. */}
