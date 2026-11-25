@@ -24,7 +24,7 @@ export async function commitFriendMerge(uid, friends, primary, others, choices) 
   const userSnap = await getDoc(doc(db, 'users', uid));
   const data = userSnap.data() || {};
   const patch = {};
-  for (const key of ['reachOuts', 'weddingContacts']) {
+  for (const key of ['reachOuts', 'weddingContacts', 'weddingContactsV2']) {
     const { next, changed } = repointFriendIds(data[key], removedIds, primary.id);
     if (changed) patch[key] = next;
   }

@@ -261,6 +261,9 @@ const NEW_SUBCATEGORY_SENTINEL = '__new_subcategory__';
 const DEFAULT_FILTERS = {};
 const UNSORTED = '__none__';
 const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
+// Where each version of the guest list lives on the user doc.
+const MAIN_LIST_KEY = 'weddingContacts';
+const SECOND_LIST_KEY = 'weddingContactsV2';
 const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
 
 // What the A/B/C tiers mean until you say otherwise. A group's description
@@ -305,9 +308,19 @@ function renderCell(col, c) {
    Left whole rather than split up: it owns a lot of interlocking state
    (filters, selection, bulk edit, the import dialog) and none of it is
    shared with the checklist beside it. */
-function GuestList({ subnav } = {}) {
+function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const { user } = useAuth();
+  // The main list is the real one: the weekly email, the budget headcount, the
+  // Friends sync and the other subtabs all read it. The second version is a
+  // what-if copy beside it — same table and settings, its own guests.
+  const isMain = listKey === MAIN_LIST_KEY;
+  const otherKey = isMain ? SECOND_LIST_KEY : MAIN_LIST_KEY;
   const [contacts, setContacts] = useState([]);
+  // The other version's guests, so a group or category renamed here is
+  // renamed there too (the names themselves are shared), and so the second
+  // version can start as a copy of the first.
+  const [otherContacts, setOtherContacts] = useState(null);
+  const [startingCopy, setStartingCopy] = useState(false);
   const [friends, setFriends] = useState([]);
   // Whether the guest list has had its one pass onto the Friends page
   // (lib/weddingFriendSync.js). null until the user doc has loaded.
@@ -449,13 +462,15 @@ function GuestList({ subnav } = {}) {
           timezone: wd.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
           lastResult: wd.lastResult && typeof wd.lastResult === 'object' ? wd.lastResult : null,
         });
-        const stored = Array.isArray(data.weddingContacts) ? data.weddingContacts : null;
+        const stored = Array.isArray(data[listKey]) ? data[listKey] : null;
+        setOtherContacts(Array.isArray(data[otherKey]) ? data[otherKey] : null);
         setLoading(false);
         if (stored) {
           setContacts(stored);
           return;
         }
         if (
+          isMain &&
           !seedAttempted.current &&
           user.email === 'baldaufdan@gmail.com' &&
           !localStorage.getItem(SEED_FLAG_KEY)
@@ -479,20 +494,20 @@ function GuestList({ subnav } = {}) {
       },
     );
     return unsub;
-  }, [user]);
+  }, [user, listKey, otherKey, isMain]);
 
   /* Every guest goes on the Friends page too. The list that was here before
      that rule gets one pass the first time the page opens; guests added since
      are handled as they're added (addNewGuest, performImport). */
   useEffect(() => {
-    if (!user || friendsSynced !== false || contacts.length === 0 || friendSyncStarted.current) return;
+    if (!isMain || !user || friendsSynced !== false || contacts.length === 0 || friendSyncStarted.current) return;
     friendSyncStarted.current = true;
     syncWeddingGuestsToFriends(user.uid, { markDone: true })
       .then(({ created, linked }) => {
         if (linked) setFriendSyncMsg(friendSyncSummary(created, linked));
       })
       .catch((err) => console.error('Wedding → Friends sync failed:', err));
-  }, [user, friendsSynced, contacts.length]);
+  }, [user, friendsSynced, contacts.length, isMain]);
 
   useEffect(() => {
     if (!user) return;
@@ -557,7 +572,7 @@ function GuestList({ subnav } = {}) {
     const { list, moved, added } = partnersFollowGroup(contactsRef.current, next, friendsById, {
       makeGuest: (f) => (f ? guestFromFriend(f, `friend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) : null),
     });
-    await setDoc(doc(db, 'users', user.uid), { weddingContacts: list }, { merge: true });
+    await setDoc(doc(db, 'users', user.uid), { [listKey]: list }, { merge: true });
     const parts = [];
     if (added.length) parts.push(`${added.join(', ')} added to the guest list with their partner`);
     if (moved.length) parts.push(`${moved.join(', ')} moved with their partner`);
@@ -1252,9 +1267,8 @@ function GuestList({ subnav } = {}) {
     const nextSaved = Array.from(new Set(savedGroups.map((g) => (renames.has(g) ? renames.get(g) : g)).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b));
     const changed = groupEditor.some((r) => r.deleted || (r.name.trim() || r.from) !== r.from);
-    const nextContacts = changed
-      ? contacts.map((c) => (c.group && renames.has(c.group) && renames.get(c.group) !== c.group ? { ...c, group: renames.get(c.group) } : c))
-      : contacts;
+    const renameGroup = (list) => list.map((c) => (c.group && renames.has(c.group) && renames.get(c.group) !== c.group ? { ...c, group: renames.get(c.group) } : c));
+    const nextContacts = changed ? renameGroup(contacts) : contacts;
     // A filter on a renamed group follows it rather than emptying the table;
     // a filter on a deleted one is dropped.
     if (columnFilters.group && renames.has(columnFilters.group)) {
@@ -1272,7 +1286,12 @@ function GuestList({ subnav } = {}) {
     if (!user) return;
     await setDoc(
       doc(db, 'users', user.uid),
-      { weddingGroups: nextSaved, weddingGroupDescriptions: nextDescs, ...(changed ? { weddingContacts: nextContacts } : {}) },
+      {
+        weddingGroups: nextSaved,
+        weddingGroupDescriptions: nextDescs,
+        ...(changed ? { [listKey]: nextContacts } : {}),
+        ...(changed && otherContacts ? { [otherKey]: renameGroup(otherContacts) } : {}),
+      },
       { merge: true },
     );
   };
@@ -1304,15 +1323,14 @@ function GuestList({ subnav } = {}) {
     const nextSaved = Array.from(new Set(savedCategories.map((g) => (renames.has(g) ? renames.get(g) : g)).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b));
     const changed = categoryEditor.some((r) => r.deleted || (r.name.trim() || r.from) !== r.from);
-    const nextContacts = changed
-      ? contacts.map((c) => {
-        if (!c.category || !renames.has(c.category) || renames.get(c.category) === c.category) return c;
-        const to = renames.get(c.category);
-        // Subcategories ride along with a rename or merge; a deleted category
-        // takes its subcategories with it.
-        return to ? { ...c, category: to } : { ...c, category: '', subcategory: '' };
-      })
-      : contacts;
+    const renameCategory = (list) => list.map((c) => {
+      if (!c.category || !renames.has(c.category) || renames.get(c.category) === c.category) return c;
+      const to = renames.get(c.category);
+      // Subcategories ride along with a rename or merge; a deleted category
+      // takes its subcategories with it.
+      return to ? { ...c, category: to } : { ...c, category: '', subcategory: '' };
+    });
+    const nextContacts = changed ? renameCategory(contacts) : contacts;
     // The open subtab follows a renamed category; if it was deleted, you land
     // on the still-to-sort tab, which is where its guests just went.
     if (columnFilters.category && renames.has(columnFilters.category)) {
@@ -1328,7 +1346,11 @@ function GuestList({ subnav } = {}) {
     if (!user) return;
     await setDoc(
       doc(db, 'users', user.uid),
-      { weddingCategories: nextSaved, ...(changed ? { weddingContacts: nextContacts } : {}) },
+      {
+        weddingCategories: nextSaved,
+        ...(changed ? { [listKey]: nextContacts } : {}),
+        ...(changed && otherContacts ? { [otherKey]: renameCategory(otherContacts) } : {}),
+      },
       { merge: true },
     );
   };
@@ -1916,7 +1938,9 @@ function GuestList({ subnav } = {}) {
       setImportOpen(true);
       return;
     }
-    if (newContacts.length === 0) return;
+    // The Friends sync reads the main list, so the second version's imports
+    // stay off the Friends page until they're on the real list.
+    if (newContacts.length === 0 || !isMain) return;
     // Imported guests go on the Friends page too, matched to anyone already
     // there. Saved first, so a failed friend write never loses the import.
     try {
@@ -1934,11 +1958,37 @@ function GuestList({ subnav } = {}) {
         <div className={styles.count}>{filtered.length} of {shownContacts.length} contacts</div>
       </div>
       {subnav}
-      <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>
+      <p className={styles.subtitle}>
+        {isMain
+          ? 'Guest contact list. Select rows to bulk-edit a field.'
+          : 'A second version of the guest list to try changes on. It has its own guests; groups and categories are shared with the main list, and the weekly email and budget still count the main one.'}
+      </p>
+      {!isMain && !loading && contacts.length === 0 && (
+        <div className={styles.secondStart}>
+          <p>This version is empty. Start it from a copy of the main guest list, or add guests to it from scratch.</p>
+          <button
+            type="button"
+            className={styles.secondStartBtn}
+            disabled={startingCopy || !otherContacts?.length}
+            onClick={async () => {
+              if (!user || !otherContacts?.length) return;
+              setStartingCopy(true);
+              try {
+                await setDoc(doc(db, 'users', user.uid), { [listKey]: otherContacts }, { merge: true });
+              } catch (err) {
+                console.error('Copying the guest list failed:', err);
+                alert(`Couldn’t copy the guest list: ${err.message}`);
+              } finally {
+                setStartingCopy(false);
+              }
+            }}
+          >{startingCopy ? 'Copying…' : `Copy the main list (${otherContacts?.length || 0} guests)`}</button>
+        </div>
+      )}
 
       {/* Weekly email. Collapsed to a single line until opened — it's a setting
           you touch once, and the guest list is what the page is for. */}
-      {digestCfg && (
+      {isMain && digestCfg && (
         <div className={styles.digest}>
           <button
             type="button"
@@ -2927,11 +2977,13 @@ export function WeddingPage() {
   );
   // Guest List has two: the list itself, and Invite Decision — the yes/no
   // tree for whether someone belongs on it. Advice only; it never edits a guest.
-  const guestsSub = searchParams.get('guests') === 'decide' ? 'decide' : 'list';
+  const guestsSub = ['decide', 'v2'].includes(searchParams.get('guests')) ? searchParams.get('guests') : 'list';
   const guestsSubnav = (
     <div className={dreamStyles.subnav} role="tablist" aria-label="Guest List">
       <button type="button" role="tab" aria-selected={guestsSub === 'list'} className={guestsSub === 'list' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
         onClick={() => setSearchParams({})}>Guest list</button>
+      <button type="button" role="tab" aria-selected={guestsSub === 'v2'} className={guestsSub === 'v2' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
+        onClick={() => setSearchParams({ guests: 'v2' })}>Second version</button>
       <button type="button" role="tab" aria-selected={guestsSub === 'decide'} className={guestsSub === 'decide' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
         onClick={() => setSearchParams({ guests: 'decide' })}>Invite Decision</button>
     </div>
@@ -3039,7 +3091,7 @@ export function WeddingPage() {
           <p className={styles.subtitle}>Not sure whether someone belongs on the list? Answer a few questions about them.</p>
           <WeddingInviteDecision />
         </div>
-      ) : <GuestList subnav={guestsSubnav} />}
+      ) : guestsSub === 'v2' ? <GuestList key="v2" subnav={guestsSubnav} listKey={SECOND_LIST_KEY} /> : <GuestList key="main" subnav={guestsSubnav} />}
     </>
   );
 }
