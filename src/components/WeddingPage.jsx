@@ -367,7 +367,8 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [showBackups, setShowBackups] = useState(false);
-  // The Settings button's panel: the guest tiers key and the outline colours.
+  // The Settings button's panel: the weekly email, the guest tiers key and
+  // the outline colours.
   const [showSettings, setShowSettings] = useState(false);
   const loadedRef = useRef(false);
   const serverContactsRef = useRef([]);
@@ -2212,136 +2213,6 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       </div>
       {isMain && <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>}
 
-      {/* Weekly email. Collapsed to a single line until opened — it's a setting
-          you touch once, and the guest list is what the page is for. */}
-      {isMain && digestCfg && (
-        <div className={styles.digest}>
-          <button
-            type="button"
-            className={styles.digestToggle}
-            onClick={() => setDigestOpen((v) => !v)}
-            aria-expanded={digestOpen}
-          >
-            <span>📧 Weekly email</span>
-            <span className={digestCfg.enabled ? styles.digestOn : styles.digestOff}>
-              {digestCfg.enabled ? `On · ${WEEKDAYS[digestCfg.sendWeekday] || 'Sunday'}s at 8 AM` : 'Off'}
-            </span>
-            <span className={styles.digestChevron} aria-hidden="true">{digestOpen ? '▾' : '▸'}</span>
-          </button>
-
-          {digestOpen && (
-            <div className={styles.digestBody}>
-              <p className={styles.digestHint}>
-                The checklist, mailed to you: what you&apos;ve ticked off, what you got done since
-                last week, and the next thing to do. The guest list rides along at the bottom.
-              </p>
-              <label className={styles.digestCheck}>
-                <input
-                  type="checkbox"
-                  checked={digestCfg.enabled}
-                  onChange={(e) => saveDigest({ enabled: e.target.checked })}
-                />
-                <span>Email me a weekly summary</span>
-              </label>
-
-              {digestCfg.enabled && (
-                <div className={styles.digestFields}>
-                  <div className={styles.digestField}>
-                    <span>Send to</span>
-                    <div className={styles.digestEmails}>
-                      {digestCfg.emails.map((addr, i) => (
-                        <div key={i} className={styles.digestEmailRow}>
-                          <input
-                            type="email"
-                            value={addr}
-                            placeholder="you@example.com"
-                            aria-label={`Address ${i + 1} for the weekly summary`}
-                            onChange={(e) => setDigestEmail(i, e.target.value)}
-                            onBlur={() => saveDigestEmails(digestCfg.emails)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                          />
-                          {digestCfg.emails.length > 1 && (
-                            <button
-                              type="button"
-                              className={styles.digestEmailDrop}
-                              title="Stop sending to this address"
-                              aria-label={`Stop sending to ${addr || 'this address'}`}
-                              onClick={() => saveDigestEmails(digestCfg.emails.filter((_, j) => j !== i))}
-                            >×</button>
-                          )}
-                        </div>
-                      ))}
-                      {digestCfg.emails.length < 10 && (
-                        <button
-                          type="button"
-                          className={styles.digestAddEmail}
-                          onClick={() => setDigestCfg({ ...digestCfg, emails: [...digestCfg.emails, ''] })}
-                        >+ Add another address</button>
-                      )}
-                    </div>
-                  </div>
-                  <label className={styles.digestField}>
-                    <span>Every</span>
-                    <select
-                      value={digestCfg.sendWeekday}
-                      onChange={(e) => saveDigest({ sendWeekday: Number(e.target.value) })}
-                    >
-                      {WEEKDAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
-                    </select>
-                  </label>
-                  {/* Fixed rather than a picker: the cron runs at set hours on
-                      this plan, and a picker offering 6 PM would be a promise
-                      nothing keeps. See isDueNow in api/wedding-digest.js. */}
-                  <div className={styles.digestField}>
-                    <span>At</span>
-                    <div className={styles.digestTime}>8:00 AM Eastern</div>
-                  </div>
-                </div>
-              )}
-
-              {/* The last scheduled send, when an address on the list didn't get
-                  it — otherwise a refused address is silence, which reads as "the
-                  email just didn't come". */}
-              {digestCfg.enabled && digestCfg.lastResult?.failed?.length > 0 && (
-                <div className={styles.digestFailed} role="status">
-                  <strong>
-                    The {new Date(digestCfg.lastResult.at).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} email
-                    {digestCfg.lastResult.sentTo?.length ? ` reached ${digestCfg.lastResult.sentTo.join(', ')} but` : ''} didn&apos;t reach:
-                  </strong>
-                  <ul>
-                    {digestCfg.lastResult.failed.map((f, i) => (
-                      <li key={i}>{f.email ? `${f.email} — ` : ''}{f.error}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div className={styles.digestActions}>
-                <button
-                  type="button"
-                  className={styles.digestTest}
-                  onClick={sendDigestTest}
-                  disabled={digestBusy}
-                >
-                  {digestBusy ? 'Sending…' : 'Send one to me'}
-                </button>
-                {digestMsg && (
-                  <span className={digestMsg.type === 'ok' ? styles.digestOkMsg : styles.digestErrMsg}>
-                    {digestMsg.text}
-                  </span>
-                )}
-              </div>
-              <p className={styles.digestNote}>
-                Sends at 8 AM Eastern on your chosen day (some time before 9), to everyone
-                above, each as their own email. A test goes to
-                your own address only — nobody else on the list gets one — and doesn&apos;t
-                count as the week&apos;s email, so the next one still shows what changed.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
       <div className={styles.summary}>
         {/* One line per group column: counted by that column, and a chip
             filters that column. */}
@@ -2508,13 +2379,143 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
           onClick={() => setShowSettings((v) => !v)}
           aria-expanded={showSettings}
           aria-controls="wedding-settings"
-          title="Guest tiers and table outlines"
+          title="Weekly email, guest tiers and table outlines"
         >⚙ Settings</button>
       </div>
 
-      {/* Guest tiers and outlines: set once, so they wait behind the button. */}
+      {/* The weekly email, guest tiers and outlines: set once, so they wait
+          behind the button. */}
       {showSettings && (
         <div id="wedding-settings" data-testid="wedding-settings">
+        {/* Weekly email. Collapsed to a single line until opened — it's a setting
+            you touch once, and the guest list is what the page is for. */}
+        {isMain && digestCfg && (
+          <div className={styles.digest}>
+            <button
+              type="button"
+              className={styles.digestToggle}
+              onClick={() => setDigestOpen((v) => !v)}
+              aria-expanded={digestOpen}
+            >
+              <span>📧 Weekly email</span>
+              <span className={digestCfg.enabled ? styles.digestOn : styles.digestOff}>
+                {digestCfg.enabled ? `On · ${WEEKDAYS[digestCfg.sendWeekday] || 'Sunday'}s at 8 AM` : 'Off'}
+              </span>
+              <span className={styles.digestChevron} aria-hidden="true">{digestOpen ? '▾' : '▸'}</span>
+            </button>
+
+            {digestOpen && (
+              <div className={styles.digestBody}>
+                <p className={styles.digestHint}>
+                  The checklist, mailed to you: what you&apos;ve ticked off, what you got done since
+                  last week, and the next thing to do. The guest list rides along at the bottom.
+                </p>
+                <label className={styles.digestCheck}>
+                  <input
+                    type="checkbox"
+                    checked={digestCfg.enabled}
+                    onChange={(e) => saveDigest({ enabled: e.target.checked })}
+                  />
+                  <span>Email me a weekly summary</span>
+                </label>
+
+                {digestCfg.enabled && (
+                  <div className={styles.digestFields}>
+                    <div className={styles.digestField}>
+                      <span>Send to</span>
+                      <div className={styles.digestEmails}>
+                        {digestCfg.emails.map((addr, i) => (
+                          <div key={i} className={styles.digestEmailRow}>
+                            <input
+                              type="email"
+                              value={addr}
+                              placeholder="you@example.com"
+                              aria-label={`Address ${i + 1} for the weekly summary`}
+                              onChange={(e) => setDigestEmail(i, e.target.value)}
+                              onBlur={() => saveDigestEmails(digestCfg.emails)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                            />
+                            {digestCfg.emails.length > 1 && (
+                              <button
+                                type="button"
+                                className={styles.digestEmailDrop}
+                                title="Stop sending to this address"
+                                aria-label={`Stop sending to ${addr || 'this address'}`}
+                                onClick={() => saveDigestEmails(digestCfg.emails.filter((_, j) => j !== i))}
+                              >×</button>
+                            )}
+                          </div>
+                        ))}
+                        {digestCfg.emails.length < 10 && (
+                          <button
+                            type="button"
+                            className={styles.digestAddEmail}
+                            onClick={() => setDigestCfg({ ...digestCfg, emails: [...digestCfg.emails, ''] })}
+                          >+ Add another address</button>
+                        )}
+                      </div>
+                    </div>
+                    <label className={styles.digestField}>
+                      <span>Every</span>
+                      <select
+                        value={digestCfg.sendWeekday}
+                        onChange={(e) => saveDigest({ sendWeekday: Number(e.target.value) })}
+                      >
+                        {WEEKDAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                      </select>
+                    </label>
+                    {/* Fixed rather than a picker: the cron runs at set hours on
+                        this plan, and a picker offering 6 PM would be a promise
+                        nothing keeps. See isDueNow in api/wedding-digest.js. */}
+                    <div className={styles.digestField}>
+                      <span>At</span>
+                      <div className={styles.digestTime}>8:00 AM Eastern</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* The last scheduled send, when an address on the list didn't get
+                    it — otherwise a refused address is silence, which reads as "the
+                    email just didn't come". */}
+                {digestCfg.enabled && digestCfg.lastResult?.failed?.length > 0 && (
+                  <div className={styles.digestFailed} role="status">
+                    <strong>
+                      The {new Date(digestCfg.lastResult.at).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} email
+                      {digestCfg.lastResult.sentTo?.length ? ` reached ${digestCfg.lastResult.sentTo.join(', ')} but` : ''} didn&apos;t reach:
+                    </strong>
+                    <ul>
+                      {digestCfg.lastResult.failed.map((f, i) => (
+                        <li key={i}>{f.email ? `${f.email} — ` : ''}{f.error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className={styles.digestActions}>
+                  <button
+                    type="button"
+                    className={styles.digestTest}
+                    onClick={sendDigestTest}
+                    disabled={digestBusy}
+                  >
+                    {digestBusy ? 'Sending…' : 'Send one to me'}
+                  </button>
+                  {digestMsg && (
+                    <span className={digestMsg.type === 'ok' ? styles.digestOkMsg : styles.digestErrMsg}>
+                      {digestMsg.text}
+                    </span>
+                  )}
+                </div>
+                <p className={styles.digestNote}>
+                  Sends at 8 AM Eastern on your chosen day (some time before 9), to everyone
+                  above, each as their own email. A test goes to
+                  your own address only — nobody else on the list gets one — and doesn&apos;t
+                  count as the week&apos;s email, so the next one still shows what changed.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
         <div className={styles.tierLegend}>
           <span className={styles.tierLegendTitle}>Guest tiers</span>
           {groups.filter((g) => groupDescription(g)).map((t) => (
