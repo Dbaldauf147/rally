@@ -150,6 +150,12 @@ async function daily(req, res, db) {
     const userData = userDoc.data() || {};
     try {
       const result = await backupAccount(db, uid, userData);
+      // The heartbeat the weekly digest reads (backupHealth): written on every
+      // run, since a quiet day writes no file.
+      if (!result.empty) {
+        const newest = result.saved ? result.meta : result.previous;
+        await db.doc(`peopleBackups/${uid}`).set({ lastRunAt: Date.now(), lastFileAt: newest?.at || 0, counts: newest?.counts || {} }, { merge: true });
+      }
       if (!result.saved) continue;
       const entry = { uid, ...result.file.counts, emailed: false };
       if (wantsEmail(userData) && userData.email && mailConfigured()) {
@@ -173,6 +179,7 @@ async function daily(req, res, db) {
       results.push(entry);
     } catch (err) {
       console.error('People backup failed for', uid, err);
+      await db.doc(`peopleBackups/${uid}`).set({ lastErrorAt: Date.now(), lastError: String(err.message || err).slice(0, 300) }, { merge: true }).catch(() => {});
       results.push({ uid, error: err.message });
     }
   }
@@ -200,7 +207,8 @@ export default async function handler(req, res) {
       const userData = (await db.doc(`users/${uid}`).get()).data() || {};
       const snap = await daysOf(db, uid).select('at', 'counts', 'bytes', 'reason', 'emailed').get();
       const files = snap.docs.map((d) => summary({ id: d.id, ...d.data() })).sort((a, b) => b.at - a.at);
-      return res.status(200).json({ files, email: wantsEmail(userData), emailTo: userData.email || '', mail: mailConfigured() });
+      const status = (await db.doc(`peopleBackups/${uid}`).get()).data() || {};
+      return res.status(200).json({ files, email: wantsEmail(userData), emailTo: userData.email || '', mail: mailConfigured(), lastRunAt: status.lastRunAt || 0 });
     }
 
     if (action === 'run') {

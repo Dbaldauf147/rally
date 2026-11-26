@@ -97,6 +97,9 @@ export function PeopleBackups({ user, onClose }) {
               </span>
             </label>
           )}
+          {state?.lastRunAt > 0 && (
+            <p className={styles.modalHint}>The daily check last ran {fmtWhen(state.lastRunAt)}.</p>
+          )}
           {error && <p className={styles.saveError} role="alert">{error}</p>}
           {note && <p className={styles.categoryTabHint} role="status">{note}</p>}
           {state === null && <p className={styles.modalHint}>Loading…</p>}

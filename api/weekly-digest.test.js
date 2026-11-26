@@ -16,7 +16,11 @@ const { default: handler } = await import('./weekly-digest.js');
 
 // Just enough Firestore: docs by path, and equality / array-contains filters.
 function fakeDb(seed) {
-  const docs = new Map(Object.entries(seed));
+  // A backup that ran this morning, unless the test says otherwise (null: none).
+  const docs = new Map(Object.entries({
+    'peopleBackups/dan': { lastRunAt: Date.parse('2026-11-22T09:40:00Z'), lastFileAt: Date.parse('2026-11-20T09:40:00Z'), counts: { friends: 412, guests: 212 } },
+    ...seed,
+  }).filter(([, v]) => v !== null));
   const ref = (path) => ({
     id: path.split('/').pop(),
     collection: (name) => col(`${path}/${name}`),
@@ -143,3 +147,29 @@ describe('weekly digest Secret Santa gifts', () => {
     expect(mails).toHaveLength(0);
   });
 });
+
+describe('weekly digest backup alarm', () => {
+  it('says quietly that backups are running', async () => {
+    db = fakeDb({ 'users/dan': {}, 'users/dan/friends/a': { name: 'Sally', birthday: '12-01', birthdayEmail: true } });
+    await run();
+    expect(mails[0].subject).toBe('Rally: 1 birthday coming up');
+    expect(mails[0].html).toContain('Backups are running: last checked Sun, Nov 22, newest file Fri, Nov 20 (412 contacts, 212 guests).');
+    expect(mails[0].html).not.toContain('Backups have stopped');
+  });
+
+  it('sends on an otherwise empty week when the backup has stopped', async () => {
+    db = fakeDb({ 'users/dan': {}, 'peopleBackups/dan': { lastRunAt: Date.parse('2026-11-18T09:40:00Z'), lastErrorAt: Date.parse('2026-11-21T09:40:00Z'), lastError: 'quota' } });
+    const res = await run();
+    expect(res.body.sent).toBe(true);
+    expect(mails[0].subject).toBe('⚠️ Rally: no backup since Wed, Nov 18');
+    expect(mails[0].html).toContain('Backups have stopped.');
+    expect(mails[0].html).toContain('has not run since Wed, Nov 18. Last error: quota');
+  });
+
+  it('warns when the backup has never run', async () => {
+    db = fakeDb({ 'users/dan': {}, 'peopleBackups/dan': null });
+    await run();
+    expect(mails[0].subject).toBe('⚠️ Rally: the daily backup has never run');
+  });
+});
+

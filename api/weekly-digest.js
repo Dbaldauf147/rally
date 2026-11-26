@@ -9,6 +9,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { checkInsNeedingScheduling } from '../src/lib/doctors.js';
 import { sendOne, mailConfigured } from '../lib/mailer.js';
+import { backupHealth } from '../lib/peopleBackup.js';
 import { nextReminder } from '../src/lib/autoReminders.js';
 import { upcomingBirthdays, dayInZone, BIRTHDAY_LOOKAHEAD_DAYS } from '../src/lib/birthdayDigest.js';
 import { linkify } from '../src/lib/gifts.js';
@@ -181,7 +182,15 @@ export default async function handler(req, res) {
       console.error('weekly-digest: secret santa gifts', err);
     }
 
-    if (unscheduled.length === 0 && checkIns.length === 0 && birthdays.length === 0 && gifts.length === 0) {
+    // Whether the daily people backup is still running. A stopped backup is
+    // silent by nature, so this is where it gets said — and it is reason
+    // enough to send on a week with nothing else in it.
+    let health = { ok: true, line: '', short: '' };
+    try {
+      health = backupHealth((await db.collection('peopleBackups').doc(ownerUid).get()).data());
+    } catch { /* the digest goes out without the line */ }
+
+    if (health.ok && unscheduled.length === 0 && checkIns.length === 0 && birthdays.length === 0 && gifts.length === 0) {
       return res.status(200).json({ sent: false, reason: 'Nothing needs scheduling, no birthdays coming up and no Secret Santa gifts to buy', recipient });
     }
 
@@ -346,7 +355,8 @@ export default async function handler(req, res) {
         </table>`).join('')}`;
 
     const total = unscheduled.length + checkIns.length;
-    const subject = 'Rally: ' + [
+    const subject = (health.ok ? '' : '⚠️ ') + 'Rally: ' + [
+      !health.ok && health.short,
       total > 0 && `${total} event${total === 1 ? '' : 's'} still need${total === 1 ? 's' : ''} scheduling`,
       birthdays.length > 0 && `${birthdays.length} birthday${birthdays.length === 1 ? '' : 's'} coming up`,
       gifts.length > 0 && 'your Secret Santa gift list',
@@ -355,6 +365,7 @@ export default async function handler(req, res) {
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 760px; margin: 0 auto; padding: 2rem;">
         <h1 style="font-size: 1.5rem; color: #4f46e5; margin: 0 0 0.25rem;">Rally weekly digest</h1>
+        ${health.ok ? '' : `<div style="border:1px solid #dc2626;background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 12px;margin:0.75rem 0 1.25rem;font-size:0.92rem;"><strong>Backups have stopped.</strong> ${escapeHtml(health.line)} Open <a href="${APP_URL}/friends" style="color:#991b1b;">Friends → Backups</a> and press “Back up now”; if that fails too, the server’s settings need a look.</div>`}
         ${eventsSection}
         ${checkInsSection}
         ${birthdaysSection}
@@ -363,6 +374,7 @@ export default async function handler(req, res) {
         <div style="margin-top: 1.5rem; padding: 0.9rem 1rem; background: #eef2ff; border-left: 3px solid #4f46e5; border-radius: 6px; color: #1f2937; font-size: 0.82rem; line-height: 1.45;">
           <strong>✈️ Flight booking tip:</strong> Best time to book is <strong>30–45 days out</strong> for domestic flights and <strong>3–6 months out</strong> for international.
         </div>
+        ${health.ok && health.line ? `<p style="color: #6b7280; font-size: 0.78rem; margin-top: 1.5rem;">🛟 ${escapeHtml(health.line)}</p>` : ''}
         <p style="color: #9ca3af; font-size: 0.75rem; margin-top: 2rem;">Sent weekly on Sundays. Reply to unsubscribe.</p>
       </div>`;
 

@@ -114,6 +114,8 @@ describe('/api/people-backup', () => {
     expect((await cron()).body.saved).toEqual([]);
     expect(sent).toHaveLength(1);
     expect(days()).toHaveLength(1);
+    // A quiet day still leaves a heartbeat, pointing at the newest file.
+    expect(docs.get('peopleBackups/u1')).toEqual({ lastRunAt: Date.parse('2026-11-27T09:40:00Z'), lastFileAt: Date.parse('2026-11-26T09:40:00Z'), counts: { friends: 4, guests: 3, guestsV2: 0, reachOuts: 0 } });
   });
 
   it('flags a sharp drop in the subject and the message', async () => {
