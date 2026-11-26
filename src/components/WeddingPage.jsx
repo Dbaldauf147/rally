@@ -32,6 +32,10 @@ import { applyGuestMerge, findGuestDuplicateGroups } from '../lib/weddingGuestMe
 import { commitFriendMerge } from '../lib/friendMergeWrite';
 import { GuestDuplicatesModal, GuestMergeModal } from './WeddingGuestMerge';
 import { splitGuestName, withFriendNames } from '../lib/weddingGuestNames';
+import { saveGuestLists } from '../lib/weddingGuestStore';
+import { GuestListGuardError } from '../lib/weddingGuestSave';
+import { WeddingBackups } from './WeddingBackups';
+import { callBackupApi } from '../lib/weddingBackupApi';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -349,6 +353,15 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const [outlineColors, setOutlineColors] = useState({});
   const outlineSaveTimer = useRef(null);
   const [loading, setLoading] = useState(true);
+  // Keeping the list safe (lib/weddingGuestSave.js). Nothing is saved until
+  // the stored list has actually arrived; a save that fails says so and the
+  // table goes back to the list as stored.
+  const [loadError, setLoadError] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [showBackups, setShowBackups] = useState(false);
+  const loadedRef = useRef(false);
+  const serverContactsRef = useRef([]);
+  const backupAsked = useRef(false);
   const [search, setSearch] = useState('');
   const [columnFilters, setColumnFilters] = useState(DEFAULT_FILTERS);
   // '' is the default view (by name, status sunk); a header click sorts by
@@ -464,8 +477,18 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         const stored = Array.isArray(data[listKey]) ? data[listKey] : null;
         setOtherContacts(Array.isArray(data[otherKey]) ? data[otherKey] : null);
         setLoading(false);
+        setLoadError(false);
+        loadedRef.current = true;
+        serverContactsRef.current = stored || [];
         if (stored) {
           setContacts(stored);
+          // A restore point from before this sitting (api/wedding-backup.js;
+          // the server takes one an hour at most, and none if nothing changed).
+          if (stored.length && !backupAsked.current) {
+            backupAsked.current = true;
+            callBackupApi(user, { action: 'snapshot' })
+              .catch((err) => console.warn('Guest list restore point not taken:', err.message));
+          }
           return;
         }
         if (
@@ -489,6 +512,9 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       },
       (err) => {
         console.error('Wedding contacts snapshot error:', err);
+        // Not an empty list — an unread one. Shown as such, and (until a
+        // read does succeed) nothing can be saved over it.
+        setLoadError(true);
         setLoading(false);
       },
     );
@@ -531,7 +557,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     const have = new Set(contacts.map((c) => c.id));
     const missing = otherContacts.filter((c) => !have.has(c.id));
     if (!missing.length) return;
-    setDoc(doc(db, 'users', user.uid), { [listKey]: [...contacts, ...missing] }, { merge: true })
+    saveGuestLists(user.uid, { [listKey]: { base: contacts, next: [...contacts, ...missing] } })
       .catch((err) => console.error('Adding main-list guests to the second version failed:', err));
   }, [isMain, loading, user, otherContacts, contacts, listKey]);
 
@@ -583,16 +609,37 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   // Every write of the guest list goes through here, so a Comes With partner
   // follows a guest into (or out of) a wedding group however it was changed —
   // the pop-up, the table cell, bulk edit. One not on the list yet is added.
-  const persistContacts = async (next) => {
+  //
+  // What's saved is the change from the list on screen to `next`, merged into
+  // the list as stored (lib/weddingGuestStore.js) — never the whole list laid
+  // over it. `removing` names the guests a delete or merge means to take off;
+  // any other save that would shrink the list is stopped. `quiet` is for the
+  // background tidy-ups: no banner, and the table isn't put back.
+  const persistContacts = async (next, { removing = [], quiet = false } = {}) => {
     if (!user) return;
-    const { list, moved, added } = partnersFollowGroup(contactsRef.current, next, friendsById, {
-      makeGuest: (f) => (f ? guestFromFriend(f, `friend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) : null),
-    });
-    await setDoc(doc(db, 'users', user.uid), { [listKey]: list }, { merge: true });
-    const parts = [];
-    if (added.length) parts.push(`${added.join(', ')} added to the guest list with their partner`);
-    if (moved.length) parts.push(`${moved.join(', ')} moved with their partner`);
-    if (parts.length) setPartnerMsg(`💑 ${parts.join('; ')}.`);
+    try {
+      if (!loadedRef.current) throw new Error('the guest list hasn’t loaded');
+      const base = contactsRef.current;
+      const { list, moved, added } = partnersFollowGroup(base, next, friendsById, {
+        makeGuest: (f) => (f ? guestFromFriend(f, `friend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) : null),
+      });
+      // Shown at once; the stored list arrives a moment later and agrees.
+      if (!quiet) setContacts(list);
+      await saveGuestLists(user.uid, { [listKey]: { base, next: list, removing } });
+      setSaveError('');
+      const parts = [];
+      if (added.length) parts.push(`${added.join(', ')} added to the guest list with their partner`);
+      if (moved.length) parts.push(`${moved.join(', ')} moved with their partner`);
+      if (parts.length) setPartnerMsg(`💑 ${parts.join('; ')}.`);
+    } catch (err) {
+      if (!quiet) {
+        if (loadedRef.current) setContacts(serverContactsRef.current);
+        setSaveError(err instanceof GuestListGuardError
+          ? err.message
+          : `Your last change wasn’t saved (${navigator.onLine === false ? 'you’re offline' : err.message}). The list is shown as it was last saved — try again.`);
+      }
+      throw err;
+    }
   };
 
   /* Autosave for an existing guest. The guest-only pop-up saves its whole
@@ -795,7 +842,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     const next = withFriendNames(contacts, friendsById);
     if (next === contacts) return;
     setContacts(next);
-    persistContacts(next).catch((err) => console.error('Syncing guest names from Friends failed:', err));
+    persistContacts(next, { quiet: true }).catch((err) => console.error('Syncing guest names from Friends failed:', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contacts, friendsById, loading, user]);
 
@@ -1240,7 +1287,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     if (!confirm(`Delete ${doomed.length} contact${doomed.length === 1 ? '' : 's'}?${keptNote} This cannot be undone.`)) return;
     const gone = new Set(doomed);
     const next = contacts.filter((c) => !gone.has(c.id));
-    await persistContacts(next);
+    await persistContacts(next, { removing: doomed });
     clearSelection();
   };
 
@@ -1310,15 +1357,13 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     setSavedGroups(nextSaved);
     setGroupDescriptions(nextDescs);
     if (!user) return;
-    await setDoc(
-      doc(db, 'users', user.uid),
+    await saveGuestLists(
+      user.uid,
       {
-        weddingGroups: nextSaved,
-        weddingGroupDescriptions: nextDescs,
-        ...(changed ? { [listKey]: nextContacts } : {}),
-        ...(changed && otherContacts ? { [otherKey]: renameGroup(otherContacts) } : {}),
+        ...(changed ? { [listKey]: { base: contacts, next: nextContacts } } : {}),
+        ...(changed && otherContacts ? { [otherKey]: { base: otherContacts, next: renameGroup(otherContacts) } } : {}),
       },
-      { merge: true },
+      { extra: { weddingGroups: nextSaved, weddingGroupDescriptions: nextDescs } },
     );
   };
 
@@ -1370,14 +1415,13 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     setCategoryEditor(null);
     setSavedCategories(nextSaved);
     if (!user) return;
-    await setDoc(
-      doc(db, 'users', user.uid),
+    await saveGuestLists(
+      user.uid,
       {
-        weddingCategories: nextSaved,
-        ...(changed ? { [listKey]: nextContacts } : {}),
-        ...(changed && otherContacts ? { [otherKey]: renameCategory(otherContacts) } : {}),
+        ...(changed ? { [listKey]: { base: contacts, next: nextContacts } } : {}),
+        ...(changed && otherContacts ? { [otherKey]: { base: otherContacts, next: renameCategory(otherContacts) } } : {}),
       },
-      { merge: true },
+      { extra: { weddingCategories: nextSaved } },
     );
   };
 
@@ -1852,7 +1896,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const commitGuestMerge = async ({ guest, removedGuestIds, friendMerge }) => {
     if (!user) return;
     const removedFriendIds = friendMerge ? friendMerge.others.map((f) => f.id) : [];
-    await persistContacts(applyGuestMerge(contacts, guest, removedGuestIds, removedFriendIds));
+    await persistContacts(applyGuestMerge(contacts, guest, removedGuestIds, removedFriendIds), { removing: removedGuestIds });
     if (friendMerge) {
       await commitFriendMerge(user.uid, friends, friendMerge.primary, friendMerge.others, friendMerge.choices);
     }
@@ -1885,7 +1929,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       next.delete(id);
       return next;
     });
-    await persistContacts(contacts.filter((c) => c.id !== id));
+    await persistContacts(contacts.filter((c) => c.id !== id), { removing: [id] });
   };
 
   /* Adding a guest by hand also puts them on the Friends page. If they're
@@ -2254,6 +2298,12 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         </p>
       )}
 
+      {saveError && (
+        <p className={styles.saveError} role="alert">
+          {saveError}{' '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => setSaveError('')}>Dismiss</button>
+        </p>
+      )}
       {partnerMsg && (
         <p className={styles.categoryTabHint} role="status">
           {partnerMsg}{' '}
@@ -2294,6 +2344,12 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
           Group view: {groupView ? 'On' : 'Off'}
         </button>
         <WeddingExportMenu exporting={exporting} onExport={exportToExcel} />
+        <button
+          className={styles.toolButton}
+          type="button"
+          onClick={() => setShowBackups(true)}
+          title="Copies of the guest list from earlier, to put back if something goes wrong"
+        >Restore points</button>
         <div className={styles.colMenu} ref={columnsMenuRef}>
           <button className={styles.toolButton} type="button" onClick={() => setShowColumnsMenu((s) => !s)}>
             Columns ▾
@@ -2390,6 +2446,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         </div>
       )}
 
+      {showBackups && (
+        <WeddingBackups
+          user={user}
+          listName={isMain ? 'main' : 'v2'}
+          currentCount={contacts.length}
+          onClose={() => setShowBackups(false)}
+        />
+      )}
       {showGuestDuplicates && !mergingGuests && (
         <GuestDuplicatesModal
           groups={findGuestDuplicateGroups(shownContacts)}
@@ -2813,7 +2877,12 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
               {loading && (
                 <tr><td colSpan={visibleColumns.length + 1} className={styles.loadingState}>Loading…</td></tr>
               )}
-              {!loading && filtered.length === 0 && (
+              {!loading && loadError && contacts.length === 0 && (
+                <tr><td colSpan={visibleColumns.length + 1} className={styles.loadingState} role="alert">
+                  Couldn’t load the guest list. It hasn’t been changed — reload the page to try again.
+                </td></tr>
+              )}
+              {!loading && !(loadError && contacts.length === 0) && filtered.length === 0 && (
                 <tr><td colSpan={visibleColumns.length + 1} className={styles.empty}>
                   {/* An empty Not categorized tab is the goal, not a failed filter. */}
                   {activeCategoryTab === UNSORTED && !search.trim() && contacts.length > 0

@@ -2,7 +2,7 @@
 // looks like — is friendMerge.js; this is the order the writes go in, shared by
 // the Friends page's merge screen and the wedding guest list's.
 
-import { deleteDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { deleteDoc, doc, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { mergeFriends, repointFriendIds } from './friendMerge';
 
@@ -21,14 +21,18 @@ export async function commitFriendMerge(uid, friends, primary, others, choices) 
       await updateDoc(doc(db, 'users', uid, 'friends', f.id), { linkedTo: primary.id }).catch(() => {});
     }
   }
-  const userSnap = await getDoc(doc(db, 'users', uid));
-  const data = userSnap.data() || {};
-  const patch = {};
-  for (const key of ['reachOuts', 'weddingContacts', 'weddingContactsV2']) {
-    const { next, changed } = repointFriendIds(data[key], removedIds, primary.id);
-    if (changed) patch[key] = next;
-  }
-  if (Object.keys(patch).length) await setDoc(doc(db, 'users', uid), patch, { merge: true });
+  // Read and written in one step, against the server's copy: these are whole
+  // lists, and one rewritten from an out-of-date read would undo newer edits.
+  const userRef = doc(db, 'users', uid);
+  await runTransaction(db, async (tx) => {
+    const data = (await tx.get(userRef)).data() || {};
+    const patch = {};
+    for (const key of ['reachOuts', 'weddingContacts', 'weddingContactsV2']) {
+      const { next, changed } = repointFriendIds(data[key], removedIds, primary.id);
+      if (changed) patch[key] = next;
+    }
+    if (Object.keys(patch).length) tx.set(userRef, patch, { merge: true });
+  });
   for (const id of removedIds) {
     await deleteDoc(doc(db, 'users', uid, 'friends', id));
   }
