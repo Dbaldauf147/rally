@@ -175,7 +175,8 @@ const STATUS_CLASS = { Pending: 'statusPending', Confirmed: 'statusConfirmed', '
 // sortBy gives each column's sort value; lib/weddingSort.js does the comparing
 // (blanks last, natural order, ties by name).
 const ALL_COLUMNS = [
-  { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => [c.lastName, c.firstName] },
+  // First name first, the way the column shows it ("Anna Kim" under A).
+  { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => [c.firstName, c.lastName] },
   { key: 'status', label: 'Status', defaultWidth: 130, sortBy: statusOrder },
   { key: 'group', label: 'Group', defaultWidth: 140, sortBy: (c) => (c.group || '').toLowerCase() },
   // A second group from the same list of names, for a guest who belongs to

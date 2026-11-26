@@ -4,8 +4,9 @@
      with cities, not a wall of empty cells.
    - Text compares the way people read it: case-insensitive, with numbers in
      order ("Table 2" before "Table 10").
-   - Ties fall back to last name, then first name, always A→Z, so the order is
-     stable instead of whatever the list happened to hold.
+   - Ties fall back to first name, then last name, always A→Z, so the order is
+     stable instead of whatever the list happened to hold. First name first
+     because that's how the Name column reads ("Anna Kim" files under A).
 
    A column's value is a string, a number, or a list of strings compared in
    turn (["Family", "Cousins"] sorts subcategories inside their category).
@@ -41,7 +42,7 @@ function compareValues(av, bv) {
 export const sameSortValue = (av, bv) => isBlank(av) === isBlank(bv) && compareValues(av, bv) === 0;
 
 export function compareByName(a, b) {
-  return compareValues([a?.lastName, a?.firstName], [b?.lastName, b?.firstName]);
+  return compareValues([a?.firstName, a?.lastName], [b?.firstName, b?.lastName]);
 }
 
 /* value(c) gives the cell's sort value. `sinkStatus` puts the status buckets
