@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { callPeopleBackupApi, saveTextFile } from '../lib/peopleBackupApi';
+import { listTrash, restoreTrash } from '../lib/friendTrash';
 import styles from './WeddingPage.module.css';
 
 /* The daily backup files of everything about people (api/people-backup.js):
@@ -24,6 +25,13 @@ export function PeopleBackups({ user, onClose }) {
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState('');
+
+  // The trash: contacts deleted or merged away in the last thirty days.
+  const [trash, setTrash] = useState(null);
+  const loadTrash = useCallback(async () => {
+    try { setTrash(await listTrash()); } catch { setTrash([]); }
+  }, []);
+  useEffect(() => { loadTrash(); }, [loadTrash]);
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +77,12 @@ export function PeopleBackups({ user, onClose }) {
     });
   };
 
+  const putBack = (items) => run(`tr-${items.length === 1 ? items[0].itemId : 'all'}`, async () => {
+    const { restored, skipped } = await restoreTrash(items.map((i) => i.itemId));
+    setNote(`${restored.length ? `Put back ${restored.length === 1 ? restored[0] : plural(restored.length, 'contact')}.` : ''}${skipped.length ? ` ${skipped.join(', ')} couldn’t be put back: a contact with the same email exists now.` : ''}`.trim());
+    await loadTrash();
+  });
+
   const setEmail = (on) => run('email', async () => {
     await setDoc(doc(db, 'users', user.uid), { peopleBackup: { email: on } }, { merge: true });
     setState((s) => ({ ...s, email: on }));
@@ -80,7 +94,7 @@ export function PeopleBackups({ user, onClose }) {
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={`${styles.modal} ${styles.backupModal}`} role="dialog" aria-label="People backups" onClick={(e) => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>Backups</h2>
+          <h2 className={styles.modalTitle}>Backups &amp; trash</h2>
           <button className={styles.modalClose} type="button" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className={styles.modalBody}>
@@ -102,6 +116,32 @@ export function PeopleBackups({ user, onClose }) {
           )}
           {error && <p className={styles.saveError} role="alert">{error}</p>}
           {note && <p className={styles.categoryTabHint} role="status">{note}</p>}
+          {trash && trash.length > 0 && (
+            <>
+              <h3 className={styles.backupHeading}>
+                Recently deleted
+                {trash.length > 1 && (
+                  <button type="button" className={styles.tierLegendEdit} disabled={!!busy} onClick={() => putBack(trash)}>Put all {trash.length} back</button>
+                )}
+              </h3>
+              <ul className={styles.backupList}>
+                {trash.map((t) => (
+                  <li key={t.itemId} className={styles.backupRow}>
+                    <div>
+                      <div className={styles.backupWhen}>{t.name || 'Unnamed contact'}</div>
+                      <div className={styles.backupMeta}>
+                        {t.reason === 'deleted' ? 'Deleted' : t.reason.replace(/^m/, 'M')} {fmtWhen(t.deletedAt)} · {plural(t.daysLeft, 'day')} left
+                      </div>
+                    </div>
+                    <button type="button" className={styles.toolButton} disabled={!!busy} onClick={() => putBack([t])}>
+                      {busy === `tr-${t.itemId}` ? 'Putting back…' : 'Put back'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <h3 className={styles.backupHeading}>Daily files</h3>
+            </>
+          )}
           {state === null && <p className={styles.modalHint}>Loading…</p>}
           {state !== null && !files.length && !error && (
             <p className={styles.modalHint}>No backups yet. The first is written overnight, or now if you ask.</p>

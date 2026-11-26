@@ -29,6 +29,7 @@ import {
 } from '../lib/peopleBackup.js';
 import { planPrune } from '../lib/weddingBackups.js';
 import { sendOne, mailConfigured } from '../lib/mailer.js';
+import { purgeTrash } from '../lib/peopleTrash.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -148,6 +149,8 @@ async function daily(req, res, db) {
   for (const userDoc of users.docs) {
     const uid = userDoc.id;
     const userData = userDoc.data() || {};
+    // The Friends trash: anything deleted more than thirty days ago goes now.
+    await purgeTrash(db, uid).catch((err) => console.error('People trash purge failed for', uid, err));
     try {
       const result = await backupAccount(db, uid, userData);
       // The heartbeat the weekly digest reads (backupHealth): written on every
