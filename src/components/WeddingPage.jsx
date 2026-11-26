@@ -1028,7 +1028,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         return ra !== rb ? ra - rb : a[0].localeCompare(b[0]);
       });
     };
-    return { category: build('category'), group: build('group') };
+    return { category: build('category'), group: build('group'), group2: build('group2') };
   }, [shownContacts]);
 
   /* All, then the guests with no category, then one subtab per category.
@@ -2342,13 +2342,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
 
       <div className={styles.summary}>
         <div className={styles.summaryRow}>
+          {/* Counted by the Group 2 column, and a chip filters that column. */}
           <span className={styles.summaryLabel}>By tier</span>
-          {summaries.group.map(([val, n]) => (
+          {summaries.group2.map(([val, n]) => (
             <button
               key={val}
               type="button"
-              className={`${styles.summaryChip} ${columnFilters.group === summaryFilterValue(val) ? styles.summaryChipActive : ''}`}
-              onClick={() => toggleSummaryFilter('group', val)}
+              className={`${styles.summaryChip} ${columnFilters.group2 === summaryFilterValue(val) ? styles.summaryChipActive : ''}`}
+              onClick={() => toggleSummaryFilter('group2', val)}
               title={groupDescription(val) || 'Filter by this tier'}
             >
               <span className={styles.summaryChipKey}>{val === '—' ? 'Not grouped' : val}</span>
