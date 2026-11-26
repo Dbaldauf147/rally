@@ -48,3 +48,18 @@ describe('sameSortValue', () => {
     expect(sameSortValue('', 'Boston')).toBe(false);
   });
 });
+
+describe('sorting by name', () => {
+  it('goes by first name, then last, with first-name-only guests mixed in', () => {
+    const g = (firstName, lastName) => ({ firstName, lastName });
+    const rows = [g('Joanne', 'Seo'), g('Kevin', ''), g('Anna', 'Kim'), g('James', ''), g('Zoe', 'Adams'), g('Bob', 'Lee'), g('Anna', 'Baker')];
+    rows.sort(makeGuestComparator({ value: (c) => [c.firstName, c.lastName] }));
+    expect(rows.map((c) => `${c.firstName} ${c.lastName}`.trim()))
+      .toEqual(['Anna Baker', 'Anna Kim', 'Bob Lee', 'James', 'Joanne Seo', 'Kevin', 'Zoe Adams']);
+  });
+  it('breaks ties in another column by first name', () => {
+    const rows = [{ firstName: 'Zoe', lastName: 'Adams', category: 'Family' }, { firstName: 'Anna', lastName: 'Kim', category: 'Family' }];
+    rows.sort(makeGuestComparator({ value: (c) => c.category }));
+    expect(rows.map((c) => c.firstName)).toEqual(['Anna', 'Zoe']);
+  });
+});
