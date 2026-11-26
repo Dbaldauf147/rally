@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { collection, query, where, getDocs, getDoc, doc, setDoc, deleteDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField, addDoc, Timestamp, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, setDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, deleteField, addDoc, Timestamp, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { planMemberUpsert, planMemberUpserts, findMemberKey } from '../lib/members';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import { PeopleBackups } from './PeopleBackups';
+import { trashFriends, restoreTrash } from '../lib/friendTrash';
 import styles from './FriendsPage.module.css';
 // Friend writes and the loose-date parsing live in the shared lib so the poll
 // page can add a friend through exactly the same path this page uses.
@@ -41,8 +42,7 @@ import { holidayTagsOf } from '../lib/holidayReachOut';
 import { syncHolidayList } from '../lib/holidaySync';
 import { loadHolidays } from '../lib/holidayStore';
 import { applyColumnFilters, activeColumnFilters } from '../lib/columnFilters';
-import { normalizeFamilyTree, treePhotoIds } from '../lib/familyTree';
-import { deleteFamilyPhoto } from '../lib/familyPhotos';
+import { normalizeFamilyTree } from '../lib/familyTree';
 import { syncWeddingGuestsToFriends, SYNC_FLAG as WEDDING_SYNC_FLAG } from '../lib/weddingFriendSync';
 import { planComesWithSync, planComesWithBackfill } from '../lib/comesWith';
 
@@ -1175,12 +1175,37 @@ export function FriendsPage({ embed = null } = {}) {
     await writeFriend(user.uid, data);
   }
 
+  /* Deleting moves the contact to the trash (lib/friendTrash.js), where it
+     stays for thirty days — photos and all, which is why the family tree's
+     pictures are no longer removed here; the trash takes them when it empties.
+     The banner offers Undo. If the trash can't be reached, nothing is deleted. */
+  async function moveToTrash(ids, reason) {
+    try {
+      const trashed = await trashFriends(ids, reason);
+      if (!trashed.length) return;
+      const what = trashed.length === 1 ? (trashed[0].name || 'Contact') : `${trashed.length} contacts`;
+      setResult({ type: 'success', message: `${what} moved to the trash — kept for 30 days.`, undo: trashed.map(t => t.itemId) });
+      setTimeout(() => setResult(r => (r?.undo ? null : r)), 12000);
+    } catch (err) {
+      setResult({ type: 'error', message: `Couldn’t delete (${err.message}). Nothing was removed.` });
+      setTimeout(() => setResult(null), 6000);
+    }
+  }
+  async function undoTrash(itemIds) {
+    try {
+      const { restored, skipped } = await restoreTrash(itemIds);
+      setResult({
+        type: skipped.length ? 'error' : 'success',
+        message: `${restored.length ? `Put back ${restored.length === 1 ? restored[0] : `${restored.length} contacts`}.` : ''}${skipped.length ? ` ${skipped.join(', ')} couldn’t be put back: a contact with the same email exists now.` : ''}`.trim(),
+      });
+    } catch (err) {
+      setResult({ type: 'error', message: `Couldn’t undo (${err.message}). They are still in Backups → Recently deleted.` });
+    }
+    setTimeout(() => setResult(null), 5000);
+  }
   async function removeFriend(id) {
     if (!user) return;
-    const gone = friends.find(f => f.id === id);
-    await deleteDoc(doc(db, 'users', user.uid, 'friends', id));
-    // The family tree's photos are their own docs; they go with the contact.
-    for (const pid of treePhotoIds(gone?.familyTree, gone?.kids)) deleteFamilyPhoto(user.uid, pid);
+    await moveToTrash([id], 'deleted');
   }
 
   // Drag-and-drop tier assignment on the Tiers sub-tab. '' clears the tier.
@@ -1662,13 +1687,10 @@ export function FriendsPage({ embed = null } = {}) {
   }
 
   async function bulkDelete() {
-    if (!user || !window.confirm(`Delete ${selectedIds.size} contacts? This cannot be undone.`)) return;
-    for (const id of selectedIds) {
-      await deleteDoc(doc(db, 'users', user.uid, 'friends', id)).catch(() => {});
-    }
+    if (!user || !window.confirm(`Delete ${selectedIds.size} contacts? They go to the trash, where they are kept for 30 days.`)) return;
+    const ids = [...selectedIds];
     setSelectedIds(new Set());
-    setResult({ type: 'success', message: `${selectedIds.size} contacts deleted` });
-    setTimeout(() => setResult(null), 3000);
+    await moveToTrash(ids, 'deleted');
   }
 
   async function bulkUpdateField(field, value) {
@@ -2648,7 +2670,15 @@ export function FriendsPage({ embed = null } = {}) {
       </div>
 
       {result && (
-        <div className={`${styles.result} ${styles[`result_${result.type}`]}`}>{result.message}</div>
+        <div className={`${styles.result} ${styles[`result_${result.type}`]}`} role="status">
+          {result.message}
+          {result.undo && (
+            <>
+              {' '}
+              <button type="button" className={styles.resultUndo} onClick={() => undoTrash(result.undo)}>Undo</button>
+            </>
+          )}
+        </div>
       )}
       {showBackups && <PeopleBackups user={user} onClose={() => setShowBackups(false)} />}
 
