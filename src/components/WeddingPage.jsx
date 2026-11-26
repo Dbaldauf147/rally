@@ -3256,13 +3256,13 @@ export function WeddingPage() {
   );
   // Guest List has two: the list itself, and Invite Decision — the yes/no
   // tree for whether someone belongs on it. Advice only; it never edits a guest.
-  const guestsSub = ['decide', 'v2'].includes(searchParams.get('guests')) ? searchParams.get('guests') : 'list';
+  // The second version no longer has a tab; an old link to it (?guests=v2)
+  // opens the main list. Its guests stay stored and in the backups.
+  const guestsSub = searchParams.get('guests') === 'decide' ? 'decide' : 'list';
   const guestsSubnav = (
     <div className={dreamStyles.subnav} role="tablist" aria-label="Guest List">
       <button type="button" role="tab" aria-selected={guestsSub === 'list'} className={guestsSub === 'list' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
         onClick={() => setSearchParams({})}>Guest list</button>
-      <button type="button" role="tab" aria-selected={guestsSub === 'v2'} className={guestsSub === 'v2' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
-        onClick={() => setSearchParams({ guests: 'v2' })}>Second version</button>
       <button type="button" role="tab" aria-selected={guestsSub === 'decide'} className={guestsSub === 'decide' ? dreamStyles.subnavOn : dreamStyles.subnavBtn}
         onClick={() => setSearchParams({ guests: 'decide' })}>Invite Decision</button>
     </div>
@@ -3370,7 +3370,7 @@ export function WeddingPage() {
           <p className={styles.subtitle}>Not sure whether someone belongs on the list? Answer a few questions about them.</p>
           <WeddingInviteDecision />
         </div>
-      ) : guestsSub === 'v2' ? <GuestList key="v2" subnav={guestsSubnav} listKey={SECOND_LIST_KEY} /> : <GuestList key="main" subnav={guestsSubnav} />}
+      ) : <GuestList key="main" subnav={guestsSubnav} />}
     </>
   );
 }
