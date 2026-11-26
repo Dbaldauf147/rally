@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { friendsNotOnList, friendAddress, guestFromFriend } from '../lib/weddingFriendMatch';
+import { suggestGuestNames } from '../lib/weddingNameSuggest';
 import styles from './WeddingPage.module.css';
 
 /* Everyone on the Friends page who isn't on the guest list — the people you
@@ -10,7 +11,12 @@ import styles from './WeddingPage.module.css';
    drop off this list on the next snapshot. "Hide" is for the friends you've
    decided not to invite: their ids go in users/{uid}.weddingHiddenFriendIds,
    they leave the list, and "Show hidden" brings them back to unhide. Hiding
-   touches nothing on the friend or the guest list. */
+   touches nothing on the friend or the guest list.
+
+   "Suggested name" is the guest this friend most likely is, under a slightly
+   different name (lib/weddingNameSuggest.js). "Use this name" renames the
+   friend to match the guest, which puts them on the list by name — the guest
+   is left as it is. */
 export function WeddingFriendsNotInvited() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState(null);
@@ -20,6 +26,8 @@ export function WeddingFriendsNotInvited() {
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(() => new Set());
   const [error, setError] = useState(null);
+  const [renaming, setRenaming] = useState(() => new Set());
+  const [onlySuggested, setOnlySuggested] = useState(false);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -55,12 +63,40 @@ export function WeddingFriendsNotInvited() {
     () => (showHidden ? missing : missing.filter((f) => !hiddenIds.has(f.id))),
     [missing, hiddenIds, showHidden],
   );
+  const suggestions = useMemo(
+    () => (loading ? new Map() : suggestGuestNames(missing, contacts, friends)),
+    [loading, missing, contacts, friends],
+  );
+  const suggestedCount = useMemo(() => visible.filter((f) => suggestions.has(f.id)).length, [visible, suggestions]);
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return visible;
-    return visible.filter((f) => [f.name, f.email, f.workEmail, f.phone, friendAddress(f)]
+    const pool = onlySuggested ? visible.filter((f) => suggestions.has(f.id)) : visible;
+    if (!q) return pool;
+    return pool.filter((f) => [f.name, f.email, f.workEmail, f.phone, friendAddress(f), suggestions.get(f.id)?.name]
       .some((v) => (v || '').toLowerCase().includes(q)));
-  }, [visible, search]);
+  }, [visible, search, onlySuggested, suggestions]);
+
+  // The friend takes the guest's name, split the way the guest has it, so the
+  // Friends pop-up's first/middle/last fields agree with it (lib/friendName.js).
+  // They then match the guest by name and leave this list on the next snapshot.
+  const applySuggestedName = async (f, s) => {
+    if (!user || !s) return;
+    setRenaming((r) => new Set(r).add(f.id));
+    setError(null);
+    try {
+      const tidy = (v) => String(v || '').trim().replace(/\s+/g, ' ');
+      await updateDoc(doc(db, 'users', user.uid, 'friends', f.id), {
+        name: s.name,
+        firstName: tidy(s.guest.firstName),
+        middleName: '',
+        lastName: tidy(s.guest.lastName),
+      });
+    } catch (err) {
+      setError(`Couldn’t rename ${f.name || 'them'}: ${err.message}`);
+    } finally {
+      setRenaming((r) => { const n = new Set(r); n.delete(f.id); return n; });
+    }
+  };
 
   // arrayUnion/arrayRemove rather than rewriting the array, so two quick hides
   // can't overwrite each other.
@@ -120,6 +156,16 @@ export function WeddingFriendsNotInvited() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        {(suggestedCount > 0 || onlySuggested) && (
+          <button
+            type="button"
+            className={styles.toolButton}
+            onClick={() => setOnlySuggested((v) => !v)}
+            aria-pressed={onlySuggested}
+          >
+            {onlySuggested ? 'Show everyone' : `Only with a suggested name (${suggestedCount})`}
+          </button>
+        )}
         {(hiddenCount > 0 || showHidden) && (
           <button
             type="button"
@@ -139,6 +185,7 @@ export function WeddingFriendsNotInvited() {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Suggested name</th>
                 <th>Email</th>
                 <th>Phone</th>
                 <th>Address</th>
@@ -147,22 +194,41 @@ export function WeddingFriendsNotInvited() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={5} className={styles.loadingState}>Loading…</td></tr>
+                <tr><td colSpan={6} className={styles.loadingState}>Loading…</td></tr>
               )}
               {!loading && shown.length === 0 && (
-                <tr><td colSpan={5} className={styles.empty}>
+                <tr><td colSpan={6} className={styles.empty}>
                   {missing.length === 0
                     ? (friends.length === 0 ? 'No friends yet — add some on the Friends page.' : 'Every friend is on the guest list.')
                     : visible.length === 0
                       ? 'Every friend not on the guest list is hidden.'
+                      : onlySuggested && !search.trim()
+                        ? 'No suggested names left.'
                       : 'No friends match.'}
                 </td></tr>
               )}
               {!loading && shown.map((f) => {
                 const hidden = hiddenIds.has(f.id);
+                const s = suggestions.get(f.id);
                 return (
                 <tr key={f.id} style={hidden ? { opacity: 0.55 } : undefined} data-hidden={hidden || undefined}>
                   <td>{f.name || '—'}{hidden && ' (hidden)'}</td>
+                  <td data-testid="suggested-name">
+                    {s && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <span title={`On the guest list as ${s.name}`}>{s.name}</span>
+                        <button
+                          type="button"
+                          className={styles.toolButton}
+                          onClick={() => applySuggestedName(f, s)}
+                          disabled={renaming.has(f.id)}
+                          title={`Rename ${f.name || 'this friend'} to ${s.name} on the Friends page, so they match the guest`}
+                        >
+                          {renaming.has(f.id) ? 'Renaming…' : 'Use this name'}
+                        </button>
+                      </span>
+                    )}
+                  </td>
                   <td>{f.email || f.workEmail || ''}</td>
                   <td>{f.phone || ''}</td>
                   <td>{friendAddress(f)}</td>
