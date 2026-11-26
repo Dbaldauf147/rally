@@ -178,6 +178,10 @@ const ALL_COLUMNS = [
   { key: 'name', label: 'Name', defaultWidth: 180, sortBy: (c) => [c.lastName, c.firstName] },
   { key: 'status', label: 'Status', defaultWidth: 130, sortBy: statusOrder },
   { key: 'group', label: 'Group', defaultWidth: 140, sortBy: (c) => (c.group || '').toLowerCase() },
+  // A second group from the same list of names, for a guest who belongs to
+  // two ("A - Must invite" and "Bachelor party", say). The tier counts, the
+  // legend and the budget still go by Group alone.
+  { key: 'group2', label: 'Group 2', defaultWidth: 140, sortBy: (c) => (c.group2 || '').toLowerCase() },
   { key: 'category', label: 'Category', defaultWidth: 140, sortBy: (c) => (c.category || '').toLowerCase() },
   // Sorts inside its category, so the same subcategory name under two
   // categories doesn't interleave them.
@@ -197,13 +201,14 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
 
-const DEFAULT_VISIBLE = ['name', 'status', 'group', 'category', 'subcategory', 'guestOf', 'side', 'party', 'friend', 'email', 'phone', 'city', 'state'];
+const DEFAULT_VISIBLE = ['name', 'status', 'group', 'group2', 'category', 'subcategory', 'guestOf', 'side', 'party', 'friend', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
   { key: 'lastName', label: 'Last Name' },
   { key: 'status', label: 'Status' },
   { key: 'group', label: 'Group' },
+  { key: 'group2', label: 'Group 2' },
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'guestOf', label: 'Guest Of' },
@@ -231,6 +236,7 @@ const CONTACT_FORM_FIELDS = [
   { key: 'side', label: 'Side of the family' },
   { key: 'status', label: 'Status' },
   { key: 'group', label: 'Group' },
+  { key: 'group2', label: 'Group 2' },
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'party', label: 'Wedding group', wide: true },
@@ -295,6 +301,7 @@ function renderCell(col, c) {
   switch (col.key) {
     case 'name': return <>{c.firstName} {c.lastName}</>;
     case 'group': return c.group ? <span className={styles.groupBadge}>{c.group}</span> : <span className={styles.muted}>—</span>;
+    case 'group2': return c.group2 ? <span className={styles.groupBadge}>{c.group2}</span> : <span className={styles.muted}>—</span>;
     case 'guestOf': return c.guestOf || <span className={styles.muted}>—</span>;
     case 'side': return c.side || <span className={styles.muted}>—</span>;
     case 'party': return c.party ? <span className={styles.partyBadge}>{c.party}</span> : <span className={styles.muted}>—</span>;
@@ -855,7 +862,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
 
   const groups = useMemo(() => {
     const set = new Set(savedGroups.filter(Boolean));
-    contacts.forEach((c) => { if (c.group) set.add(c.group); });
+    contacts.forEach((c) => { if (c.group) set.add(c.group); if (c.group2) set.add(c.group2); });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [contacts, savedGroups]);
 
@@ -1060,6 +1067,9 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         case 'group':
           if (val === '__none__') return !c.group;
           return c.group === val;
+        case 'group2':
+          if (val === '__none__') return !c.group2;
+          return c.group2 === val;
         case 'category':
           if (val === '__none__') return !c.category;
           return c.category === val;
@@ -1102,7 +1112,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     }
     if (q) {
       rows = rows.filter((c) => {
-        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.category || ''} ${c.subcategory || ''} ${c.guestOf || ''} ${c.side || ''} ${c.party || ''}`.toLowerCase();
+        const hay = `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.address || ''} ${c.city || ''} ${c.state || ''} ${c.zip || ''} ${c.group || ''} ${c.group2 || ''} ${c.category || ''} ${c.subcategory || ''} ${c.guestOf || ''} ${c.side || ''} ${c.party || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
@@ -1319,9 +1329,17 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     const n = (k) => `${k} ${k === 1 ? 'guest' : 'guests'}`;
     return r.otherCount ? `${n(r.count)} here · ${r.otherCount} on ${otherListLabel}` : n(r.count);
   };
+  // Guests in each group, by Group or Group 2 (once each).
+  const countGroups = (list) => {
+    const m = new Map();
+    for (const c of Array.isArray(list) ? list : []) {
+      for (const g of new Set([c?.group, c?.group2].filter(Boolean))) m.set(g, (m.get(g) || 0) + 1);
+    }
+    return m;
+  };
   const openGroupEditor = () => {
-    const counts = countByField(contacts, 'group');
-    const other = countByField(otherContacts, 'group');
+    const counts = countGroups(contacts);
+    const other = countGroups(otherContacts);
     setGroupEditor(groups.map((g) => ({ from: g, name: g, desc: groupDescription(g), count: counts.get(g) || 0, otherCount: other.get(g) || 0 })));
   };
   const setGroupRow = (i, key, value) => setGroupEditor((rows) => rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
@@ -1354,16 +1372,25 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     const nextSaved = Array.from(new Set(savedGroups.map((g) => (renames.has(g) ? renames.get(g) : g)).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b));
     const changed = groupEditor.some((r) => r.deleted || (r.name.trim() || r.from) !== r.from);
-    const renameGroup = (list) => list.map((c) => (c.group && renames.has(c.group) && renames.get(c.group) !== c.group ? { ...c, group: renames.get(c.group) } : c));
+    // Group 2 takes the same names, so a rename or delete reaches it too.
+    const renamed = (v) => (v && renames.has(v) ? renames.get(v) : v);
+    const renameGroup = (list) => list.map((c) => {
+      const group = renamed(c.group);
+      const group2 = renamed(c.group2);
+      return group === c.group && group2 === c.group2 ? c : { ...c, group, ...(c.group2 !== undefined ? { group2 } : {}) };
+    });
     const nextContacts = changed ? renameGroup(contacts) : contacts;
     // A filter on a renamed group follows it rather than emptying the table;
     // a filter on a deleted one is dropped.
-    if (columnFilters.group && renames.has(columnFilters.group)) {
+    if (['group', 'group2'].some((k) => columnFilters[k] && renames.has(columnFilters[k]))) {
       setColumnFilters((prev) => {
         const next = { ...prev };
-        const to = renames.get(prev.group);
-        if (to) next.group = to;
-        else delete next.group;
+        for (const k of ['group', 'group2']) {
+          if (!prev[k] || !renames.has(prev[k])) continue;
+          const to = renames.get(prev[k]);
+          if (to) next[k] = to;
+          else delete next[k];
+        }
         return next;
       });
     }
@@ -1460,7 +1487,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     await persistContacts(next);
   };
 
-  const handleRowGroupChange = async (id, val) => {
+  const handleRowGroupChange = async (id, val, field = 'group') => {
     let groupName = val;
     if (val === NEW_GROUP_SENTINEL) {
       const name = (prompt('New group name?') || '').trim();
@@ -1470,7 +1497,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       persistGroups(nextSaved);
       groupName = name;
     }
-    const next = contacts.map((c) => (c.id === id ? { ...c, group: groupName } : c));
+    const next = contacts.map((c) => (c.id === id ? { ...c, [field]: groupName } : c));
     await persistContacts(next);
   };
 
@@ -1628,6 +1655,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     const onTxt = (e) => setColumnFilter(col.key, e.target.value);
     switch (col.key) {
       case 'group':
+      case 'group2':
         return (
           <select className={styles.filterSelect} value={v} onChange={onSel}>
             <option value="">All</option>
@@ -1789,7 +1817,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         <input
           className={styles.contactInput}
           type={f.type || 'text'}
-          list={f.key === 'group' ? 'wedding-groups' : f.key === 'side' ? 'wedding-sides' : f.key === 'party' ? 'wedding-parties' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
+          list={f.key === 'group' || f.key === 'group2' ? 'wedding-groups' : f.key === 'side' ? 'wedding-sides' : f.key === 'party' ? 'wedding-parties' : f.key === 'category' ? 'wedding-categories' : f.key === 'subcategory' ? 'wedding-subcategories' : undefined}
           placeholder={f.key === 'subcategory' && !editing.draft.category.trim() ? 'Pick a category first' : undefined}
           disabled={f.key === 'subcategory' && !editing.draft.category.trim()}
           value={editing.draft[f.key]}
@@ -2428,7 +2456,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
             {EDITABLE_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
           <span className={styles.bulkLabel}>to</span>
-          {bulkField === 'group' ? (
+          {bulkField === 'group' || bulkField === 'group2' ? (
             <select className={styles.bulkInput} value={bulkValue} onChange={(e) => handleBulkGroupChange(e.target.value)}>
               <option value="">— (clear)</option>
               {groups.map((g) => <option key={g} value={g}>{g}</option>)}
@@ -2981,6 +3009,18 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
                           value={c.group || ''}
                           onChange={(e) => handleRowGroupChange(c.id, e.target.value)}
                           title={groupDescription(c.group) || undefined}
+                        >
+                          <option value="">— None —</option>
+                          {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+                          <option value={NEW_GROUP_SENTINEL}>+ New group…</option>
+                        </select>
+                      ) : col.key === 'group2' ? (
+                        <select
+                          className={styles.cellSelect}
+                          value={c.group2 || ''}
+                          onChange={(e) => handleRowGroupChange(c.id, e.target.value, 'group2')}
+                          title={groupDescription(c.group2) || undefined}
+                          aria-label={`Group 2 for ${c.firstName || ''} ${c.lastName || ''}`.trim()}
                         >
                           <option value="">— None —</option>
                           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
