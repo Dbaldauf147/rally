@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { jaroWinkler, nameScore, suggestGuestNames, unclaimedGuests, SUGGEST_THRESHOLD } from './weddingNameSuggest';
+import { jaroWinkler, nameScore, suggestGuestNames, unclaimedGuests, SUGGEST_THRESHOLD, guestSearchPool, searchGuestPool } from './weddingNameSuggest';
 
 const g = (id, firstName, lastName, extra = {}) => ({ id, firstName, lastName, ...extra });
 
@@ -78,5 +78,41 @@ describe('suggestGuestNames', () => {
     const friends = [{ id: 'f1', name: 'Matt Borek' }, { id: 'f2', name: 'Matthew Borek' }];
     const contacts = [g('a', 'Matthew', 'Borek', { friendId: 'f2' })];
     expect(suggestGuestNames([friends[0]], contacts, friends).has('f1')).toBe(false);
+  });
+});
+
+describe('guestSearchPool / searchGuestPool', () => {
+  const friends = [{ id: 'f1', name: 'Alexa Whitfield' }, { id: 'f2', name: 'Al Cody', phone: '555 111 2222' }];
+  const contacts = [
+    g('a', 'Alexa', 'Whitfield', { friendId: 'f1' }),
+    g('b', 'Alexander', 'Stone'),
+    g('c', 'Mary', 'Alexa'),
+    g('d', 'Cody', 'Jones', { phone: '(555) 111-2222' }),
+    g('e', '', ''),
+  ];
+  const pool = guestSearchPool(contacts, friends);
+  it('lists every named guest with the friend who accounts for them', () => {
+    expect(pool.map((p) => [p.name, p.claimedBy])).toEqual([
+      ['Alexa Whitfield', 'Alexa Whitfield'],
+      ['Alexander Stone', ''],
+      ['Cody Jones', 'Al Cody'],
+      ['Mary Alexa', ''],
+    ]);
+  });
+  it('ranks a name that starts with the text first, unclaimed before claimed', () => {
+    expect(searchGuestPool(pool, 'alexa').map((p) => p.name)).toEqual(['Alexander Stone', 'Alexa Whitfield', 'Mary Alexa']);
+  });
+  it('matches each typed word against the start of a word', () => {
+    expect(searchGuestPool(pool, 'al whit').map((p) => p.name)).toEqual(['Alexa Whitfield']);
+    expect(searchGuestPool(pool, 'zzz')).toEqual([]);
+  });
+  it('lists only unclaimed guests when nothing is typed', () => {
+    expect(searchGuestPool(pool, ' ').map((p) => p.name)).toEqual(['Alexander Stone', 'Mary Alexa']);
+  });
+  it('keeps the unclaimed guest when two share a name', () => {
+    const two = guestSearchPool([g('a', 'Sam', 'Lee', { friendId: 'f9' }), g('b', 'Sam', 'Lee')], [{ id: 'f9', name: 'Sammy' }]);
+    expect(two).toHaveLength(1);
+    expect(two[0].guest.id).toBe('b');
+    expect(two[0].claimedBy).toBe('');
   });
 });
