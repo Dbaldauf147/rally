@@ -648,6 +648,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
      the contact fields are FriendsPage's, copied back by saveGuestFromFriend.
      Reads go through refs so a timer that fires later sees the latest list. */
   const guestSaveTimer = useRef(null);
+  const [addingFriend, setAddingFriend] = useState(false);
   const editingRef = useRef(null);
   const contactsRef = useRef(contacts);
   const closeContactRef = useRef(null);
@@ -1947,6 +1948,40 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     await persistContacts(contacts.filter((c) => c.id !== id), { removing: [id] });
   };
 
+  /* "Add to Friends" in the guest-only pop-up: the guest gets a Friends
+     contact — the one they already match (same email, phone or full name), or
+     a new one made from what's typed — and the pop-up turns into that
+     contact's Friends pop-up. The whole draft is saved with the link first,
+     since from then on only the wedding box is this page's to save. */
+  const addGuestToFriends = async () => {
+    const ed = editingRef.current;
+    if (!user || !ed || ed.id === null || addingFriend) return;
+    const guest = {};
+    for (const [k, v] of Object.entries(ed.draft)) guest[k] = typeof v === 'string' ? v.trim() : v;
+    const data = friendDataFromGuest(guest);
+    if (!data) {
+      alert('Add a first or last name first.');
+      return;
+    }
+    clearTimeout(guestSaveTimer.current);
+    guestSaveTimer.current = null;
+    setAddingFriend(true);
+    try {
+      const existing = findFriendForGuest(friends, guest);
+      const friendId = existing ? existing.id : await addFriend(user.uid, data);
+      if (!friendId) throw new Error('the contact wasn’t created');
+      const linked = { ...ed, draft: { ...ed.draft, friendId } };
+      await saveGuestDraft(linked);
+      // Still on this guest? (The pop-up may have been closed meanwhile.)
+      if (editingRef.current?.id === ed.id) setEditing({ ...linked, viaFriend: true });
+    } catch (err) {
+      console.error('Adding guest to Friends failed:', err);
+      alert(`Couldn’t add them to Friends: ${err.message}`);
+    } finally {
+      setAddingFriend(false);
+    }
+  };
+
   /* Adding a guest by hand also puts them on the Friends page. If they're
      already a friend (same email, phone or full name) the guest is linked to
      that record instead of making a second one; a friend picked in the pop-up
@@ -2554,6 +2589,15 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
                       <option key={f.id} value={f.id}>{f.name || f.email || f.id}</option>
                     ))}
                   </select>
+                  {editing.id !== null && !friendsById.has(editing.draft.friendId) && (
+                    <button
+                      className={styles.addFriendBtn}
+                      type="button"
+                      onClick={addGuestToFriends}
+                      disabled={addingFriend}
+                      title="Make a Friends contact from this guest (or link the one that matches) and open it"
+                    >{addingFriend ? 'Adding…' : '＋ Add to Friends'}</button>
+                  )}
                 </label>
               </div>
               {renderPartyPanel()}

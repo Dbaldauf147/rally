@@ -184,6 +184,10 @@
 .modalPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
 .modalSecondary { padding: 0.5rem 0.95rem; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.88rem; cursor: pointer; }
 .modalSecondary:hover { background: var(--color-surface-alt); }
+/* Under the Friend picker, for a guest with no Friends contact yet. */
+.addFriendBtn { margin-top: 0.45rem; align-self: flex-start; padding: 0.45rem 0.85rem; background: var(--color-accent-light); color: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+.addFriendBtn:hover:not(:disabled) { background: var(--color-accent); color: #fff; }
+.addFriendBtn:disabled { opacity: 0.6; cursor: default; }
 
 
 /* ── Weekly guest-list email ──────────────────────────────────
