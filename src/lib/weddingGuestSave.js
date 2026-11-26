@@ -98,3 +98,100 @@ export function checkRemovals(removed, allowed = []) {
     );
   }
 }
+
+/* ── One document per guest ──────────────────────────────────────────────
+
+   Once an account's list has moved to users/{uid}/weddingGuests/{id}
+   (lib/weddingGuestStore.js), a save writes only the guests it changed. The
+   array on the user document stays as a copy for the things that read the
+   whole list at once (the weekly email, the budget headcount), written in the
+   same step — but it is no longer where the guests live, so nothing done to
+   it can lose one. */
+
+// The ids a save touches: the documents it has to read first.
+export function touchedIds(base, next) {
+  const { added, removed, edited } = guestListChanges(base, next);
+  return [...added.map(idOf), ...removed, ...edited.keys()];
+}
+
+/* The document writes that turn `base` into `next`, given the guests as
+   stored now (`currentById`: Map of id → document, for the touched ids).
+
+   An edit is applied to the stored guest field by field. A guest edited here
+   but deleted elsewhere stays deleted; one removed here that is already gone
+   needs nothing. Returns { sets: [guest], deletes: [id] }. */
+export function planGuestDocWrites(base, next, currentById) {
+  const { added, removed, edited } = guestListChanges(base, next);
+  const sets = [];
+  for (const g of added) {
+    if (idOf(g) == null) throw new Error('A guest needs an id to be saved');
+    sets.push(g);
+  }
+  for (const [id, ch] of edited) {
+    const cur = currentById.get(id);
+    if (!cur) continue;
+    const out = { ...cur, ...ch.set, id };
+    for (const k of ch.unset) delete out[k];
+    sets.push(out);
+  }
+  return { sets, deletes: removed.filter((id) => currentById.has(id)) };
+}
+
+/* A big save, as a run of lists each at most `size` guests different from the
+   one before, ending at `next` — so no single step is too large to commit.
+   The usual save is one step: [next]. */
+export function saveSteps(base, next, size = 200) {
+  const ids = touchedIds(base, next);
+  if (ids.length <= size) return [asList(next)];
+  const before = byId(base);
+  const after = byId(next);
+  const order = [...asList(next).map(idOf), ...asList(base).map(idOf).filter((id) => !after.has(id))];
+  const steps = [];
+  const done = new Set();
+  for (let i = 0; i < ids.length; i += size) {
+    for (const id of ids.slice(i, i + size)) done.add(id);
+    if (i + size >= ids.length) { steps.push(asList(next)); break; }
+    steps.push(order.map((id) => (done.has(id) ? after.get(id) : before.get(id))).filter(Boolean));
+  }
+  return steps;
+}
+
+// A guest's id has to work as a document name.
+export const validGuestId = (id) => typeof id === 'string' && id.length > 0 && id.length <= 500
+  && !id.includes('/') && id !== '.' && id !== '..' && !/^__.*__$/.test(id);
+
+/* Why a list can't move to one document per guest, or '' if it can. */
+export function migrationBlocker(list) {
+  const seen = new Set();
+  for (const g of asList(list)) {
+    if (!validGuestId(idOf(g))) return `a guest (${[g?.firstName, g?.lastName].filter(Boolean).join(' ') || 'unnamed'}) has no usable id`;
+    if (seen.has(g.id)) return `two guests share the id ${g.id}`;
+    seen.add(g.id);
+  }
+  return '';
+}
+
+const sortKeys = (v) => {
+  if (Array.isArray(v)) return v.map(sortKeys);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])]));
+  return v;
+};
+/* Whether two lists hold the same guests with the same details, whatever
+   order the guests or their fields come in. */
+export function sameGuests(a, b) {
+  const norm = (l) => JSON.stringify([...byId(l).entries()].sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([, g]) => sortKeys(g)));
+  return asList(a).length === asList(b).length && norm(a) === norm(b);
+}
+
+/* Guest documents in the order the copy on the user document has them; any
+   it doesn't know go on the end. */
+export function inListOrder(docs, orderList) {
+  const pos = new Map(asList(orderList).map((g, i) => [idOf(g), i]));
+  return [...asList(docs)].sort((a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity));
+}
+
+// Where each list's guests live once it has moved, and the field on the user
+// document that says it has.
+export const GUEST_COLLECTIONS = { weddingContacts: 'weddingGuests', weddingContactsV2: 'weddingGuestsV2' };
+export const STORE_FLAG = 'weddingGuestStore';
+export const usesGuestDocs = (userData) => userData?.[STORE_FLAG] === 'docs';

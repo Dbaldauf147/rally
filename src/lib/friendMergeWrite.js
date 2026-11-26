@@ -2,10 +2,11 @@
 // looks like — is friendMerge.js; this is the order the writes go in, shared by
 // the Friends page's merge screen and the wedding guest list's.
 
-import { doc, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { mergeFriends, repointFriendIds } from './friendMerge';
 import { trashFriends } from './friendTrash';
+import { saveGuestLists } from './weddingGuestStore';
 
 /* Fold `others` into `primary` under `uid`. The kept contact is written first
  * and the duplicates trashed last, so a failure part-way leaves an extra
@@ -24,15 +25,20 @@ export async function commitFriendMerge(uid, friends, primary, others, choices) 
   }
   // Read and written in one step, against the server's copy: these are whole
   // lists, and one rewritten from an out-of-date read would undo newer edits.
-  const userRef = doc(db, 'users', uid);
-  await runTransaction(db, async (tx) => {
-    const data = (await tx.get(userRef)).data() || {};
-    const patch = {};
-    for (const key of ['reachOuts', 'weddingContacts', 'weddingContactsV2']) {
+  await saveGuestLists(uid, (data) => {
+    const lists = {};
+    const extra = {};
+    for (const key of ['weddingContacts', 'weddingContactsV2']) {
       const { next, changed } = repointFriendIds(data[key], removedIds, primary.id);
-      if (changed) patch[key] = next;
+      // Guests that were the same person twice fold into one row; say which
+      // rows go, so the save knows the list is meant to get shorter.
+      const kept = new Set(next.map((g) => g?.id));
+      const removing = (Array.isArray(data[key]) ? data[key] : []).map((g) => g?.id).filter((id) => id != null && !kept.has(id));
+      if (changed) lists[key] = { next, removing };
     }
-    if (Object.keys(patch).length) tx.set(userRef, patch, { merge: true });
+    const reach = repointFriendIds(data.reachOuts, removedIds, primary.id);
+    if (reach.changed) extra.reachOuts = reach.next;
+    return { lists, extra };
   });
   // The duplicates go to the trash rather than out of existence, so a merge
   // that folded the wrong people together can be taken apart again.

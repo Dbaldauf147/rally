@@ -6,10 +6,11 @@
 // standing mirror: a friend deleted on the Friends page stays deleted, and
 // editing a guest doesn't rewrite their friend record.
 
-import { collection, doc, getDoc, getDocs, runTransaction } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { addFriend } from './friends';
 import { planGuestFriendSync } from './weddingGuestFriend';
+import { saveGuestLists } from './weddingGuestStore';
 
 export const SYNC_FLAG = 'weddingFriendsSynced';
 
@@ -48,9 +49,8 @@ export async function syncWeddingGuestsToFriends(uid, { onlyIds, markDone = fals
   // written, and those edits mustn't be lost. A guest linked by hand in the
   // meantime keeps the link they were given.
   let linked = 0;
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(userRef);
-    const current = snap.data()?.weddingContacts || [];
+  await saveGuestLists(uid, (data) => {
+    const current = data.weddingContacts || [];
     linked = 0;
     const next = current.map((g) => {
       const planned = links[g.id];
@@ -59,10 +59,10 @@ export async function syncWeddingGuestsToFriends(uid, { onlyIds, markDone = fals
       linked += 1;
       return { ...g, friendId };
     });
-    tx.set(userRef, {
-      ...(linked ? { weddingContacts: next } : {}),
-      ...(markDone ? { [SYNC_FLAG]: true } : {}),
-    }, { merge: true });
+    return {
+      lists: linked ? { weddingContacts: { next } } : {},
+      extra: markDone ? { [SYNC_FLAG]: true } : {},
+    };
   });
   return { created: Object.keys(realId).length, linked };
 }

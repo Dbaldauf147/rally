@@ -54,6 +54,16 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
 
+      // The wedding guest list, one document per guest (lib/weddingGuestStore.js),
+      // and its second version. Owner only. Until these are published the app
+      // keeps the list where it was, as an array on the user document.
+      match /weddingGuests/{guestId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      match /weddingGuestsV2/{guestId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
       // Pictures attached to Doctors records (src/lib/doctorImages.js). Only
       // the owner of the account reads or writes them, and a picture has to be
       // a JPEG data URL under the size the browser shrinks it to.
