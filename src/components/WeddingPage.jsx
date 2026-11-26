@@ -15,6 +15,7 @@ import { WeddingLocations } from './WeddingLocations';
 import dreamStyles from './WeddingDreamVenue.module.css';
 import { WeddingBudget } from './WeddingBudget';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
+import { countByField, deletionWarning } from '../lib/weddingSharedLabels';
 import { WeddingInviteDecision } from './WeddingInviteDecision';
 import { FriendsPage } from './FriendsPage';
 import { WeddingPartyCell } from './WeddingPartyCell';
@@ -32,6 +33,10 @@ import { applyGuestMerge, findGuestDuplicateGroups } from '../lib/weddingGuestMe
 import { commitFriendMerge } from '../lib/friendMergeWrite';
 import { GuestDuplicatesModal, GuestMergeModal } from './WeddingGuestMerge';
 import { splitGuestName, withFriendNames } from '../lib/weddingGuestNames';
+import { saveGuestLists } from '../lib/weddingGuestStore';
+import { GuestListGuardError } from '../lib/weddingGuestSave';
+import { WeddingBackups } from './WeddingBackups';
+import { callBackupApi } from '../lib/weddingBackupApi';
 import styles from './WeddingPage.module.css';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -317,10 +322,9 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const otherKey = isMain ? SECOND_LIST_KEY : MAIN_LIST_KEY;
   const [contacts, setContacts] = useState([]);
   // The other version's guests, so a group or category renamed here is
-  // renamed there too (the names themselves are shared), and so the second
-  // version can start as a copy of the first.
+  // renamed there too (the names themselves are shared), and so everyone on
+  // the main list shows up in the second version.
   const [otherContacts, setOtherContacts] = useState(null);
-  const [startingCopy, setStartingCopy] = useState(false);
   const [friends, setFriends] = useState([]);
   // Whether the guest list has had its one pass onto the Friends page
   // (lib/weddingFriendSync.js). null until the user doc has loaded.
@@ -350,6 +354,15 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const [outlineColors, setOutlineColors] = useState({});
   const outlineSaveTimer = useRef(null);
   const [loading, setLoading] = useState(true);
+  // Keeping the list safe (lib/weddingGuestSave.js). Nothing is saved until
+  // the stored list has actually arrived; a save that fails says so and the
+  // table goes back to the list as stored.
+  const [loadError, setLoadError] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [showBackups, setShowBackups] = useState(false);
+  const loadedRef = useRef(false);
+  const serverContactsRef = useRef([]);
+  const backupAsked = useRef(false);
   const [search, setSearch] = useState('');
   const [columnFilters, setColumnFilters] = useState(DEFAULT_FILTERS);
   // '' is the default view (by name, status sunk); a header click sorts by
@@ -465,8 +478,18 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         const stored = Array.isArray(data[listKey]) ? data[listKey] : null;
         setOtherContacts(Array.isArray(data[otherKey]) ? data[otherKey] : null);
         setLoading(false);
+        setLoadError(false);
+        loadedRef.current = true;
+        serverContactsRef.current = stored || [];
         if (stored) {
           setContacts(stored);
+          // A restore point from before this sitting (api/wedding-backup.js;
+          // the server takes one an hour at most, and none if nothing changed).
+          if (stored.length && !backupAsked.current) {
+            backupAsked.current = true;
+            callBackupApi(user, { action: 'snapshot' })
+              .catch((err) => console.warn('Guest list restore point not taken:', err.message));
+          }
           return;
         }
         if (
@@ -490,6 +513,9 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       },
       (err) => {
         console.error('Wedding contacts snapshot error:', err);
+        // Not an empty list — an unread one. Shown as such, and (until a
+        // read does succeed) nothing can be saved over it.
+        setLoadError(true);
         setLoading(false);
       },
     );
@@ -518,6 +544,23 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     );
     return unsub;
   }, [user]);
+
+  /* Everyone on the main list is on the second version too. A guest added to
+     the main list (or there before the second version existed) is copied in
+     as they are there; after that their row here is the second version's own,
+     so edits here don't change the main list. Matched by id. */
+  const mainIds = useMemo(
+    () => new Set(!isMain && otherContacts ? otherContacts.map((c) => c.id) : []),
+    [isMain, otherContacts],
+  );
+  useEffect(() => {
+    if (isMain || loading || !user || !otherContacts?.length) return;
+    const have = new Set(contacts.map((c) => c.id));
+    const missing = otherContacts.filter((c) => !have.has(c.id));
+    if (!missing.length) return;
+    saveGuestLists(user.uid, { [listKey]: { base: contacts, next: [...contacts, ...missing] } })
+      .catch((err) => console.error('Adding main-list guests to the second version failed:', err));
+  }, [isMain, loading, user, otherContacts, contacts, listKey]);
 
   /* The list is ~15 columns tall and the button can sit anywhere the toolbar
      wraps it — on a phone at the left edge, low on the screen, above the
@@ -567,16 +610,37 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   // Every write of the guest list goes through here, so a Comes With partner
   // follows a guest into (or out of) a wedding group however it was changed —
   // the pop-up, the table cell, bulk edit. One not on the list yet is added.
-  const persistContacts = async (next) => {
+  //
+  // What's saved is the change from the list on screen to `next`, merged into
+  // the list as stored (lib/weddingGuestStore.js) — never the whole list laid
+  // over it. `removing` names the guests a delete or merge means to take off;
+  // any other save that would shrink the list is stopped. `quiet` is for the
+  // background tidy-ups: no banner, and the table isn't put back.
+  const persistContacts = async (next, { removing = [], quiet = false } = {}) => {
     if (!user) return;
-    const { list, moved, added } = partnersFollowGroup(contactsRef.current, next, friendsById, {
-      makeGuest: (f) => (f ? guestFromFriend(f, `friend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) : null),
-    });
-    await setDoc(doc(db, 'users', user.uid), { [listKey]: list }, { merge: true });
-    const parts = [];
-    if (added.length) parts.push(`${added.join(', ')} added to the guest list with their partner`);
-    if (moved.length) parts.push(`${moved.join(', ')} moved with their partner`);
-    if (parts.length) setPartnerMsg(`💑 ${parts.join('; ')}.`);
+    try {
+      if (!loadedRef.current) throw new Error('the guest list hasn’t loaded');
+      const base = contactsRef.current;
+      const { list, moved, added } = partnersFollowGroup(base, next, friendsById, {
+        makeGuest: (f) => (f ? guestFromFriend(f, `friend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) : null),
+      });
+      // Shown at once; the stored list arrives a moment later and agrees.
+      if (!quiet) setContacts(list);
+      await saveGuestLists(user.uid, { [listKey]: { base, next: list, removing } });
+      setSaveError('');
+      const parts = [];
+      if (added.length) parts.push(`${added.join(', ')} added to the guest list with their partner`);
+      if (moved.length) parts.push(`${moved.join(', ')} moved with their partner`);
+      if (parts.length) setPartnerMsg(`💑 ${parts.join('; ')}.`);
+    } catch (err) {
+      if (!quiet) {
+        if (loadedRef.current) setContacts(serverContactsRef.current);
+        setSaveError(err instanceof GuestListGuardError
+          ? err.message
+          : `Your last change wasn’t saved (${navigator.onLine === false ? 'you’re offline' : err.message}). The list is shown as it was last saved — try again.`);
+      }
+      throw err;
+    }
   };
 
   /* Autosave for an existing guest. The guest-only pop-up saves its whole
@@ -779,7 +843,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     const next = withFriendNames(contacts, friendsById);
     if (next === contacts) return;
     setContacts(next);
-    persistContacts(next).catch((err) => console.error('Syncing guest names from Friends failed:', err));
+    persistContacts(next, { quiet: true }).catch((err) => console.error('Syncing guest names from Friends failed:', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contacts, friendsById, loading, user]);
 
@@ -1212,9 +1276,19 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
 
   const deleteSelected = async () => {
     if (!user || selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} contact${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) return;
-    const next = contacts.filter((c) => !selected.has(c.id));
-    await persistContacts(next);
+    // On the second version, guests from the main list can't be deleted here:
+    // they'd only be added straight back.
+    const doomed = [...selected].filter((id) => !mainIds.has(id));
+    const kept = selected.size - doomed.length;
+    if (!doomed.length) {
+      alert('Everyone selected is on the main guest list, so they stay on the second version too. Delete them from the main list to take them off both.');
+      return;
+    }
+    const keptNote = kept ? ` ${kept} on the main guest list will stay.` : '';
+    if (!confirm(`Delete ${doomed.length} contact${doomed.length === 1 ? '' : 's'}?${keptNote} This cannot be undone.`)) return;
+    const gone = new Set(doomed);
+    const next = contacts.filter((c) => !gone.has(c.id));
+    await persistContacts(next, { removing: doomed });
     clearSelection();
   };
 
@@ -1234,10 +1308,20 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     persistGroups(nextSaved);
   };
 
+  // The names are shared with the other version, so its guests are counted
+  // too: a group with nobody here may still be in use there.
+  const otherListLabel = isMain ? 'the second version' : 'the main list';
+  const thisListLabel = isMain ? 'the main list' : 'this version';
+  // "3 guests", or "0 guests here · 42 on the main list" once the other
+  // version has any of them.
+  const guestsOn = (r) => {
+    const n = (k) => `${k} ${k === 1 ? 'guest' : 'guests'}`;
+    return r.otherCount ? `${n(r.count)} here · ${r.otherCount} on ${otherListLabel}` : n(r.count);
+  };
   const openGroupEditor = () => {
-    const counts = new Map();
-    contacts.forEach((c) => { if (c.group) counts.set(c.group, (counts.get(c.group) || 0) + 1); });
-    setGroupEditor(groups.map((g) => ({ from: g, name: g, desc: groupDescription(g), count: counts.get(g) || 0 })));
+    const counts = countByField(contacts, 'group');
+    const other = countByField(otherContacts, 'group');
+    setGroupEditor(groups.map((g) => ({ from: g, name: g, desc: groupDescription(g), count: counts.get(g) || 0, otherCount: other.get(g) || 0 })));
   };
   const setGroupRow = (i, key, value) => setGroupEditor((rows) => rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
 
@@ -1249,6 +1333,8 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
      changes until Save, so a Delete pressed by mistake is undone in place. */
   const saveGroupEditor = async () => {
     if (!groupEditor) return;
+    const warning = deletionWarning(groupEditor, { noun: 'group', here: thisListLabel, there: otherListLabel });
+    if (warning && !window.confirm(warning)) return;
     const renames = new Map();
     const nextDescs = {};
     for (const r of groupEditor) {
@@ -1284,15 +1370,13 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     setSavedGroups(nextSaved);
     setGroupDescriptions(nextDescs);
     if (!user) return;
-    await setDoc(
-      doc(db, 'users', user.uid),
+    await saveGuestLists(
+      user.uid,
       {
-        weddingGroups: nextSaved,
-        weddingGroupDescriptions: nextDescs,
-        ...(changed ? { [listKey]: nextContacts } : {}),
-        ...(changed && otherContacts ? { [otherKey]: renameGroup(otherContacts) } : {}),
+        ...(changed ? { [listKey]: { base: contacts, next: nextContacts } } : {}),
+        ...(changed && otherContacts ? { [otherKey]: { base: otherContacts, next: renameGroup(otherContacts) } } : {}),
       },
-      { merge: true },
+      { extra: { weddingGroups: nextSaved, weddingGroupDescriptions: nextDescs } },
     );
   };
 
@@ -1306,9 +1390,9 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   };
 
   const openCategoryEditor = () => {
-    const counts = new Map();
-    contacts.forEach((c) => { if (c.category) counts.set(c.category, (counts.get(c.category) || 0) + 1); });
-    setCategoryEditor(categories.map((g) => ({ from: g, name: g, count: counts.get(g) || 0, deleted: false })));
+    const counts = countByField(contacts, 'category');
+    const other = countByField(otherContacts, 'category');
+    setCategoryEditor(categories.map((g) => ({ from: g, name: g, count: counts.get(g) || 0, otherCount: other.get(g) || 0, deleted: false })));
   };
   const setCategoryRow = (i, key, value) => setCategoryEditor((rows) => rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
 
@@ -1318,6 +1402,8 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
      the list still to sort. */
   const saveCategoryEditor = async () => {
     if (!categoryEditor) return;
+    const warning = deletionWarning(categoryEditor, { noun: 'category', here: thisListLabel, there: otherListLabel });
+    if (warning && !window.confirm(warning)) return;
     const renames = new Map();
     for (const r of categoryEditor) renames.set(r.from, r.deleted ? '' : (r.name.trim() || r.from));
     const nextSaved = Array.from(new Set(savedCategories.map((g) => (renames.has(g) ? renames.get(g) : g)).filter(Boolean)))
@@ -1344,14 +1430,13 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     setCategoryEditor(null);
     setSavedCategories(nextSaved);
     if (!user) return;
-    await setDoc(
-      doc(db, 'users', user.uid),
+    await saveGuestLists(
+      user.uid,
       {
-        weddingCategories: nextSaved,
-        ...(changed ? { [listKey]: nextContacts } : {}),
-        ...(changed && otherContacts ? { [otherKey]: renameCategory(otherContacts) } : {}),
+        ...(changed ? { [listKey]: { base: contacts, next: nextContacts } } : {}),
+        ...(changed && otherContacts ? { [otherKey]: { base: otherContacts, next: renameCategory(otherContacts) } } : {}),
       },
-      { merge: true },
+      { extra: { weddingCategories: nextSaved } },
     );
   };
 
@@ -1826,7 +1911,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const commitGuestMerge = async ({ guest, removedGuestIds, friendMerge }) => {
     if (!user) return;
     const removedFriendIds = friendMerge ? friendMerge.others.map((f) => f.id) : [];
-    await persistContacts(applyGuestMerge(contacts, guest, removedGuestIds, removedFriendIds));
+    await persistContacts(applyGuestMerge(contacts, guest, removedGuestIds, removedFriendIds), { removing: removedGuestIds });
     if (friendMerge) {
       await commitFriendMerge(user.uid, friends, friendMerge.primary, friendMerge.others, friendMerge.choices);
     }
@@ -1842,6 +1927,10 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const deleteContact = async () => {
     if (!user || !editing || editing.id === null) return;
     const name = `${editing.draft.firstName} ${editing.draft.lastName}`.trim() || 'this guest';
+    if (mainIds.has(editing.id)) {
+      alert(`${name} is on the main guest list, so they stay on the second version too. Delete them from the main list to take them off both.`);
+      return;
+    }
     const friendNote = friendsById.has(editing.draft.friendId) ? ' They stay on your Friends page.' : '';
     if (!confirm(`Delete ${name} from the wedding guest list?${friendNote} This cannot be undone.`)) return;
     clearTimeout(guestSaveTimer.current);
@@ -1855,7 +1944,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       next.delete(id);
       return next;
     });
-    await persistContacts(contacts.filter((c) => c.id !== id));
+    await persistContacts(contacts.filter((c) => c.id !== id), { removing: [id] });
   };
 
   /* Adding a guest by hand also puts them on the Friends page. If they're
@@ -1961,30 +2050,8 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       <p className={styles.subtitle}>
         {isMain
           ? 'Guest contact list. Select rows to bulk-edit a field.'
-          : 'A second version of the guest list to try changes on. It has its own guests; groups and categories are shared with the main list, and the weekly email and budget still count the main one.'}
+          : 'A second version of the guest list to try changes on. Everyone on the main list is here too, and you can add more; edits here don’t change the main list. Groups and categories are shared, and the weekly email and budget still count the main list.'}
       </p>
-      {!isMain && !loading && contacts.length === 0 && (
-        <div className={styles.secondStart}>
-          <p>This version is empty. Start it from a copy of the main guest list, or add guests to it from scratch.</p>
-          <button
-            type="button"
-            className={styles.secondStartBtn}
-            disabled={startingCopy || !otherContacts?.length}
-            onClick={async () => {
-              if (!user || !otherContacts?.length) return;
-              setStartingCopy(true);
-              try {
-                await setDoc(doc(db, 'users', user.uid), { [listKey]: otherContacts }, { merge: true });
-              } catch (err) {
-                console.error('Copying the guest list failed:', err);
-                alert(`Couldn’t copy the guest list: ${err.message}`);
-              } finally {
-                setStartingCopy(false);
-              }
-            }}
-          >{startingCopy ? 'Copying…' : `Copy the main list (${otherContacts?.length || 0} guests)`}</button>
-        </div>
-      )}
 
       {/* Weekly email. Collapsed to a single line until opened — it's a setting
           you touch once, and the guest list is what the page is for. */}
@@ -2246,6 +2313,12 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         </p>
       )}
 
+      {saveError && (
+        <p className={styles.saveError} role="alert">
+          {saveError}{' '}
+          <button type="button" className={styles.tierLegendEdit} onClick={() => setSaveError('')}>Dismiss</button>
+        </p>
+      )}
       {partnerMsg && (
         <p className={styles.categoryTabHint} role="status">
           {partnerMsg}{' '}
@@ -2286,6 +2359,12 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
           Group view: {groupView ? 'On' : 'Off'}
         </button>
         <WeddingExportMenu exporting={exporting} onExport={exportToExcel} />
+        <button
+          className={styles.toolButton}
+          type="button"
+          onClick={() => setShowBackups(true)}
+          title="Copies of the guest list from earlier, to put back if something goes wrong"
+        >Restore points</button>
         <div className={styles.colMenu} ref={columnsMenuRef}>
           <button className={styles.toolButton} type="button" onClick={() => setShowColumnsMenu((s) => !s)}>
             Columns ▾
@@ -2382,6 +2461,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         </div>
       )}
 
+      {showBackups && (
+        <WeddingBackups
+          user={user}
+          listName={isMain ? 'main' : 'v2'}
+          currentCount={contacts.length}
+          onClose={() => setShowBackups(false)}
+        />
+      )}
       {showGuestDuplicates && !mergingGuests && (
         <GuestDuplicatesModal
           groups={findGuestDuplicateGroups(shownContacts)}
@@ -2511,14 +2598,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
             </div>
             <div className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Renaming a category renames it for everyone in it. Give two categories the same name to merge them. Delete removes a category from the dropdowns and tabs and clears it off its guests.
+                Renaming a category renames it for everyone in it. Give two categories the same name to merge them. Delete removes a category from the dropdowns and tabs and clears it off its guests — on both versions of the guest list, since they share categories.
               </p>
               {categoryEditor.length === 0 && <p className={styles.modalHint}>No categories yet — add one with + Category.</p>}
               {categoryEditor.map((r, i) => (r.deleted ? (
                 <div key={r.from} className={`${styles.groupEditRow} ${styles.groupEditRowDeleted}`}>
                   <span className={styles.groupDeletedNote}>
                     <s>{r.from}</s> will be deleted
-                    {r.count > 0 && ` — ${r.count} ${r.count === 1 ? 'guest goes' : 'guests go'} back to no category`}
+                    {(r.count + r.otherCount) > 0 && ` — ${guestsOn(r)} ${(r.count + r.otherCount) === 1 ? 'goes' : 'go'} back to no category`}
                   </span>
                   <button className={styles.groupUndo} type="button" onClick={() => setCategoryRow(i, 'deleted', false)}>Undo</button>
                 </div>
@@ -2526,7 +2613,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
                 <div key={r.from} className={`${styles.groupEditRow} ${styles.categoryEditRow}`}>
                   <label className={styles.contactField}>
                     <span className={styles.contactLabel}>
-                      {r.from}{' · '}{r.count} {r.count === 1 ? 'guest' : 'guests'}
+                      {r.from}{' · '}{guestsOn(r)}
                     </span>
                     <input
                       className={styles.contactInput}
@@ -2571,14 +2658,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
             </div>
             <div className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Renaming a group renames it for everyone in it. Give two groups the same name to merge them. Delete removes a group from the dropdowns and clears it off its guests.
+                Renaming a group renames it for everyone in it. Give two groups the same name to merge them. Delete removes a group from the dropdowns and clears it off its guests — on both versions of the guest list, since they share groups.
               </p>
               {groupEditor.length === 0 && <p className={styles.modalHint}>No groups yet — add one with + Group.</p>}
               {groupEditor.map((r, i) => (r.deleted ? (
                 <div key={r.from} className={`${styles.groupEditRow} ${styles.groupEditRowDeleted}`}>
                   <span className={styles.groupDeletedNote}>
                     <s>{r.from}</s> will be deleted
-                    {r.count > 0 && ` — ${r.count} ${r.count === 1 ? 'guest goes' : 'guests go'} back to no group`}
+                    {(r.count + r.otherCount) > 0 && ` — ${guestsOn(r)} ${(r.count + r.otherCount) === 1 ? 'goes' : 'go'} back to no group`}
                   </span>
                   <button className={styles.groupUndo} type="button" onClick={() => setGroupRow(i, 'deleted', false)}>Undo</button>
                 </div>
@@ -2586,7 +2673,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
                 <div key={r.from} className={styles.groupEditRow}>
                   <label className={styles.contactField}>
                     <span className={styles.contactLabel}>
-                      {r.from}{' · '}{r.count} {r.count === 1 ? 'guest' : 'guests'}
+                      {r.from}{' · '}{guestsOn(r)}
                     </span>
                     <input
                       className={styles.contactInput}
@@ -2805,7 +2892,12 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
               {loading && (
                 <tr><td colSpan={visibleColumns.length + 1} className={styles.loadingState}>Loading…</td></tr>
               )}
-              {!loading && filtered.length === 0 && (
+              {!loading && loadError && contacts.length === 0 && (
+                <tr><td colSpan={visibleColumns.length + 1} className={styles.loadingState} role="alert">
+                  Couldn’t load the guest list. It hasn’t been changed — reload the page to try again.
+                </td></tr>
+              )}
+              {!loading && !(loadError && contacts.length === 0) && filtered.length === 0 && (
                 <tr><td colSpan={visibleColumns.length + 1} className={styles.empty}>
                   {/* An empty Not categorized tab is the goal, not a failed filter. */}
                   {activeCategoryTab === UNSORTED && !search.trim() && contacts.length > 0
