@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { friendsNotOnList, friendAddress, guestFromFriend, normName } from '../lib/weddingFriendMatch';
-import { guestFullName, suggestGuestNames, unclaimedGuests } from '../lib/weddingNameSuggest';
+import { guestSearchPool, searchGuestPool, suggestGuestNames } from '../lib/weddingNameSuggest';
 import { saveGuestLists } from '../lib/weddingGuestStore';
 import styles from './WeddingPage.module.css';
+import listStyles from './WeddingPartyCell.module.css';
 
 /* Everyone on the Friends page who isn't on the guest list — the people you
    might have forgotten. "Add" writes a guest row linked to the friend, and they
@@ -16,10 +18,11 @@ import styles from './WeddingPage.module.css';
 
    "Suggested name" is the guest this friend most likely is, under a slightly
    different name (lib/weddingNameSuggest.js). The box holds that guess and
-   can be typed in to search the guest list for someone else — the guests no
-   friend accounts for yet, the same ones a suggestion is drawn from. "Use
-   this name" renames the friend to match the guest picked, which puts them
-   on the list by name — the guest is left as it is. */
+   can be typed in to search the whole guest list for someone else, with the
+   matching guests listed under it as you type. A guest some other friend
+   already accounts for is listed too, marked with that friend. "Use this
+   name" renames the friend to match the guest picked, which puts them on the
+   list by name — the guest is left as it is. */
 export function WeddingFriendsNotInvited() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState(null);
@@ -72,19 +75,10 @@ export function WeddingFriendsNotInvited() {
     () => (loading ? new Map() : suggestGuestNames(missing, contacts, friends)),
     [loading, missing, contacts, friends],
   );
-  // The guests the search offers, by name; `byName` finds the one typed.
+  // Every guest the search can find, and `byName` to tell who's been typed.
   const guestPool = useMemo(() => {
-    const names = [];
-    const byName = new Map();
-    for (const g of loading ? [] : unclaimedGuests(contacts, friends)) {
-      const name = guestFullName(g);
-      const key = normName(name);
-      if (!key || byName.has(key)) continue;
-      byName.set(key, { guest: g, name });
-      names.push(name);
-    }
-    names.sort((a, b) => a.localeCompare(b));
-    return { names, byName };
+    const list = loading ? [] : guestSearchPool(contacts, friends);
+    return { list, byName: new Map(list.map((p) => [normName(p.name), p])) };
   }, [loading, contacts, friends]);
   const suggestedCount = useMemo(() => visible.filter((f) => suggestions.has(f.id)).length, [visible, suggestions]);
   const shown = useMemo(() => {
@@ -238,16 +232,13 @@ export function WeddingFriendsNotInvited() {
                   <td>{f.name || '—'}{hidden && ' (hidden)'}</td>
                   <td data-testid="suggested-name">
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <input
-                        className={styles.guestSearch}
-                        list="unclaimed-guests"
+                      <GuestSearchInput
                         value={typed}
-                        placeholder="Search guest list…"
-                        aria-label={`Guest list name for ${f.name || 'this friend'}`}
+                        pool={guestPool.list}
+                        label={`Guest list name for ${f.name || 'this friend'}`}
                         title={s && picks[f.id] === undefined ? `On the guest list as ${s.name}` : undefined}
-                        onChange={(e) => setPicks((p) => ({ ...p, [f.id]: e.target.value }))}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && pick && !renaming.has(f.id)) applySuggestedName(f, pick); }}
-                        autoComplete="off"
+                        onChange={(v) => setPicks((p) => ({ ...p, [f.id]: v }))}
+                        onEnter={() => { if (pick && !renaming.has(f.id)) applySuggestedName(f, pick); }}
                       />
                       {pick && (
                         <button
@@ -259,6 +250,11 @@ export function WeddingFriendsNotInvited() {
                         >
                           {renaming.has(f.id) ? 'Renaming…' : 'Use this name'}
                         </button>
+                      )}
+                      {pick?.claimedBy && (
+                        <span className={styles.guestSearchNote} title="Renaming gives you two Friends contacts with this name; merge them on the Friends page if they're the same person.">
+                          Already matched to {pick.claimedBy}
+                        </span>
                       )}
                       {!pick && typed.trim() && (
                         <span className={styles.guestSearchNote}>Pick a guest from the list</span>
@@ -293,11 +289,101 @@ export function WeddingFriendsNotInvited() {
               })}
             </tbody>
           </table>
-          <datalist id="unclaimed-guests">
-            {guestPool.names.map((n) => <option key={n} value={n} />)}
-          </datalist>
         </div>
       </div>
     </div>
+  );
+}
+
+/* A row's guest search: the matching guests are listed under the box as you
+   type (lib/weddingNameSuggest.js searchGuestPool). ↑/↓ and Enter or a click
+   pick one, which fills the box in; Enter with the list closed applies it.
+   The table clips what overflows it, so the list is drawn on <body> and kept
+   under the input on scroll — as WeddingPartyCell does, whose list styles
+   these are. */
+function GuestSearchInput({ value, pool, label, title, onChange, onEnter }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const [box, setBox] = useState(null);
+  const inputRef = useRef(null);
+  const options = open ? searchGuestPool(pool, value) : [];
+
+  const place = () => {
+    const r = inputRef.current?.getBoundingClientRect();
+    if (r) setBox({ left: r.left, top: r.bottom + 2, width: Math.max(r.width, 300), above: r.top });
+  };
+  const openList = () => { place(); setOpen(true); };
+  useEffect(() => {
+    if (!open) return undefined;
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open]);
+
+  const pick = (o) => { onChange(o.name); setOpen(false); setActive(-1); };
+  const onKeyDown = (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!open) { openList(); return; }
+      const n = options.length;
+      if (!n) return;
+      setActive((i) => (e.key === 'ArrowDown' ? (i + 1) % n : (i <= 0 ? n - 1 : i - 1)));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (open && active >= 0 && options[active]) pick(options[active]);
+      else { setOpen(false); onEnter(); }
+    } else if (e.key === 'Escape' || e.key === 'Tab') {
+      setOpen(false);
+      setActive(-1);
+    }
+  };
+
+  const listHeight = Math.min(options.length, 7) * 34 + 8;
+  const left = box && Math.max(8, Math.min(box.left, window.innerWidth - box.width - 8));
+  const style = box && (box.top + listHeight > window.innerHeight && box.above > listHeight
+    ? { left, top: box.above - listHeight - 2, width: box.width }
+    : { left, top: box.top, width: box.width });
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        className={styles.guestSearch}
+        value={value}
+        placeholder="Search guest list…"
+        aria-label={label}
+        title={title}
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        autoComplete="off"
+        onFocus={() => { openList(); setActive(-1); }}
+        onClick={() => { if (!open) openList(); }}
+        onChange={(e) => { onChange(e.target.value); if (!open) openList(); setActive(-1); }}
+        onKeyDown={onKeyDown}
+        onBlur={() => { setOpen(false); setActive(-1); }}
+      />
+      {open && style && options.length > 0 && createPortal(
+        <ul className={listStyles.list} style={style} role="listbox" onMouseDown={(e) => e.preventDefault()}>
+          {options.map((o, i) => (
+            <li
+              key={o.guest.id}
+              role="option"
+              aria-selected={i === active}
+              className={[listStyles.option, i === active ? listStyles.active : ''].filter(Boolean).join(' ')}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(o)}
+            >
+              {o.name}
+              {o.claimedBy && <span className={styles.guestSearchNote}> · matched to {o.claimedBy}</span>}
+            </li>
+          ))}
+        </ul>,
+        document.body,
+      )}
+    </>
   );
 }

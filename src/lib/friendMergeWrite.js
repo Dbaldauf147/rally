@@ -2,12 +2,13 @@
 // looks like — is friendMerge.js; this is the order the writes go in, shared by
 // the Friends page's merge screen and the wedding guest list's.
 
-import { deleteDoc, doc, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { mergeFriends, repointFriendIds } from './friendMerge';
+import { trashFriends } from './friendTrash';
 
 /* Fold `others` into `primary` under `uid`. The kept contact is written first
- * and the duplicates deleted last, so a failure part-way leaves an extra
+ * and the duplicates trashed last, so a failure part-way leaves an extra
  * contact rather than a lost one. In between, everything that points at a
  * removed contact by id is moved to the kept one: other friends' "comes with"
  * link (`friends` is the current list, to find them), and the Reach Out and
@@ -33,8 +34,8 @@ export async function commitFriendMerge(uid, friends, primary, others, choices) 
     }
     if (Object.keys(patch).length) tx.set(userRef, patch, { merge: true });
   });
-  for (const id of removedIds) {
-    await deleteDoc(doc(db, 'users', uid, 'friends', id));
-  }
+  // The duplicates go to the trash rather than out of existence, so a merge
+  // that folded the wrong people together can be taken apart again.
+  await trashFriends(removedIds, `merged into ${merged.name || 'another contact'}`);
   return merged;
 }

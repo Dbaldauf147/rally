@@ -116,6 +116,61 @@ export function unclaimedGuests(contacts, friends) {
   });
 }
 
+/* Every guest, for the search box in a Friends-not-on-list row:
+   [{ guest, name, claimedBy }], one per name. `claimedBy` is the name of the
+   friend who already accounts for the guest (by link, name, email or phone),
+   '' when nobody does. Two guests with one name are one entry — the
+   unclaimed one when there is one. */
+export function guestSearchPool(contacts, friends) {
+  const byId = new Map();
+  const byName = new Map();
+  const byEmail = new Map();
+  const byPhone = new Map();
+  for (const f of friends || []) {
+    byId.set(f.id, f);
+    const n = normName(f.name);
+    if (n && !byName.has(n)) byName.set(n, f);
+    for (const e of [f.email, f.workEmail]) if (normEmail(e) && !byEmail.has(normEmail(e))) byEmail.set(normEmail(e), f);
+    if (normPhone(f.phone) && !byPhone.has(normPhone(f.phone))) byPhone.set(normPhone(f.phone), f);
+  }
+  const out = new Map();
+  for (const c of contacts || []) {
+    const name = guestFullName(c);
+    const key = normName(name);
+    if (!key) continue;
+    const f = (c.friendId && byId.get(c.friendId)) || byName.get(key)
+      || byEmail.get(normEmail(c.email)) || byPhone.get(normPhone(c.phone)) || null;
+    const entry = { guest: c, name, claimedBy: f ? (f.name || 'a friend') : '' };
+    const had = out.get(key);
+    if (!had || (had.claimedBy && !entry.claimedBy)) out.set(key, entry);
+  }
+  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/* The entries of a guestSearchPool that fit what's typed, best first: a name
+   that starts with it, then one where every typed word starts a word of the
+   name ("al whit" → Alexa Whitfield), then one that merely contains it.
+   Within each, guests no friend accounts for come first. Nothing typed lists
+   those guests alone. */
+export function searchGuestPool(pool, query, limit = 8) {
+  const q = words(query);
+  if (!q.length) return (pool || []).filter((p) => !p.claimedBy).slice(0, limit);
+  const joined = q.join(' ');
+  const ranked = [];
+  for (const p of pool || []) {
+    const w = words(p.name);
+    const flat = w.join(' ');
+    let rank;
+    if (flat.startsWith(joined)) rank = 0;
+    else if (q.every((t) => w.some((x) => x.startsWith(t)))) rank = 1;
+    else if (flat.includes(joined)) rank = 2;
+    else continue;
+    ranked.push({ p, rank: rank * 2 + (p.claimedBy ? 1 : 0) });
+  }
+  ranked.sort((a, b) => a.rank - b.rank || a.p.name.localeCompare(b.p.name));
+  return ranked.slice(0, limit).map((r) => r.p);
+}
+
 /* friendId → { guest, name, score } for every friend in `missing` with a
    guest close enough. When two guests tie for a friend it's a guess, so
    neither is offered. */
