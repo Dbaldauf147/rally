@@ -2773,7 +2773,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
               ) : (
                 <>
                   <span className={styles.modalCount}>Changes save automatically</span>
-                  <button className={styles.modalPrimary} type="submit">Done</button>
+                  <button className={styles.modalPrimary} type="submit">Close</button>
                 </>
               )}
             </div>
