@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { friendsNotOnList, friendAddress, guestFromFriend } from '../lib/weddingFriendMatch';
-import { suggestGuestNames } from '../lib/weddingNameSuggest';
+import { friendsNotOnList, friendAddress, guestFromFriend, normName } from '../lib/weddingFriendMatch';
+import { guestFullName, suggestGuestNames, unclaimedGuests } from '../lib/weddingNameSuggest';
 import { saveGuestLists } from '../lib/weddingGuestStore';
 import styles from './WeddingPage.module.css';
 
@@ -15,9 +15,11 @@ import styles from './WeddingPage.module.css';
    touches nothing on the friend or the guest list.
 
    "Suggested name" is the guest this friend most likely is, under a slightly
-   different name (lib/weddingNameSuggest.js). "Use this name" renames the
-   friend to match the guest, which puts them on the list by name — the guest
-   is left as it is. */
+   different name (lib/weddingNameSuggest.js). The box holds that guess and
+   can be typed in to search the guest list for someone else — the guests no
+   friend accounts for yet, the same ones a suggestion is drawn from. "Use
+   this name" renames the friend to match the guest picked, which puts them
+   on the list by name — the guest is left as it is. */
 export function WeddingFriendsNotInvited() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState(null);
@@ -29,6 +31,8 @@ export function WeddingFriendsNotInvited() {
   const [error, setError] = useState(null);
   const [renaming, setRenaming] = useState(() => new Set());
   const [onlySuggested, setOnlySuggested] = useState(false);
+  // What's been typed in a row's guest search, by friend id.
+  const [picks, setPicks] = useState({});
 
   useEffect(() => {
     if (!user) return undefined;
@@ -68,6 +72,20 @@ export function WeddingFriendsNotInvited() {
     () => (loading ? new Map() : suggestGuestNames(missing, contacts, friends)),
     [loading, missing, contacts, friends],
   );
+  // The guests the search offers, by name; `byName` finds the one typed.
+  const guestPool = useMemo(() => {
+    const names = [];
+    const byName = new Map();
+    for (const g of loading ? [] : unclaimedGuests(contacts, friends)) {
+      const name = guestFullName(g);
+      const key = normName(name);
+      if (!key || byName.has(key)) continue;
+      byName.set(key, { guest: g, name });
+      names.push(name);
+    }
+    names.sort((a, b) => a.localeCompare(b));
+    return { names, byName };
+  }, [loading, contacts, friends]);
   const suggestedCount = useMemo(() => visible.filter((f) => suggestions.has(f.id)).length, [visible, suggestions]);
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -92,6 +110,7 @@ export function WeddingFriendsNotInvited() {
         middleName: '',
         lastName: tidy(s.guest.lastName),
       });
+      setPicks((p) => { const n = { ...p }; delete n[f.id]; return n; });
     } catch (err) {
       setError(`Couldn’t rename ${f.name || 'them'}: ${err.message}`);
     } finally {
@@ -210,24 +229,41 @@ export function WeddingFriendsNotInvited() {
               {!loading && shown.map((f) => {
                 const hidden = hiddenIds.has(f.id);
                 const s = suggestions.get(f.id);
+                // The box shows the guess until it's typed over; the guest it
+                // names (if it names one) is who "Use this name" applies.
+                const typed = picks[f.id] ?? s?.name ?? '';
+                const pick = guestPool.byName.get(normName(typed)) || null;
                 return (
                 <tr key={f.id} style={hidden ? { opacity: 0.55 } : undefined} data-hidden={hidden || undefined}>
                   <td>{f.name || '—'}{hidden && ' (hidden)'}</td>
                   <td data-testid="suggested-name">
-                    {s && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        <span title={`On the guest list as ${s.name}`}>{s.name}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <input
+                        className={styles.guestSearch}
+                        list="unclaimed-guests"
+                        value={typed}
+                        placeholder="Search guest list…"
+                        aria-label={`Guest list name for ${f.name || 'this friend'}`}
+                        title={s && picks[f.id] === undefined ? `On the guest list as ${s.name}` : undefined}
+                        onChange={(e) => setPicks((p) => ({ ...p, [f.id]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && pick && !renaming.has(f.id)) applySuggestedName(f, pick); }}
+                        autoComplete="off"
+                      />
+                      {pick && (
                         <button
                           type="button"
                           className={styles.toolButton}
-                          onClick={() => applySuggestedName(f, s)}
+                          onClick={() => applySuggestedName(f, pick)}
                           disabled={renaming.has(f.id)}
-                          title={`Rename ${f.name || 'this friend'} to ${s.name} on the Friends page, so they match the guest`}
+                          title={`Rename ${f.name || 'this friend'} to ${pick.name} on the Friends page, so they match the guest`}
                         >
                           {renaming.has(f.id) ? 'Renaming…' : 'Use this name'}
                         </button>
-                      </span>
-                    )}
+                      )}
+                      {!pick && typed.trim() && (
+                        <span className={styles.guestSearchNote}>Pick a guest from the list</span>
+                      )}
+                    </span>
                   </td>
                   <td>{f.email || f.workEmail || ''}</td>
                   <td>{f.phone || ''}</td>
@@ -257,6 +293,9 @@ export function WeddingFriendsNotInvited() {
               })}
             </tbody>
           </table>
+          <datalist id="unclaimed-guests">
+            {guestPool.names.map((n) => <option key={n} value={n} />)}
+          </datalist>
         </div>
       </div>
     </div>
