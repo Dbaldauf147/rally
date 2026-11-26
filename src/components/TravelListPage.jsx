@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { Navigate } from 'react-router-dom';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -344,6 +344,13 @@ function normalizeList(raw) {
         note: c.note || '',
         checked: !!c.checked,
         category: c.category || '',
+        // A sub-item's own checklist ("PT stuff" → bands, foam roller…). The
+        // sub-item is ticked when all of it is.
+        checklist: (Array.isArray(c.checklist) ? c.checklist : []).map((k) => ({
+          id: k.id || uid(),
+          label: k.label || '',
+          checked: !!k.checked,
+        })),
       })),
     })),
   }));
@@ -542,12 +549,17 @@ export function TravelListPage() {
   function openItemEditor(sectionId, item) {
     setEditItem({
       sectionId, itemId: item.id, label: item.label || '', note: item.note || '', category: item.category || '',
-      children: (item.children || []).map((c) => ({ id: c.id, label: c.label || '', note: c.note || '', checked: !!c.checked })),
+      // Whole sub-items, so saving the item keeps each one's category and checklist.
+      children: (item.children || []).map((c) => ({ ...c, label: c.label || '' })),
       isNew: false,
     });
   }
   function openChildEditor(sectionId, itemId, child) {
-    setEditItem({ sectionId, itemId, childId: child.id, label: child.label || '', note: child.note || '', children: [], isNew: false });
+    setEditItem({
+      sectionId, itemId, childId: child.id, label: child.label || '', note: child.note || '', children: [],
+      checklist: (child.checklist || []).map((k) => ({ ...k })),
+      isNew: false,
+    });
   }
   // Sub-item editing inside the popup turns an item into a group.
   function setSub(i, label) { setEditItem((p) => ({ ...p, children: p.children.map((c, idx) => idx === i ? { ...c, label } : c) })); }
@@ -558,11 +570,28 @@ export function TravelListPage() {
     setEditItem((p) => ({ ...p, children: [...p.children, { id: uid(), label: n, note: '', checked: false }] }));
     setSubDraft('');
   }
+  // A sub-item's checklist, edited in its popup.
+  function setCheck(i, label) { setEditItem((p) => ({ ...p, checklist: p.checklist.map((k, idx) => idx === i ? { ...k, label } : k) })); }
+  function removeCheck(i) { setEditItem((p) => ({ ...p, checklist: p.checklist.filter((_, idx) => idx !== i) })); }
+  function addCheck() {
+    const n = subDraft.trim();
+    if (!n) return;
+    setEditItem((p) => ({ ...p, checklist: [...(p.checklist || []), { id: uid(), label: n, checked: false }] }));
+    setSubDraft('');
+  }
   function saveItemEditor() {
     if (editItem) {
       const label = editItem.label.trim();
       if (editItem.childId) {
-        updateChildFields(editItem.sectionId, editItem.itemId, editItem.childId, { label, note: editItem.note.trim() });
+        // Something typed in the box but not yet "Added" still counts.
+        const typed = subDraft.trim();
+        const checklist = [...(editItem.checklist || []), ...(typed ? [{ id: uid(), label: typed, checked: false }] : [])]
+          .filter((k) => k.label.trim()).map((k) => ({ ...k, label: k.label.trim() }));
+        updateChildFields(editItem.sectionId, editItem.itemId, editItem.childId, {
+          label, note: editItem.note.trim(), checklist,
+          // With a checklist, the sub-item is done when all of it is.
+          ...(checklist.length ? { checked: checklist.every((k) => k.checked) } : {}),
+        });
       } else if (!label && editItem.isNew) {
         deleteItem(editItem.sectionId, editItem.itemId);
       } else {
@@ -793,7 +822,27 @@ export function TravelListPage() {
         ...s,
         items: s.items.map((it) => it.id !== itemId ? it : {
           ...it,
-          children: it.children.map((c) => c.id !== childId ? c : { ...c, checked: !c.checked }),
+          // Ticking a sub-item ticks its whole checklist, and unticking clears it.
+          children: it.children.map((c) => c.id !== childId ? c : {
+            ...c, checked: !c.checked, checklist: (c.checklist || []).map((k) => ({ ...k, checked: !c.checked })),
+          }),
+        }),
+      }),
+    }));
+  }
+  // One line of a sub-item's checklist; the sub-item follows — done when all are.
+  function toggleCheck(sectionId, itemId, childId, checkId) {
+    updateList((l) => ({
+      ...l,
+      sections: l.sections.map((s) => s.id !== sectionId ? s : {
+        ...s,
+        items: s.items.map((it) => it.id !== itemId ? it : {
+          ...it,
+          children: it.children.map((c) => {
+            if (c.id !== childId) return c;
+            const checklist = (c.checklist || []).map((k) => k.id !== checkId ? k : { ...k, checked: !k.checked });
+            return { ...c, checklist, checked: checklist.every((k) => k.checked) };
+          }),
         }),
       }),
     }));
@@ -807,7 +856,7 @@ export function TravelListPage() {
         items: s.items.map((it) => it.isHeader ? it : ({
           ...it,
           checked: (it.children && it.children.length > 0) ? it.checked : value,
-          children: it.children.map((c) => ({ ...c, checked: value })),
+          children: it.children.map((c) => ({ ...c, checked: value, checklist: (c.checklist || []).map((k) => ({ ...k, checked: value })) })),
         })),
       })),
     }));
@@ -1116,7 +1165,7 @@ export function TravelListPage() {
   // even and the full width is used.
   const nCols = Math.max(1, Math.min(colCount, renderableSections.length || 1));
   const sectionColumns = Array.from({ length: nCols }, () => ({ sections: [], weight: 0 }));
-  const estimateHeight = (s) => s.items.reduce((n, it) => n + 1 + (it.children ? it.children.length : 0), 0);
+  const estimateHeight = (s) => s.items.reduce((n, it) => n + 1 + (it.children || []).reduce((m, c) => m + 1 + (c.checklist?.length || 0), 0), 0);
   for (const s of renderableSections) {
     const target = sectionColumns.reduce((a, b) => (b.weight < a.weight ? b : a));
     target.sections.push(s);
@@ -1574,8 +1623,8 @@ export function TravelListPage() {
                             </div>
                           </div>
                         ) : (
+                          <Fragment key={child.id}>
                           <label
-                            key={child.id}
                             className={[
                               styles.item,
                               styles.itemChild,
@@ -1604,6 +1653,9 @@ export function TravelListPage() {
                               <div className={`${styles.itemLabel} ${child.checked ? styles.itemLabelChecked : ''}`}>
                                 {displayLabel(child.label, section.name)}
                                 {child.category && <span className={styles.itemCatBadge}>{child.category}</span>}
+                                {child.checklist?.length > 0 && (
+                                  <span className={styles.itemCheckCount}>{child.checklist.filter((k) => k.checked).length}/{child.checklist.length}</span>
+                                )}
                               </div>
                               {child.note && <div className={styles.itemNote}>{child.note}</div>}
                             </div>
@@ -1620,6 +1672,20 @@ export function TravelListPage() {
                               aria-label="Delete sub-item"
                             >×</button>
                           </label>
+                          {(child.checklist || []).filter((k) => !(hidingDone && k.checked)).map((k) => (
+                            <label key={k.id} className={`${styles.item} ${styles.itemCheck}`} data-testid="sub-check">
+                              <input
+                                type="checkbox"
+                                className={styles.checkbox}
+                                checked={!!k.checked}
+                                onChange={() => toggleCheck(section.id, item.id, child.id, k.id)}
+                              />
+                              <div className={styles.itemBody}>
+                                <div className={`${styles.itemLabel} ${k.checked ? styles.itemLabelChecked : ''}`}>{k.label}</div>
+                              </div>
+                            </label>
+                          ))}
+                          </Fragment>
                         )
                       ))}
                     </div>
@@ -1740,6 +1806,35 @@ export function TravelListPage() {
               </div>
             </div>
             </>)}
+
+            {editItem.childId && (
+              <div className={styles.modalLabel}>
+                Checklist {editItem.checklist.length > 0 && `(${editItem.checklist.length})`}
+                {editItem.checklist.map((k, i) => (
+                  <div key={k.id} className={styles.manageCatRow}>
+                    <input
+                      className={styles.metaInput}
+                      style={{ flex: 1 }}
+                      value={k.label}
+                      placeholder="Checklist item"
+                      aria-label={`Checklist item ${i + 1}`}
+                      onChange={(e) => setCheck(i, e.target.value)}
+                    />
+                    <button type="button" className={styles.iconBtnDanger} title="Remove from checklist" aria-label="Remove from checklist" onClick={() => removeCheck(i)}>×</button>
+                  </div>
+                ))}
+                <div className={styles.manageCatAdd}>
+                  <input
+                    className={styles.metaInput}
+                    value={subDraft}
+                    placeholder="Add a checklist item"
+                    onChange={(e) => setSubDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCheck(); } }}
+                  />
+                  <button type="button" className={styles.btn} disabled={!subDraft.trim()} onClick={addCheck}>Add</button>
+                </div>
+              </div>
+            )}
 
             <div className={styles.modalActions}>
               <button

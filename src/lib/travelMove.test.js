@@ -200,3 +200,32 @@ describe('applyDrop', () => {
     expect(kids(l, 'flying', 'washbag')).toEqual(['paste']);
   });
 });
+
+describe('a sub-item with its own checklist', () => {
+  const withChecklist = () => {
+    const l = build();
+    l.sections[0].items[3].children[0].checklist = [
+      { id: 'k1', label: 'Head', checked: true },
+      { id: 'k2', label: 'Charger', checked: false },
+    ];
+    return l;
+  };
+  it('keeps the checklist when moved under another item', () => {
+    const l = nestIntoItem(withChecklist(), from('flying', 'brush', 'washbag'), 'boat', 'towel');
+    const towel = l.sections[1].items[0];
+    expect(towel.children.map((c) => c.id)).toEqual(['brush']);
+    expect(towel.children[0].checklist.map((k) => [k.id, k.checked])).toEqual([['k1', true], ['k2', false]]);
+  });
+  it('turns the checklist into sub-items when it is taken out on its own', () => {
+    const l = moveToSection(withChecklist(), from('flying', 'brush', 'washbag'), 'boat');
+    const brush = l.sections[1].items[1];
+    expect(brush.id).toBe('brush');
+    expect(brush.isGroup).toBe(true);
+    expect(brush.checklist).toBeUndefined();
+    expect(brush.children.map((c) => [c.label, c.checked])).toEqual([['Head', true], ['Charger', false]]);
+  });
+  it('a sub-item without one still stands alone as a plain item', () => {
+    const l = moveToSection(build(), from('flying', 'paste', 'washbag'), 'boat');
+    expect(l.sections[1].items[1]).toMatchObject({ id: 'paste', isGroup: false, children: [] });
+  });
+});

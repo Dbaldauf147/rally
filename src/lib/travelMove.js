@@ -15,16 +15,24 @@ const sectionsOf = (list) => (Array.isArray(list?.sections) ? list.sections : []
 
 // What a thing looks like as a sub-item: sub-items hold no sub-items of their
 // own, so anything the dragged item was carrying is left behind by design.
+// A sub-item's own checklist goes with it from one item to another.
 const asChild = (node) => ({
   id: node.id,
   label: node.label,
   note: node.note || '',
   checked: !!node.checked,
   category: node.category || '',
+  checklist: Array.isArray(node.checklist) ? node.checklist : [],
 });
 
-// What a sub-item looks like once it stands on its own.
-const asItem = (node) => ({ ...node, children: [], isGroup: false });
+// What a sub-item looks like once it stands on its own. Its checklist becomes
+// its sub-items — an item has no checklist of its own, and this keeps the lines.
+const asItem = (node) => {
+  const { checklist, ...rest } = node;
+  const children = (Array.isArray(checklist) ? checklist : [])
+    .map((k) => ({ id: k.id, label: k.label, note: '', checked: !!k.checked, category: '', checklist: [] }));
+  return { ...rest, children, isGroup: children.length > 0 };
+};
 
 /* Take the dragged thing out of wherever it is.
    `from` is { sectionId, itemId } for a row, plus `parentId` for a sub-item. */
