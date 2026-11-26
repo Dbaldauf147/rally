@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { planMemberUpsert, planMemberUpserts, findMemberKey } from '../lib/members';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
+import { PeopleBackups } from './PeopleBackups';
 import styles from './FriendsPage.module.css';
 // Friend writes and the loose-date parsing live in the shared lib so the poll
 // page can add a friend through exactly the same path this page uses.
@@ -1038,6 +1039,7 @@ function TierBoard({ friends, onSetTier }) {
 export function FriendsPage({ embed = null } = {}) {
   const { user } = useAuth();
   const embedded = !!embed;
+  const [showBackups, setShowBackups] = useState(false);
   const [friends, setFriends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -2637,12 +2639,18 @@ export function FriendsPage({ embed = null } = {}) {
           >⧉ Find Duplicates</button>
           <button className={styles.templateBtn} onClick={downloadTemplate}>Download Template</button>
           <button className={styles.templateBtn} onClick={exportFriendsExcel} title="Download all visible contacts as a polished Excel file">⬇ Export Excel</button>
+          <button
+            className={styles.templateBtn}
+            onClick={() => setShowBackups(true)}
+            title="The daily backup files of everyone here: download one, or put back contacts that have gone missing"
+          >🛟 Backups</button>
         </div>
       </div>
 
       {result && (
         <div className={`${styles.result} ${styles[`result_${result.type}`]}`}>{result.message}</div>
       )}
+      {showBackups && <PeopleBackups user={user} onClose={() => setShowBackups(false)} />}
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid var(--color-border)', marginBottom: '1rem' }}>
