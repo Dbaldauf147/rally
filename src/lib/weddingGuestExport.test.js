@@ -43,9 +43,9 @@ describe('buildGuestWorkbook', () => {
     expect(ws.getCell('B7').value).toBe('Confirmed');
     expect(ws.getCell('B7').fill.fgColor.argb).toBe('FFDDF3E4');
     expect(ws.getCell('B8').fill.fgColor.argb).toBe('FFFBE0E0');
-    expect(ws.getCell('G7').value).toBe("Mom's side");
-    expect(ws.getCell('I7').value).toMatchObject({ hyperlink: 'mailto:zoe@example.com' });
-    expect(ws.getCell('N7').value).toBe('01234');
+    expect(ws.getCell('H7').value).toBe("Mom's side");
+    expect(ws.getCell('J7').value).toMatchObject({ hyperlink: 'mailto:zoe@example.com' });
+    expect(ws.getCell('O7').value).toBe('01234');
     expect(ws.rowCount).toBe(8);
     expect(ws.views[0]).toMatchObject({ state: 'frozen', ySplit: 4 });
 
@@ -179,5 +179,14 @@ describe('choosing columns', () => {
     expect(ws.getRow(5).getCell(3).border.right.style).toBe('medium');
     // The Summary is untouched.
     expect(wb.getWorksheet('Summary').getCell('B2').value).toContain('2 guests');
+  });
+});
+
+describe('Group 2 in the export', () => {
+  it('writes Group 2 right after Group', async () => {
+    const { EXPORT_COLUMNS, guestRow } = await import('./weddingGuestExport');
+    const keys = EXPORT_COLUMNS.map((c) => c.key);
+    expect(keys.indexOf('group2')).toBe(keys.indexOf('group') + 1);
+    expect(guestRow({ firstName: 'A', lastName: 'B', group: 'A - Must invite', group2: ' Bachelor party ' }).group2).toBe('Bachelor party');
   });
 });

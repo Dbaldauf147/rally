@@ -153,3 +153,11 @@ describe('planGuestImport', () => {
     expect(existing).toEqual(copy);
   });
 });
+
+describe('Group 2 column', () => {
+  it('reads a "Group 2" header as the second group and "Group" as the first', async () => {
+    const { autoDetectMappings } = await import('./weddingGuestImport');
+    expect(autoDetectMappings(['Name', 'Group', 'Group 2', 'Second group'])).toEqual(['fullName', 'group', 'group2', '']);
+    expect(autoDetectMappings(['Name', 'Second group', 'Group'])).toEqual(['fullName', 'group2', 'group']);
+  });
+});
