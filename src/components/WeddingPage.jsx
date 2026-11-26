@@ -2203,10 +2203,13 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <h1 className={styles.title}>Wedding</h1>
+        {/* The list's own tabs sit beside the title rather than under it. */}
+        <div className={styles.titleRow}>
+          <h1 className={styles.title}>Wedding</h1>
+          {subnav}
+        </div>
         <div className={styles.count}>{filtered.length} of {shownContacts.length} contacts</div>
       </div>
-      {subnav}
       {isMain && <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>}
 
       {/* Weekly email. Collapsed to a single line until opened — it's a setting
@@ -3380,9 +3383,11 @@ export function WeddingPage() {
       ) : guestsSub === 'decide' ? (
         <div className={styles.page}>
           <div className={styles.header}>
-            <h1 className={styles.title}>Wedding</h1>
+            <div className={styles.titleRow}>
+              <h1 className={styles.title}>Wedding</h1>
+              {guestsSubnav}
+            </div>
           </div>
-          {guestsSubnav}
           <p className={styles.subtitle}>Not sure whether someone belongs on the list? Answer a few questions about them.</p>
           <WeddingInviteDecision />
         </div>

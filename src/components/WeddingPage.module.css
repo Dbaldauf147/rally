@@ -306,3 +306,8 @@
 .backupMeta { font-size: 0.8rem; color: var(--color-text-muted); }
 .backupActions { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: flex-end; }
 .backupHeading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 1rem 0 0.25rem; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+
+/* The page title with the guest list's tabs beside it. The tabs carry a
+   bottom margin for when they sit on a line of their own; not here. */
+.titleRow { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 1rem; }
+.titleRow [role="tablist"] { margin: 0; }
