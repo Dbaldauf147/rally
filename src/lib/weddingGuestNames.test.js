@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitGuestName, withFriendNames } from './weddingGuestNames';
+import { guestNameFromFriend, splitGuestName, withFriendNames } from './weddingGuestNames';
 
 const friends = new Map([
   ['f1', { id: 'f1', name: 'Robert Smith' }],
@@ -19,9 +19,25 @@ describe('withFriendNames', () => {
     const out = withFriendNames([{ id: 'a', friendId: 'f1', firstName: 'Bob', lastName: 'Smith', city: 'Boston' }], friends);
     expect(out[0]).toEqual({ id: 'a', friendId: 'f1', firstName: 'Robert', lastName: 'Smith', city: 'Boston' });
   });
-  it('keeps the split when the full name already matches', () => {
-    const guests = [{ id: 'b', friendId: 'f2', firstName: 'Mary', lastName: 'Ann Jones' }];
-    expect(withFriendNames(guests, friends)).toBe(guests);
+  it('leaves the middle name off the guest', () => {
+    const guests = [{ id: 'b', friendId: 'f2', firstName: 'Mary Ann', lastName: 'Jones' }];
+    expect(withFriendNames(guests, friends)[0]).toMatchObject({ firstName: 'Mary', lastName: 'Jones' });
+  });
+  it('keeps a two-word first name the contact stores as its first name', () => {
+    const f = new Map([['f9', { id: 'f9', name: 'Mary Ann Jones', firstName: 'Mary Ann', middleName: '', lastName: 'Jones' }]]);
+    const guests = [{ id: 'b', friendId: 'f9', firstName: 'Mary Ann', lastName: 'Jones' }];
+    expect(withFriendNames(guests, f)).toBe(guests);
+  });
+  it('uses the stored parts and drops a stored middle name', () => {
+    const f = new Map([['s', { id: 's', name: 'Sally Edna Baldauf', firstName: 'Sally', middleName: 'Edna', lastName: 'Baldauf' }]]);
+    const out = withFriendNames([{ id: 'x', friendId: 's', firstName: 'Sally Edna', lastName: 'Baldauf' }], f);
+    expect(out[0]).toMatchObject({ firstName: 'Sally', lastName: 'Baldauf' });
+    // Settled: a second pass has nothing to change, so the page doesn't keep saving.
+    expect(withFriendNames(out, f)).toBe(out);
+  });
+  it('gives a one-word contact a first name only', () => {
+    expect(guestNameFromFriend({ name: 'Kayleigh' })).toEqual({ firstName: 'Kayleigh', lastName: '' });
+    expect(guestNameFromFriend({ name: '  ' })).toBe(null);
   });
   it('leaves unlinked guests, missing contacts and nameless contacts alone', () => {
     const guests = [

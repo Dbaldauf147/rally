@@ -32,7 +32,7 @@ import { IMPORT_FIELDS, FIELD_LABELS, parsePastedCells, autoDetectMappings, look
 import { applyGuestMerge, findGuestDuplicateGroups } from '../lib/weddingGuestMerge';
 import { commitFriendMerge } from '../lib/friendMergeWrite';
 import { GuestDuplicatesModal, GuestMergeModal } from './WeddingGuestMerge';
-import { splitGuestName, withFriendNames } from '../lib/weddingGuestNames';
+import { guestNameFromFriend, withFriendNames } from '../lib/weddingGuestNames';
 import { saveGuestLists, guestsCollection, moveGuestListsToDocuments, repairGuestListCopy } from '../lib/weddingGuestStore';
 import { GuestListGuardError, usesGuestDocs, inListOrder, sameGuests } from '../lib/weddingGuestSave';
 import { WeddingBackups } from './WeddingBackups';
@@ -1883,9 +1883,10 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     if (!guest) return;
     // A new wedding group starts them at the end of it.
     if (partyKey(guest.party) !== partyKey(patch.party)) patch.partyOrder = null;
-    const name = (friend.name || '').trim();
-    if (name && name !== `${guest.firstName || ''} ${guest.lastName || ''}`.trim()) {
-      Object.assign(patch, splitGuestName(name));
+    // First and last only, the same as withFriendNames.
+    const want = guestNameFromFriend(friend);
+    if (want && (want.firstName !== (guest.firstName || '').trim() || want.lastName !== (guest.lastName || '').trim())) {
+      Object.assign(patch, want);
     }
     if ((friend.email || '') !== (guest.email || '').trim().toLowerCase()) patch.email = friend.email || '';
     if ((friend.phone || '').trim() !== (guest.phone || '').trim()) patch.phone = (friend.phone || '').trim();
