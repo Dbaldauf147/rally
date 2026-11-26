@@ -3,6 +3,7 @@ import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc } from 'fi
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { friendsNotOnList, friendAddress, guestFromFriend } from '../lib/weddingFriendMatch';
+import { saveGuestLists } from '../lib/weddingGuestStore';
 import styles from './WeddingPage.module.css';
 
 /* Everyone on the Friends page who isn't on the guest list — the people you
@@ -84,11 +85,10 @@ export function WeddingFriendsNotInvited() {
     setError(null);
     try {
       const id = `friend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await setDoc(
-        doc(db, 'users', user.uid),
-        { weddingContacts: [...(contacts || []), guestFromFriend(f, id)] },
-        { merge: true },
-      );
+      // Merged into the stored list rather than laid over it, so adding one
+      // friend can't replace everyone (lib/weddingGuestStore.js).
+      const base = contacts || [];
+      await saveGuestLists(user.uid, { weddingContacts: { base, next: [...base, guestFromFriend(f, id)] } });
     } catch (err) {
       setError(`Couldn’t add ${f.name || 'them'}: ${err.message}`);
     } finally {
