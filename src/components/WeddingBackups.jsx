@@ -20,7 +20,7 @@ const fmtWhen = (ms) => new Date(ms).toLocaleString(undefined, {
   weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
 });
 
-export function WeddingBackups({ user, listName, currentCount, onClose }) {
+export function WeddingBackups({ user, listName, currentCount, perGuest, onClose }) {
   // 'main' | 'v2' — which list this dialog restores.
   const countKey = listName === 'v2' ? 'v2Count' : 'mainCount';
   const [backups, setBackups] = useState(null);
@@ -74,6 +74,11 @@ export function WeddingBackups({ user, listName, currentCount, onClose }) {
           <p className={styles.modalHint}>
             Copies of the guest list, kept apart from it: one from before each time you open this page
             (hourly at most) and one a day. Older ones thin out to one a day, then one a month.
+          </p>
+          <p className={styles.modalHint}>
+            {perGuest
+              ? 'Storage: each guest is saved as their own record, so a save can only touch the guests it changes.'
+              : 'Storage: the list is saved as a single record. It moves to one record per guest by itself once the database rules for that are published.'}
           </p>
           {error && <p className={styles.saveError} role="alert">{error}</p>}
           {done && <p className={styles.categoryTabHint} role="status">{done}</p>}

@@ -30,6 +30,7 @@ import {
 import { planPrune } from '../lib/weddingBackups.js';
 import { sendOne, mailConfigured } from '../lib/mailer.js';
 import { purgeTrash } from '../lib/peopleTrash.js';
+import { withGuestLists } from '../lib/weddingGuestRead.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -148,10 +149,11 @@ async function daily(req, res, db) {
   const results = [];
   for (const userDoc of users.docs) {
     const uid = userDoc.id;
-    const userData = userDoc.data() || {};
+    let userData = userDoc.data() || {};
     // The Friends trash: anything deleted more than thirty days ago goes now.
     await purgeTrash(db, uid).catch((err) => console.error('People trash purge failed for', uid, err));
     try {
+      userData = await withGuestLists(db, uid, userData);
       const result = await backupAccount(db, uid, userData);
       // The heartbeat the weekly digest reads (backupHealth): written on every
       // run, since a quiet day writes no file.
@@ -215,7 +217,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'run') {
-      const userData = (await db.doc(`users/${uid}`).get()).data() || {};
+      const userData = await withGuestLists(db, uid, (await db.doc(`users/${uid}`).get()).data() || {});
       const result = await backupAccount(db, uid, userData, { reason: 'manual' });
       return res.status(200).json({ saved: result.saved, file: result.saved ? summary(result.meta) : null });
     }

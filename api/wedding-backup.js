@@ -20,6 +20,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { fingerprint, shouldSnapshot, planPrune, backupSummary } from '../lib/weddingBackups.js';
+import { withGuestLists, replaceGuestList } from '../lib/weddingGuestRead.js';
 
 if (!getApps().length) {
   const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
@@ -63,7 +64,7 @@ async function daily(req, res, db) {
   const results = [];
   for (const userDoc of users.docs) {
     try {
-      const made = await takeSnapshot(db, userDoc.id, userDoc.data() || {}, 'daily');
+      const made = await takeSnapshot(db, userDoc.id, await withGuestLists(db, userDoc.id, userDoc.data() || {}), 'daily');
       if (made) results.push({ uid: userDoc.id, guests: made.mainCount });
     } catch (err) {
       console.error('Wedding backup failed for', userDoc.id, err);
@@ -97,7 +98,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'snapshot') {
-      const data = (await userRef.get()).data() || {};
+      const data = await withGuestLists(db, uid, (await userRef.get()).data() || {});
       const made = await takeSnapshot(db, uid, data, 'open');
       return res.status(200).json({ saved: !!made, backup: made });
     }
@@ -110,9 +111,9 @@ export default async function handler(req, res) {
       const guests = arr(snap.data()?.[list]);
       if (!guests.length) return res.status(400).json({ error: 'That restore point has no guests on this list' });
       // What's there now is copied first, so this can be undone.
-      const before = (await userRef.get()).data() || {};
+      const before = await withGuestLists(db, uid, (await userRef.get()).data() || {});
       await takeSnapshot(db, uid, before, 'before-restore');
-      await userRef.set({ [key]: guests }, { mergeFields: [key] });
+      await replaceGuestList(db, uid, before, key, guests);
       return res.status(200).json({ restored: guests.length, replaced: arr(before[key]).length });
     }
 

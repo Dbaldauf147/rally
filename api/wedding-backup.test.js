@@ -142,6 +142,26 @@ describe('/api/wedding-backup', () => {
     expect((await call(undefined, { method: 'GET', auth: 'Bearer shh' })).code).toBe(200);
   });
 
+  it('for an account on one document per guest: copies the documents, and a restore rewrites them', async () => {
+    const put = (list) => list.forEach((g) => docs.set(`users/u1/weddingGuests/${g.id}`, g));
+    // The array copy has gone wrong; the documents are the list.
+    docs.set('users/u1', { weddingGuestStore: 'docs', weddingContacts: guests(2), weddingGroups: ['A'] });
+    put(guests(40));
+    const { backup } = (await call({ action: 'snapshot' })).body;
+    expect(backup.mainCount).toBe(40);
+
+    vi.setSystemTime(new Date('2026-11-26T15:20:00Z'));
+    for (let i = 5; i < 40; i += 1) docs.delete(`users/u1/weddingGuests/g${i}`);
+    put(guests(1, 'stray'));
+    const res = await call({ action: 'restore', id: backup.id, list: 'main' });
+    expect(res.body).toEqual({ restored: 40, replaced: 6 });
+    const stored = [...docs.keys()].filter((k) => k.startsWith('users/u1/weddingGuests/'));
+    expect(stored).toHaveLength(40);
+    expect(docs.has('users/u1/weddingGuests/stray0')).toBe(false);
+    expect(docs.get('users/u1/weddingGuests/g39')).toEqual({ id: 'g39', firstName: 'g39' });
+    expect(docs.get('users/u1')).toEqual({ weddingGuestStore: 'docs', weddingContacts: guests(40), weddingGroups: ['A'] });
+  });
+
   it('thins out old restore points as new ones are taken', async () => {
     const old = Date.parse('2026-11-10T08:00:00Z');
     docs.set('weddingBackups/u1/snapshots/a', { at: old, fingerprint: 'a', mainCount: 1 });

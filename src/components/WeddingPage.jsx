@@ -33,8 +33,8 @@ import { applyGuestMerge, findGuestDuplicateGroups } from '../lib/weddingGuestMe
 import { commitFriendMerge } from '../lib/friendMergeWrite';
 import { GuestDuplicatesModal, GuestMergeModal } from './WeddingGuestMerge';
 import { splitGuestName, withFriendNames } from '../lib/weddingGuestNames';
-import { saveGuestLists } from '../lib/weddingGuestStore';
-import { GuestListGuardError } from '../lib/weddingGuestSave';
+import { saveGuestLists, guestsCollection, moveGuestListsToDocuments, repairGuestListCopy } from '../lib/weddingGuestStore';
+import { GuestListGuardError, usesGuestDocs, inListOrder, sameGuests } from '../lib/weddingGuestSave';
 import { WeddingBackups } from './WeddingBackups';
 import { callBackupApi } from '../lib/weddingBackupApi';
 import styles from './WeddingPage.module.css';
@@ -370,6 +370,17 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const loadedRef = useRef(false);
   const serverContactsRef = useRef([]);
   const backupAsked = useRef(false);
+  /* Where the guests are stored (lib/weddingGuestStore.js): 'array' is the
+     list on the user document; 'docs' is one document per guest, with that
+     array kept as a copy. null until the user document says which. In 'docs'
+     the guests arrive from their own snapshots — { list, fromServer } — and
+     `listCopy` is the array copy, used for their order and kept in step. */
+  const [storeMode, setStoreMode] = useState(null);
+  const [guestDocs, setGuestDocs] = useState(null);
+  const [otherGuestDocs, setOtherGuestDocs] = useState(null);
+  const [listCopy, setListCopy] = useState({ mine: [], other: [] });
+  const savesInFlight = useRef(0);
+  const moveTried = useRef(false);
   const [search, setSearch] = useState('');
   const [columnFilters, setColumnFilters] = useState(DEFAULT_FILTERS);
   // '' is the default view (by name, status sunk); a header click sorts by
@@ -483,6 +494,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
           lastResult: wd.lastResult && typeof wd.lastResult === 'object' ? wd.lastResult : null,
         });
         const stored = Array.isArray(data[listKey]) ? data[listKey] : null;
+        setListCopy({ mine: stored || [], other: Array.isArray(data[otherKey]) ? data[otherKey] : [] });
+        if (usesGuestDocs(data)) {
+          // One document per guest: the list comes from those (below), not
+          // from the array here.
+          setStoreMode('docs');
+          return;
+        }
+        setStoreMode('array');
         setOtherContacts(Array.isArray(data[otherKey]) ? data[otherKey] : null);
         setLoading(false);
         setLoadError(false);
@@ -528,6 +547,76 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     );
     return unsub;
   }, [user, listKey, otherKey, isMain]);
+
+  /* One document per guest: the two lists as live snapshots. A snapshot from
+     the local cache that holds nobody isn't taken as "no guests" — on a
+     device that hasn't read the list yet that is all the cache can say. */
+  useEffect(() => {
+    if (!user || storeMode !== 'docs') return undefined;
+    const onErr = (err) => {
+      console.error('Wedding guests snapshot error:', err);
+      setLoadError(true);
+      setLoading(false);
+    };
+    const read = (set) => (snap) => {
+      const fromServer = !snap.metadata?.fromCache;
+      if (!fromServer && snap.docs.length === 0) return;
+      set({ list: snap.docs.map((d) => ({ ...d.data(), id: d.id })), fromServer });
+    };
+    const unsubMine = onSnapshot(guestsCollection(user.uid, listKey), read(setGuestDocs), onErr);
+    const unsubOther = onSnapshot(guestsCollection(user.uid, otherKey), read(setOtherGuestDocs), onErr);
+    return () => { unsubMine(); unsubOther(); };
+  }, [user, storeMode, listKey, otherKey]);
+
+  useEffect(() => {
+    if (storeMode !== 'docs' || !guestDocs) return;
+    const ordered = inListOrder(guestDocs.list, listCopy.mine);
+    serverContactsRef.current = ordered;
+    loadedRef.current = true;
+    setContacts(ordered);
+    setLoading(false);
+    setLoadError(false);
+    if (ordered.length && !backupAsked.current && user) {
+      backupAsked.current = true;
+      callBackupApi(user, { action: 'snapshot' })
+        .catch((err) => console.warn('Guest list restore point not taken:', err.message));
+    }
+  }, [storeMode, guestDocs, listCopy.mine, user]);
+
+  useEffect(() => {
+    if (storeMode !== 'docs' || !otherGuestDocs) return;
+    setOtherContacts(inListOrder(otherGuestDocs.list, listCopy.other));
+  }, [storeMode, otherGuestDocs, listCopy.other]);
+
+  /* The array copy is corrected from the documents if the two drift — never
+     the other way. Only from a server read, only once the difference has
+     held for a few seconds (a save lands as two snapshots, moments apart),
+     never mid-save, and never down to an empty list. */
+  useEffect(() => {
+    if (storeMode !== 'docs' || !user || !guestDocs?.fromServer || !guestDocs.list.length) return undefined;
+    if (sameGuests(guestDocs.list, listCopy.mine)) return undefined;
+    const t = setTimeout(() => {
+      if (savesInFlight.current) return;
+      repairGuestListCopy(user.uid, listKey, inListOrder(guestDocs.list, listCopy.mine))
+        .catch((err) => console.error('Repairing the guest list copy failed:', err));
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [storeMode, user, guestDocs, listCopy.mine, listKey]);
+
+  /* Moving to one document per guest (moveGuestListsToDocuments): tried once
+     each time the main list opens until it has happened. It checks its own
+     work before switching over, and does nothing if it can't finish — which,
+     until the database rules for the new location are published, it can't. */
+  useEffect(() => {
+    if (!isMain || !user || storeMode !== 'array' || loading || loadError || !contacts.length || moveTried.current) return;
+    moveTried.current = true;
+    moveGuestListsToDocuments(user.uid)
+      .then((r) => {
+        if (r.moved) console.info(`Guest list moved to one document per guest (${r.guests}).`);
+        else if (!['rules', 'already', 'empty'].includes(r.reason)) console.warn('Guest list not moved to per-guest documents:', r.reason);
+      })
+      .catch((err) => console.warn('Guest list not moved to per-guest documents:', err.message));
+  }, [isMain, user, storeMode, loading, loadError, contacts.length]);
 
   /* Every guest goes on the Friends page too. The list that was here before
      that rule gets one pass the first time the page opens; guests added since
@@ -633,7 +722,12 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       });
       // Shown at once; the stored list arrives a moment later and agrees.
       if (!quiet) setContacts(list);
-      await saveGuestLists(user.uid, { [listKey]: { base, next: list, removing } });
+      savesInFlight.current += 1;
+      try {
+        await saveGuestLists(user.uid, { [listKey]: { base, next: list, removing } });
+      } finally {
+        savesInFlight.current -= 1;
+      }
       setSaveError('');
       const parts = [];
       if (added.length) parts.push(`${added.join(', ')} added to the guest list with their partner`);
@@ -2529,6 +2623,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
           user={user}
           listName={isMain ? 'main' : 'v2'}
           currentCount={contacts.length}
+          perGuest={storeMode === 'docs'}
           onClose={() => setShowBackups(false)}
         />
       )}

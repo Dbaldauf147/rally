@@ -7,10 +7,14 @@ vi.mock('firebase/firestore', () => ({
   doc: (_db, ...segs) => ({ path: segs.join('/') }),
   setDoc: async (ref, data) => { writes.push(['set', ref.path, data]); },
   updateDoc: async (ref, data) => { writes.push(['update', ref.path, data]); },
-  runTransaction: async (_db, fn) => fn({
-    get: async () => ({ data: () => ({ weddingContacts: [{ id: 'g1', friendId: 'dup' }, { id: 'g2', friendId: 'other' }] }) }),
-    set: (ref, data) => { writes.push(['tx.set', ref.path, data]); },
-  }),
+}));
+// The guest lists go through the one save path; this stands in for it with a
+// stored list to work from.
+vi.mock('./weddingGuestStore', () => ({
+  saveGuestLists: async (uid, resolve) => {
+    const out = resolve({ weddingContacts: [{ id: 'g1', friendId: 'dup' }, { id: 'g2', friendId: 'other' }], reachOuts: [{ friendId: 'dup' }] });
+    writes.push(['guests', `users/${uid}`, out]);
+  },
 }));
 const trashFriends = vi.fn(async () => []);
 vi.mock('./friendTrash', () => ({ trashFriends: (...a) => trashFriends(...a) }));
@@ -23,8 +27,10 @@ describe('commitFriendMerge', () => {
     const dup = { id: 'dup', name: 'Ann K', phone: '555' };
     const merged = await commitFriendMerge('u1', [primary, dup, { id: 'kid', linkedTo: 'dup' }], primary, [dup], {});
     expect(merged.name).toBe('Ann Keeper');
-    expect(writes.map((w) => `${w[0]} ${w[1]}`)).toEqual(['set users/u1/friends/keep', 'update users/u1/friends/kid', 'tx.set users/u1']);
-    expect(writes[2][2].weddingContacts).toEqual([{ id: 'g1', friendId: 'keep' }, { id: 'g2', friendId: 'other' }]);
+    expect(writes.map((w) => `${w[0]} ${w[1]}`)).toEqual(['set users/u1/friends/keep', 'update users/u1/friends/kid', 'guests users/u1']);
+    expect(writes[2][2].lists.weddingContacts.next).toEqual([{ id: 'g1', friendId: 'keep' }, { id: 'g2', friendId: 'other' }]);
+    expect(writes[2][2].lists.weddingContactsV2).toBeUndefined();
+    expect(writes[2][2].extra.reachOuts).toEqual([{ friendId: 'keep' }]);
     expect(trashFriends).toHaveBeenCalledWith(['dup'], 'merged into Ann Keeper');
   });
 
