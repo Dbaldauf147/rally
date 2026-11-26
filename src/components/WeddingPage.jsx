@@ -2342,23 +2342,29 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       )}
 
       <div className={styles.summary}>
-        <div className={styles.summaryRow}>
-          {/* Counted by the Group 2 column, and a chip filters that column. */}
-          <span className={styles.summaryLabel}>By tier</span>
-          {summaries.group2.map(([val, n]) => (
-            <button
-              key={val}
-              type="button"
-              className={`${styles.summaryChip} ${columnFilters.group2 === summaryFilterValue(val) ? styles.summaryChipActive : ''}`}
-              onClick={() => toggleSummaryFilter('group2', val)}
-              title={groupDescription(val) || 'Filter by this tier'}
-            >
-              <span className={styles.summaryChipKey}>{val === '—' ? 'Not grouped' : val}</span>
-              <span className={styles.summaryChipCount}>{n}</span>
-            </button>
-          ))}
-          <span className={styles.summaryTotal}>{shownContacts.length} total</span>
-        </div>
+        {/* One line per group column: counted by that column, and a chip
+            filters that column. */}
+        {[
+          { field: 'group', label: 'By group' },
+          { field: 'group2', label: 'By group 2' },
+        ].map(({ field, label }) => (
+          <div className={styles.summaryRow} key={field} data-testid={`tier-row-${field}`}>
+            <span className={styles.summaryLabel}>{label}</span>
+            {summaries[field].map(([val, n]) => (
+              <button
+                key={val}
+                type="button"
+                className={`${styles.summaryChip} ${columnFilters[field] === summaryFilterValue(val) ? styles.summaryChipActive : ''}`}
+                onClick={() => toggleSummaryFilter(field, val)}
+                title={groupDescription(val) || `Filter the ${field === 'group' ? 'Group' : 'Group 2'} column by this`}
+              >
+                <span className={styles.summaryChipKey}>{val === '—' ? 'Not grouped' : val}</span>
+                <span className={styles.summaryChipCount}>{n}</span>
+              </button>
+            ))}
+            <span className={styles.summaryTotal}>{shownContacts.length} total</span>
+          </div>
+        ))}
         <div className={styles.summaryRow} data-testid="attendance-row">
           <span className={styles.summaryLabel}>Expected</span>
           <label className={styles.declineRate} title="Applied to guests who haven't answered yet. Confirmed guests count in full; Not coming guests don't count.">
