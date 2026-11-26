@@ -367,6 +367,8 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [showBackups, setShowBackups] = useState(false);
+  // The Settings button's panel: the guest tiers key and the outline colours.
+  const [showSettings, setShowSettings] = useState(false);
   const loadedRef = useRef(false);
   const serverContactsRef = useRef([]);
   const backupAsked = useRef(false);
@@ -2205,11 +2207,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         <div className={styles.count}>{filtered.length} of {shownContacts.length} contacts</div>
       </div>
       {subnav}
-      <p className={styles.subtitle}>
-        {isMain
-          ? 'Guest contact list. Select rows to bulk-edit a field.'
-          : 'A second version of the guest list to try changes on. Everyone on the main list is here too, and you can add more; edits here don’t change the main list. Groups and categories are shared, and the weekly email and budget still count the main list.'}
-      </p>
+      {isMain && <p className={styles.subtitle}>Guest contact list. Select rows to bulk-edit a field.</p>}
 
       {/* Weekly email. Collapsed to a single line until opened — it's a setting
           you touch once, and the guest list is what the page is for. */}
@@ -2397,53 +2395,6 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         </div>
       </div>
 
-      <div className={styles.tierLegend}>
-        <span className={styles.tierLegendTitle}>Guest tiers</span>
-        {groups.filter((g) => groupDescription(g)).map((t) => (
-          <span key={t} className={styles.tierLegendItem}>
-            <span className={styles.tierBadge}>{t}</span>
-            <span className={styles.tierDesc}>{groupDescription(t)}</span>
-          </span>
-        ))}
-        <button className={styles.tierLegendEdit} type="button" onClick={openGroupEditor}>Edit groups</button>
-      </div>
-
-      {/* The outline key and its colours only mean something in group view. */}
-      {groupView && (
-      <div className={styles.tierLegend} style={outlineVars} aria-label="Table outlines">
-        <span className={styles.tierLegendTitle}>Outlines</span>
-        {[
-          { key: 'group', label: 'Wedding group', swatch: styles.outlineSwatchGroup, fallback: DEFAULT_OUTLINE_COLORS.group },
-          { key: 'couple', label: 'Couple', swatch: styles.outlineSwatchCouple, fallback: DEFAULT_OUTLINE_COLORS.couple },
-        ].map((o) => (
-          <label key={o.key} className={`${styles.tierLegendItem} ${hiddenOutlines[o.key] ? styles.outlineHidden : ''}`}>
-            <input
-              type="checkbox"
-              checked={!hiddenOutlines[o.key]}
-              onChange={() => toggleOutline(o.key)}
-              aria-label={`Show ${o.label.toLowerCase()} outlines`}
-            />
-            <span className={`${styles.outlineSwatch} ${o.swatch}`} aria-hidden="true" />
-            {o.label}
-            <input
-              type="color"
-              className={styles.outlineColor}
-              value={isHexColor(outlineColors[o.key]) ? outlineColors[o.key] : o.fallback}
-              onChange={(e) => updateOutlineColors({ [o.key]: e.target.value })}
-              aria-label={`${o.label} outline colour`}
-            />
-          </label>
-        ))}
-        {(outlineColors.group || outlineColors.couple) && (
-          <button
-            className={styles.tierLegendEdit}
-            type="button"
-            onClick={() => updateOutlineColors({ group: '', couple: '' })}
-          >Reset colours</button>
-        )}
-      </div>
-      )}
-
       <div className={styles.categoryTabs} role="tablist" aria-label="Guests by category">
         {categoryTabs.map((t) => (
           <button
@@ -2548,7 +2499,72 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
             </div>
           )}
         </div>
+        <button
+          className={`${styles.toolButton} ${showSettings ? styles.toolButtonOn : ''}`}
+          type="button"
+          onClick={() => setShowSettings((v) => !v)}
+          aria-expanded={showSettings}
+          aria-controls="wedding-settings"
+          title="Guest tiers and table outlines"
+        >⚙ Settings</button>
       </div>
+
+      {/* Guest tiers and outlines: set once, so they wait behind the button. */}
+      {showSettings && (
+        <div id="wedding-settings" data-testid="wedding-settings">
+        <div className={styles.tierLegend}>
+          <span className={styles.tierLegendTitle}>Guest tiers</span>
+          {groups.filter((g) => groupDescription(g)).map((t) => (
+            <span key={t} className={styles.tierLegendItem}>
+              <span className={styles.tierBadge}>{t}</span>
+              <span className={styles.tierDesc}>{groupDescription(t)}</span>
+            </span>
+          ))}
+          <button className={styles.tierLegendEdit} type="button" onClick={openGroupEditor}>Edit groups</button>
+        </div>
+
+        {/* The outline key and its colours only mean something in group view. */}
+        {groupView ? (
+        <div className={styles.tierLegend} style={outlineVars} aria-label="Table outlines">
+          <span className={styles.tierLegendTitle}>Outlines</span>
+          {[
+            { key: 'group', label: 'Wedding group', swatch: styles.outlineSwatchGroup, fallback: DEFAULT_OUTLINE_COLORS.group },
+            { key: 'couple', label: 'Couple', swatch: styles.outlineSwatchCouple, fallback: DEFAULT_OUTLINE_COLORS.couple },
+          ].map((o) => (
+            <label key={o.key} className={`${styles.tierLegendItem} ${hiddenOutlines[o.key] ? styles.outlineHidden : ''}`}>
+              <input
+                type="checkbox"
+                checked={!hiddenOutlines[o.key]}
+                onChange={() => toggleOutline(o.key)}
+                aria-label={`Show ${o.label.toLowerCase()} outlines`}
+              />
+              <span className={`${styles.outlineSwatch} ${o.swatch}`} aria-hidden="true" />
+              {o.label}
+              <input
+                type="color"
+                className={styles.outlineColor}
+                value={isHexColor(outlineColors[o.key]) ? outlineColors[o.key] : o.fallback}
+                onChange={(e) => updateOutlineColors({ [o.key]: e.target.value })}
+                aria-label={`${o.label} outline colour`}
+              />
+            </label>
+          ))}
+          {(outlineColors.group || outlineColors.couple) && (
+            <button
+              className={styles.tierLegendEdit}
+              type="button"
+              onClick={() => updateOutlineColors({ group: '', couple: '' })}
+            >Reset colours</button>
+          )}
+        </div>
+        ) : (
+        <div className={styles.tierLegend}>
+          <span className={styles.tierLegendTitle}>Outlines</span>
+          <span className={styles.tierLegendItem}>Turn Group view on to outline wedding groups and couples.</span>
+        </div>
+        )}
+        </div>
+      )}
 
       {selected.size > 0 && (
         <div className={styles.bulkBar}>
