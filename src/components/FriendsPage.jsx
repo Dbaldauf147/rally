@@ -1267,7 +1267,7 @@ export function FriendsPage({ embed = null } = {}) {
   /* ── Autosave ──────────────────────────────────────────────
      The pop-up has no Save button: every edit is written a moment after the
      typing stops, and whatever is still pending is written when it closes
-     (Done, a click outside, Escape on the Wedding page, or leaving the page).
+     (Close, a click outside, Escape on the Wedding page, or leaving the page).
      lastSavedJson is what was last written (or what the contact held when it
      opened), so re-renders that change nothing don't write. Copying the new
      name/email/phone onto events happens once, on close — it reads every
@@ -2563,7 +2563,7 @@ export function FriendsPage({ embed = null } = {}) {
                 </div>
                 </div>
                 <div className={styles.formActions}>
-                  <button className={styles.saveBtn} type="submit">Done</button>
+                  <button className={styles.saveBtn} type="submit">Close</button>
                   <span role="status" aria-live="polite" data-testid="autosave-status" style={{ fontSize: '0.8rem', color: saveStatus === 'error' || !(editFields.name || '').trim() ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>
                     {!(editFields.name || '').trim() ? 'Add a name to save changes'
                       : saveStatus === 'saving' ? 'Saving…'
