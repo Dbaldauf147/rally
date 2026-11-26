@@ -15,6 +15,7 @@ import { WeddingLocations } from './WeddingLocations';
 import dreamStyles from './WeddingDreamVenue.module.css';
 import { WeddingBudget } from './WeddingBudget';
 import { WeddingFriendsNotInvited } from './WeddingFriendsNotInvited';
+import { countByField, deletionWarning } from '../lib/weddingSharedLabels';
 import { WeddingInviteDecision } from './WeddingInviteDecision';
 import { FriendsPage } from './FriendsPage';
 import { WeddingPartyCell } from './WeddingPartyCell';
@@ -1234,10 +1235,20 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     persistGroups(nextSaved);
   };
 
+  // The names are shared with the other version, so its guests are counted
+  // too: a group with nobody here may still be in use there.
+  const otherListLabel = isMain ? 'the second version' : 'the main list';
+  const thisListLabel = isMain ? 'the main list' : 'this version';
+  // "3 guests", or "0 guests here · 42 on the main list" once the other
+  // version has any of them.
+  const guestsOn = (r) => {
+    const n = (k) => `${k} ${k === 1 ? 'guest' : 'guests'}`;
+    return r.otherCount ? `${n(r.count)} here · ${r.otherCount} on ${otherListLabel}` : n(r.count);
+  };
   const openGroupEditor = () => {
-    const counts = new Map();
-    contacts.forEach((c) => { if (c.group) counts.set(c.group, (counts.get(c.group) || 0) + 1); });
-    setGroupEditor(groups.map((g) => ({ from: g, name: g, desc: groupDescription(g), count: counts.get(g) || 0 })));
+    const counts = countByField(contacts, 'group');
+    const other = countByField(otherContacts, 'group');
+    setGroupEditor(groups.map((g) => ({ from: g, name: g, desc: groupDescription(g), count: counts.get(g) || 0, otherCount: other.get(g) || 0 })));
   };
   const setGroupRow = (i, key, value) => setGroupEditor((rows) => rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
 
@@ -1249,6 +1260,8 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
      changes until Save, so a Delete pressed by mistake is undone in place. */
   const saveGroupEditor = async () => {
     if (!groupEditor) return;
+    const warning = deletionWarning(groupEditor, { noun: 'group', here: thisListLabel, there: otherListLabel });
+    if (warning && !window.confirm(warning)) return;
     const renames = new Map();
     const nextDescs = {};
     for (const r of groupEditor) {
@@ -1306,9 +1319,9 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
   };
 
   const openCategoryEditor = () => {
-    const counts = new Map();
-    contacts.forEach((c) => { if (c.category) counts.set(c.category, (counts.get(c.category) || 0) + 1); });
-    setCategoryEditor(categories.map((g) => ({ from: g, name: g, count: counts.get(g) || 0, deleted: false })));
+    const counts = countByField(contacts, 'category');
+    const other = countByField(otherContacts, 'category');
+    setCategoryEditor(categories.map((g) => ({ from: g, name: g, count: counts.get(g) || 0, otherCount: other.get(g) || 0, deleted: false })));
   };
   const setCategoryRow = (i, key, value) => setCategoryEditor((rows) => rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
 
@@ -1318,6 +1331,8 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
      the list still to sort. */
   const saveCategoryEditor = async () => {
     if (!categoryEditor) return;
+    const warning = deletionWarning(categoryEditor, { noun: 'category', here: thisListLabel, there: otherListLabel });
+    if (warning && !window.confirm(warning)) return;
     const renames = new Map();
     for (const r of categoryEditor) renames.set(r.from, r.deleted ? '' : (r.name.trim() || r.from));
     const nextSaved = Array.from(new Set(savedCategories.map((g) => (renames.has(g) ? renames.get(g) : g)).filter(Boolean)))
@@ -2511,14 +2526,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
             </div>
             <div className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Renaming a category renames it for everyone in it. Give two categories the same name to merge them. Delete removes a category from the dropdowns and tabs and clears it off its guests.
+                Renaming a category renames it for everyone in it. Give two categories the same name to merge them. Delete removes a category from the dropdowns and tabs and clears it off its guests — on both versions of the guest list, since they share categories.
               </p>
               {categoryEditor.length === 0 && <p className={styles.modalHint}>No categories yet — add one with + Category.</p>}
               {categoryEditor.map((r, i) => (r.deleted ? (
                 <div key={r.from} className={`${styles.groupEditRow} ${styles.groupEditRowDeleted}`}>
                   <span className={styles.groupDeletedNote}>
                     <s>{r.from}</s> will be deleted
-                    {r.count > 0 && ` — ${r.count} ${r.count === 1 ? 'guest goes' : 'guests go'} back to no category`}
+                    {(r.count + r.otherCount) > 0 && ` — ${guestsOn(r)} ${(r.count + r.otherCount) === 1 ? 'goes' : 'go'} back to no category`}
                   </span>
                   <button className={styles.groupUndo} type="button" onClick={() => setCategoryRow(i, 'deleted', false)}>Undo</button>
                 </div>
@@ -2526,7 +2541,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
                 <div key={r.from} className={`${styles.groupEditRow} ${styles.categoryEditRow}`}>
                   <label className={styles.contactField}>
                     <span className={styles.contactLabel}>
-                      {r.from}{' · '}{r.count} {r.count === 1 ? 'guest' : 'guests'}
+                      {r.from}{' · '}{guestsOn(r)}
                     </span>
                     <input
                       className={styles.contactInput}
@@ -2571,14 +2586,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
             </div>
             <div className={styles.modalBody}>
               <p className={styles.modalHint}>
-                Renaming a group renames it for everyone in it. Give two groups the same name to merge them. Delete removes a group from the dropdowns and clears it off its guests.
+                Renaming a group renames it for everyone in it. Give two groups the same name to merge them. Delete removes a group from the dropdowns and clears it off its guests — on both versions of the guest list, since they share groups.
               </p>
               {groupEditor.length === 0 && <p className={styles.modalHint}>No groups yet — add one with + Group.</p>}
               {groupEditor.map((r, i) => (r.deleted ? (
                 <div key={r.from} className={`${styles.groupEditRow} ${styles.groupEditRowDeleted}`}>
                   <span className={styles.groupDeletedNote}>
                     <s>{r.from}</s> will be deleted
-                    {r.count > 0 && ` — ${r.count} ${r.count === 1 ? 'guest goes' : 'guests go'} back to no group`}
+                    {(r.count + r.otherCount) > 0 && ` — ${guestsOn(r)} ${(r.count + r.otherCount) === 1 ? 'goes' : 'go'} back to no group`}
                   </span>
                   <button className={styles.groupUndo} type="button" onClick={() => setGroupRow(i, 'deleted', false)}>Undo</button>
                 </div>
@@ -2586,7 +2601,7 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
                 <div key={r.from} className={styles.groupEditRow}>
                   <label className={styles.contactField}>
                     <span className={styles.contactLabel}>
-                      {r.from}{' · '}{r.count} {r.count === 1 ? 'guest' : 'guests'}
+                      {r.from}{' · '}{guestsOn(r)}
                     </span>
                     <input
                       className={styles.contactInput}
