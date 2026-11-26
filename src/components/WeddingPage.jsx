@@ -1151,8 +1151,11 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     if (!groupView) return sorted;
     // Group view: each wedding group as one block where its first member
     // landed; couples outside a group only paired when they tie on a picked
-    // column, so that column's order is never broken for them.
-    return groupPartiesTogether(sorted, partners, sortKey ? { canPair: (a, b) => sameSortValue(value(a), value(b)) } : {});
+    // column, so that column's order is never broken for them. Not the Name
+    // column: no two guests tie on it, so that rule would split every couple,
+    // and it's the same order as the default, which pairs them.
+    const pairFreely = !sortKey || sortKey === 'name';
+    return groupPartiesTogether(sorted, partners, pairFreely ? {} : { canPair: (a, b) => sameSortValue(value(a), value(b)) });
   }, [sortKey, sortDir, friendsById, partyPos, partners, groupView]);
 
   const filtered = useMemo(() => {
