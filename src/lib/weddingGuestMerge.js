@@ -38,6 +38,7 @@ export const GUEST_MERGE_FIELDS = [
     show: (g) => [clean(g.category), clean(g.subcategory)].filter(Boolean).join(' › '),
   },
   { key: 'guestOf', label: 'Guest of', fields: ['guestOf'] },
+  { key: 'destination', label: 'Destination', fields: ['destination'] },
   { key: 'side', label: 'Side of the family', fields: ['side'] },
   { key: 'party', label: 'Wedding group', fields: ['party', 'partyOrder'], show: (g) => clean(g.party) },
 ];
