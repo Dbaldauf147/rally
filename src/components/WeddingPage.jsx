@@ -282,6 +282,7 @@ const MAIN_LIST_KEY = 'weddingContacts';
 const SECOND_LIST_KEY = 'weddingContactsV2';
 const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
 const DESTINATION_OPTIONS = ['Yes', 'No'];
+const DEST_SPLIT_KEY = 'rally.wedding.destSplit';
 
 // What the A/B/C tiers mean until you say otherwise. A group's description
 // shows in the legend and as a hover tooltip; once edited (or carried over by
@@ -401,6 +402,15 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
      column, no regrouping, no boxes. Saved on the user doc (weddingGroupView)
      so it's the same on the phone; on until switched off. */
   const [groupView, setGroupView] = useState(true);
+  // The By group rows can split each count into Destination yes / no. A
+  // per-device preference; the page works the same if it can't be kept.
+  const [showDestSplit, setShowDestSplit] = useState(() => {
+    try { return localStorage.getItem(DEST_SPLIT_KEY) === '1'; } catch { return false; }
+  });
+  const toggleDestSplit = () => setShowDestSplit((v) => {
+    try { localStorage.setItem(DEST_SPLIT_KEY, v ? '0' : '1'); } catch { /* not kept */ }
+    return !v;
+  });
   // Outline kinds switched off in the key ({ group, couple }: true = hidden),
   // saved as weddingOutlinesHidden. Hiding one only drops its boxes — group
   // view still keeps the rows together.
@@ -1039,6 +1049,24 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
       });
     };
     return { category: build('category'), group: build('group'), group2: build('group2') };
+  }, [shownContacts]);
+
+  // Destination yes / no inside each group value, and overall — what the By
+  // group rows show when the Destination toggle is on.
+  const destSplit = useMemo(() => {
+    const total = { yes: 0, no: 0 };
+    const by = { group: new Map(), group2: new Map() };
+    for (const c of shownContacts) {
+      const d = c.destination === 'Yes' ? 'yes' : c.destination === 'No' ? 'no' : '';
+      if (!d) continue;
+      total[d] += 1;
+      for (const field of ['group', 'group2']) {
+        const k = (c[field] || '').trim() || '—';
+        if (!by[field].has(k)) by[field].set(k, { yes: 0, no: 0 });
+        by[field].get(k)[d] += 1;
+      }
+    }
+    return { total, by };
   }, [shownContacts]);
 
   /* All, then the guests with no category, then one subtab per category.
@@ -2263,9 +2291,26 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
               >
                 <span className={styles.summaryChipKey}>{val === '—' ? 'Not grouped' : val}</span>
                 <span className={styles.summaryChipCount}>{n}</span>
+                {showDestSplit && (
+                  <span className={styles.summaryChipDest} data-testid="dest-split">
+                    {destSplit.by[field].get(val)?.yes || 0} yes · {destSplit.by[field].get(val)?.no || 0} no
+                  </span>
+                )}
               </button>
             ))}
-            <span className={styles.summaryTotal}>{shownContacts.length} total</span>
+            <span className={styles.summaryTotal}>
+              {shownContacts.length} total
+              {showDestSplit && ` · ${destSplit.total.yes} yes · ${destSplit.total.no} no`}
+            </span>
+            {field === 'group' && (
+              <button
+                type="button"
+                className={`${styles.summaryToggle} ${showDestSplit ? styles.summaryToggleOn : ''}`}
+                onClick={toggleDestSplit}
+                aria-pressed={showDestSplit}
+                title="Show how many in each group are Yes and No for Destination"
+              >Destination: {showDestSplit ? 'On' : 'Off'}</button>
+            )}
           </div>
         ))}
         <div className={styles.summaryRow} data-testid="attendance-row">
