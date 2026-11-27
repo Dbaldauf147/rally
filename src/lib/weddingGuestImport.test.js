@@ -64,6 +64,12 @@ describe('rowToFields', () => {
     expect(normalizeStatus('Maybe')).toBe('Pending');
     expect(rowToFields(['Jane', 'probably?'], ['firstName', 'status'])).toEqual({ firstName: 'Jane' });
   });
+  it('reads a Destination column as Yes or No, and skips anything else', () => {
+    expect(rowToFields(['Jane', 'y'], ['firstName', 'destination'])).toEqual({ firstName: 'Jane', destination: 'Yes' });
+    expect(rowToFields(['Jane', 'NO'], ['firstName', 'destination'])).toEqual({ firstName: 'Jane', destination: 'No' });
+    expect(rowToFields(['Jane', 'maybe'], ['firstName', 'destination'])).toEqual({ firstName: 'Jane' });
+    expect(autoDetectMappings(['Name', 'Destination?'])).toEqual(['fullName', 'destination']);
+  });
 });
 
 describe('planGuestImport', () => {

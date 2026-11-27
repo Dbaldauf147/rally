@@ -188,6 +188,8 @@ const ALL_COLUMNS = [
   // categories doesn't interleave them.
   { key: 'subcategory', label: 'Subcategory', defaultWidth: 150, sortBy: (c) => (c.subcategory ? [c.category, c.subcategory] : '') },
   { key: 'guestOf', label: 'Guest Of', defaultWidth: 140, sortBy: (c) => (c.guestOf || '').toLowerCase() },
+  // Would they be invited if it's a destination wedding: Yes, No or not decided.
+  { key: 'destination', label: 'Destination', defaultWidth: 120, sortBy: (c) => (c.destination || '').toLowerCase() },
   // Side of the family — free-form ("Mom's side", "Baldauf side"), its own list.
   { key: 'side', label: 'Side', defaultWidth: 150, sortBy: (c) => (c.side || '').toLowerCase() },
   // Household / party (lib/weddingParty.js). Sorted by the table itself, not
@@ -202,7 +204,7 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'Zip', defaultWidth: 90, sortBy: (c) => c.zip || '' },
 ];
 
-const DEFAULT_VISIBLE = ['name', 'status', 'group', 'group2', 'category', 'subcategory', 'guestOf', 'side', 'party', 'friend', 'email', 'phone', 'city', 'state'];
+const DEFAULT_VISIBLE = ['name', 'status', 'group', 'group2', 'category', 'subcategory', 'guestOf', 'destination', 'side', 'party', 'friend', 'email', 'phone', 'city', 'state'];
 
 const EDITABLE_FIELDS = [
   { key: 'firstName', label: 'First Name' },
@@ -213,6 +215,7 @@ const EDITABLE_FIELDS = [
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'guestOf', label: 'Guest Of' },
+  { key: 'destination', label: 'Destination' },
   { key: 'side', label: 'Side of the family' },
   { key: 'party', label: 'Wedding group' },
   { key: 'address', label: 'Address' },
@@ -234,6 +237,7 @@ const CONTACT_FORM_FIELDS = [
   { key: 'state', label: 'State' },
   { key: 'zip', label: 'Zip' },
   { key: 'guestOf', label: 'Guest of' },
+  { key: 'destination', label: 'Destination' },
   { key: 'side', label: 'Side of the family' },
   { key: 'status', label: 'Status' },
   { key: 'group', label: 'Group' },
@@ -277,6 +281,7 @@ const SEED_FLAG_KEY = 'rally.weddingContacts.seeded';
 const MAIN_LIST_KEY = 'weddingContacts';
 const SECOND_LIST_KEY = 'weddingContactsV2';
 const GUEST_OF_OPTIONS = ['Dan', 'Joanne'];
+const DESTINATION_OPTIONS = ['Yes', 'No'];
 
 // What the A/B/C tiers mean until you say otherwise. A group's description
 // shows in the legend and as a hover tooltip; once edited (or carried over by
@@ -304,6 +309,7 @@ function renderCell(col, c) {
     case 'group': return c.group ? <span className={styles.groupBadge}>{c.group}</span> : <span className={styles.muted}>—</span>;
     case 'group2': return c.group2 ? <span className={styles.groupBadge}>{c.group2}</span> : <span className={styles.muted}>—</span>;
     case 'guestOf': return c.guestOf || <span className={styles.muted}>—</span>;
+    case 'destination': return c.destination || <span className={styles.muted}>—</span>;
     case 'side': return c.side || <span className={styles.muted}>—</span>;
     case 'party': return c.party ? <span className={styles.partyBadge}>{c.party}</span> : <span className={styles.muted}>—</span>;
     case 'email': return c.email ? <a className={styles.link} href={`mailto:${c.email}`}>{c.email}</a> : <span className={styles.muted}>—</span>;
@@ -1180,6 +1186,9 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         case 'guestOf':
           if (val === '__none__') return !c.guestOf;
           return c.guestOf === val;
+        case 'destination':
+          if (val === '__none__') return !c.destination;
+          return c.destination === val;
         case 'side':
           if (val === '__none__') return !c.side;
           return c.side === val;
@@ -1642,6 +1651,11 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
     await persistContacts(next);
   };
 
+  const handleRowDestinationChange = async (id, val) => {
+    const next = contacts.map((c) => (c.id === id ? { ...c, destination: val } : c));
+    await persistContacts(next);
+  };
+
   const handleRowStatusChange = async (id, val) => {
     const next = contacts.map((c) => (c.id === id ? { ...c, status: val } : c));
     await persistContacts(next);
@@ -1796,6 +1810,14 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
             {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         );
+      case 'destination':
+        return (
+          <select className={styles.filterSelect} value={v} onChange={onSel}>
+            <option value="">All</option>
+            <option value="__none__">— None —</option>
+            {DESTINATION_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        );
       case 'side':
         return (
           <select className={styles.filterSelect} value={v} onChange={onSel}>
@@ -1909,6 +1931,11 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
         <select className={styles.contactInput} value={editing.draft.guestOf} onChange={(e) => setDraftField('guestOf', e.target.value)}>
           <option value="">— None —</option>
           {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+      ) : f.key === 'destination' ? (
+        <select className={styles.contactInput} value={editing.draft.destination} onChange={(e) => setDraftField('destination', e.target.value)}>
+          <option value="">— None —</option>
+          {DESTINATION_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
       ) : f.key === 'status' ? (
         <select className={styles.contactInput} value={editing.draft.status} onChange={(e) => setDraftField('status', e.target.value)}>
@@ -2624,6 +2651,11 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
               <option value="">— (clear)</option>
               {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
+          ) : bulkField === 'destination' ? (
+            <select className={styles.bulkInput} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}>
+              <option value="">— (clear)</option>
+              {DESTINATION_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
           ) : bulkField === 'status' ? (
             <select className={styles.bulkInput} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}>
               <option value="">— (clear)</option>
@@ -3215,6 +3247,16 @@ function GuestList({ subnav, listKey = MAIN_LIST_KEY } = {}) {
                         >
                           <option value="">— None —</option>
                           {GUEST_OF_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      ) : col.key === 'destination' ? (
+                        <select
+                          className={styles.cellSelect}
+                          value={c.destination || ''}
+                          onChange={(e) => handleRowDestinationChange(c.id, e.target.value)}
+                          aria-label={`Destination for ${`${c.firstName || ''} ${c.lastName || ''}`.trim()}`}
+                        >
+                          <option value="">— None —</option>
+                          {DESTINATION_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
                         </select>
                       ) : col.key === 'friend' ? (
                         <select

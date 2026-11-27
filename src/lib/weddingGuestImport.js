@@ -38,6 +38,7 @@ export const IMPORT_FIELDS = [
   { key: 'category', label: 'Category' },
   { key: 'subcategory', label: 'Subcategory' },
   { key: 'guestOf', label: 'Guest Of' },
+  { key: 'destination', label: 'Destination' },
   { key: 'side', label: 'Side' },
   { key: 'party', label: 'Wedding group' },
 ];
@@ -53,6 +54,7 @@ const FIELD_PATTERNS = [
   { key: 'subcategory', patterns: [/^sub[-\s]*category/i, /^sub[-\s]*type$/i] },
   { key: 'party', patterns: [/^wedding\s*group/i, /^party$/i, /^household/i] },
   { key: 'guestOf', patterns: [/^guest\s*of/i] },
+  { key: 'destination', patterns: [/^destination/i] },
   { key: 'group2', patterns: [/^group\s*(2|two)$/i, /^second\s*group/i] },
   { key: 'firstName', patterns: [/^first\s*(name)?$/i, /^fname$/i, /^given/i] },
   { key: 'lastName', patterns: [/^last\s*(name)?$/i, /^lname$/i, /^surname$/i, /^family\s*name/i] },
@@ -190,6 +192,10 @@ export function rowToFields(row, mappings) {
     } else if (field === 'status') {
       const st = normalizeStatus(val);
       if (st) out.status = st;
+    } else if (field === 'destination') {
+      // The column holds Yes or No; anything else typed in a sheet is skipped.
+      const d = /^(y|yes|true|x|✓)$/i.test(val) ? 'Yes' : /^(n|no|false)$/i.test(val) ? 'No' : '';
+      if (d) out.destination = d;
     } else {
       out[field] = val;
     }
