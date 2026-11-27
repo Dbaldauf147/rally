@@ -18,6 +18,11 @@
 .declineRateInput { width: 3.6rem; padding: 0.2rem 0.4rem; font-size: 0.82rem; border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; text-align: right; font-family: inherit; background: var(--color-surface, #fff); color: var(--color-text, inherit); }
 .declineRateNote { font-size: 0.75rem; color: var(--color-text-muted); }
 .summaryTotal { font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600; margin-left: 0.15rem; }
+/* The Destination toggle at the end of the By group row, and the yes / no it adds to each chip. */
+.summaryToggle { margin-left: 0.4rem; padding: 0.2rem 0.6rem; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); font: inherit; font-size: 0.78rem; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; }
+.summaryToggle:hover { border-color: var(--color-accent); }
+.summaryToggleOn { border-color: var(--color-accent); background: var(--color-accent-light); color: var(--color-accent); }
+.summaryChipDest { padding-right: 0.3rem; font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; }
 
 /* Category tier legend (A / B / C guest priorities). */
 .tierLegend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; padding: 0.7rem 0.9rem; margin-bottom: 1.25rem; background: var(--color-surface-alt); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
